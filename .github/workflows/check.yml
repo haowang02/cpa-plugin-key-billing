@@ -42,6 +42,8 @@ jobs:
 
       - name: Check GitHub Actions workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+        env:
+          GOTOOLCHAIN: auto
 
       - name: Run tests
         run: go test -race ./...

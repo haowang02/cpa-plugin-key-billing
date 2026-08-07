@@ -31,7 +31,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "0.1.0"
+	Version    = "0.1.1"
 
 	// MenuLabel is the sidebar entry rendered by the CPA management panel.
 	// Deliberately avoids 配额/额度, which the panel already uses for upstream
