@@ -24,6 +24,16 @@ func TestEmbeddedCatalogIsUsable(t *testing.T) {
 	}
 }
 
+func TestSearchCatalogRanksExactMatchAndCapsResults(t *testing.T) {
+	results := SearchCatalog(" GPT-4O ", 5)
+	if len(results) == 0 || len(results) > 5 || results[0].Pattern != "gpt-4o" {
+		t.Fatalf("SearchCatalog() = %+v", results)
+	}
+	if results := SearchCatalog("", 20); len(results) != 0 {
+		t.Fatalf("empty search returned %d results", len(results))
+	}
+}
+
 func TestCatalogBareNameUsesCanonicalProviderPrice(t *testing.T) {
 	bare, known := CatalogDefault("gpt-5.3-codex")
 	canonical, canonicalKnown := CatalogDefault("openai/gpt-5.3-codex")

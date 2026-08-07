@@ -80,7 +80,9 @@ input,select,textarea{font:inherit;color:var(--text-primary);background:var(--bg
 input:focus,select:focus{border-color:var(--primary-color);box-shadow:0 0 0 3px var(--primary-10);outline:none}
 input[type=number]{width:110px}
 label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-secondary)}
-table{width:100%;border-collapse:collapse;font-size:13px}
+.table-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;
+  -webkit-overflow-scrolling:touch}
+table{width:max-content;min-width:100%;border-collapse:collapse;font-size:13px}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border-color);vertical-align:middle}
 th{font-size:12px;color:var(--text-secondary);font-weight:600;white-space:nowrap}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -120,6 +122,28 @@ tbody tr:hover{background:var(--bg-hover)}
 dialog{border:1px solid var(--border-color);border-radius:12px;background:var(--floating-surface);
   color:var(--text-primary);box-shadow:var(--floating-shadow);padding:18px;min-width:340px;max-width:90vw}
 dialog::backdrop{background:rgba(0,0,0,.4)}
+.price-dialog{width:min(620px,calc(100vw - 32px));min-width:0;padding:22px}
+.price-dialog-model{margin:0 0 16px;font-size:14px;overflow-wrap:anywhere}
+.price-reference{margin-bottom:18px}
+.price-reference input{width:100%}
+.price-reference-results{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow:auto;margin-top:8px}
+.price-reference-option{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;
+  width:100%;padding:7px 9px;text-align:left;background:var(--bg-secondary);font-size:12px;line-height:1.35}
+.price-reference-option.selected{border-color:var(--success-badge-border);background:var(--success-badge-bg)}
+.price-reference-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.price-reference-prices{color:var(--text-secondary);font-size:10px;font-variant-numeric:tabular-nums;
+  text-align:right;white-space:normal}
+.price-reference-empty{padding:9px 2px;color:var(--text-tertiary);font-size:12px}
+.price-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}
+.price-fields .field{min-width:0}
+.price-fields input[type=number]{width:100%}
+.price-dialog-actions{justify-content:flex-end;margin-top:20px}
+@media (max-width:520px){
+  .price-dialog{padding:18px}
+  .price-fields{grid-template-columns:1fr}
+  .price-reference-option{grid-template-columns:1fr;gap:2px}
+  .price-reference-prices{text-align:left}
+}
 </style>
 <script>
 "use strict";
@@ -214,7 +238,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <div class="stat"><span class="muted small">累计消费</span><b id="s-cost">—</b></div>
     <div class="stat"><span class="muted small">累计请求</span><b id="s-req">—</b></div>
     <div class="stat"><span class="muted small">API Key 数量</span><b id="s-keys">—</b></div>
-    <div class="stat"><span class="muted small">已绑定计划</span><b id="s-bound">—</b></div>
     <div class="stat"><span class="muted small">已达限额</span><b id="s-blocked">—</b></div>
   </div>
 
@@ -263,7 +286,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
         <button id="plan-save" class="primary">保存计划</button>
         <button id="plan-cancel" class="hidden">取消编辑</button>
       </div>
-      <p class="muted small" style="margin:10px 0 0">周期额度必须大于 0。周计划在每周一 00:00 重置，月计划在每月 1 日 00:00 重置。所有周期均使用插件时区（<span id="plan-tz-note" class="mono"></span>）。</p>
+      <p class="muted small" style="margin:10px 0 0">周计划在每周一 00:00 重置，月计划在每月 1 日 00:00 重置。所有周期均使用插件时区（<span id="plan-tz-note" class="mono"></span>）。</p>
     </div>
   </section>
 
@@ -302,18 +325,22 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 </main>
 </div>
 
-<dialog id="price-dlg">
+<dialog id="price-dlg" class="price-dialog">
   <h2>编辑模型价格</h2>
-  <p class="muted small mono" id="price-model"></p>
-  <div class="row" style="align-items:flex-end">
+  <p class="muted mono price-dialog-model" id="price-model"></p>
+  <div class="price-reference">
+    <label class="field">选择内置参考价
+      <input id="price-reference-search" placeholder="搜索内置模型" autocomplete="off">
+    </label>
+    <div id="price-reference-results" class="price-reference-results" aria-live="polite"></div>
+  </div>
+  <div class="price-fields">
     <label class="field">输入 / 1M Token<input id="price-in" type="number" step="any" min="0" value="0"></label>
     <label class="field">输出 / 1M Token<input id="price-out" type="number" step="any" min="0" value="0"></label>
-  </div>
-  <div class="row" style="align-items:flex-end;margin-top:10px">
     <label class="field">缓存读取 / 1M Token<input id="price-cr" type="number" step="any" min="0" placeholder="留空时使用输入价格"></label>
     <label class="field">缓存写入 / 1M Token<input id="price-cw" type="number" step="any" min="0" placeholder="留空时使用输入价格"></label>
   </div>
-  <div class="row" style="justify-content:flex-end;margin-top:14px">
+  <div class="row price-dialog-actions">
     <button id="price-cancel">取消</button>
     <button id="price-save" class="primary">保存</button>
   </div>
@@ -470,7 +497,8 @@ function el(tag, attrs, ...children) {
 function table(headers, rows) {
   if (!rows.length) return el("div", { class: "empty", text: "暂无数据" });
   const head = el("tr", {}, headers.map((h) => el("th", { class: h.num ? "num" : "" }, h.label ?? h)));
-  return el("table", {}, el("thead", {}, head), el("tbody", {}, rows));
+  return el("div", { class: "table-scroll" },
+    el("table", {}, el("thead", {}, head), el("tbody", {}, rows)));
 }
 function periodText(period) {
   if (!period) return "—";
@@ -576,7 +604,6 @@ function renderHeader() {
   $("s-cost").textContent = usd(stats.lifetime?.cost_usd);
   $("s-req").textContent = int(stats.lifetime?.requests);
   $("s-keys").textContent = int(stats.keys);
-  $("s-bound").textContent = int(stats.bound_keys);
   $("s-blocked").textContent = int(stats.blocked_keys);
 }
 
@@ -589,7 +616,10 @@ function renderKeys() {
   const rows = state.keys
     .filter((view) => !filter || (keyName(view) + " " + (view.plan_name || "") + " " + view.scope).toLowerCase().includes(filter))
     .map((view) => {
+      const name = keyName(view);
       const select = el("select", {
+        name: "plan_id",
+        "aria-label": name + " 的订阅计划",
         onchange: (event) => guard(async () => {
           const planID = event.target.value;
           if (planID) await plugin("POST", "/keys/bind", { scope: view.scope, plan_id: planID });
@@ -607,7 +637,6 @@ function renderKeys() {
             el("span", { class: "mono" }, usd(view.spent_usd) + " / " + usd(view.limit_usd)),
             el("div", { class: "bar" + (view.blocked ? " full" : "") }, el("i", { style: "width:" + percent + "%" })));
 
-      const name = keyName(view);
       const notes = [];
       if (view.preview && view.preview !== name) notes.push(view.preview);
       if (!view.in_config) notes.push("不在 CLIProxyAPI 的 API Key 列表中");
@@ -739,6 +768,15 @@ function costTitle(cost) {
   ].join("\n");
 }
 
+function billingTypeText(value) {
+  switch (value) {
+    case "openai": return "OpenAI";
+    case "anthropic": return "Anthropic";
+    case "gemini": return "Gemini";
+    default: return "其他";
+  }
+}
+
 function renderLogs() {
   const view = state.logs;
   const note = $("log-note");
@@ -775,6 +813,10 @@ function renderLogs() {
           el("div", {}, entry.model || "—"),
           entry.alias ? el("div", { class: "muted" }, "别名 " + entry.alias) : null,
         ),
+        el("td", {},
+          el("div", {}, billingTypeText(entry.billing_type)),
+          marks.length ? el("div", { class: "row", style: "gap:4px;margin-top:3px" }, marks) : null,
+        ),
         el("td", { class: "num" }, tokens(input)),
         el("td", { class: "num" }, cost.cache_read_tokens ? tokens(cost.cache_read_tokens) : el("span", { class: "muted", text: "—" })),
         el("td", { class: "num" }, cost.cache_write_tokens ? tokens(cost.cache_write_tokens) : el("span", { class: "muted", text: "—" })),
@@ -789,13 +831,12 @@ function renderLogs() {
                 usd(entry.cycle_spent_usd) + (entry.cycle_limit_usd ? " / " + usd(entry.cycle_limit_usd) : ""))
             : null,
         ),
-        el("td", {}, marks.length ? marks : el("span", { class: "muted", text: "—" })),
       );
     });
 
   $("logs-body").replaceChildren(table(
-    ["时间", "API Key", "模型", { label: "输入", num: true }, { label: "缓存读取", num: true },
-      { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "计费金额", num: true }, "标记"],
+    ["时间", "API Key", "模型", "计费类型", { label: "输入", num: true }, { label: "缓存读取", num: true },
+      { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "计费金额", num: true }],
     rows));
 }
 
@@ -870,21 +911,86 @@ function planFromForm() {
 }
 
 let editingModel = "";
+let priceReferenceTimer = 0;
+let priceReferenceRequest = 0;
 
 function optionalNumber(id) {
   const raw = $(id).value.trim();
   return raw === "" ? null : Number(raw);
 }
 
-function editPrice(row) {
-  editingModel = row.pattern;
-  $("price-model").textContent = row.pattern;
+function fillPriceFields(row) {
   $("price-in").value = row.input_per_1m ?? 0;
   $("price-out").value = row.output_per_1m ?? 0;
   $("price-cr").value = row.cache_read_per_1m ?? "";
   $("price-cw").value = row.cache_write_per_1m ?? "";
+}
+
+function referencePriceText(row) {
+  const prices = ["输入 " + usd(row.input_per_1m), "输出 " + usd(row.output_per_1m)];
+  if (row.cache_read_per_1m !== null && row.cache_read_per_1m !== undefined) {
+    prices.push("缓存读 " + usd(row.cache_read_per_1m));
+  }
+  if (row.cache_write_per_1m !== null && row.cache_write_per_1m !== undefined) {
+    prices.push("缓存写 " + usd(row.cache_write_per_1m));
+  }
+  return prices.join(" · ");
+}
+
+function renderPriceReferences(models) {
+  const results = $("price-reference-results");
+  if (!models.length) {
+    results.replaceChildren(el("div", { class: "price-reference-empty", text: "没有匹配的内置参考价" }));
+    return;
+  }
+  results.replaceChildren(...models.map((row) => el("button", {
+    class: "price-reference-option",
+    type: "button",
+    onclick: (event) => {
+      fillPriceFields(row);
+      for (const option of results.querySelectorAll(".price-reference-option")) option.classList.remove("selected");
+      event.currentTarget.classList.add("selected");
+    },
+  },
+  el("span", { class: "mono price-reference-name", text: row.pattern }),
+  el("span", { class: "price-reference-prices", text: referencePriceText(row) }))));
+  results.scrollTop = 0;
+}
+
+async function searchPriceReferences() {
+  const query = $("price-reference-search").value.trim();
+  const request = ++priceReferenceRequest;
+  if (!query) {
+    $("price-reference-results").replaceChildren(
+      el("div", { class: "price-reference-empty", text: "输入模型名称以搜索" }));
+    return;
+  }
+  $("price-reference-results").replaceChildren(
+    el("div", { class: "price-reference-empty", text: "正在搜索…" }));
+  try {
+    const result = await plugin("GET", "/prices/catalog?q=" + encodeURIComponent(query) + "&limit=20");
+    if (request === priceReferenceRequest) renderPriceReferences(result.models || []);
+  } catch (err) {
+    if (request === priceReferenceRequest) {
+      if (err instanceof AuthError) {
+        $("price-dlg").close();
+        fail(err);
+        return;
+      }
+      $("price-reference-results").replaceChildren(
+        el("div", { class: "price-reference-empty", text: "搜索失败：" + (err.message || err) }));
+    }
+  }
+}
+
+function editPrice(row) {
+  editingModel = row.pattern;
+  $("price-model").textContent = row.pattern;
+  fillPriceFields(row);
+  $("price-reference-search").value = row.pattern;
   $("price-dlg").showModal();
-  $("price-in").focus();
+  $("price-reference-search").focus();
+  searchPriceReferences();
 }
 
 // /v1/models requires a downstream API Key, so the browser borrows one only
@@ -979,6 +1085,18 @@ $("plan-save").onclick = () => guard(async () => {
 $("log-filter").addEventListener("input", renderLogs);
 
 $("price-filter").addEventListener("input", renderPrices);
+$("price-reference-search").addEventListener("input", () => {
+  clearTimeout(priceReferenceTimer);
+  priceReferenceTimer = setTimeout(() => {
+    priceReferenceTimer = 0;
+    searchPriceReferences();
+  }, 180);
+});
+$("price-dlg").addEventListener("close", () => {
+  clearTimeout(priceReferenceTimer);
+  priceReferenceTimer = 0;
+  priceReferenceRequest++;
+});
 $("price-cancel").onclick = () => $("price-dlg").close();
 $("price-save").onclick = () => guard(async () => {
   if (!editingModel) return;

@@ -16,6 +16,29 @@ const (
 	SemanticsSeparateReasoning Semantics = "separate_reasoning"
 )
 
+// BillingType names the provider-style counter layout detected for a request.
+type BillingType string
+
+const (
+	BillingTypeOpenAI    BillingType = "openai"
+	BillingTypeAnthropic BillingType = "anthropic"
+	BillingTypeGemini    BillingType = "gemini"
+	BillingTypeOther     BillingType = "other"
+)
+
+func billingTypeForSemantics(semantics Semantics) BillingType {
+	switch semantics {
+	case SemanticsSubset:
+		return BillingTypeOpenAI
+	case SemanticsIndependent:
+		return BillingTypeAnthropic
+	case SemanticsSeparateReasoning:
+		return BillingTypeGemini
+	default:
+		return BillingTypeOther
+	}
+}
+
 // TokenUsage mirrors the token counters CLIProxyAPI delivers with a usage
 // record. It is declared here rather than imported so the billing domain has no
 // dependency on the RPC layer.

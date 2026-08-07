@@ -106,6 +106,50 @@ func BuiltinCatalog() CatalogInfo {
 	return builtinCatalog().info
 }
 
+// SearchCatalog returns built-in reference prices ranked by exact, prefix,
+// then substring match. It is used by the price editor and deliberately caps
+// results so a search cannot return the full embedded catalog.
+func SearchCatalog(query string, limit int) []PriceRule {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return []PriceRule{}
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	groups := [3][]PriceRule{}
+	for _, rule := range builtinCatalog().rules {
+		name := strings.ToLower(rule.Pattern)
+		group := -1
+		switch {
+		case name == query:
+			group = 0
+		case strings.HasPrefix(name, query):
+			group = 1
+		case strings.Contains(name, query):
+			group = 2
+		}
+		// Later assembly cannot consume more than limit entries from any
+		// group. Capping here avoids copying the whole catalog for a broad
+		// query such as "g".
+		if group >= 0 && len(groups[group]) < limit {
+			groups[group] = append(groups[group], rule)
+		}
+	}
+
+	results := make([]PriceRule, 0, limit)
+	for _, group := range groups {
+		for _, rule := range group {
+			results = append(results, rule)
+			if len(results) == limit {
+				return results
+			}
+		}
+	}
+	return results
+}
+
 // CatalogDefault returns the published price for a model, if the catalog knows
 // it. The returned rule carries the caller's spelling of the name, since that
 // is what the price table is keyed by.

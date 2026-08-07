@@ -57,14 +57,7 @@ func TestEveryDeclaredRouteIsDispatchable(t *testing.T) {
 		suffix := strings.TrimPrefix(route.Path, managementBase)
 		resp := callManagement(t, app, route.Method, suffix, url.Values{}, nil)
 		if resp.StatusCode == http.StatusNotFound {
-			var payload struct {
-				Error struct {
-					Code string `json:"code"`
-				} `json:"error"`
-			}
-			if errUnmarshal := json.Unmarshal(resp.Body, &payload); errUnmarshal == nil && payload.Error.Code == "not_found" && strings.Contains(string(resp.Body), "unknown route") {
-				t.Fatalf("declared route %s %s is not dispatched", route.Method, route.Path)
-			}
+			t.Fatalf("declared route %s %s is not dispatched (body=%s)", route.Method, route.Path, resp.Body)
 		}
 	}
 }
@@ -121,6 +114,25 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 	// An empty model list is refused rather than emptying the table.
 	if resp := callManagement(t, app, http.MethodPost, routePricesSync, nil, map[string]any{"models": []string{}}); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body=%s)", resp.StatusCode, resp.Body)
+	}
+}
+
+func TestPriceCatalogSearchThroughTheManagementAPI(t *testing.T) {
+	app := newConfiguredApp(t)
+	var result struct {
+		Models []billing.PriceRule `json:"models"`
+	}
+	callOK(t, app, http.MethodGet, routePriceCatalog, url.Values{
+		"q":     {"gpt-4o"},
+		"limit": {"5"},
+	}, nil, http.StatusOK, &result)
+	if len(result.Models) == 0 || len(result.Models) > 5 || result.Models[0].Pattern != "gpt-4o" {
+		t.Fatalf("models = %+v", result.Models)
+	}
+
+	resp := callManagement(t, app, http.MethodGet, routePriceCatalog, url.Values{"limit": {"500"}}, nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid limit status = %d, want 400", resp.StatusCode)
 	}
 }
 

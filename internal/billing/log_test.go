@@ -26,7 +26,7 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 		t.Fatalf("view = %+v", view)
 	}
 	entry := view.Entries[0]
-	if entry.Scope != "scope-a" || entry.Model != "gpt-5.5" || entry.PriceSource != PriceSourceOverride {
+	if entry.Scope != "scope-a" || entry.Model != "gpt-5.5" || entry.PriceSource != PriceSourceOverride || entry.BillingType != BillingTypeOpenAI {
 		t.Fatalf("entry = %+v", entry)
 	}
 	if entry.Cost.UncachedInputTokens != 500 || entry.Cost.CacheReadTokens != 400 ||

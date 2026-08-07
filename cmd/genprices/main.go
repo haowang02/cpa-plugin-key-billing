@@ -44,25 +44,18 @@ type provider struct {
 
 // model is the subset of a models.dev model record this plugin needs.
 type model struct {
-	ID         string     `json:"id"`
-	Modalities modalities `json:"modalities"`
-	Cost       *cost      `json:"cost"`
-}
-
-type modalities struct {
-	Output []string `json:"output"`
+	ID   string `json:"id"`
+	Cost *cost  `json:"cost"`
 }
 
 type cost struct {
-	Input           *float64          `json:"input"`
-	Output          *float64          `json:"output"`
-	Reasoning       *float64          `json:"reasoning"`
-	CacheRead       *float64          `json:"cache_read"`
-	CacheWrite      *float64          `json:"cache_write"`
-	InputAudio      *float64          `json:"input_audio"`
-	OutputAudio     *float64          `json:"output_audio"`
-	Tiers           []json.RawMessage `json:"tiers"`
-	ContextOver200K json.RawMessage   `json:"context_over_200k"`
+	Input       *float64 `json:"input"`
+	Output      *float64 `json:"output"`
+	Reasoning   *float64 `json:"reasoning"`
+	CacheRead   *float64 `json:"cache_read"`
+	CacheWrite  *float64 `json:"cache_write"`
+	InputAudio  *float64 `json:"input_audio"`
+	OutputAudio *float64 `json:"output_audio"`
 }
 
 type aliasCandidate struct {
@@ -136,10 +129,10 @@ func run(source, input, output string) error {
 			fullID := providerID + "/" + modelID
 			_, canonical := canonicalModels[fullID]
 			alias := modelSuffix(modelID)
-			if record.Cost == nil || (record.Cost.Input == nil && record.Cost.Output == nil) || !hasTextOutput(record.Modalities) {
+			if record.Cost == nil || (record.Cost.Input == nil && record.Cost.Output == nil) {
 				continue
 			}
-			if !hasFlatTokenPricing(record.Cost) {
+			if !hasTokenPricing(record.Cost) {
 				unsupported++
 				if canonical {
 					blockedAliases[alias] = struct{}{}
@@ -202,8 +195,9 @@ func modelSuffix(id string) string {
 }
 
 // safeAliasPrice selects a price for a bare model ID without guessing between
-// providers. Canonical (usually first-party) entries take precedence. If no
-// canonical entry exists, every provider must publish the same price.
+// providers. Canonical (usually first-party) entries take precedence. Without
+// one, promotional free channels are ignored when paid candidates exist, and
+// every remaining provider must publish the same price.
 func safeAliasPrice(candidates []aliasCandidate) ([]*float64, bool) {
 	if len(candidates) == 0 {
 		return nil, false
@@ -216,6 +210,16 @@ func safeAliasPrice(candidates []aliasCandidate) ([]*float64, bool) {
 	}
 	if len(canonical) > 0 {
 		candidates = canonical
+	} else {
+		paid := make([]aliasCandidate, 0, len(candidates))
+		for _, candidate := range candidates {
+			if !freePrice(candidate.prices) {
+				paid = append(paid, candidate)
+			}
+		}
+		if len(paid) > 0 {
+			candidates = paid
+		}
 	}
 	first := candidates[0].prices
 	for _, candidate := range candidates[1:] {
@@ -224,6 +228,15 @@ func safeAliasPrice(candidates []aliasCandidate) ([]*float64, bool) {
 		}
 	}
 	return first, true
+}
+
+func freePrice(prices []*float64) bool {
+	for _, price := range prices {
+		if price != nil && *price != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func samePrices(a, b []*float64) bool {
@@ -244,25 +257,10 @@ func samePrices(a, b []*float64) bool {
 	return true
 }
 
-func hasTextOutput(value modalities) bool {
-	for _, output := range value.Output {
-		if strings.EqualFold(strings.TrimSpace(output), "text") {
-			return true
-		}
-	}
-	return false
-}
-
-// hasFlatTokenPricing reports whether the plugin's input/output/cache price
-// model can represent this models.dev record exactly. A separate reasoning or
-// audio rate and context-dependent tiers would otherwise silently misprice
-// usage, so those records remain unpriced until an administrator configures
-// them explicitly.
-func hasFlatTokenPricing(value *cost) bool {
-	contextTier := strings.TrimSpace(string(value.ContextOver200K))
-	if len(value.Tiers) > 0 || (contextTier != "" && contextTier != "null") {
-		return false
-	}
+// hasTokenPricing rejects only price components the plugin cannot represent.
+// For tiered models, models.dev's top-level prices are the first tier and are
+// used as the built-in reference price.
+func hasTokenPricing(value *cost) bool {
 	return optionalPriceMatches(value.Reasoning, value.Output) &&
 		optionalPriceMatches(value.InputAudio, value.Input) &&
 		optionalPriceMatches(value.OutputAudio, value.Output)

@@ -22,7 +22,6 @@ func TestRunConvertsModelsDevCatalog(t *testing.T) {
       "models": {
         "model-one": {
           "id": "Model-One",
-          "modalities": {"output": ["TEXT"]},
           "cost": {"input": 1.25, "output": 10, "cache_read": 0.125, "cache_write": 1.25}
         },
         "image-only": {
@@ -31,22 +30,18 @@ func TestRunConvertsModelsDevCatalog(t *testing.T) {
           "cost": {"input": 2, "output": 12}
         },
         "unpriced": {
-          "id": "unpriced",
-          "modalities": {"output": ["text"]}
+          "id": "unpriced"
         },
         "reasoning-priced": {
           "id": "reasoning-priced",
-          "modalities": {"output": ["text"]},
           "cost": {"input": 1, "output": 2, "reasoning": 8}
         },
         "audio-priced": {
           "id": "audio-priced",
-          "modalities": {"output": ["text", "audio"]},
           "cost": {"input": 1, "output": 2, "output_audio": 20}
         },
         "tiered": {
           "id": "tiered",
-          "modalities": {"output": ["text"]},
           "cost": {"input": 1, "output": 2, "tiers": [{"input": 4, "output": 8}]}
         },
         "broken": "not a model record"
@@ -56,22 +51,18 @@ func TestRunConvertsModelsDevCatalog(t *testing.T) {
       "models": {
         "example/model-one": {
           "id": "example/model-one",
-          "modalities": {"output": ["text"]},
           "cost": {"input": 9, "output": 90}
         },
         "shared": {
           "id": "shared",
-          "modalities": {"output": ["text"]},
           "cost": {"input": 2, "output": 4}
         },
         "ambiguous": {
           "id": "ambiguous",
-          "modalities": {"output": ["text"]},
           "cost": {"input": 4, "output": 8}
         },
         "example/tiered": {
           "id": "example/tiered",
-          "modalities": {"output": ["text"]},
           "cost": {"input": 1, "output": 2}
         }
       }
@@ -80,12 +71,10 @@ func TestRunConvertsModelsDevCatalog(t *testing.T) {
       "models": {
         "shared": {
           "id": "shared",
-          "modalities": {"output": ["text"]},
           "cost": {"input": 2, "output": 4}
         },
         "ambiguous": {
           "id": "ambiguous",
-          "modalities": {"output": ["text"]},
           "cost": {"input": 5, "output": 8}
         }
       }
@@ -93,7 +82,6 @@ func TestRunConvertsModelsDevCatalog(t *testing.T) {
     "Fallback": {
       "models": {
         "Fallback-Model": {
-          "modalities": {"output": ["text"]},
           "cost": {"output": 0}
         }
       }
@@ -116,7 +104,7 @@ func TestRunConvertsModelsDevCatalog(t *testing.T) {
 	if errUnmarshal := json.Unmarshal(generated, &got); errUnmarshal != nil {
 		t.Fatalf("decode generated catalog: %v", errUnmarshal)
 	}
-	if got.Source != input || got.Count != 11 || len(got.Models) != 11 {
+	if got.Source != input || got.Count != 15 || len(got.Models) != 15 {
 		t.Fatalf("document = source %q, count %d, models %+v", got.Source, got.Count, got.Models)
 	}
 	prices := got.Models["example/model-one"]
@@ -127,8 +115,8 @@ func TestRunConvertsModelsDevCatalog(t *testing.T) {
 	if len(fallback) != 4 || fallback[0] != nil || fallback[1] == nil || *fallback[1] != 0 {
 		t.Fatalf("fallback/fallback-model prices = %v", fallback)
 	}
-	if _, included := got.Models["example/image-only"]; included {
-		t.Fatal("image-only model was included")
+	if image := got.Models["image-only"]; len(image) != 4 || image[0] == nil || *image[0] != 2 || image[1] == nil || *image[1] != 12 {
+		t.Fatalf("image-only bare alias prices = %v", image)
 	}
 	if got.Models["model-one"][0] == nil || *got.Models["model-one"][0] != 1.25 {
 		t.Fatalf("canonical bare alias prices = %v", got.Models["model-one"])
@@ -139,16 +127,29 @@ func TestRunConvertsModelsDevCatalog(t *testing.T) {
 	if _, included := got.Models["ambiguous"]; included {
 		t.Fatal("ambiguous bare alias was included")
 	}
-	for _, unsupported := range []string{"reasoning-priced", "audio-priced", "tiered"} {
+	for _, unsupported := range []string{"reasoning-priced", "audio-priced"} {
 		if _, included := got.Models["example/"+unsupported]; included {
 			t.Fatalf("unsupported price scheme %q was included", unsupported)
 		}
 	}
-	if _, included := got.Models["tiered"]; included {
-		t.Fatal("unsupported canonical model received a reseller bare alias")
+	if tiered := got.Models["tiered"]; len(tiered) != 4 || tiered[0] == nil || *tiered[0] != 1 || tiered[1] == nil || *tiered[1] != 2 {
+		t.Fatalf("tiered canonical model did not use its first-tier price: %v", tiered)
 	}
 	if _, included := got.Models["reseller/example/tiered"]; !included {
 		t.Fatal("flat provider-specific price for tiered model was dropped")
+	}
+}
+
+func TestSafeAliasPriceIgnoresFreeChannelWhenPaidPricesAgree(t *testing.T) {
+	input, output := 1.75, 14.0
+	zero := 0.0
+	prices, ok := safeAliasPrice([]aliasCandidate{
+		{prices: []*float64{&input, &output, nil, nil}},
+		{prices: []*float64{&input, &output, nil, nil}},
+		{prices: []*float64{&zero, &zero, nil, nil}},
+	})
+	if !ok || prices[0] == nil || *prices[0] != input || prices[1] == nil || *prices[1] != output {
+		t.Fatalf("safeAliasPrice() = %v, %v", prices, ok)
 	}
 }
 

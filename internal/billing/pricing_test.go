@@ -20,6 +20,20 @@ func floatPtr(v float64) *float64 { return &v }
 // 0.10 cache read, 1.25 cache write, all per 1M tokens.
 var testPrice = Price{InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: 0.1, CacheWritePer1M: 1.25}
 
+func TestBillingTypeFollowsDetectedSemantics(t *testing.T) {
+	tests := map[Semantics]BillingType{
+		SemanticsSubset:            BillingTypeOpenAI,
+		SemanticsIndependent:       BillingTypeAnthropic,
+		SemanticsSeparateReasoning: BillingTypeGemini,
+		"":                         BillingTypeOther,
+	}
+	for semantics, want := range tests {
+		if got := billingTypeForSemantics(semantics); got != want {
+			t.Errorf("billingTypeForSemantics(%q) = %q, want %q", semantics, got, want)
+		}
+	}
+}
+
 func TestGlobMatch(t *testing.T) {
 	tests := []struct {
 		pattern string

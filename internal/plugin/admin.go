@@ -71,6 +71,20 @@ func (a *App) putPrices(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, map[string]any{"price": stored})
 }
 
+func (a *App) searchPriceCatalog(req ManagementRequest) ManagementResponse {
+	limit := 20
+	if raw := strings.TrimSpace(req.Query.Get("limit")); raw != "" {
+		parsed, errParse := strconv.Atoi(raw)
+		if errParse != nil || parsed < 1 || parsed > 50 {
+			return JSONError(http.StatusBadRequest, "invalid", "limit 必须是 1 到 50 之间的整数")
+		}
+		limit = parsed
+	}
+	return JSONResponse(http.StatusOK, map[string]any{
+		"models": billing.SearchCatalog(req.Query.Get("q"), limit),
+	})
+}
+
 // syncModels receives the model list the admin UI reads from the proxy, so the
 // price table always lines up with what clients can actually ask for.
 //

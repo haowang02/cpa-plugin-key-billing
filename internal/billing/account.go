@@ -81,6 +81,7 @@ func (s *Store) RecordUsage(event UsageEvent) {
 			Preview:         key.Preview,
 			Model:           model,
 			Failed:          event.Failed,
+			BillingType:     billingTypeForSemantics(event.Semantics),
 			PriceSource:     price.Source,
 			Cost:            cost,
 			ReasoningTokens: totals.ReasoningTokens,

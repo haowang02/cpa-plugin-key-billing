@@ -24,19 +24,20 @@ var uiHTML []byte
 
 // Management route suffixes, relative to managementBase.
 const (
-	routeStatus      = "/status"
-	routePrices      = "/prices"
-	routePricesReset = "/prices/reset"
-	routePricesSync  = "/prices/sync"
-	routePlans       = "/plans"
-	routeKeys        = "/keys"
-	routeKeysBind    = "/keys/bind"
-	routeKeysUnbind  = "/keys/unbind"
-	routeKeysReset   = "/keys/reset"
-	routeKeysLabel   = "/keys/label"
-	routeKeysSync    = "/keys/sync"
-	routeStats       = "/stats"
-	routeLogs        = "/logs"
+	routeStatus       = "/status"
+	routePrices       = "/prices"
+	routePriceCatalog = "/prices/catalog"
+	routePricesReset  = "/prices/reset"
+	routePricesSync   = "/prices/sync"
+	routePlans        = "/plans"
+	routeKeys         = "/keys"
+	routeKeysBind     = "/keys/bind"
+	routeKeysUnbind   = "/keys/unbind"
+	routeKeysReset    = "/keys/reset"
+	routeKeysLabel    = "/keys/label"
+	routeKeysSync     = "/keys/sync"
+	routeStats        = "/stats"
+	routeLogs         = "/logs"
 )
 
 // managementRegistration declares every route this plugin owns.
@@ -50,6 +51,7 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodGet, Path: managementBase + routeStatus, Description: "查看运行状态和诊断计数。"},
 
 			{Method: http.MethodGet, Path: managementBase + routePrices, Description: "查看所有模型的计费价格。"},
+			{Method: http.MethodGet, Path: managementBase + routePriceCatalog, Description: "搜索内置模型参考价格。"},
 			{Method: http.MethodPut, Path: managementBase + routePrices, Description: "更新单个模型价格或替换完整价格表。"},
 			{Method: http.MethodPost, Path: managementBase + routePricesReset, Description: "将所有模型恢复为内置参考价格。"},
 			{Method: http.MethodPost, Path: managementBase + routePricesSync, Description: "根据代理模型列表同步价格表。"},
@@ -112,6 +114,8 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 
 	case http.MethodGet + " " + routePrices:
 		return JSONResponse(http.StatusOK, a.store.PriceTable())
+	case http.MethodGet + " " + routePriceCatalog:
+		return a.searchPriceCatalog(req)
 	case http.MethodPut + " " + routePrices:
 		return a.putPrices(req)
 	case http.MethodPost + " " + routePricesReset:

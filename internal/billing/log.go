@@ -22,6 +22,8 @@ type LogEntry struct {
 	Model  string `json:"model,omitempty"`
 	Alias  string `json:"alias,omitempty"`
 	Failed bool   `json:"failed,omitempty"`
+	// BillingType is the provider-style counter layout detected for this bill.
+	BillingType BillingType `json:"billing_type,omitempty"`
 	// PriceSource says where the numbers came from. "none" is the one to look
 	// for: it means no rule matched and the request was billed at zero.
 	PriceSource PriceSource `json:"price_source,omitempty"`
