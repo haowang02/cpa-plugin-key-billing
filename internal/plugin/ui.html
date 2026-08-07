@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Key 计费</title>
+<style>
+/* The palette is the management panel's own (Cli-Proxy-API-Management-Center),
+   variable names included, so a page embedded in it does not read as a
+   different product and so a future panel restyle can be diffed against this.
+   Three themes are rendered: the default wool-paper one, plus white and dark,
+   selected by the data-theme attribute the panel sets on its <html>. Its fourth
+   option, "follow system", resolves to white or dark before it gets here. */
+:root{
+  --bg-secondary:#faf9f5; --bg-primary:#f0eee8; --bg-tertiary:#e9e6df; --bg-hover:var(--bg-tertiary);
+  --floating-surface:#fffdf9; --floating-shadow:0 12px 26px #00000024;
+  --text-primary:#2d2a26; --text-secondary:#6d6760; --text-tertiary:#a29c95;
+  --border-color:#e3e1db; --border-primary:#d5d2cb; --border-hover:#cecac4;
+  --primary-color:#8b8680; --primary-hover:#7f7a74; --primary-active:#726d67; --primary-contrast:#fff;
+  --error-color:#c65746;
+  --success-badge-bg:#d1fae5; --success-badge-text:#065f46; --success-badge-border:#6ee7b7;
+  --failure-badge-bg:#c6574624; --failure-badge-text:#8a3a30; --failure-badge-border:#c6574659;
+  --count-badge-bg:#8b86802e; --count-badge-text:var(--primary-active);
+  --amber-color:#d97706; --amber-text:#92400e;
+  --amber-10:color-mix(in srgb, var(--amber-color) 10%, transparent);
+  --amber-30:color-mix(in srgb, var(--amber-color) 30%, transparent);
+  --primary-10:color-mix(in srgb, var(--primary-color) 10%, transparent);
+  --shadow:0 1px 2px 0 #00000014;
+  --radius-md:8px;
+}
+[data-theme=white]{
+  --bg-secondary:#fff; --bg-primary:#fff; --bg-tertiary:#f6f6f6;
+  --floating-surface:#fff; --floating-shadow:0 12px 26px #0000001f;
+  --border-color:#e5e5e5; --border-primary:#d9d9d9; --border-hover:#ccc;
+}
+[data-theme=dark]{
+  --bg-secondary:#151412; --bg-primary:#1d1b18; --bg-tertiary:#262320; --bg-hover:#2e2a26;
+  --floating-surface:#2a2723; --floating-shadow:0 14px 30px #0006;
+  --text-primary:#f6f4f1; --text-secondary:#c9c3bb; --text-tertiary:#9c958d;
+  --border-color:#3a3530; --border-primary:#4a453f; --border-hover:#5a544d;
+  --primary-hover:#9a948e; --primary-active:#a6a099;
+  --success-badge-bg:#064e3b4d; --success-badge-text:#6ee7b7; --success-badge-border:#059669;
+  --failure-badge-bg:#c657463d; --failure-badge-text:#f1b0a6; --failure-badge-border:#c6574680;
+  --count-badge-bg:#8b868047;
+  --amber-color:#f59e0b; --amber-text:#fcd34d;
+  --amber-10:color-mix(in srgb, var(--amber-color) 14%, transparent);
+  --amber-30:color-mix(in srgb, var(--amber-color) 38%, transparent);
+  --shadow:0 1px 3px 0 #0000004d;
+}
+*{box-sizing:border-box}
+body{margin:0;background-color:var(--bg-secondary);color:var(--text-primary);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen,Ubuntu,Cantarell,"Fira Sans","Droid Sans","Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  transition:background-color .3s,color .3s}
+a{color:var(--primary-active)}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 20px 60px}
+h1{font-size:18px;margin:0}
+h2{font-size:15px;margin:0 0 12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spread{justify-content:space-between}
+.grow{flex:1}
+.muted{color:var(--text-tertiary)}
+.small{font-size:12px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+.card{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-md);
+  box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
+button{font:inherit;border:1px solid var(--border-primary);background:var(--bg-primary);color:var(--text-primary);
+  border-radius:var(--radius-md);padding:6px 12px;cursor:pointer;transition:background-color .15s,border-color .15s,color .15s}
+button:hover:not(:disabled){border-color:var(--border-hover);background:var(--bg-hover)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--primary-color);border-color:var(--primary-color);color:var(--primary-contrast)}
+button.primary:hover:not(:disabled){background:var(--primary-hover);border-color:var(--primary-hover);color:var(--primary-contrast)}
+button.danger{color:var(--error-color)}
+button.danger:hover:not(:disabled){border-color:var(--error-color)}
+button.link{border:none;background:none;padding:2px 4px;color:var(--primary-active)}
+button.link:hover:not(:disabled){background:none;color:var(--text-primary);text-decoration:underline}
+button.link.danger:hover:not(:disabled){color:var(--error-color)}
+input,select,textarea{font:inherit;color:var(--text-primary);background:var(--bg-secondary);
+  border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:6px 9px}
+input:focus,select:focus{border-color:var(--primary-color);box-shadow:0 0 0 3px var(--primary-10);outline:none}
+input[type=number]{width:110px}
+label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-secondary)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border-color);vertical-align:middle}
+th{font-size:12px;color:var(--text-secondary);font-weight:600;white-space:nowrap}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr:hover{background:var(--bg-hover)}
+/* The management panel floats its own action bar (refresh, language, theme,
+   sign out) over the top-right corner of this iframe, so that corner holds
+   nothing: the header stays left-aligned and tall enough that the content below
+   it clears the overlay. */
+.head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:52px;padding-right:200px;margin-bottom:16px}
+@media (max-width:640px){.head{padding-right:0;min-height:0;margin-bottom:12px}}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--border-color)}
+.tabs button[data-tab]{border:none;border-bottom:2px solid transparent;border-radius:0;padding:8px 14px;
+  background:none;color:var(--text-secondary)}
+.tabs button[data-tab]:hover{background:none;color:var(--text-primary)}
+.tabs button[data-tab].active{color:var(--text-primary);border-bottom-color:var(--primary-color)}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;white-space:nowrap;border:1px solid transparent}
+.tag.ok{background:var(--success-badge-bg);color:var(--success-badge-text);border-color:var(--success-badge-border)}
+.tag.warn{background:var(--amber-10);color:var(--amber-text);border-color:var(--amber-30)}
+.tag.bad{background:var(--failure-badge-bg);color:var(--failure-badge-text);border-color:var(--failure-badge-border)}
+.tag.plain{background:var(--count-badge-bg);color:var(--count-badge-text)}
+.usage{display:flex;flex-direction:column;gap:5px;min-width:150px;max-width:210px}
+.usage>span{font-size:12px;white-space:nowrap}
+.bar{height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden;min-width:80px}
+.bar>i{display:block;height:100%;background:var(--primary-color)}
+.bar.full>i{background:var(--error-color)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.stat{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-md);
+  box-shadow:var(--shadow);padding:12px 14px}
+.stat b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.notice{padding:10px 14px;border-radius:var(--radius-md);margin-bottom:14px;display:none;border:1px solid transparent}
+.notice.show{display:block}
+.notice.err{background:var(--failure-badge-bg);color:var(--failure-badge-text);border-color:var(--failure-badge-border)}
+.notice.ok{background:var(--success-badge-bg);color:var(--success-badge-text);border-color:var(--success-badge-border)}
+.hidden{display:none!important}
+.gate{max-width:460px;margin:12vh auto}
+.empty{padding:26px;text-align:center;color:var(--text-tertiary)}
+dialog{border:1px solid var(--border-color);border-radius:12px;background:var(--floating-surface);
+  color:var(--text-primary);box-shadow:var(--floating-shadow);padding:18px;min-width:340px;max-width:90vw}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+</style>
+<script>
+"use strict";
+/* Mirror the panel's live theme. A cross-origin parent cannot be read, so the
+ * fallback uses its persisted preference or the operating system. This runs
+ * before the body to avoid painting in the wrong theme. */
+(function () {
+  const STORE_KEY = "cli-proxy-theme";
+  const PREFIX = "enc::v1::";
+  const SALT = "cli-proxy-api-webui::secure-storage";
+
+  function parentDocument() {
+    if (window.parent === window) return null;
+    try { return window.parent.document; } catch (_) { return null; }
+  }
+
+  function storedTheme() {
+    let raw = null;
+    try { raw = localStorage.getItem(STORE_KEY); } catch (_) { return ""; }
+    if (!raw) return "";
+    try {
+      if (raw.startsWith(PREFIX)) {
+        const secret = new TextEncoder().encode(SALT + "|" + location.host + "|" + navigator.userAgent);
+        const binary = atob(raw.slice(PREFIX.length));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) ^ secret[i % secret.length];
+        raw = new TextDecoder().decode(bytes);
+      }
+      const theme = JSON.parse(raw)?.state?.theme;
+      return typeof theme === "string" ? theme : "";
+    } catch (_) { return ""; }
+  }
+
+  const systemDark = () => !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+  function resolve(theme) {
+    if (theme === "dark" || theme === "white") return theme;
+    if (theme === "" || theme === "auto") return systemDark() ? "dark" : "white";
+    return "";
+  }
+
+  function currentTheme() {
+    const doc = parentDocument();
+    if (doc) return doc.documentElement.getAttribute("data-theme") || "";
+    return resolve(storedTheme());
+  }
+
+  function apply(theme) {
+    const root = document.documentElement;
+    if (theme === "dark" || theme === "white") root.setAttribute("data-theme", theme);
+    else root.removeAttribute("data-theme");
+    root.style.colorScheme = theme === "dark" ? "dark" : "light";
+  }
+
+  const sync = () => apply(currentTheme());
+  sync();
+
+  const doc = parentDocument();
+  if (doc) {
+    new MutationObserver(sync).observe(doc.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  } else {
+    window.addEventListener("storage", (event) => { if (!event.key || event.key === STORE_KEY) sync(); });
+  }
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", sync);
+  }
+})();
+</script>
+</head>
+<body>
+<div class="wrap">
+
+<section id="gate" class="card gate hidden">
+  <h2>需要管理密钥</h2>
+  <p class="muted small" id="gate-reason"></p>
+  <div id="gate-error" class="notice err"></div>
+  <label class="field">管理密钥
+    <input id="gate-key" type="password" autocomplete="current-password" placeholder="Management Key">
+  </label>
+  <button id="gate-submit" class="primary" style="margin-top:10px">确定</button>
+</section>
+
+<main id="app" class="hidden">
+  <header class="head">
+    <h1>API Key 计费</h1>
+    <span id="head-status" class="tag plain">…</span>
+  </header>
+
+  <div id="notice" class="notice"></div>
+
+  <div class="stats" style="margin-bottom:16px">
+    <div class="stat"><span class="muted small">累计消费</span><b id="s-cost">—</b></div>
+    <div class="stat"><span class="muted small">累计请求</span><b id="s-req">—</b></div>
+    <div class="stat"><span class="muted small">API Key 数量</span><b id="s-keys">—</b></div>
+    <div class="stat"><span class="muted small">已绑定计划</span><b id="s-bound">—</b></div>
+    <div class="stat"><span class="muted small">已达限额</span><b id="s-blocked">—</b></div>
+  </div>
+
+  <div class="tabs">
+    <button data-tab="keys" class="active">API Key</button>
+    <button data-tab="plans">订阅计划</button>
+    <button data-tab="prices">模型价格</button>
+    <button data-tab="logs">计费日志</button>
+    <button data-tab="diag">运行诊断</button>
+  </div>
+
+  <section id="tab-keys">
+    <div class="card">
+      <div class="row spread" style="margin-bottom:12px">
+        <h2 style="margin:0">API Key</h2>
+        <input id="key-filter" placeholder="搜索 API Key、备注或计划" class="grow" style="max-width:280px">
+      </div>
+      <div id="keys-body"></div>
+    </div>
+    <div class="card">
+      <h2>模型用量</h2>
+      <div id="models-body"></div>
+    </div>
+  </section>
+
+  <section id="tab-plans" class="hidden">
+    <div class="card">
+      <h2>订阅计划</h2>
+      <div id="plans-body"></div>
+    </div>
+    <div class="card">
+      <h2 id="plan-form-title">新建订阅计划</h2>
+      <input id="plan-id" type="hidden">
+      <div class="row" style="align-items:flex-end">
+        <label class="field">名称<input id="plan-name" placeholder="团队月度额度"></label>
+        <label class="field">周期额度（USD）<input id="plan-amount" type="number" step="any" min="0.000001" value="10"></label>
+        <label class="field">周期
+          <select id="plan-kind">
+            <option value="daily">每天</option>
+            <option value="weekly">每周</option>
+            <option value="monthly">每月</option>
+            <option value="custom">自定义周期</option>
+          </select>
+        </label>
+        <label class="field hidden" id="plan-seconds-field">周期时长（秒）<input id="plan-seconds" type="number" min="1" value="3600"></label>
+        <button id="plan-save" class="primary">保存计划</button>
+        <button id="plan-cancel" class="hidden">取消编辑</button>
+      </div>
+      <p class="muted small" style="margin:10px 0 0">周期额度必须大于 0。周计划在每周一 00:00 重置，月计划在每月 1 日 00:00 重置。所有周期均使用插件时区（<span id="plan-tz-note" class="mono"></span>）。</p>
+    </div>
+  </section>
+
+  <section id="tab-prices" class="hidden">
+    <div class="card">
+      <div class="row spread" style="margin-bottom:12px">
+        <h2 style="margin:0">模型价格</h2>
+        <div class="row">
+          <input id="price-filter" placeholder="搜索模型" style="max-width:220px">
+          <button id="price-reset" class="danger">恢复默认价格</button>
+        </div>
+      </div>
+      <div id="prices-body"></div>
+    </div>
+  </section>
+
+  <section id="tab-logs" class="hidden">
+    <div class="card">
+      <div class="row spread" style="margin-bottom:12px">
+        <h2 style="margin:0">计费日志</h2>
+        <div class="row">
+          <span id="log-note" class="muted small"></span>
+          <input id="log-filter" placeholder="搜索 API Key 或模型" style="max-width:220px">
+        </div>
+      </div>
+      <div id="logs-body"></div>
+    </div>
+  </section>
+
+  <section id="tab-diag" class="hidden">
+    <div class="card">
+      <h2>运行诊断</h2>
+      <div id="diag-body"></div>
+    </div>
+  </section>
+</main>
+</div>
+
+<dialog id="price-dlg">
+  <h2>编辑模型价格</h2>
+  <p class="muted small mono" id="price-model"></p>
+  <div class="row" style="align-items:flex-end">
+    <label class="field">输入 / 1M Token<input id="price-in" type="number" step="any" min="0" value="0"></label>
+    <label class="field">输出 / 1M Token<input id="price-out" type="number" step="any" min="0" value="0"></label>
+  </div>
+  <div class="row" style="align-items:flex-end;margin-top:10px">
+    <label class="field">缓存读取 / 1M Token<input id="price-cr" type="number" step="any" min="0" placeholder="留空时使用输入价格"></label>
+    <label class="field">缓存写入 / 1M Token<input id="price-cw" type="number" step="any" min="0" placeholder="留空时使用输入价格"></label>
+  </div>
+  <div class="row" style="justify-content:flex-end;margin-top:14px">
+    <button id="price-cancel">取消</button>
+    <button id="price-save" class="primary">保存</button>
+  </div>
+</dialog>
+
+<dialog id="dlg">
+  <h2 id="dlg-title"></h2>
+  <p id="dlg-text" class="muted small"></p>
+  <input id="dlg-input" style="width:100%">
+  <div class="row" style="justify-content:flex-end;margin-top:14px">
+    <button id="dlg-cancel">取消</button>
+    <button id="dlg-ok" class="primary">确定</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const PLUGIN_BASE = "/v0/management/plugins/cpa-key-billing";
+const $ = (id) => document.getElementById(id);
+
+/* A same-origin iframe can borrow the panel's obfuscated management key. When
+ * it is unavailable, the fallback keeps a manually entered key for this browser
+ * tab only. */
+const PANEL_STORE_KEY = "cli-proxy-auth";
+const PANEL_LEGACY_KEY = "managementKey";
+const PANEL_PREFIX = "enc::v1::";
+const PANEL_SALT = "cli-proxy-api-webui::secure-storage";
+const FALLBACK_KEY = "cpa-key-billing:mgmt-key";
+
+function panelDeobfuscate(raw) {
+  if (typeof raw !== "string" || !raw.startsWith(PANEL_PREFIX)) return raw;
+  const secret = new TextEncoder().encode(PANEL_SALT + "|" + location.host + "|" + navigator.userAgent);
+  const binary = atob(raw.slice(PANEL_PREFIX.length));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) ^ secret[i % secret.length];
+  return new TextDecoder().decode(bytes);
+}
+
+function panelStoredValue(name) {
+  let raw = null;
+  try { raw = localStorage.getItem(name); } catch (_) { return null; }
+  if (!raw) return null;
+  try { return JSON.parse(panelDeobfuscate(raw)); } catch (_) { return null; }
+}
+
+function readPanelKey() {
+  const session = panelStoredValue(PANEL_STORE_KEY);
+  const fromStore = session && session.state && session.state.managementKey;
+  if (typeof fromStore === "string" && fromStore.trim()) return fromStore.trim();
+
+  const legacy = panelStoredValue(PANEL_LEGACY_KEY);
+  if (typeof legacy === "string" && legacy.trim()) return legacy.trim();
+
+  return "";
+}
+
+let authKey = "";
+let state = { keys: [], plans: [], prices: [], status: null, stats: null, logs: null };
+
+// CLIProxyAPI HTML-escapes every string in a plugin management response, so a
+// label saved as "A & B" comes back as "A &amp; B". Left alone it would gain
+// another layer on every round trip, so responses are decoded on arrival.
+const ENTITIES = [[/&lt;/g, "<"], [/&gt;/g, ">"], [/&#34;/g, '"'], [/&#39;/g, "'"], [/&amp;/g, "&"]];
+function unescapeDeep(value) {
+  if (typeof value === "string") {
+    let out = value;
+    for (const [pattern, replacement] of ENTITIES) out = out.replace(pattern, replacement);
+    return out;
+  }
+  if (Array.isArray(value)) return value.map(unescapeDeep);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = unescapeDeep(value[key]);
+    return out;
+  }
+  return value;
+}
+
+class AuthError extends Error {}
+
+async function api(method, path, body, opts) {
+  const init = { method, headers: { "Authorization": "Bearer " + authKey } };
+  if (body !== undefined && body !== null) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  const resp = await fetch(location.origin + path, init);
+  const text = await resp.text();
+  let payload = null;
+  if (text) { try { payload = JSON.parse(text); } catch (_) { payload = null; } }
+  if (!resp.ok) {
+    const detail = payload && payload.error ? (payload.error.message ?? payload.error) : text;
+    const message = typeof detail === "string" ? unescapeDeep(detail).trim() : "";
+    if (resp.status === 401 || resp.status === 403) {
+      throw new AuthError(message || "管理密钥无效或已被拒绝");
+    }
+    throw new Error(message || ("HTTP " + resp.status));
+  }
+  return (opts && opts.raw) ? payload : unescapeDeep(payload);
+}
+
+const plugin = (method, path, body) => api(method, PLUGIN_BASE + path, body);
+
+// Amounts span six orders of magnitude here — a per-million token price of
+// 0.028 and a monthly budget of 200 — so the precision follows the magnitude,
+// and trailing zeros past the second decimal are dropped so a table of prices
+// does not read as $0.1000 next to $1.00.
+function usd(value) {
+  const amount = Number(value || 0);
+  if (amount === 0) return "$0";
+  const magnitude = Math.abs(amount);
+  const fixed = amount.toFixed(magnitude < 0.01 ? 6 : magnitude < 1 ? 4 : 2);
+  return "$" + fixed.replace(/(\.\d\d\d*?)0+$/, "$1");
+}
+function int(value) { return Number(value || 0).toLocaleString("zh-CN"); }
+function tokens(value) {
+  const n = Number(value || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  return String(n);
+}
+function when(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (isNaN(date.getTime()) || date.getFullYear() < 2000) return "—";
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+// windowText renders a half-open [start, end) window the way a reader expects
+// it. Printing the raw end gives "00:00:00 → 00:00:00", which looks like a bug
+// and invites the question of which side owns the boundary, so the last second
+// inside the window is shown instead.
+function windowText(start, end) {
+  const from = new Date(start);
+  const until = new Date(end);
+  if (isNaN(from.getTime()) || isNaN(until.getTime())) return "—";
+  return when(from) + " → " + when(new Date(until.getTime() - 1000));
+}
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [name, value] of Object.entries(attrs || {})) {
+    if (name === "class") node.className = value;
+    else if (name === "text") node.textContent = value;
+    else if (name.startsWith("on")) node.addEventListener(name.slice(2), value);
+    else if (value !== null && value !== undefined && value !== false) node.setAttribute(name, value);
+  }
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
+    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+function table(headers, rows) {
+  if (!rows.length) return el("div", { class: "empty", text: "暂无数据" });
+  const head = el("tr", {}, headers.map((h) => el("th", { class: h.num ? "num" : "" }, h.label ?? h)));
+  return el("table", {}, el("thead", {}, head), el("tbody", {}, rows));
+}
+function periodText(period) {
+  if (!period) return "—";
+  switch (period.kind) {
+    case "weekly": return "每周（周一重置）";
+    case "monthly": return "每月（1 日重置）";
+    case "custom": return "每 " + int(period.seconds) + " 秒";
+    default: return "每天";
+  }
+}
+
+let noticeTimer = 0;
+function notify(message, kind) {
+  const node = $("notice");
+  node.textContent = message;
+  node.className = "notice show " + (kind || "ok");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { node.className = "notice"; }, kind === "err" ? 9000 : 4000);
+}
+function fail(err) {
+  if (err instanceof AuthError) { gate(GATE_REJECTED, err.message); return; }
+  notify(err.message || String(err), "err");
+}
+async function guard(fn) { try { await fn(); } catch (err) { fail(err); } }
+
+function ask(title, text, value) {
+  return new Promise((resolve) => {
+    $("dlg-title").textContent = title;
+    $("dlg-text").textContent = text || "";
+    $("dlg-input").value = value || "";
+    $("dlg-input").classList.toggle("hidden", value === undefined);
+    const close = (result) => { $("dlg").close(); resolve(result); };
+    $("dlg-ok").onclick = () => close(value === undefined ? true : $("dlg-input").value);
+    $("dlg-cancel").onclick = () => close(null);
+    $("dlg").showModal();
+    if (value !== undefined) $("dlg-input").focus();
+  });
+}
+const confirmAction = (title, text) => ask(title, text, undefined);
+
+const GATE_NO_PANEL_KEY = "未能从管理中心获取管理密钥。若希望自动进入，请在登录管理中心时勾选「记住密码」。";
+const GATE_REJECTED = "当前管理密钥已失效，请重新输入，或返回管理中心重新登录。";
+
+function gate(reason, error) {
+  authKey = "";
+  try { sessionStorage.removeItem(FALLBACK_KEY); } catch (_) {}
+  $("app").classList.add("hidden");
+  $("gate").classList.remove("hidden");
+  $("gate-reason").textContent = reason || "";
+  const box = $("gate-error");
+  box.textContent = error || "";
+  box.className = error ? "notice err show" : "notice err";
+}
+
+async function start(key) {
+  authKey = key;
+  // Repeated invalid management keys can trigger an IP ban, so probe once only.
+  await plugin("GET", "/status");
+  $("gate").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  const summary = await autoSyncKeys();
+  await reloadAll();
+  if (summary) notify(summary);
+}
+
+async function reloadAll() {
+  // The log is the one payload that grows with traffic rather than with
+  // configuration, so it is fetched only while its own tab is open. Switching
+  // tabs reloads, so opening it is what fetches it.
+  const [status, directory, plans, prices, stats, logs] = await Promise.all([
+    plugin("GET", "/status"),
+    plugin("GET", "/keys"),
+    plugin("GET", "/plans"),
+    plugin("GET", "/prices"),
+    plugin("GET", "/stats"),
+    document.querySelector('[data-tab="logs"].active') ? plugin("GET", "/logs") : Promise.resolve(null),
+  ]);
+  state.status = status;
+  state.keys = directory.keys || [];
+  state.plans = plans.plans || [];
+  state.prices = prices.models || [];
+  state.stats = stats;
+  if (logs) state.logs = logs;
+  render();
+}
+
+function render() {
+  renderHeader();
+  renderKeys();
+  renderModels();
+  renderPlans();
+  renderPrices();
+  renderLogs();
+  renderDiag();
+}
+
+function renderHeader() {
+  const status = state.status || {};
+  const stats = state.stats || {};
+  const badge = $("head-status");
+  badge.textContent = status.enabled ? "运行中" : "已停用";
+  badge.className = "tag " + (status.enabled ? "ok" : "warn");
+  $("s-cost").textContent = usd(stats.lifetime?.cost_usd);
+  $("s-req").textContent = int(stats.lifetime?.requests);
+  $("s-keys").textContent = int(stats.keys);
+  $("s-bound").textContent = int(stats.bound_keys);
+  $("s-blocked").textContent = int(stats.blocked_keys);
+}
+
+function keyName(view) {
+  return view.label || view.preview || (view.scope || "").slice(0, 12) + "…";
+}
+
+function renderKeys() {
+  const filter = $("key-filter").value.trim().toLowerCase();
+  const rows = state.keys
+    .filter((view) => !filter || (keyName(view) + " " + (view.plan_name || "") + " " + view.scope).toLowerCase().includes(filter))
+    .map((view) => {
+      const select = el("select", {
+        onchange: (event) => guard(async () => {
+          const planID = event.target.value;
+          if (planID) await plugin("POST", "/keys/bind", { scope: view.scope, plan_id: planID });
+          else await plugin("POST", "/keys/unbind", { scope: view.scope });
+          notify("订阅计划已更新");
+          await reloadAll();
+        }),
+      }, el("option", { value: "", text: "不限制" }),
+         state.plans.map((plan) => el("option", { value: plan.id, selected: plan.id === view.plan_id }, plan.name || plan.id)));
+
+      const percent = view.unlimited ? 0 : Math.min(100, view.used_percent || 0);
+      const usage = view.unlimited
+        ? el("span", { class: "muted", text: "—" })
+        : el("div", { class: "usage" },
+            el("span", { class: "mono" }, usd(view.spent_usd) + " / " + usd(view.limit_usd)),
+            el("div", { class: "bar" + (view.blocked ? " full" : "") }, el("i", { style: "width:" + percent + "%" })));
+
+      const name = keyName(view);
+      const notes = [];
+      if (view.preview && view.preview !== name) notes.push(view.preview);
+      if (!view.in_config) notes.push("不在 CLIProxyAPI 的 API Key 列表中");
+
+      return el("tr", {},
+        el("td", {},
+          el("div", {}, name),
+          notes.length ? el("div", { class: "muted small mono" }, notes.join(" · ")) : null,
+        ),
+        el("td", {}, select),
+        el("td", {}, usage),
+        el("td", { class: "small muted" }, view.unlimited ? "—" : when(view.cycle_end_at)),
+        el("td", { class: "num" }, int(view.lifetime?.requests)),
+        el("td", { class: "num" }, usd(view.lifetime?.cost_usd)),
+        el("td", {}, view.blocked
+          ? el("span", { class: "tag bad", text: "已达限额" })
+          : el("span", { class: "tag " + (view.unlimited ? "plain" : "ok"), text: view.unlimited ? "不限制" : "正常" })),
+        el("td", { class: "small" },
+          el("button", { class: "link", text: "重置额度", disabled: view.unlimited || undefined,
+            onclick: () => guard(async () => {
+              if (!await confirmAction("重置当前周期额度？", "该 API Key 将立即恢复本周期额度，已产生的消费仍会保留在历史记录中。")) return;
+              await plugin("POST", "/keys/reset", { scope: view.scope });
+              notify("周期额度已重置"); await reloadAll();
+            }) }),
+          el("button", { class: "link", text: "设置备注",
+            onclick: () => guard(async () => {
+              const label = await ask("设置备注", keyName(view), view.label || "");
+              if (label === null) return;
+              await plugin("POST", "/keys/label", { scope: view.scope, label });
+              notify("已保存备注"); await reloadAll();
+            }) }),
+          el("button", { class: "link danger", text: "清除数据",
+            onclick: () => guard(async () => {
+              if (!await confirmAction("清除该 API Key 的全部计费数据？", "订阅绑定、周期用量、累计统计和计费日志都将被删除，且无法恢复。")) return;
+              await plugin("DELETE", "/keys?scope=" + encodeURIComponent(view.scope));
+              notify("计费数据已清除"); await reloadAll();
+            }) }),
+        ),
+      );
+    });
+
+  $("keys-body").replaceChildren(table(
+    ["API Key", "订阅计划", "周期用量", "重置时间",
+      { label: "累计请求", num: true }, { label: "累计消费", num: true }, "状态", "操作"],
+    rows));
+}
+
+function renderModels() {
+  const rows = (state.stats?.by_model || []).map((entry) => el("tr", {},
+    el("td", { class: "mono" }, entry.model),
+    el("td", { class: "num" }, int(entry.requests)),
+    el("td", { class: "num" }, tokens(entry.uncached_input_tokens + entry.cache_read_tokens + entry.cache_creation_tokens)),
+    el("td", { class: "num" }, tokens(entry.output_tokens)),
+    el("td", { class: "num" }, tokens(entry.cache_read_tokens)),
+    el("td", { class: "num" }, usd(entry.cost_usd)),
+  ));
+  $("models-body").replaceChildren(table(
+    ["模型", { label: "请求", num: true }, { label: "输入", num: true }, { label: "输出", num: true },
+      { label: "缓存读取", num: true }, { label: "消费", num: true }],
+    rows));
+}
+
+function renderPlans() {
+  $("plan-tz-note").textContent = state.status?.timezone || "";
+  const rows = state.plans.map((plan) => el("tr", {},
+    el("td", {}, plan.name || plan.id),
+    el("td", { class: "num" }, usd(plan.amount_usd)),
+    el("td", {}, periodText(plan.period)),
+    el("td", { class: "num" }, int(plan.bound_keys)),
+    el("td", { class: "small muted" }, windowText(plan.window_start, plan.window_end)),
+    el("td", { class: "small" },
+      el("button", { class: "link", text: "编辑", onclick: () => editPlan(plan) }),
+      el("button", { class: "link danger", text: "删除", onclick: () => guard(async () => {
+        if (!await confirmAction("删除订阅计划「" + (plan.name || plan.id) + "」？",
+          plan.bound_keys ? ("已绑定的 " + plan.bound_keys + " 个 API Key 将改为不限制。") : "")) return;
+        await plugin("DELETE", "/plans?id=" + encodeURIComponent(plan.id));
+        notify("订阅计划已删除"); resetPlanForm(); await reloadAll();
+      }) }),
+    ),
+  ));
+  $("plans-body").replaceChildren(table(
+    ["名称", { label: "周期额度", num: true }, "周期", { label: "已绑定 Key", num: true }, "当前周期", "操作"],
+    rows));
+}
+
+function priceSourceTag(source) {
+  switch (source) {
+    case "custom": return el("span", { class: "tag warn", text: "已自定义" });
+    case "builtin": return el("span", { class: "tag ok", text: "内置参考价" });
+    default: return el("span", { class: "tag plain", text: "待定价" });
+  }
+}
+
+function optionalPrice(value) {
+  return value === null || value === undefined
+    ? el("span", { class: "muted", text: "使用输入价" })
+    : usd(value);
+}
+
+function renderPrices() {
+  const filter = $("price-filter").value.trim().toLowerCase();
+  const rows = state.prices
+    .filter((row) => !filter || row.pattern.toLowerCase().includes(filter))
+    .map((row) => el("tr", {},
+      el("td", { class: "mono" }, row.pattern),
+      el("td", { class: "num" }, usd(row.input_per_1m)),
+      el("td", { class: "num" }, usd(row.output_per_1m)),
+      el("td", { class: "num" }, optionalPrice(row.cache_read_per_1m)),
+      el("td", { class: "num" }, optionalPrice(row.cache_write_per_1m)),
+      el("td", {}, priceSourceTag(row.source)),
+      el("td", { class: "small" }, el("button", { class: "link", text: "编辑", onclick: () => editPrice(row) })),
+    ));
+  $("prices-body").replaceChildren(table(
+    ["模型", { label: "输入 / 1M Token", num: true }, { label: "输出 / 1M Token", num: true },
+      { label: "缓存读取 / 1M Token", num: true }, { label: "缓存写入 / 1M Token", num: true }, "价格来源", "操作"],
+    rows));
+}
+
+function logKeyName(entry) {
+  return entry.label || entry.preview || (entry.scope || "").slice(0, 12) + "…";
+}
+
+function costTitle(cost) {
+  return [
+    "未缓存输入 " + usd(cost.uncached_input_usd),
+    "缓存读取 " + usd(cost.cache_read_usd),
+    "缓存写入 " + usd(cost.cache_write_usd),
+    "输出 " + usd(cost.output_usd),
+  ].join("\n");
+}
+
+function renderLogs() {
+  const view = state.logs;
+  const note = $("log-note");
+  if (!view) {
+    note.textContent = "";
+    $("logs-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
+    return;
+  }
+  if (!view.limit) {
+    note.textContent = "";
+    $("logs-body").replaceChildren(el("div", { class: "empty" },
+      "计费日志已关闭。将插件配置项 log_entries 设为大于 0 的值即可开启。"));
+    return;
+  }
+  note.textContent = "保留最近 " + int(view.retained) + " / " + int(view.limit) + " 条";
+
+  const filter = $("log-filter").value.trim().toLowerCase();
+  const rows = (view.entries || [])
+    .filter((entry) => !filter ||
+      (logKeyName(entry) + " " + (entry.model || "") + " " + (entry.alias || "")).toLowerCase().includes(filter))
+    .map((entry) => {
+      const cost = entry.cost || {};
+      const marks = [];
+      if (entry.failed) marks.push(el("span", { class: "tag bad", text: "失败" }));
+      if (entry.price_source === "none") marks.push(el("span", { class: "tag warn", text: "待定价" }));
+
+      const input = (cost.uncached_input_tokens || 0) + (cost.cache_read_tokens || 0) + (cost.cache_write_tokens || 0);
+      const output = cost.billed_output_tokens || 0;
+
+      return el("tr", {},
+        el("td", { class: "small" }, when(entry.at)),
+        el("td", {}, logKeyName(entry)),
+        el("td", { class: "mono small" },
+          el("div", {}, entry.model || "—"),
+          entry.alias ? el("div", { class: "muted" }, "别名 " + entry.alias) : null,
+        ),
+        el("td", { class: "num" }, tokens(input)),
+        el("td", { class: "num" }, cost.cache_read_tokens ? tokens(cost.cache_read_tokens) : el("span", { class: "muted", text: "—" })),
+        el("td", { class: "num" }, cost.cache_write_tokens ? tokens(cost.cache_write_tokens) : el("span", { class: "muted", text: "—" })),
+        el("td", { class: "num" },
+          el("div", {}, tokens(output)),
+          entry.reasoning_tokens ? el("div", { class: "muted small" }, "推理 " + tokens(entry.reasoning_tokens)) : null,
+        ),
+        el("td", { class: "num", title: costTitle(cost) },
+          el("div", {}, usd(cost.total_usd)),
+          entry.plan_id
+            ? el("div", { class: "muted small" },
+                usd(entry.cycle_spent_usd) + (entry.cycle_limit_usd ? " / " + usd(entry.cycle_limit_usd) : ""))
+            : null,
+        ),
+        el("td", {}, marks.length ? marks : el("span", { class: "muted", text: "—" })),
+      );
+    });
+
+  $("logs-body").replaceChildren(table(
+    ["时间", "API Key", "模型", { label: "输入", num: true }, { label: "缓存读取", num: true },
+      { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "计费金额", num: true }, "标记"],
+    rows));
+}
+
+function renderDiag() {
+  const status = state.status || {};
+  const counters = status.counters || {};
+  const pairs = [
+    ["插件", status.plugin + " " + status.version],
+    ["状态", status.enabled ? "已启用" : "已停用（不会计费或限制请求）"],
+    ["状态文件", status.state_file],
+    ["默认时区", status.timezone],
+    ["服务器时间", when(status.server_time)],
+    ["最近保存", when(status.last_flushed_at) + (status.pending_write ? "（存在待保存的变更）" : "")],
+    ["最近错误", status.last_error || "无"],
+    ["模型 / 订阅计划 / API Key", int(status.prices) + " / " + int(status.plans) + " / " + int(status.keys)],
+    ["计费日志", status.log_entries
+      ? int(status.log_retained) + " / " + int(status.log_entries) + " 条"
+      : "已关闭",
+      "保留条数由 log_entries 决定，超出后自动删除最早的记录。设置较大的保留数量会增加状态文件体积。"],
+    ["收到的用量记录", int(counters.usage_received)],
+    ["已计费请求", int(counters.usage_recorded)],
+    ["无法归属的请求", int(counters.usage_unattributed),
+      "持续增长表示请求无法关联到下游 API Key，因此不会产生计费。"],
+    ["未匹配价格的请求", int(counters.usage_unpriced),
+      "增长表示模型没有匹配到价格，相关请求将按 0 USD 计费。"],
+    ["未取得 Token 用量的请求", int(counters.usage_no_tokens),
+      "增长表示请求结束时未取得 Token 用量，例如流式响应提前中断；相关请求将按 0 USD 计费。"],
+    ["限额检查 / 已拦截", int(counters.auth_checks) + " / " + int(counters.auth_blocked)],
+    ["处理中请求", int(counters.pending_requests)],
+  ];
+  $("diag-body").replaceChildren(table(["项目", "值", "说明"],
+    pairs.map(([name, value, note]) => el("tr", {},
+      el("td", {}, name),
+      el("td", { class: "mono small" }, String(value ?? "—")),
+      el("td", { class: "muted small" }, note)))));
+}
+
+function syncPlanFields() {
+  const kind = $("plan-kind").value;
+  $("plan-seconds-field").classList.toggle("hidden", kind !== "custom");
+}
+function resetPlanForm() {
+  $("plan-form-title").textContent = "新建订阅计划";
+  $("plan-id").value = ""; $("plan-name").value = ""; $("plan-amount").value = "10";
+  $("plan-kind").value = "daily";
+  $("plan-seconds").value = "3600";
+  $("plan-cancel").classList.add("hidden");
+  syncPlanFields();
+}
+function editPlan(plan) {
+  $("plan-form-title").textContent = "编辑订阅计划：" + (plan.name || plan.id);
+  $("plan-id").value = plan.id;
+  $("plan-name").value = plan.name || "";
+  $("plan-amount").value = plan.amount_usd ?? 0;
+  $("plan-kind").value = plan.period?.kind || "daily";
+  $("plan-seconds").value = String(plan.period?.seconds || 3600);
+  $("plan-cancel").classList.remove("hidden");
+  syncPlanFields();
+  $("plan-name").scrollIntoView({ block: "center", behavior: "smooth" });
+}
+function planFromForm() {
+  const kind = $("plan-kind").value;
+  const period = { kind };
+  if (kind === "custom") period.seconds = Number($("plan-seconds").value);
+  const amount = Number($("plan-amount").value);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("周期额度必须大于 0");
+  return {
+    name: $("plan-name").value.trim(),
+    amount_usd: amount,
+    period,
+  };
+}
+
+let editingModel = "";
+
+function optionalNumber(id) {
+  const raw = $(id).value.trim();
+  return raw === "" ? null : Number(raw);
+}
+
+function editPrice(row) {
+  editingModel = row.pattern;
+  $("price-model").textContent = row.pattern;
+  $("price-in").value = row.input_per_1m ?? 0;
+  $("price-out").value = row.output_per_1m ?? 0;
+  $("price-cr").value = row.cache_read_per_1m ?? "";
+  $("price-cw").value = row.cache_write_per_1m ?? "";
+  $("price-dlg").showModal();
+  $("price-in").focus();
+}
+
+// /v1/models requires a downstream API Key, so the browser borrows one only
+// for this same-origin request. The plugin never stores it.
+async function autoSyncModels(apiKeys) {
+  const key = (apiKeys || []).map((value) => (value || "").trim()).find(Boolean);
+  if (!key) {
+    return "未找到可用的 API Key，已跳过模型同步";
+  }
+  try {
+    const resp = await fetch(location.origin + "/v1/models", { headers: { "Authorization": "Bearer " + key } });
+    if (!resp.ok) {
+      throw new Error("HTTP " + resp.status);
+    }
+    const payload = await resp.json();
+    const list = (payload && payload.data) || (payload && payload.models) || (Array.isArray(payload) ? payload : []);
+    const models = list.map((item) => (typeof item === "string" ? item : item && (item.id || item.name))).filter(Boolean);
+    if (!models.length) {
+      return "";
+    }
+    const result = await plugin("POST", "/prices/sync", { models });
+    if (result.added || result.removed) {
+      return "模型已同步：新增 " + result.added + " 个（" + result.priced + " 个使用内置参考价），移除 " + result.removed + " 个";
+    }
+    return "";
+  } catch (err) {
+    if (err instanceof AuthError) throw err;
+    notify("同步模型失败：" + (err.message || err), "err");
+    return "";
+  }
+}
+
+// An empty sync is skipped because it is more likely to be a failed read than
+// an intentional request to delete all tracked keys.
+async function autoSyncKeys() {
+  const summaries = [];
+  let keys = [];
+  try {
+    const list = await api("GET", "/v0/management/api-keys", null, { raw: true });
+    keys = (list && list["api-keys"]) || [];
+    if (keys.length) {
+      const result = await plugin("POST", "/keys/sync", { keys });
+      if (result.added || result.removed) {
+        summaries.push("API Key 已同步：新增 " + result.added + " 个，移除 " + result.removed + " 个");
+      }
+    } else {
+      summaries.push("CLIProxyAPI 尚未配置 API Key，已跳过同步");
+    }
+  } catch (err) {
+    if (err instanceof AuthError) throw err;
+    notify("同步 API Key 失败：" + (err.message || err), "err");
+  }
+  const models = await autoSyncModels(keys);
+  if (models) summaries.push(models);
+  return summaries.join("；");
+}
+
+$("gate-submit").onclick = () => {
+  const key = $("gate-key").value.trim();
+  if (!key) { $("gate-error").textContent = "请输入管理密钥"; $("gate-error").className = "notice err show"; return; }
+  $("gate-submit").disabled = true;
+  start(key)
+    .then(() => { try { sessionStorage.setItem(FALLBACK_KEY, key); } catch (_) {} })
+    .catch((err) => gate(GATE_NO_PANEL_KEY, err instanceof AuthError ? err.message : ("连接失败：" + err.message)))
+    .finally(() => { $("gate-submit").disabled = false; });
+};
+$("gate-key").addEventListener("keydown", (event) => { if (event.key === "Enter") $("gate-submit").click(); });
+
+const TABS = Array.from(document.querySelectorAll(".tabs button[data-tab]"));
+for (const tab of TABS) {
+  tab.onclick = () => {
+    for (const other of TABS) other.classList.toggle("active", other === tab);
+    for (const other of TABS) $("tab-" + other.dataset.tab).classList.toggle("hidden", other !== tab);
+    guard(reloadAll);
+  };
+}
+
+$("key-filter").addEventListener("input", renderKeys);
+
+$("plan-kind").addEventListener("change", syncPlanFields);
+$("plan-cancel").onclick = resetPlanForm;
+$("plan-save").onclick = () => guard(async () => {
+  const plan = planFromForm();
+  const id = $("plan-id").value;
+  if (id) await plugin("PATCH", "/plans", { id, ...plan });
+  else await plugin("POST", "/plans", plan);
+  notify(id ? "订阅计划已保存" : "订阅计划已创建");
+  resetPlanForm();
+  await reloadAll();
+});
+
+$("log-filter").addEventListener("input", renderLogs);
+
+$("price-filter").addEventListener("input", renderPrices);
+$("price-cancel").onclick = () => $("price-dlg").close();
+$("price-save").onclick = () => guard(async () => {
+  if (!editingModel) return;
+  await plugin("PUT", "/prices", {
+    pattern: editingModel,
+    input_per_1m: Number($("price-in").value || 0),
+    output_per_1m: Number($("price-out").value || 0),
+    cache_read_per_1m: optionalNumber("price-cr"),
+    cache_write_per_1m: optionalNumber("price-cw"),
+  });
+  $("price-dlg").close();
+  notify("模型 " + editingModel + " 的价格已保存");
+  await reloadAll();
+});
+$("price-reset").onclick = () => guard(async () => {
+  if (!await confirmAction("恢复所有模型的默认价格？", "自定义价格将被内置参考价覆盖；没有内置参考价的模型将恢复为 0 USD。")) return;
+  const result = await plugin("POST", "/prices/reset");
+  notify("已恢复 " + result.restored + " 个模型的默认价格");
+  await reloadAll();
+});
+
+resetPlanForm();
+
+(async function boot() {
+  const panelKey = readPanelKey();
+  let fallback = "";
+  try { fallback = sessionStorage.getItem(FALLBACK_KEY) || ""; } catch (_) {}
+  const key = panelKey || fallback;
+  if (!key) {
+    gate(GATE_NO_PANEL_KEY, "");
+    return;
+  }
+  try {
+    await start(key);
+  } catch (err) {
+    if (err instanceof AuthError) {
+      gate(panelKey ? GATE_REJECTED : GATE_NO_PANEL_KEY, err.message);
+      return;
+    }
+    gate(GATE_NO_PANEL_KEY, "连接失败：" + (err.message || err));
+  }
+})();
+</script>
+</body>
+</html>

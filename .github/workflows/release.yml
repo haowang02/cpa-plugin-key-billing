@@ -1,0 +1,214 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    name: Generate price catalog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Generate price catalog
+        run: go run ./cmd/genprices -out internal/billing/catalog_data.json
+
+      - name: Upload price catalog
+        uses: actions/upload-artifact@v7
+        with:
+          name: catalog-data
+          path: internal/billing/catalog_data.json
+          if-no-files-found: error
+          retention-days: 1
+
+  check:
+    name: Verify tagged source
+    needs: catalog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Download price catalog
+        uses: actions/download-artifact@v7
+        with:
+          name: catalog-data
+          path: internal/billing
+
+      - name: Check formatting
+        run: |
+          gofmt -l . | tee /tmp/gofmt-files
+          test ! -s /tmp/gofmt-files
+
+      - name: Check module files
+        run: go mod tidy -diff
+
+      - name: Check GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Check embedded UI JavaScript
+        run: |
+          ui_script="$RUNNER_TEMP/cpa-key-billing-ui.js"
+          sed -n '/^<script>$/,/^<\/script>$/p' internal/plugin/ui.html \
+            | sed -e '/^<script>$/d' -e '/^<\/script>$/d' > "$ui_script"
+          node --check "$ui_script"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs:
+      - catalog
+      - check
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-amd64
+            runner: macos-15-intel
+            os: darwin
+            arch: amd64
+            extension: dylib
+          - target: darwin-arm64
+            runner: macos-15
+            os: darwin
+            arch: arm64
+            extension: dylib
+          - target: linux-amd64
+            runner: ubuntu-24.04
+            os: linux
+            arch: amd64
+            extension: so
+            image: quay.io/pypa/manylinux2014_x86_64
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+            extension: so
+            image: quay.io/pypa/manylinux2014_aarch64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Download price catalog
+        uses: actions/download-artifact@v7
+        with:
+          name: catalog-data
+          path: internal/billing
+
+      - name: Verify native runner architecture
+        run: |
+          test "$(go env GOOS)" = "${{ matrix.os }}"
+          test "$(go env GOARCH)" = "${{ matrix.arch }}"
+
+      - name: Build macOS plugin
+        if: matrix.os == 'darwin'
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=1 GOOS=darwin GOARCH="$TARGET_ARCH" \
+            go build -buildvcs=false -tags cshared -buildmode=c-shared \
+            -o dist/cpa-key-billing.dylib ./cmd/cpa-key-billing
+          rm -f dist/cpa-key-billing.h
+
+      - name: Build Linux plugin with manylinux2014
+        if: matrix.os == 'linux'
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+          TARGET_IMAGE: ${{ matrix.image }}
+        run: |
+          mkdir -p dist
+          go_version="$(go env GOVERSION)"
+          go_version="${go_version#go}"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src" -w /src \
+            -e GO_VERSION="$go_version" -e TARGET_ARCH \
+            "$TARGET_IMAGE" \
+            bash -euo pipefail -c '
+              curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGET_ARCH}.tar.gz" -o /tmp/go.tar.gz
+              tar -C /usr/local -xzf /tmp/go.tar.gz
+              export PATH=/usr/local/go/bin:$PATH
+              CGO_ENABLED=1 GOOS=linux GOARCH="$TARGET_ARCH" \
+                go build -buildvcs=false -tags cshared -buildmode=c-shared \
+                -o dist/cpa-key-billing.so ./cmd/cpa-key-billing
+            '
+          rm -f dist/cpa-key-billing.h
+
+      - name: Verify and package plugin
+        env:
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          binary="dist/cpa-key-billing.${EXTENSION}"
+          test -s "$binary"
+          file "$binary"
+          archive="cpa-key-billing_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
+          tar -czf "$archive" -C dist "cpa-key-billing.${EXTENSION}"
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.target }}
+          path: cpa-key-billing_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: package-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release-assets/*.tar.gz
+          fail_on_unmatched_files: true
+          generate_release_notes: true

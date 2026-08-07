@@ -1,0 +1,8 @@
+dist/
+internal/billing/catalog_data.json
+*.so
+*.dylib
+*.dll
+*.h
+*-state.json
+.DS_Store

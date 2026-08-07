@@ -1,0 +1,57 @@
+name: Check
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Test, vet, and lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Generate price catalog
+        run: go run ./cmd/genprices -out internal/billing/catalog_data.json
+
+      - name: Check formatting
+        run: |
+          gofmt -l . | tee /tmp/gofmt-files
+          test ! -s /tmp/gofmt-files
+
+      - name: Check module files
+        run: go mod tidy -diff
+
+      - name: Check GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Run tests
+        run: go test -race ./...
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Check embedded UI JavaScript
+        run: |
+          ui_script="$RUNNER_TEMP/cpa-key-billing-ui.js"
+          sed -n '/^<script>$/,/^<\/script>$/p' internal/plugin/ui.html \
+            | sed -e '/^<script>$/d' -e '/^<\/script>$/d' > "$ui_script"
+          node --check "$ui_script"
