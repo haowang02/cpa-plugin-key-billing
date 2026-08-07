@@ -16,7 +16,15 @@
 
 ## 安装
 
-从 [Releases](../../releases/latest) 下载对应平台的发布包：
+进入 CLIProxyAPI 根目录，运行：
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/haowang02/cpa-plugin-key-billing/main/install.sh | sh
+```
+
+脚本会自动识别操作系统和处理器架构，下载最新版本并安装到当前目录的 `plugins/` 子目录。安装完成后重启 CLIProxyAPI。
+
+也可以从 [Releases](../../releases/latest) 手动下载对应平台的发布包：
 
 | 系统 | 架构 | 发布包 |
 | --- | --- | --- |
@@ -25,11 +33,11 @@
 | Linux | amd64 | `cpa-key-billing_linux_amd64.tar.gz` |
 | Linux | arm64 | `cpa-key-billing_linux_arm64.tar.gz` |
 
-解压并将插件放到 `plugins/` 目录：
+解压并将插件放到 `plugins/` 目录。Linux 插件扩展名为 `.so`，macOS 为 `.dylib`：
 
 ```text
-plugins/
-└── cpa-key-billing.so
+plugins/cpa-key-billing.so       # Linux
+plugins/cpa-key-billing.dylib    # macOS（二选一）
 ```
 
 ## 配置
