@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>cpa-key-billing</h1>
+  <h1>cpa-plugin-key-billing</h1>
   <p><strong><a href="https://github.com/router-for-me/CLIProxyAPI">CLIProxyAPI</a> 下游 API Key 计费与订阅额度插件。</strong></p>
   <p>
     <a href="https://github.com/haowang02/cpa-plugin-key-billing/releases/latest"><img src="https://img.shields.io/github/v/release/haowang02/cpa-plugin-key-billing?label=release" alt="Latest release"></a>
