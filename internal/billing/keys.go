@@ -308,12 +308,10 @@ type SyncResult struct {
 
 // SyncKeys reconciles the tracked keys with the list CPA currently holds.
 //
-// The plaintext keys are hashed into caller scopes and discarded; nothing here
-// is persisted or logged. Keys missing from the list are dropped only if a
-// previous sync had seen them, so a key belonging to some other access provider
-// — which would never appear in this list — survives instead of being deleted
-// on every sync. allowEmpty guards the obvious foot-gun of an empty push
-// wiping every record.
+// Plaintext keys are discarded after producing a scope hash and masked preview.
+// Missing keys are dropped only if an earlier sync saw them, so principals from
+// other access providers survive. allowEmpty prevents an accidental empty push
+// from wiping every synchronized record.
 func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 	if len(keys) > MaxSyncKeys {
 		return SyncResult{}, invalidf("API Key 数量过多：最多允许 %d 个，实际收到 %d 个", MaxSyncKeys, len(keys))
@@ -335,8 +333,7 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 	updateResult(s, func(state *State) (struct{}, bool) {
 		for scope, preview := range scopes {
 			key := state.ensureKey(scope, now)
-			// The preview is derived from the live key, so it is authoritative
-			// and overwrites whatever a usage record produced earlier.
+			// The live key list is authoritative for its masked preview.
 			key.Preview = preview
 			if key.InConfig {
 				result.Matched++

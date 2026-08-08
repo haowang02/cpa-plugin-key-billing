@@ -27,7 +27,7 @@ func newAccountStore(t *testing.T, now time.Time) *Store {
 
 func subsetEvent(scope string, at time.Time) UsageEvent {
 	return UsageEvent{
-		Scope: scope, Preview: "sk-tes…0001", RequestID: "req-1", ClientProtocol: "claude", At: at,
+		Scope: scope, RequestID: "req-1", ClientProtocol: "claude", At: at,
 		Records: []UsageRecord{{
 			Provider: "codex", ExecutorType: "CodexExecutor", Model: "gpt-5.5", Alias: "gpt-5.5", Generate: true,
 			Breakdown: completeBreakdown(500, 400, 100, 500, 200),
@@ -45,7 +45,7 @@ func TestRecordUsageCreatesAndAccumulatesAKey(t *testing.T) {
 
 	store.Read(func(state *State) {
 		key := state.Keys["scope-a"]
-		if key == nil || key.Lifetime.Requests != 2 || key.Preview != "sk-tes…0001" {
+		if key == nil || key.Lifetime.Requests != 2 {
 			t.Fatalf("key = %+v", key)
 		}
 		assertClose(t, "CostUSD", key.Lifetime.CostUSD, 2*wantSubsetCost)

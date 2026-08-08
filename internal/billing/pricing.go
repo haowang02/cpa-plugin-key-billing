@@ -25,8 +25,8 @@ type TokenOutputBreakdown struct {
 	ReasoningTokens    int64 `json:"reasoning_tokens"`
 }
 
-// TokenBreakdown is the canonical, non-overlapping accounting contract emitted
-// by CLIProxyAPI before any downstream response translation occurs.
+// TokenBreakdown is the canonical, non-overlapping accounting contract used by
+// both host-provided and locally parsed upstream usage.
 type TokenBreakdown struct {
 	SchemaVersion      int                    `json:"schema_version"`
 	Quality            TokenAccountingQuality `json:"quality"`

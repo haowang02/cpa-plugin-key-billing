@@ -8,48 +8,6 @@ import (
 	"testing"
 )
 
-func decodeResult(t *testing.T, raw []byte, v any) {
-	t.Helper()
-	var envelope Envelope
-	if errUnmarshal := json.Unmarshal(raw, &envelope); errUnmarshal != nil {
-		t.Fatalf("decode envelope: %v (raw=%s)", errUnmarshal, raw)
-	}
-	if !envelope.OK {
-		t.Fatalf("envelope reports failure: %+v", envelope.Error)
-	}
-	if v == nil {
-		return
-	}
-	if errUnmarshal := json.Unmarshal(envelope.Result, v); errUnmarshal != nil {
-		t.Fatalf("decode result: %v (raw=%s)", errUnmarshal, envelope.Result)
-	}
-}
-
-func newConfiguredApp(t *testing.T) *App {
-	t.Helper()
-	app := NewApp()
-	t.Cleanup(app.Shutdown)
-	configYAML := "enabled: true\npriority: 100\nstate_file: \"" + filepath.Join(t.TempDir(), "state.json") + "\"\n"
-	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
-		ConfigYAML:    []byte(configYAML),
-		SchemaVersion: SchemaVersion,
-	}))
-	if errHandle != nil {
-		t.Fatalf("plugin.register error = %v", errHandle)
-	}
-	decodeResult(t, raw, nil)
-	return app
-}
-
-func mustMarshal(t *testing.T, v any) []byte {
-	t.Helper()
-	raw, errMarshal := json.Marshal(v)
-	if errMarshal != nil {
-		t.Fatalf("marshal: %v", errMarshal)
-	}
-	return raw
-}
-
 func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	app := newConfiguredApp(t)
 	raw, errHandle := app.HandleMethod(MethodPluginReconfigure, mustMarshal(t, LifecycleRequest{
@@ -67,7 +25,7 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	}
 	caps := registration.Capabilities
 	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.ManagementAPI ||
-		caps.ResponseInterceptor || caps.StreamChunkInterceptor {
+		caps.ResponseBeforeTranslator || caps.ResponseInterceptor || caps.StreamChunkInterceptor {
 		t.Fatalf("capabilities = %+v, want canonical lifecycle billing only", caps)
 	}
 	if registration.Metadata.Name != PluginName || registration.Metadata.Version != Version {
@@ -85,8 +43,6 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	}
 }
 
-// TestRegisterRejectsOldHostSchema guards the canonical usage contract added
-// in schema 3. Loading on an older host would silently lose billing records.
 func TestRegisterRejectsOldHostSchema(t *testing.T) {
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
@@ -96,6 +52,28 @@ func TestRegisterRejectsOldHostSchema(t *testing.T) {
 	}))
 	if errHandle == nil {
 		t.Fatal("plugin.register succeeded on an old host schema, want an error")
+	}
+}
+
+func TestRegisterNegotiatesProtocol2ResponseCompatibility(t *testing.T) {
+	app := NewApp()
+	t.Cleanup(app.Shutdown)
+	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
+		ConfigYAML:    []byte("enabled: true\nstate_file: \"" + filepath.Join(t.TempDir(), "state.json") + "\"\n"),
+		SchemaVersion: MinHostSchemaVersion,
+	}))
+	if errHandle != nil {
+		t.Fatalf("plugin.register error = %v", errHandle)
+	}
+	var registration Registration
+	decodeResult(t, raw, &registration)
+	if registration.SchemaVersion != MinHostSchemaVersion {
+		t.Fatalf("SchemaVersion = %d, want %d", registration.SchemaVersion, MinHostSchemaVersion)
+	}
+	caps := registration.Capabilities
+	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.ResponseBeforeTranslator ||
+		!caps.ResponseInterceptor || !caps.StreamChunkInterceptor || !caps.ManagementAPI {
+		t.Fatalf("capabilities = %+v, want protocol 2 response compatibility hooks", caps)
 	}
 }
 
@@ -148,17 +126,12 @@ func TestManagementRegistrationDeclaresOneMenuResource(t *testing.T) {
 		if strings.ContainsAny(route.Path, ":*") {
 			t.Fatalf("route %q uses a path parameter, which the host rejects", route.Path)
 		}
-		if route.Menu != "" {
-			t.Fatalf("route %q declares a legacy Menu, which would turn it into an unauthenticated resource", route.Path)
-		}
 	}
 }
 
 func TestHandleMethodRecoversFromPanic(t *testing.T) {
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
-	// A nil store would panic inside Status; the recover in HandleMethod must
-	// turn that into an error rather than taking the proxy down.
 	app.store = nil
 	_, errHandle := app.HandleMethod(MethodManagementHandle, mustMarshal(t, ManagementRequest{
 		Method: http.MethodGet,

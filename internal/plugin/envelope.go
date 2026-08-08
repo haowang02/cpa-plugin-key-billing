@@ -31,9 +31,6 @@ func JSONResponse(status int, payload any) ManagementResponse {
 	if errMarshal != nil {
 		return JSONError(http.StatusInternalServerError, "json_error", errMarshal.Error())
 	}
-	if status <= 0 {
-		status = http.StatusOK
-	}
 	return ManagementResponse{
 		StatusCode: status,
 		Headers:    http.Header{"Content-Type": []string{"application/json; charset=utf-8"}},
@@ -42,9 +39,6 @@ func JSONResponse(status int, payload any) ManagementResponse {
 }
 
 func JSONError(status int, code, message string) ManagementResponse {
-	if status <= 0 {
-		status = http.StatusInternalServerError
-	}
 	body, _ := json.Marshal(map[string]any{
 		"error": map[string]string{
 			"code":    strings.TrimSpace(code),

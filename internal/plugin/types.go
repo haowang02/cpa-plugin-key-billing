@@ -19,9 +19,11 @@ import (
 )
 
 const (
-	ABIVersion           uint32 = 1
-	SchemaVersion        uint32 = 3
-	MinHostSchemaVersion uint32 = 3
+	ABIVersion                  uint32 = 1
+	SchemaVersion               uint32 = 3
+	MinHostSchemaVersion        uint32 = 2
+	CanonicalUsageSchemaVersion uint32 = 3
+	StreamChunkHeaderInitIndex         = -1
 )
 
 // Plugin identity. PluginID doubles as the dynamic library file name, the
@@ -29,7 +31,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "0.1.3"
+	Version    = "0.1.4"
 
 	MenuLabel       = "API Key 计费"
 	MenuDescription = "管理下游 API Key 的计费、订阅额度和用量"
@@ -41,9 +43,12 @@ const (
 	MethodPluginRegister    = "plugin.register"
 	MethodPluginReconfigure = "plugin.reconfigure"
 
-	MethodRequestInterceptBefore = "request.intercept_before"
-	MethodRequestInterceptAfter  = "request.intercept_after"
-	MethodRequestComplete        = "request.complete"
+	MethodRequestInterceptBefore  = "request.intercept_before"
+	MethodRequestInterceptAfter   = "request.intercept_after"
+	MethodRequestComplete         = "request.complete"
+	MethodResponseNormalizeBefore = "response.normalize_before"
+	MethodResponseInterceptAfter  = "response.intercept_after"
+	MethodResponseStreamChunk     = "response.intercept_stream_chunk"
 
 	MethodManagementRegister = "management.register"
 	MethodManagementHandle   = "management.handle"
@@ -89,33 +94,37 @@ type Metadata struct {
 	Version          string        `json:"Version"`
 	Author           string        `json:"Author"`
 	GitHubRepository string        `json:"GitHubRepository"`
-	Logo             string        `json:"Logo,omitempty"`
 	ConfigFields     []ConfigField `json:"ConfigFields"`
 }
 
 type ConfigField struct {
-	Name        string   `json:"Name"`
-	Type        string   `json:"Type"`
-	EnumValues  []string `json:"EnumValues,omitempty"`
-	Description string   `json:"Description"`
+	Name        string `json:"Name"`
+	Type        string `json:"Type"`
+	Description string `json:"Description"`
 }
 
 // Capabilities declares the host integration points this plugin implements.
 //
-// Canonical usage is delivered synchronously with the terminal lifecycle event;
-// this plugin never subscribes to the asynchronous usage event bus.
+// Protocol 3 delivers canonical usage with the terminal lifecycle event.
+// Protocol 2 uses the response hooks to read raw upstream usage instead.
 type Capabilities struct {
-	RequestInterceptor     bool `json:"request_interceptor"`
-	RequestLifecyclePlugin bool `json:"request_lifecycle_plugin"`
-	ResponseInterceptor    bool `json:"response_interceptor"`
-	StreamChunkInterceptor bool `json:"response_stream_interceptor"`
-	ManagementAPI          bool `json:"management_api"`
+	RequestInterceptor       bool `json:"request_interceptor"`
+	RequestLifecyclePlugin   bool `json:"request_lifecycle_plugin"`
+	ResponseBeforeTranslator bool `json:"response_before_translator"`
+	ResponseInterceptor      bool `json:"response_interceptor"`
+	StreamChunkInterceptor   bool `json:"response_stream_interceptor"`
+	ManagementAPI            bool `json:"management_api"`
 }
 
 type RequestInterceptRequest struct {
-	RequestID    string         `json:"RequestID"`
-	SourceFormat string         `json:"SourceFormat"`
-	Metadata     map[string]any `json:"Metadata"`
+	RequestID      string         `json:"RequestID"`
+	SourceFormat   string         `json:"SourceFormat"`
+	ToFormat       string         `json:"ToFormat"`
+	Model          string         `json:"Model"`
+	RequestedModel string         `json:"RequestedModel"`
+	Stream         bool           `json:"Stream"`
+	Body           []byte         `json:"Body"`
+	Metadata       map[string]any `json:"Metadata"`
 }
 
 type RequestInterceptResponse struct {
@@ -174,6 +183,24 @@ type RequestTokenOutputBreakdown struct {
 	ReasoningTokens    int64 `json:"ReasoningTokens"`
 }
 
+type ResponseTransformRequest struct {
+	FromFormat      string `json:"FromFormat"`
+	Model           string `json:"Model"`
+	Stream          bool   `json:"Stream"`
+	OriginalRequest []byte `json:"OriginalRequest"`
+	Body            []byte `json:"Body"`
+}
+
+type PayloadResponse struct {
+	Body []byte `json:"Body"`
+}
+
+type ResponseInterceptRequest struct {
+	RequestID  string `json:"RequestID"`
+	Body       []byte `json:"Body"`
+	ChunkIndex int    `json:"ChunkIndex"`
+}
+
 type ManagementRegistrationResponse struct {
 	Routes    []ManagementRoute `json:"routes,omitempty"`
 	Resources []ResourceRoute   `json:"resources,omitempty"`
@@ -182,7 +209,6 @@ type ManagementRegistrationResponse struct {
 type ManagementRoute struct {
 	Method      string `json:"Method"`
 	Path        string `json:"Path"`
-	Menu        string `json:"Menu,omitempty"`
 	Description string `json:"Description,omitempty"`
 }
 

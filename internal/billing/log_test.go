@@ -19,6 +19,9 @@ func newLogStore(t *testing.T, now time.Time, retention int) *Store {
 func TestLogRecordsTheComputedBill(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	store := newLogStore(t, now, 10)
+	store.Update(func(state *State) {
+		state.ensureKey("scope-a", now).Preview = "sk-tes…0001"
+	})
 	store.RecordUsage(subsetEvent("scope-a", now))
 	if err := store.SetLabel("scope-a", "Alice"); err != nil {
 		t.Fatalf("SetLabel error = %v", err)

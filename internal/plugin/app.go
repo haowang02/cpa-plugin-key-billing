@@ -4,16 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 
 	"cpa-key-billing/internal/billing"
 )
 
 type App struct {
-	store *billing.Store
+	store      *billing.Store
+	hostSchema atomic.Uint32
+	protocol2  *protocol2UsageTracker
 }
 
 func NewApp() *App {
-	return &App{store: billing.NewStore()}
+	return &App{
+		store:     billing.NewStore(),
+		protocol2: newProtocol2UsageTracker(),
+	}
 }
 
 // HandleMethod dispatches one host RPC call. A panic anywhere below is
@@ -45,13 +51,19 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 		if errConfigure := a.configure(request); errConfigure != nil {
 			return nil, errConfigure
 		}
-		return OKEnvelope(registration())
+		return OKEnvelope(registration(a.hostSchema.Load()))
 	case MethodRequestInterceptBefore:
 		return a.interceptBeforeAuth(request)
 	case MethodRequestInterceptAfter:
 		return a.interceptAfterAuth(request)
 	case MethodRequestComplete:
 		return a.handleRequestComplete(request)
+	case MethodResponseNormalizeBefore:
+		return a.normalizeResponseBefore(request)
+	case MethodResponseInterceptAfter:
+		return a.interceptResponseAfter(request)
+	case MethodResponseStreamChunk:
+		return a.interceptResponseStreamChunk(request)
 	case MethodManagementRegister:
 		return OKEnvelope(managementRegistration())
 	case MethodManagementHandle:
@@ -76,8 +88,6 @@ func (a *App) configure(raw []byte) error {
 		}
 	}
 	if req.SchemaVersion < MinHostSchemaVersion {
-		// Schema 3 supplies canonical usage on request completion. Older hosts
-		// cannot provide billing-safe token buckets.
 		return fmt.Errorf("%s 需要宿主插件协议版本不低于 %d，当前版本为 %d",
 			PluginID, MinHostSchemaVersion, req.SchemaVersion)
 	}
@@ -85,12 +95,21 @@ func (a *App) configure(raw []byte) error {
 	if errDecode != nil {
 		return errDecode
 	}
-	return a.store.Configure(cfg)
+	if errConfigure := a.store.Configure(cfg); errConfigure != nil {
+		return errConfigure
+	}
+	a.hostSchema.Store(req.SchemaVersion)
+	return nil
 }
 
-func registration() Registration {
+func registration(hostSchema uint32) Registration {
+	negotiatedSchema := hostSchema
+	if negotiatedSchema > SchemaVersion {
+		negotiatedSchema = SchemaVersion
+	}
+	protocol2Usage := negotiatedSchema < CanonicalUsageSchemaVersion
 	return Registration{
-		SchemaVersion: SchemaVersion,
+		SchemaVersion: negotiatedSchema,
 		Metadata: Metadata{
 			Name:             PluginName,
 			Version:          Version,
@@ -115,9 +134,12 @@ func registration() Registration {
 			},
 		},
 		Capabilities: Capabilities{
-			RequestInterceptor:     true,
-			RequestLifecyclePlugin: true,
-			ManagementAPI:          true,
+			RequestInterceptor:       true,
+			RequestLifecyclePlugin:   true,
+			ResponseBeforeTranslator: protocol2Usage,
+			ResponseInterceptor:      protocol2Usage,
+			StreamChunkInterceptor:   protocol2Usage,
+			ManagementAPI:            true,
 		},
 	}
 }

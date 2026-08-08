@@ -32,8 +32,8 @@ const DefaultFlushInterval = 5 * time.Second
 // on a client's critical path. Do not reintroduce a background flusher.
 type Store struct {
 	cfgMu sync.Mutex
-	// writeMu and stateGeneration keep a flush that snapshotted pre-reset data
-	// from recreating the state file after ResetAllData removed it.
+	// writeMu and stateGeneration keep a flush based on an old state snapshot
+	// from writing after reconfiguration or ResetAllData replaces that state.
 	writeMu         sync.Mutex
 	stateGeneration atomic.Uint64
 
@@ -101,36 +101,38 @@ func (s *Store) Configure(cfg Config) error {
 	currentPath := s.path
 	s.mu.RUnlock()
 
-	if currentPath != path {
-		// Read the incoming document before touching anything, so a switch to an
-		// unreadable path is abandoned with the old one still live.
-		loaded, migrated, errLoad := loadState(path)
-		if errLoad != nil {
-			return errLoad
-		}
-		// Persist everything accumulated under the old path and retire it in one
-		// critical section. Doing this in two steps would leave a window where a
-		// request completing between the write and the swap is recorded against
-		// the document about to be discarded, losing that spend for good.
-		//
-		// A failure abandons the switch, leaving the old path live and its
-		// document still dirty, so the next host call retries the write.
+	if currentPath == path {
 		s.mu.Lock()
-		errSwitch := s.persistLocked(currentPath)
-		if errSwitch == nil {
-			s.state = loaded
-			s.dirty.Store(migrated)
-		}
+		s.cfg = normalized
 		s.mu.Unlock()
-		if errSwitch != nil {
-			return fmt.Errorf("切换到 %s 前保存原状态失败：%w", path, errSwitch)
-		}
+		return nil
 	}
 
+	// Read the incoming document before touching anything, so a switch to an
+	// unreadable path is abandoned with the old one still live.
+	loaded, migrated, errLoad := loadState(path)
+	if errLoad != nil {
+		return errLoad
+	}
+
+	// Serialize the final write with Flush, then publish the new document,
+	// config and path under one state lock. The generation change invalidates a
+	// Flush that captured the old state before writeMu was acquired.
+	s.writeMu.Lock()
 	s.mu.Lock()
-	s.cfg = normalized
-	s.path = path
+	errSwitch := s.persistLocked(currentPath)
+	if errSwitch == nil {
+		s.state = loaded
+		s.cfg = normalized
+		s.path = path
+		s.stateGeneration.Add(1)
+		s.dirty.Store(migrated)
+	}
 	s.mu.Unlock()
+	s.writeMu.Unlock()
+	if errSwitch != nil {
+		return fmt.Errorf("切换到 %s 前保存原状态失败：%w", path, errSwitch)
+	}
 
 	return nil
 }
@@ -255,20 +257,12 @@ func (s *Store) Flush() error {
 	return nil
 }
 
-// persistLocked writes the document to path with s.mu already held for writing.
-// An empty path means there is nothing to retire, which is the first Configure.
-//
-// Unlike Flush it does the disk write inside the lock rather than against a
-// snapshot taken under it. That is deliberate and confined to retiring a state
-// file during a configuration change: the point is that no usage can be
-// recorded between the write and the swap that follows it. Holding the lock
-// across the I/O is affordable there because a path change is an operator
-// action, not something on the request path.
+// persistLocked retires the current state file during a path change. The caller
+// holds both writeMu and mu, so the write and state swap cannot interleave with
+// usage updates or a Flush based on an older snapshot. It always writes the
+// document because dirty may already be false while such a Flush waits.
 func (s *Store) persistLocked(path string) error {
 	if path == "" {
-		return nil
-	}
-	if !s.dirty.CompareAndSwap(true, false) {
 		return nil
 	}
 	raw, errMarshal := json.MarshalIndent(s.state, "", "  ")
@@ -281,6 +275,7 @@ func (s *Store) persistLocked(path string) error {
 		s.recordFlushError(errWrite)
 		return errWrite
 	}
+	s.dirty.Store(false)
 	s.statusMu.Lock()
 	s.lastFlush = s.Now()
 	s.lastError = ""

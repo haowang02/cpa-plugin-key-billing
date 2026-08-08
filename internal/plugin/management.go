@@ -60,7 +60,7 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPatch, Path: managementBase + routePlans, Description: "更新订阅计划。"},
 			{Method: http.MethodDelete, Path: managementBase + routePlans, Description: "删除订阅计划并解除相关 Key 的绑定。"},
 
-			{Method: http.MethodGet, Path: managementBase + routeKeys, Description: "查看 API Key 的订阅、限额和用量。"},
+			{Method: http.MethodGet, Path: managementBase + routeKeys, Description: "查看 API Key 的订阅、额度和用量。"},
 			{Method: http.MethodDelete, Path: managementBase + routeKeys, Description: "删除指定 API Key 的全部计费数据。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysBind, Description: "将 API Key 绑定到订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysUnbind, Description: "解除 API Key 的订阅计划。"},

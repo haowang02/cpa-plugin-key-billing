@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// UsageRecord is one canonical provider usage event produced before response
-// translation. Multiple records may belong to one downstream request.
+// UsageRecord is one normalized provider usage event. Multiple records may
+// belong to one downstream request because retries are billed separately.
 type UsageRecord struct {
 	Provider     string
 	ExecutorType string
@@ -22,7 +22,6 @@ type UsageRecord struct {
 // terminal downstream request.
 type UsageEvent struct {
 	Scope          string
-	Preview        string
 	RequestID      string
 	ClientProtocol string
 	Failed         bool
@@ -67,9 +66,6 @@ func (s *Store) RecordUsage(event UsageEvent) {
 
 	s.Update(func(state *State) {
 		key := state.ensureKey(scope, at)
-		if key.Preview == "" && event.Preview != "" {
-			key.Preview = event.Preview
-		}
 		key.LastSeen = at
 
 		plan, hasPlan := state.FindPlan(key.PlanID)
@@ -129,7 +125,6 @@ func (s *Store) RecordUsage(event UsageEvent) {
 			entry := LogEntry{
 				At:                entryAt,
 				Scope:             scope,
-				Preview:           key.Preview,
 				RequestID:         event.RequestID,
 				UsageIndex:        index,
 				ClientProtocol:    event.ClientProtocol,

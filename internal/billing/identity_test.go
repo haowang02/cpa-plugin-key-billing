@@ -4,10 +4,9 @@ import "testing"
 
 // TestCallerScopeMatchesHostVectors pins the hash to values produced by
 // CLIProxyAPI's own sdk/cliproxy/session.CallerScope. Enforcement reads the
-// host-computed caller_scope from request metadata while billing derives it
-// from the plaintext key in usage records; if these two ever disagree, quotas
-// silently stop being enforced. Regenerate with the host implementation, never
-// with this one.
+// host-computed caller_scope while Key synchronization derives it locally. If
+// these disagree, a plan bound in the UI never matches traffic. Regenerate the
+// vectors with the host implementation.
 func TestCallerScopeMatchesHostVectors(t *testing.T) {
 	tests := []struct {
 		name  string

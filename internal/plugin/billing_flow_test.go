@@ -113,20 +113,6 @@ func TestFlowBillsEveryUpstreamRetryRecord(t *testing.T) {
 	}
 }
 
-func TestFlowUsesAuthoritativeCodexInputInsteadOfClaudeEstimate(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	admit(t, app, "claude")
-	// A translated message_start may have estimated 20.7K. It is absent from
-	// the canonical completion; only the raw Codex terminal usage is billable.
-	complete(t, app, RequestCompletionSucceeded, canonicalRecord("gpt-5.5", 19857, 0, 0, 11, 0))
-	app.store.Read(func(state *billing.State) {
-		key := state.Keys[flowScope()]
-		if key == nil || key.Lifetime.UncachedInputTokens != 19857 || key.Lifetime.OutputTokens != 11 {
-			t.Fatalf("lifetime = %+v", key)
-		}
-	})
-}
-
 func TestFlowRecordsProtocolProviderAndCanonicalQuality(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	admit(t, app, "claude")

@@ -49,7 +49,7 @@ func (a *App) putPrices(req ManagementRequest) ManagementResponse {
 	var wrapper struct {
 		Rules []billing.PriceRule `json:"rules"`
 	}
-	if errDecode := json.Unmarshal(body, &wrapper); errDecode == nil && wrapper.Rules != nil {
+	if errDecode := decodeStrict(body, &wrapper); errDecode == nil && wrapper.Rules != nil {
 		stored, errReplace := a.store.ReplacePrices(wrapper.Rules)
 		if errReplace != nil {
 			return errorResponse(errReplace)
@@ -173,6 +173,7 @@ func (a *App) clearAllData() ManagementResponse {
 	if errReset := a.store.ResetAllData(); errReset != nil {
 		return errorResponse(errReset)
 	}
+	a.protocol2.clear()
 	return JSONResponse(http.StatusOK, map[string]any{"cleared": true})
 }
 
@@ -282,7 +283,7 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	keys := append(append([]string{}, body.Keys...), body.APIKeys...)
+	keys := append(body.Keys, body.APIKeys...)
 	result, errSync := a.store.SyncKeys(keys, body.AllowEmpty)
 	if errSync != nil {
 		return errorResponse(errSync)

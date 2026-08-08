@@ -9,9 +9,9 @@ import (
 // callerScopeSalt must stay byte-identical to CLIProxyAPI's
 // sdk/cliproxy/session.CallerScope. The host derives caller_scope with this
 // exact prefix and places it in interceptor metadata; this plugin derives the
-// same value from the plaintext key it sees in usage records and in the key
-// list pushed by the admin UI. Changing it silently detaches billing from
-// enforcement, so it is covered by a unit test with a fixed vector.
+// same value when the admin UI sends the configured key list. Changing it
+// silently detaches those synchronized keys from request accounting, so a
+// fixed host-generated vector covers it.
 const callerScopeSalt = "cli-proxy-api:caller-scope:v1\x00"
 
 // CallerScope returns the host-compatible caller scope for a downstream API key

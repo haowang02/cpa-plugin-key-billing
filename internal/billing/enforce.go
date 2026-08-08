@@ -5,13 +5,8 @@ import (
 	"time"
 )
 
-type DenyReason string
-
-const DenyQuotaExhausted DenyReason = "quota_exhausted"
-
 type Decision struct {
 	Allowed      bool
-	Reason       DenyReason
 	PlanID       string
 	PlanName     string
 	LimitUSD     float64
@@ -33,9 +28,6 @@ type Decision struct {
 // period.
 func (s *Store) Authorize(scope string, at time.Time) Decision {
 	allowed := Decision{Allowed: true}
-	if s == nil {
-		return allowed
-	}
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
 		return allowed
@@ -72,7 +64,6 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 			return current, changed
 		}
 		current.Allowed = false
-		current.Reason = DenyQuotaExhausted
 		return current, changed
 	})
 	if !decision.Allowed {

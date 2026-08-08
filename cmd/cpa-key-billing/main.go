@@ -74,7 +74,7 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 		response.len = 0
 	}
 	if method == nil {
-		writeResponse(response, plugin.ErrorEnvelope("invalid_method", "method is required", http.StatusBadRequest))
+		writeResponse(response, plugin.ErrorEnvelope("invalid_method", "缺少插件方法", http.StatusBadRequest))
 		return 1
 	}
 	var requestBytes []byte

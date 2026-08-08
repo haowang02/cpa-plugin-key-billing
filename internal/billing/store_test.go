@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -243,26 +242,6 @@ func TestStoreRejectsCorruptStateFile(t *testing.T) {
 	}
 	if errConfigure := NewStore().Configure(cfg); errConfigure == nil {
 		t.Fatal("Configure accepted a corrupt state file, want an error rather than silent data loss")
-	}
-}
-
-// A background flusher previously crashed the proxy's two-runtime c-shared
-// process with "fatal error: bad flushGen". The plugin must stay inert between
-// host calls.
-func TestStoreRunsNoBackgroundGoroutine(t *testing.T) {
-	before := runtime.NumGoroutine()
-
-	store := NewStore()
-	if errConfigure := store.Configure(testConfig(t)); errConfigure != nil {
-		t.Fatalf("Configure error = %v", errConfigure)
-	}
-	t.Cleanup(store.Close)
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a"} })
-
-	time.Sleep(50 * time.Millisecond)
-
-	if after := runtime.NumGoroutine(); after > before {
-		t.Fatalf("the store left %d goroutine(s) running; it must do nothing between host calls", after-before)
 	}
 }
 

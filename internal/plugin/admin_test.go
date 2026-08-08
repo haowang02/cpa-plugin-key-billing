@@ -236,6 +236,13 @@ func TestClearAllDataThroughTheManagementAPI(t *testing.T) {
 		state.LastSyncAt = now
 	})
 	app.store.BeginRequest("pending", billing.PendingRequest{Scope: "scope"})
+	requestBody := []byte(`{"model":"model","messages":[]}`)
+	app.protocol2.begin("protocol2-pending", "claude", "model", "model", true, now)
+	app.protocol2.addRoute("protocol2-pending", "codex", "model", "model", false, requestBody)
+	app.protocol2.observeUpstream(ResponseTransformRequest{
+		FromFormat: "codex", Model: "model", OriginalRequest: requestBody,
+		Body: []byte(`{"usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11}}`),
+	}, now)
 	if errFlush := app.store.Flush(); errFlush != nil {
 		t.Fatal(errFlush)
 	}
@@ -262,6 +269,9 @@ func TestClearAllDataThroughTheManagementAPI(t *testing.T) {
 	}
 	if _, errStat := os.Stat(path); !os.IsNotExist(errStat) {
 		t.Fatalf("state file still exists after clear: %v", errStat)
+	}
+	if records := app.protocol2.finish("protocol2-pending"); len(records) != 0 {
+		t.Fatalf("protocol 2 usage survived reinitialization: %+v", records)
 	}
 }
 
@@ -335,6 +345,11 @@ func TestSyncAcceptsTheCPAKeyListVerbatim(t *testing.T) {
 	if resp := callManagement(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{}}); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body=%s)", resp.StatusCode, resp.Body)
 	}
+	callOK(t, app, http.MethodPost, routeKeysSync, nil,
+		map[string]any{"keys": []string{}, "allow_empty": true}, http.StatusOK, &result)
+	if result.Removed != 2 {
+		t.Fatalf("empty authoritative sync = %+v, want both configured keys removed", result)
+	}
 }
 
 func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
@@ -370,7 +385,7 @@ func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 		}},
 	})
 	decision := app.store.Authorize(scope, app.store.Now())
-	if decision.Allowed || decision.Reason != billing.DenyQuotaExhausted {
+	if decision.Allowed {
 		t.Fatalf("decision = %+v, want the key blocked", decision)
 	}
 

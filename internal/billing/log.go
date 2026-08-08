@@ -7,7 +7,6 @@ import "time"
 type LogEntry struct {
 	At             time.Time `json:"at"`
 	Scope          string    `json:"scope"`
-	Preview        string    `json:"preview,omitempty"`
 	RequestID      string    `json:"request_id,omitempty"`
 	UsageIndex     int       `json:"usage_index,omitempty"`
 	ClientProtocol string    `json:"client_protocol,omitempty"`
@@ -71,12 +70,12 @@ func pruneLogOrphans(state *State) {
 // LogRow is one log entry as the admin UI reads it, with the key's current
 // display name resolved.
 //
-// Label is looked up rather than stored so renaming a key relabels its history
-// too. A row whose key has since been forgotten keeps only what the entry itself
-// carries, which is why Preview is recorded at billing time.
+// Display identity is looked up rather than copied into every entry, so Key
+// synchronization and remark changes update historical rows too.
 type LogRow struct {
 	LogEntry
-	Label string `json:"label,omitempty"`
+	Preview string `json:"preview,omitempty"`
+	Label   string `json:"label,omitempty"`
 }
 
 type LogView struct {
@@ -102,6 +101,7 @@ func (s *Store) Logs(limit int) LogView {
 			entry := state.Log[len(state.Log)-1-i]
 			row := LogRow{LogEntry: entry}
 			if key := state.Keys[entry.Scope]; key != nil {
+				row.Preview = key.Preview
 				row.Label = key.Label
 			}
 			view.Entries = append(view.Entries, row)

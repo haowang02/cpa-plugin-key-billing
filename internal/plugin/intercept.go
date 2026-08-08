@@ -61,8 +61,6 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 		return OKEnvelope(quotaExhaustedResponse(req.SourceFormat, decision, now))
 	}
 
-	// Remember who to bill. Canonical upstream usage arrives later with the
-	// terminal lifecycle event under this same request ID.
 	a.store.BeginRequest(req.RequestID, billing.PendingRequest{
 		Scope:          scope,
 		ClientProtocol: req.SourceFormat,
@@ -71,17 +69,63 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 		CycleEndAt:     decision.ResetAt,
 		CycleLimitUSD:  decision.LimitUSD,
 	})
+	if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
+		generate := true
+		if value, ok := req.Metadata["generate"].(bool); ok {
+			generate = value
+		}
+		a.protocol2.begin(req.RequestID, req.SourceFormat, req.Model, req.RequestedModel, generate, a.store.Now())
+	}
 	return OKEnvelope(RequestInterceptResponse{})
 }
 
-// interceptAfterAuth is intentionally a no-op. The canonical usage record owns
-// the selected provider, executor, model, and alias.
 func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 	var req RequestInterceptRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
 		return nil, fmt.Errorf("解析请求拦截参数：%w", errUnmarshal)
 	}
+	if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
+		a.protocol2.addRoute(req.RequestID, req.ToFormat, req.Model, req.RequestedModel, req.Stream, req.Body)
+	}
 	return OKEnvelope(RequestInterceptResponse{})
+}
+
+// Protocol 2 exposes the raw upstream response only here, before response
+// translation. The response is returned byte-for-byte; this hook observes
+// authoritative provider usage and never modifies client-visible data.
+func (a *App) normalizeResponseBefore(raw []byte) ([]byte, error) {
+	var req ResponseTransformRequest
+	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
+		return nil, fmt.Errorf("解析上游响应：%w", errUnmarshal)
+	}
+	if a.hostSchema.Load() < CanonicalUsageSchemaVersion && a.store.Enabled() {
+		a.protocol2.observeUpstream(req, a.store.Now())
+	}
+	return OKEnvelope(PayloadResponse{Body: req.Body})
+}
+
+// Translated responses carry the host request ID. Their token fields are not
+// trusted because protocol translation may have estimated or synthesized them.
+func (a *App) interceptResponseAfter(raw []byte) ([]byte, error) {
+	var req ResponseInterceptRequest
+	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
+		return nil, fmt.Errorf("解析客户端响应：%w", errUnmarshal)
+	}
+	if a.hostSchema.Load() < CanonicalUsageSchemaVersion && a.store.Enabled() {
+		a.protocol2.bindResponse(req.RequestID, req.Body)
+	}
+	return OKEnvelope(PayloadResponse{})
+}
+
+func (a *App) interceptResponseStreamChunk(raw []byte) ([]byte, error) {
+	var req ResponseInterceptRequest
+	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
+		return nil, fmt.Errorf("解析客户端流式响应：%w", errUnmarshal)
+	}
+	if req.ChunkIndex != StreamChunkHeaderInitIndex && a.hostSchema.Load() < CanonicalUsageSchemaVersion && a.store.Enabled() {
+		a.protocol2.bindResponse(req.RequestID, req.Body)
+	}
+	return OKEnvelope(PayloadResponse{})
 }
 
 // metadataString reads a string value from the host's metadata snapshot. The
@@ -211,8 +255,13 @@ func (a *App) handleRequestComplete(raw []byte) ([]byte, error) {
 	}
 	if completion.Outcome == RequestCompletionRejected {
 		a.store.DiscardRequest(completion.RequestID)
+		a.protocol2.discard(completion.RequestID)
 	} else {
-		a.store.FinishRequest(completion.RequestID, canonicalUsageRecords(completion.UsageRecords), completion.Outcome != RequestCompletionSucceeded)
+		records := canonicalUsageRecords(completion.UsageRecords)
+		if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
+			records = a.protocol2.finish(completion.RequestID)
+		}
+		a.store.FinishRequest(completion.RequestID, records, completion.Outcome != RequestCompletionSucceeded)
 	}
 	return OKEnvelope(struct{}{})
 }

@@ -5,12 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API Key 计费</title>
 <style>
-/* The palette is the management panel's own (Cli-Proxy-API-Management-Center),
-   variable names included, so a page embedded in it does not read as a
-   different product and so a future panel restyle can be diffed against this.
-   Three themes are rendered: the default wool-paper one, plus white and dark,
-   selected by the data-theme attribute the panel sets on its <html>. Its fourth
-   option, "follow system", resolves to white or dark before it gets here. */
+/* Keep the embedded page aligned with the management panel's three themes. */
 :root{
   --bg-secondary:#faf9f5; --bg-primary:#f0eee8; --bg-tertiary:#e9e6df; --bg-hover:var(--bg-tertiary);
   --floating-surface:#fffdf9; --floating-shadow:0 12px 26px #00000024;
@@ -541,10 +536,8 @@ async function api(method, path, body, opts) {
 
 const plugin = (method, path, body) => api(method, PLUGIN_BASE + path, body);
 
-// Amounts span six orders of magnitude here — a per-million token price of
-// 0.028 and a monthly budget of 200 — so the precision follows the magnitude,
-// and trailing zeros past the second decimal are dropped so a table of prices
-// does not read as $0.1000 next to $1.00.
+// Preserve useful precision for small token prices without padding ordinary
+// amounts with unnecessary trailing zeros.
 function usd(value) {
   const amount = Number(value || 0);
   if (amount === 0) return "$0";
@@ -987,7 +980,8 @@ function renderLogs() {
       if (entry.failed) statusMarks.push(el("span", { class: "tag bad", text: "失败" }));
       if (entry.price_source === "none") statusMarks.push(el("span", { class: "tag warn", text: "待定价" }));
       if (entry.accounting_quality && entry.accounting_quality !== "complete") {
-        statusMarks.push(el("span", { class: "tag warn", text: "Token 未分类" }));
+        statusMarks.push(el("span", { class: "tag warn",
+          text: entry.accounting_quality === "inconsistent" ? "Token 明细异常" : "Token 未分类" }));
       }
       let tierMark = null;
       if (cost.tiered) {
@@ -1017,7 +1011,7 @@ function renderLogs() {
           el("div", { class: "log-cell-line" },
             el("span", {}, protocolText(entry.client_protocol)),
             statusMarks),
-          el("div", { class: "log-cell-line muted small" }, (entry.provider || "unknown") + " / " + (entry.executor_type || "unknown")),
+          el("div", { class: "log-cell-line muted small" }, (entry.provider || "未知") + " / " + (entry.executor_type || "未知")),
         ),
         el("td", { class: "num" }, tokens(input)),
         el("td", { class: "num" }, cost.cache_read_tokens ? tokens(cost.cache_read_tokens) : el("span", { class: "muted", text: "—" })),
@@ -1234,9 +1228,7 @@ function editPrice(row) {
 // for this same-origin request. The plugin never stores it.
 async function autoSyncModels(apiKeys) {
   const key = (apiKeys || []).map((value) => (value || "").trim()).find(Boolean);
-  if (!key) {
-    return "未找到可用的 API Key，已跳过模型同步";
-  }
+  if (!key) return "";
   try {
     const resp = await fetch(location.origin + "/v1/models", { headers: { "Authorization": "Bearer " + key } });
     if (!resp.ok) {
@@ -1260,21 +1252,17 @@ async function autoSyncModels(apiKeys) {
   }
 }
 
-// An empty sync is skipped because it is more likely to be a failed read than
-// an intentional request to delete all tracked keys.
 async function autoSyncKeys() {
   const summaries = [];
   let keys = [];
   try {
     const list = await api("GET", "/v0/management/api-keys", null, { raw: true });
     keys = (list && list["api-keys"]) || [];
-    if (keys.length) {
-      const result = await plugin("POST", "/keys/sync", { keys });
-      if (result.added || result.removed) {
-        summaries.push("API Key 同步完成：新增 " + result.added + " 个，移除 " + result.removed + " 个");
-      }
-    } else {
-      summaries.push("CLIProxyAPI 尚未配置 API Key，已跳过同步");
+    const result = await plugin("POST", "/keys/sync", { keys, allow_empty: true });
+    if (result.added || result.removed) {
+      summaries.push("API Key 同步完成：新增 " + result.added + " 个，移除 " + result.removed + " 个");
+    } else if (!keys.length) {
+      summaries.push("CLIProxyAPI 尚未配置 API Key");
     }
   } catch (err) {
     if (err instanceof AuthError) throw err;
