@@ -536,8 +536,21 @@ async function api(method, path, body, opts) {
 
 const plugin = (method, path, body) => api(method, PLUGIN_BASE + path, body);
 
-const USD_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 });
-function usd(value) { return "$" + USD_FORMAT.format(Number(value || 0)); }
+function usd(value) {
+  const amount = Number(value || 0);
+  if (amount === 0) return "$0";
+  const absolute = Math.abs(amount);
+  const digits = absolute >= 1 ? 2 : absolute >= 0.01 ? 4 : 6;
+  const compact = amount.toLocaleString("en-US", { maximumFractionDigits: digits });
+  const rounded = Number(compact.replaceAll(",", ""));
+  if (rounded === 0) return "<$0.000001";
+  const tolerance = Number.EPSILON * Math.max(1, absolute) * 8;
+  if (Math.abs(amount - rounded) <= tolerance) return "$" + compact;
+  return "$" + amount.toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
 function int(value) { return Number(value || 0).toLocaleString("zh-CN"); }
 function tokens(value) {
   const n = Number(value || 0);
