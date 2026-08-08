@@ -8,13 +8,10 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// App is the plugin instance the C ABI shim dispatches into.
 type App struct {
 	store *billing.Store
 }
 
-// NewApp constructs an unconfigured app. The host calls plugin.register before
-// any other method, which is where the real configuration arrives.
 func NewApp() *App {
 	return &App{store: billing.NewStore()}
 }
@@ -53,10 +50,6 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 		return a.interceptBeforeAuth(request)
 	case MethodRequestInterceptAfter:
 		return a.interceptAfterAuth(request)
-	case MethodResponseInterceptAfter:
-		return a.interceptResponse(request)
-	case MethodResponseInterceptStreamChunk:
-		return a.interceptStreamChunk(request)
 	case MethodRequestComplete:
 		return a.handleRequestComplete(request)
 	case MethodManagementRegister:
@@ -68,10 +61,8 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 	}
 }
 
-// Shutdown persists any pending state. The host invokes this through the C ABI
-// shutdown function pointer when it unloads the library.
 func (a *App) Shutdown() {
-	if a == nil {
+	if a == nil || a.store == nil {
 		return
 	}
 	a.store.Close()
@@ -85,9 +76,8 @@ func (a *App) configure(raw []byte) error {
 		}
 	}
 	if req.SchemaVersion < MinHostSchemaVersion {
-		// Request termination is the plugin's entire purpose and it does not
-		// exist before schema 2. Refusing to load is clearer than silently
-		// accounting for spend while enforcing nothing.
+		// Schema 3 supplies canonical usage on request completion. Older hosts
+		// cannot provide billing-safe token buckets.
 		return fmt.Errorf("%s 需要宿主插件协议版本不低于 %d，当前版本为 %d",
 			PluginID, MinHostSchemaVersion, req.SchemaVersion)
 	}
@@ -110,25 +100,23 @@ func registration() Registration {
 				{
 					Name:        "enabled",
 					Type:        "boolean",
-					Description: "是否启用 API Key 计费与限额控制。",
+					Description: "启用 API Key 计费和订阅额度控制。",
 				},
 				{
 					Name:        "state_file",
 					Type:        "string",
-					Description: "保存模型价格、订阅计划、Key 绑定关系和用量统计的 JSON 文件。",
+					Description: "计费状态 JSON 文件路径。",
 				},
 				{
-					Name:        "default_timezone",
-					Type:        "string",
-					Description: "订阅周期使用的 IANA 时区，默认为 UTC。",
+					Name:        "log_entries",
+					Type:        "integer",
+					Description: "保留的计费日志条数；设为 0 可关闭日志。",
 				},
 			},
 		},
 		Capabilities: Capabilities{
 			RequestInterceptor:     true,
 			RequestLifecyclePlugin: true,
-			ResponseInterceptor:    true,
-			StreamChunkInterceptor: true,
 			ManagementAPI:          true,
 		},
 	}

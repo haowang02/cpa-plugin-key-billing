@@ -1,5 +1,4 @@
 dist/
-internal/billing/catalog_data.json
 *.so
 *.dylib
 *.dll

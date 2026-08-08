@@ -8,7 +8,7 @@ import (
 func newAccountStore(t *testing.T, now time.Time) *Store {
 	t.Helper()
 	store := NewStore()
-	store.SetNow(func() time.Time { return now })
+	store.now = func() time.Time { return now }
 	if err := store.Configure(testConfig(t)); err != nil {
 		t.Fatalf("Configure error = %v", err)
 	}
@@ -27,13 +27,11 @@ func newAccountStore(t *testing.T, now time.Time) *Store {
 
 func subsetEvent(scope string, at time.Time) UsageEvent {
 	return UsageEvent{
-		Scope: scope, Preview: "sk-tes…0001", Model: "gpt-5.5", Alias: "gpt-5.5",
-		Semantics: SemanticsSubset,
-		Tokens: TokenUsage{
-			InputTokens: 1000, CacheReadTokens: 400, CacheCreationTokens: 100,
-			OutputTokens: 500, ReasoningTokens: 200,
-		},
-		At: at,
+		Scope: scope, Preview: "sk-tes…0001", RequestID: "req-1", ClientProtocol: "claude", At: at,
+		Records: []UsageRecord{{
+			Provider: "codex", ExecutorType: "CodexExecutor", Model: "gpt-5.5", Alias: "gpt-5.5", Generate: true,
+			Breakdown: completeBreakdown(500, 400, 100, 500, 200),
+		}},
 	}
 }
 
@@ -58,6 +56,19 @@ func TestRecordUsageCreatesAndAccumulatesAKey(t *testing.T) {
 	})
 }
 
+func TestRecordUsageIgnoresNonGenerationRecords(t *testing.T) {
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	store := newAccountStore(t, now)
+	event := subsetEvent("scope-a", now)
+	event.Records[0].Generate = false
+	store.RecordUsage(event)
+	store.Read(func(state *State) {
+		if state.Keys["scope-a"] != nil || len(state.Log) != 0 {
+			t.Fatalf("non-generation record was billed: %+v", state)
+		}
+	})
+}
+
 func TestRecordUsageAccumulatesAndRollsPlanCycle(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, now)
@@ -76,5 +87,62 @@ func TestRecordUsageAccumulatesAndRollsPlanCycle(t *testing.T) {
 		}
 		assertClose(t, "CycleSpent", key.Cycle.SpentUSD, wantSubsetCost)
 		assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, 2*wantSubsetCost)
+	})
+}
+
+func TestLateCompletionStaysInItsAdmissionCycle(t *testing.T) {
+	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	store := newAccountStore(t, start)
+	store.Update(func(state *State) {
+		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
+		state.Keys["scope-a"] = &KeyState{Scope: "scope-a", PlanID: "daily"}
+	})
+	decision := store.Authorize("scope-a", start)
+	event := subsetEvent("scope-a", start.Add(25*time.Hour))
+	event.AttributionKnown = true
+	event.CyclePlanID = decision.PlanID
+	event.CycleStartAt = decision.CycleStartAt
+	event.CycleEndAt = decision.ResetAt
+	event.CycleLimitUSD = decision.LimitUSD
+	store.RecordUsage(event)
+
+	store.Read(func(state *State) {
+		key := state.Keys["scope-a"]
+		if key.Cycle != (Cycle{}) || len(key.RecentCycles) != 1 || key.RecentCycles[0].Requests != 1 {
+			t.Fatalf("key = %+v, want one charged archived cycle", key)
+		}
+		assertClose(t, "archived cost", key.RecentCycles[0].SpentUSD, wantSubsetCost)
+	})
+}
+
+func TestConcurrentLateCompletionDoesNotChargeNewCycle(t *testing.T) {
+	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	store := newAccountStore(t, start)
+	store.Update(func(state *State) {
+		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
+		state.Keys["scope-a"] = &KeyState{Scope: "scope-a", PlanID: "daily"}
+	})
+	oldCycle := store.Authorize("scope-a", start)
+	newCycle := store.Authorize("scope-a", start.Add(25*time.Hour))
+	if newCycle.CycleStartAt.Equal(oldCycle.CycleStartAt) {
+		t.Fatal("new request did not start a new cycle")
+	}
+
+	event := subsetEvent("scope-a", start.Add(26*time.Hour))
+	event.AttributionKnown = true
+	event.CyclePlanID = oldCycle.PlanID
+	event.CycleStartAt = oldCycle.CycleStartAt
+	event.CycleEndAt = oldCycle.ResetAt
+	event.CycleLimitUSD = oldCycle.LimitUSD
+	store.RecordUsage(event)
+
+	store.Read(func(state *State) {
+		key := state.Keys["scope-a"]
+		if !key.Cycle.StartAt.Equal(newCycle.CycleStartAt) || key.Cycle.Requests != 0 || key.Cycle.SpentUSD != 0 {
+			t.Fatalf("new cycle was charged: %+v", key.Cycle)
+		}
+		if len(key.RecentCycles) != 1 || !key.RecentCycles[0].StartAt.Equal(oldCycle.CycleStartAt) || key.RecentCycles[0].Requests != 1 {
+			t.Fatalf("old cycle history = %+v", key.RecentCycles)
+		}
 	})
 }

@@ -5,16 +5,12 @@ import (
 	"fmt"
 )
 
-// ErrorKind classifies an administrative failure without pulling HTTP concerns
-// into the billing domain. The Management API layer maps kinds to status codes.
+// ErrorKind lets the HTTP layer classify domain failures.
 type ErrorKind string
 
 const (
-	// KindInvalid means the caller sent something the domain refuses.
-	KindInvalid ErrorKind = "invalid"
-	// KindNotFound means the referenced record does not exist.
+	KindInvalid  ErrorKind = "invalid"
 	KindNotFound ErrorKind = "not_found"
-	// KindConflict means the record collides with one that already exists.
 	KindConflict ErrorKind = "conflict"
 )
 
@@ -32,7 +28,6 @@ func (e *Error) Error() string {
 	return e.Msg
 }
 
-// KindOf reports the kind of err, or an empty kind when it is not classified.
 func KindOf(err error) ErrorKind {
 	var typed *Error
 	if errors.As(err, &typed) && typed != nil {

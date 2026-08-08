@@ -1,0 +1,31 @@
+{
+  "models": {
+    "openai/gpt-4o": {},
+    "openai/gpt-5.3-codex": {},
+    "openai/gpt-5.6-sol": {},
+    "anthropic/claude-sonnet-4-5-20250929": {},
+    "google/gemini-2.0-flash": {}
+  },
+  "providers": {
+    "openai": {
+      "id": "openai",
+      "models": {
+        "gpt-4o": {"id":"gpt-4o","cost":{"input":5,"output":15,"cache_read":2.5}},
+        "gpt-5.3-codex": {"id":"gpt-5.3-codex","cost":{"input":1.75,"output":14,"cache_read":0.175}},
+        "gpt-5.6-sol": {"id":"gpt-5.6-sol","cost":{"input":5,"output":30,"cache_read":0.5,"cache_write":6.25,"tiers":[{"input":10,"output":45,"cache_read":1,"cache_write":12.5,"tier":{"type":"context","size":272000}}]}}
+      }
+    },
+    "anthropic": {
+      "id": "anthropic",
+      "models": {
+        "claude-sonnet-4-5-20250929": {"id":"claude-sonnet-4-5-20250929","cost":{"input":3,"output":15,"cache_read":0.3,"cache_write":3.75}}
+      }
+    },
+    "google": {
+      "id": "google",
+      "models": {
+        "gemini-2.0-flash": {"id":"gemini-2.0-flash","cost":{"input":0.1,"output":0.4}}
+      }
+    }
+  }
+}

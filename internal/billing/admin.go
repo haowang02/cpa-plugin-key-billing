@@ -6,27 +6,16 @@ import (
 	"time"
 )
 
-// Administrative limits. They bound the state document rather than express
-// policy: the whole document is loaded on every start, so an unbounded table
-// would eventually turn into a plugin that fails to load.
+// These limits keep the persisted state bounded.
 const (
-	// MaxPriceRules caps the price table, which holds one row per model.
-	MaxPriceRules = 5000
-	// MaxPlans caps the number of subscription definitions.
-	MaxPlans = 200
-	// MaxPatternLength caps a price rule pattern.
+	MaxPriceRules    = 5000
+	MaxPlans         = 200
 	MaxPatternLength = 200
-	// MaxNameLength caps plan names and key labels.
-	MaxNameLength = 120
+	MaxNameLength    = 120
 )
 
-// PriceRow is one line of the price table: what a model currently bills at,
-// plus where that number came from.
 type PriceRow struct {
 	PriceRule
-	// Source is builtin when the row still matches the shipped catalog, custom
-	// when it was edited, and none when the catalog has no entry and the model
-	// bills at zero.
 	Source PriceSource `json:"source"`
 }
 
@@ -34,33 +23,80 @@ type PriceRow struct {
 //
 // It holds one row per model the proxy currently serves, not a sparse set of
 // overrides: an operator asking "what does this cost" should not have to know
-// whether the answer comes from a rule they wrote or from the shipped catalog.
+// whether the answer comes from a rule they wrote or from the runtime catalog.
 type PriceTable struct {
 	CatalogVersion string      `json:"catalog_version"`
 	Catalog        CatalogInfo `json:"catalog"`
 	Models         []PriceRow  `json:"models"`
 }
 
-// PriceTable returns every priced model.
 func (s *Store) PriceTable() PriceTable {
+	loaded := builtinCatalog()
 	table := PriceTable{
-		Catalog: BuiltinCatalog(),
+		Catalog: loaded.info,
 		Models:  []PriceRow{},
 	}
-	table.CatalogVersion = table.Catalog.FetchedAt
+	if !table.Catalog.FetchedAt.IsZero() {
+		table.CatalogVersion = table.Catalog.FetchedAt.Format(time.RFC3339)
+	}
 	s.Read(func(state *State) {
 		for _, rule := range state.Prices {
-			table.Models = append(table.Models, PriceRow{PriceRule: rule, Source: priceSourceOf(rule)})
+			table.Models = append(table.Models, PriceRow{PriceRule: rule, Source: priceSourceOfCatalog(rule, loaded)})
 		}
 	})
 	return table
 }
 
-// priceSourceOf classifies a stored row against the shipped catalog.
-func priceSourceOf(rule PriceRule) PriceSource {
-	def, known := CatalogDefault(rule.Pattern)
+type CatalogRefreshResult struct {
+	Catalog       CatalogInfo `json:"catalog"`
+	UpdatedModels int         `json:"updated_models"`
+}
+
+// RefreshPriceCatalog downloads a fresh directory and advances rows that were
+// still following the previous built-in value. Explicit custom prices are
+// preserved.
+func (s *Store) RefreshPriceCatalog() (CatalogRefreshResult, error) {
+	previous := cachedBuiltinCatalog()
+	info, errRefresh := RefreshBuiltinCatalog()
+	if errRefresh != nil {
+		return CatalogRefreshResult{}, errRefresh
+	}
+	current := builtinCatalog()
+	now := s.Now()
+	updated := updateResult(s, func(state *State) (int, bool) {
+		changed := 0
+		for i := range state.Prices {
+			rule := state.Prices[i]
+			oldDefault, _, oldKnown := lookupCatalog(previous, rule.Pattern, "")
+			followedBuiltin := oldKnown && samePrice(rule, oldDefault)
+			if !oldKnown && rule.InputPer1M == 0 && rule.OutputPer1M == 0 && rule.CacheReadPer1M == nil && rule.CacheWritePer1M == nil && rule.LongContext == nil {
+				followedBuiltin = true
+			}
+			if !followedBuiltin {
+				continue
+			}
+			fresh, _, known := lookupCatalog(current, rule.Pattern, "")
+			if !known {
+				fresh = PriceRule{Pattern: rule.Pattern}
+			} else {
+				fresh.Pattern = rule.Pattern
+			}
+			if samePrice(rule, fresh) {
+				continue
+			}
+			fresh.UpdatedAt = now
+			state.Prices[i] = fresh
+			changed++
+		}
+		return changed, changed > 0
+	})
+	return CatalogRefreshResult{Catalog: info, UpdatedModels: updated}, nil
+}
+
+func priceSourceOfCatalog(rule PriceRule, loaded *catalog) PriceSource {
+	def, _, known := lookupCatalog(loaded, rule.Pattern, "")
 	if !known {
-		if rule.InputPer1M == 0 && rule.OutputPer1M == 0 && rule.CacheReadPer1M == nil && rule.CacheWritePer1M == nil {
+		if rule.InputPer1M == 0 && rule.OutputPer1M == 0 && rule.CacheReadPer1M == nil && rule.CacheWritePer1M == nil && rule.LongContext == nil {
 			return PriceSourceNone
 		}
 		return PriceSourceCustom
@@ -75,6 +111,17 @@ func samePrice(a, b PriceRule) bool {
 	return a.InputPer1M == b.InputPer1M &&
 		a.OutputPer1M == b.OutputPer1M &&
 		sameOptionalPrice(a.CacheReadPer1M, b.CacheReadPer1M) &&
+		sameOptionalPrice(a.CacheWritePer1M, b.CacheWritePer1M) &&
+		sameLongContextPrice(a.LongContext, b.LongContext)
+}
+
+func sameLongContextPrice(a, b *LongContextPrice) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.ThresholdInputTokens == b.ThresholdInputTokens &&
+		a.InputPer1M == b.InputPer1M && a.OutputPer1M == b.OutputPer1M &&
+		sameOptionalPrice(a.CacheReadPer1M, b.CacheReadPer1M) &&
 		sameOptionalPrice(a.CacheWritePer1M, b.CacheWritePer1M)
 }
 
@@ -85,20 +132,17 @@ func sameOptionalPrice(a, b *float64) bool {
 	return *a == *b
 }
 
-// ModelSyncResult reports what one model-list reconciliation changed.
 type ModelSyncResult struct {
 	Received int `json:"received"`
 	Added    int `json:"added"`
 	Kept     int `json:"kept"`
 	Removed  int `json:"removed"`
-	// Priced counts the added rows the catalog had a published price for; the
-	// rest were seeded at zero and need an operator to fill them in.
-	Priced int `json:"priced"`
+	Priced   int `json:"priced"`
 }
 
 // SyncModels reconciles the price table with the models the proxy serves.
 //
-// New models arrive priced from the shipped catalog, or at zero when it has no
+// New models arrive priced from the runtime catalog, or at zero when it has no
 // entry for them. Models that disappeared are dropped. Rows that survive keep
 // whatever an administrator set, because a model list refresh must never quietly
 // undo an edit.
@@ -129,11 +173,12 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 	if len(wanted) == 0 {
 		// An empty list is far more likely to be a failed read than a proxy
 		// that serves nothing, and wiping the table would discard every edit.
-		return ModelSyncResult{}, invalidf("拒绝同步空的模型列表")
+		return ModelSyncResult{}, invalidf("模型列表为空，未执行同步")
 	}
 
 	result := ModelSyncResult{Received: len(wanted)}
 	now := s.Now()
+	loaded := builtinCatalog()
 	s.Update(func(state *State) {
 		existing := make(map[string]PriceRule, len(state.Prices))
 		var globs []PriceRule
@@ -151,7 +196,12 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 				result.Kept++
 				continue
 			}
-			seeded, known := CatalogDefault(model)
+			seeded, _, known := lookupCatalog(loaded, model, "")
+			if !known {
+				seeded = PriceRule{Pattern: model}
+			} else {
+				seeded.Pattern = model
+			}
 			seeded.UpdatedAt = now
 			rows = append(rows, seeded)
 			result.Added++
@@ -167,7 +217,6 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 	return result, nil
 }
 
-// Validate reports whether a price rule can be stored.
 func (r PriceRule) Validate() error {
 	pattern := strings.TrimSpace(r.Pattern)
 	if pattern == "" {
@@ -185,11 +234,23 @@ func (r PriceRule) Validate() error {
 	if r.CacheWritePer1M != nil && *r.CacheWritePer1M < 0 {
 		return invalidf("模型 %q：缓存写入单价不能为负数", pattern)
 	}
+	if tier := r.LongContext; tier != nil {
+		if tier.ThresholdInputTokens <= 0 {
+			return invalidf("模型 %q：长上下文阈值必须大于 0", pattern)
+		}
+		if tier.InputPer1M < 0 || tier.OutputPer1M < 0 {
+			return invalidf("模型 %q：长上下文 Token 单价不能为负数", pattern)
+		}
+		if tier.CacheReadPer1M != nil && *tier.CacheReadPer1M < 0 {
+			return invalidf("模型 %q：长上下文缓存读取单价不能为负数", pattern)
+		}
+		if tier.CacheWritePer1M != nil && *tier.CacheWritePer1M < 0 {
+			return invalidf("模型 %q：长上下文缓存写入单价不能为负数", pattern)
+		}
+	}
 	return nil
 }
 
-// UpsertPrice stores one row, replacing any existing row with the same pattern.
-// Matching is case-insensitive because model names are.
 func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
 	rule.Pattern = strings.TrimSpace(rule.Pattern)
 	if errValidate := rule.Validate(); errValidate != nil {
@@ -198,7 +259,7 @@ func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
 	rule.UpdatedAt = s.Now()
 
 	var errApply error
-	stored := UpdateResult(s, func(state *State) (PriceRule, bool) {
+	stored := updateResult(s, func(state *State) (PriceRule, bool) {
 		for i := range state.Prices {
 			if strings.EqualFold(strings.TrimSpace(state.Prices[i].Pattern), rule.Pattern) {
 				state.Prices[i] = rule
@@ -206,7 +267,7 @@ func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
 			}
 		}
 		if len(state.Prices) >= MaxPriceRules {
-			errApply = invalidf("模型价格表已满，最多允许 %d 条", MaxPriceRules)
+			errApply = invalidf("模型定价已达上限（%d 条）", MaxPriceRules)
 			return PriceRule{}, false
 		}
 		state.Prices = append(state.Prices, rule)
@@ -220,7 +281,7 @@ func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
 // patterns are matched in order.
 func (s *Store) ReplacePrices(rules []PriceRule) ([]PriceRule, error) {
 	if len(rules) > MaxPriceRules {
-		return nil, invalidf("模型价格表已满：最多允许 %d 条，实际收到 %d 条", MaxPriceRules, len(rules))
+		return nil, invalidf("模型定价最多允许 %d 条，实际收到 %d 条", MaxPriceRules, len(rules))
 	}
 	now := s.Now()
 	seen := make(map[string]struct{}, len(rules))
@@ -250,10 +311,17 @@ func (s *Store) ReplacePrices(rules []PriceRule) ([]PriceRule, error) {
 // the catalog does not know go back to zero. It reports how many rows changed.
 func (s *Store) ResetPrices() int {
 	now := s.Now()
-	return UpdateResult(s, func(state *State) (int, bool) {
+	loaded := builtinCatalog()
+	return updateResult(s, func(state *State) (int, bool) {
 		changed := 0
 		for i := range state.Prices {
-			def, _ := CatalogDefault(state.Prices[i].Pattern)
+			pattern := state.Prices[i].Pattern
+			def, _, known := lookupCatalog(loaded, pattern, "")
+			if !known {
+				def = PriceRule{Pattern: pattern}
+			} else {
+				def.Pattern = pattern
+			}
 			if samePrice(state.Prices[i], def) {
 				continue
 			}
@@ -265,17 +333,12 @@ func (s *Store) ResetPrices() int {
 	})
 }
 
-// PlanView is a plan plus the derived facts the admin UI shows next to it.
 type PlanView struct {
 	Plan
-	BoundKeys   int       `json:"bound_keys"`
-	WindowStart time.Time `json:"window_start"`
-	WindowEnd   time.Time `json:"window_end"`
+	BoundKeys int `json:"bound_keys"`
 }
 
-// PlanViews lists every plan with its current window and binding count.
 func (s *Store) PlanViews() []PlanView {
-	now := s.Now()
 	views := []PlanView{}
 	s.Read(func(state *State) {
 		bound := make(map[string]int, len(state.Plans))
@@ -285,23 +348,18 @@ func (s *Store) PlanViews() []PlanView {
 			}
 		}
 		for _, plan := range state.Plans {
-			start, end := plan.CycleWindow(now, s.locationLocked())
-			views = append(views, PlanView{
-				Plan:        plan,
-				BoundKeys:   bound[plan.ID],
-				WindowStart: start,
-				WindowEnd:   end,
-			})
+			views = append(views, PlanView{Plan: plan, BoundKeys: bound[plan.ID]})
 		}
 	})
 	return views
 }
 
-// CreatePlan stores a new subscription. An empty ID is derived from the name,
-// so the UI can offer a single "name" field.
-func (s *Store) CreatePlan(plan Plan) (Plan, error) {
+// CreatePlanWithBindings creates a plan and binds the selected currently
+// unbound keys in the same state transaction.
+func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error) {
 	plan.ID = strings.TrimSpace(plan.ID)
 	plan.Name = strings.TrimSpace(plan.Name)
+	scopes = normalizeScopes(scopes)
 	if len(plan.Name) > MaxNameLength {
 		return Plan{}, invalidf("订阅计划名称不能超过 %d 个字符", MaxNameLength)
 	}
@@ -313,7 +371,7 @@ func (s *Store) CreatePlan(plan Plan) (Plan, error) {
 	plan.UpdatedAt = now
 
 	var errApply error
-	stored := UpdateResult(s, func(state *State) (Plan, bool) {
+	stored := updateResult(s, func(state *State) (Plan, bool) {
 		if plan.ID == "" {
 			plan.ID = state.freePlanID(plan.Name)
 		}
@@ -332,14 +390,27 @@ func (s *Store) CreatePlan(plan Plan) (Plan, error) {
 		if plan.Name == "" {
 			plan.Name = plan.ID
 		}
+		for _, scope := range scopes {
+			key := state.Keys[scope]
+			if key == nil {
+				errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+				return Plan{}, false
+			}
+			if key.PlanID != "" {
+				errApply = conflictf("API Key %q 已绑定其他订阅计划", scope)
+				return Plan{}, false
+			}
+		}
 		state.Plans = append(state.Plans, plan)
+		for _, scope := range scopes {
+			state.Keys[scope].PlanID = plan.ID
+			state.Keys[scope].Cycle = Cycle{}
+		}
 		return plan, true
 	})
 	return stored, errApply
 }
 
-// PlanPatch is a partial plan update. A nil field is left untouched, which lets
-// the UI edit one attribute without resending the whole record.
 type PlanPatch struct {
 	ID        string   `json:"id"`
 	Name      *string  `json:"name,omitempty"`
@@ -347,20 +418,17 @@ type PlanPatch struct {
 	Period    *Period  `json:"period,omitempty"`
 }
 
-// UpdatePlan applies a partial update.
-//
-// Changing the period moves the window boundaries; bound keys pick that up on
-// their next request, when rollCycle notices the mismatch and opens a fresh
-// window. That is deliberate: a plan edit takes effect immediately rather than
-// at the next natural reset.
-func (s *Store) UpdatePlan(patch PlanPatch) (Plan, error) {
+// UpdatePlanWithBindings applies a plan edit and, when scopes is non-nil,
+// replaces the plan's complete key set. Selected keys may be unbound or already
+// on this plan; keys owned by another plan are rejected atomically.
+func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan, error) {
 	patch.ID = strings.TrimSpace(patch.ID)
 	if patch.ID == "" {
 		return Plan{}, invalidf("订阅计划 ID 不能为空")
 	}
 
 	var errApply error
-	stored := UpdateResult(s, func(state *State) (Plan, bool) {
+	stored := updateResult(s, func(state *State) (Plan, bool) {
 		for i := range state.Plans {
 			if state.Plans[i].ID != patch.ID {
 				continue
@@ -384,6 +452,50 @@ func (s *Store) UpdatePlan(patch PlanPatch) (Plan, error) {
 				errApply = errValidate
 				return Plan{}, false
 			}
+			var selected map[string]struct{}
+			if scopes != nil {
+				normalized := normalizeScopes(*scopes)
+				selected = make(map[string]struct{}, len(normalized))
+				for _, scope := range normalized {
+					key := state.Keys[scope]
+					if key == nil {
+						errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+						return Plan{}, false
+					}
+					if key.PlanID != "" && key.PlanID != patch.ID {
+						errApply = conflictf("API Key %q 已绑定其他订阅计划", scope)
+						return Plan{}, false
+					}
+					selected[scope] = struct{}{}
+				}
+			}
+
+			periodChanged := updated.Period != state.Plans[i].Period
+			oldPlan := state.Plans[i]
+			if periodChanged || scopes != nil {
+				for scope, key := range state.Keys {
+					if key == nil {
+						continue
+					}
+					_, shouldBind := selected[scope]
+					if key.PlanID == patch.ID && (periodChanged || !shouldBind) {
+						archiveCycle(key, oldPlan.AmountUSD, patch.ID)
+						key.Cycle = Cycle{}
+					}
+					if scopes != nil && key.PlanID == patch.ID && !shouldBind {
+						key.PlanID = ""
+					}
+				}
+			}
+			if scopes != nil {
+				for scope := range selected {
+					key := state.Keys[scope]
+					if key.PlanID == "" {
+						key.PlanID = patch.ID
+						key.Cycle = Cycle{}
+					}
+				}
+			}
 			updated.UpdatedAt = s.Now()
 			state.Plans[i] = updated
 			return updated, true
@@ -394,8 +506,6 @@ func (s *Store) UpdatePlan(patch PlanPatch) (Plan, error) {
 	return stored, errApply
 }
 
-// DeletePlan removes a plan and unbinds every key that used it, reporting how
-// many keys were released. Their spend is retained in the trend history.
 func (s *Store) DeletePlan(id string) (int, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -403,7 +513,7 @@ func (s *Store) DeletePlan(id string) (int, error) {
 	}
 
 	var errApply error
-	unbound := UpdateResult(s, func(state *State) (int, bool) {
+	unbound := updateResult(s, func(state *State) (int, bool) {
 		index := -1
 		for i := range state.Plans {
 			if state.Plans[i].ID == id {
@@ -461,8 +571,6 @@ func (s *State) freePlanID(name string) string {
 	}
 }
 
-// slugify reduces a display name to a lowercase ASCII identifier. Characters
-// outside [a-z0-9] collapse into single hyphens.
 func slugify(value string) string {
 	var builder strings.Builder
 	lastHyphen := false

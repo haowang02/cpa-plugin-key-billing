@@ -9,35 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  catalog:
-    name: Generate price catalog
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-
-      - name: Generate price catalog
-        run: go run ./cmd/genprices -out internal/billing/catalog_data.json
-
-      - name: Upload price catalog
-        uses: actions/upload-artifact@v7
-        with:
-          name: catalog-data
-          path: internal/billing/catalog_data.json
-          if-no-files-found: error
-          retention-days: 1
-
   check:
     name: Verify tagged source
-    needs: catalog
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -50,12 +23,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-
-      - name: Download price catalog
-        uses: actions/download-artifact@v7
-        with:
-          name: catalog-data
-          path: internal/billing
 
       - name: Check formatting
         run: |
@@ -86,7 +53,6 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     needs:
-      - catalog
       - check
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -126,12 +92,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-
-      - name: Download price catalog
-        uses: actions/download-artifact@v7
-        with:
-          name: catalog-data
-          path: internal/billing
 
       - name: Verify native runner architecture
         run: |

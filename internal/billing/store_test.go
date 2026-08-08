@@ -198,6 +198,44 @@ func TestStoreRejectsNewerStateVersion(t *testing.T) {
 	}
 }
 
+func TestStoreMigratesCalendarCyclesToInactiveKeyCycles(t *testing.T) {
+	cfg := testConfig(t)
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	legacy := &State{
+		Version: 2,
+		Plans:   []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}},
+		Keys: map[string]*KeyState{
+			"scope-a": {
+				Scope: "scope-a", PlanID: "p",
+				Cycle:    Cycle{PlanID: "p", StartAt: start, EndAt: start.Add(24 * time.Hour), SpentUSD: 3, Requests: 2},
+				Lifetime: Totals{CostUSD: 3, Requests: 2},
+			},
+		},
+	}
+	raw, errMarshal := json.Marshal(legacy)
+	if errMarshal != nil {
+		t.Fatal(errMarshal)
+	}
+	if errWrite := os.WriteFile(cfg.StateFile, raw, 0o600); errWrite != nil {
+		t.Fatal(errWrite)
+	}
+
+	store := NewStore()
+	if errConfigure := store.Configure(cfg); errConfigure != nil {
+		t.Fatalf("Configure error = %v", errConfigure)
+	}
+	t.Cleanup(store.Close)
+	store.Read(func(state *State) {
+		key := state.Keys["scope-a"]
+		if state.Version != StateVersion || key == nil || key.PlanID != "p" || key.Cycle != (Cycle{}) || key.Lifetime.CostUSD != 3 {
+			t.Fatalf("migrated state = %+v", state)
+		}
+		if len(key.RecentCycles) != 1 || key.RecentCycles[0].SpentUSD != 3 {
+			t.Fatalf("recent cycles = %+v", key.RecentCycles)
+		}
+	})
+}
+
 func TestStoreRejectsCorruptStateFile(t *testing.T) {
 	cfg := testConfig(t)
 	if errWrite := os.WriteFile(cfg.StateFile, []byte("{not json"), 0o600); errWrite != nil {
@@ -208,13 +246,9 @@ func TestStoreRejectsCorruptStateFile(t *testing.T) {
 	}
 }
 
-// TestStoreRunsNoBackgroundGoroutine is a regression test for a production
-// crash, not a style preference. This package is linked into a c-shared library
-// that CLIProxyAPI dlopens, so it carries a second Go runtime inside the
-// proxy's process. While that runtime only executes inside host calls the two
-// coexist; once it kept its own timer alive, the proxy died with "fatal error:
-// bad flushGen" in runtime.(*mcache).prepareForSweep. The store must stay inert
-// when nobody is calling it.
+// A background flusher previously crashed the proxy's two-runtime c-shared
+// process with "fatal error: bad flushGen". The plugin must stay inert between
+// host calls.
 func TestStoreRunsNoBackgroundGoroutine(t *testing.T) {
 	before := runtime.NumGoroutine()
 
@@ -225,7 +259,6 @@ func TestStoreRunsNoBackgroundGoroutine(t *testing.T) {
 	t.Cleanup(store.Close)
 	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a"} })
 
-	// Give anything that was started a chance to be scheduled and counted.
 	time.Sleep(50 * time.Millisecond)
 
 	if after := runtime.NumGoroutine(); after > before {
@@ -233,20 +266,16 @@ func TestStoreRunsNoBackgroundGoroutine(t *testing.T) {
 	}
 }
 
-// TestStoreFlushIfDueDebouncesWrites covers the schedule that replaced the
-// background flusher: the first call writes, a second inside the window does
-// not, and the window reopens on its own.
 func TestStoreFlushIfDueDebouncesWrites(t *testing.T) {
 	cfg := testConfig(t)
 	clock := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := NewStore()
-	store.SetNow(func() time.Time { return clock })
+	store.now = func() time.Time { return clock }
 	if errConfigure := store.Configure(cfg); errConfigure != nil {
 		t.Fatalf("Configure error = %v", errConfigure)
 	}
 	t.Cleanup(store.Close)
 
-	// Nothing to write yet.
 	store.FlushIfDue()
 	if _, errStat := os.Stat(cfg.StateFile); !os.IsNotExist(errStat) {
 		t.Fatalf("a clean store wrote its document: %v", errStat)
@@ -258,7 +287,6 @@ func TestStoreFlushIfDueDebouncesWrites(t *testing.T) {
 		t.Fatalf("the first due flush did not write: %v", errStat)
 	}
 
-	// A change inside the debounce window stays in memory.
 	clock = clock.Add(DefaultFlushInterval - time.Second)
 	store.Update(func(state *State) { state.Keys["scope-a"].Lifetime.CostUSD = 2 })
 	store.FlushIfDue()
@@ -266,7 +294,6 @@ func TestStoreFlushIfDueDebouncesWrites(t *testing.T) {
 		t.Fatal("a write inside the debounce window was not held back")
 	}
 
-	// And is written once the window reopens.
 	clock = clock.Add(2 * time.Second)
 	store.FlushIfDue()
 	if store.Status("p", "v").PendingWrite {
@@ -285,9 +312,6 @@ func TestStoreFlushIfDueDebouncesWrites(t *testing.T) {
 	}
 }
 
-// TestStoreKeepsPersistingAfterARejectedReconfigure covers the failure mode
-// where a bad config edit would quietly strand the store: the old path must
-// stay live and keep receiving writes.
 func TestStoreKeepsPersistingAfterARejectedReconfigure(t *testing.T) {
 	cfg := testConfig(t)
 	store := NewStore()

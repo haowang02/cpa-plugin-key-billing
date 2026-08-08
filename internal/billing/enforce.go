@@ -5,22 +5,19 @@ import (
 	"time"
 )
 
-// DenyReason explains why a request was refused.
 type DenyReason string
 
-// DenyQuotaExhausted means the key's subscription has no budget left in the
-// current cycle.
 const DenyQuotaExhausted DenyReason = "quota_exhausted"
 
-// Decision is the outcome of an authorization check.
 type Decision struct {
-	Allowed  bool
-	Reason   DenyReason
-	PlanID   string
-	PlanName string
-	LimitUSD float64
-	SpentUSD float64
-	ResetAt  time.Time
+	Allowed      bool
+	Reason       DenyReason
+	PlanID       string
+	PlanName     string
+	LimitUSD     float64
+	SpentUSD     float64
+	CycleStartAt time.Time
+	ResetAt      time.Time
 }
 
 // Authorize reports whether a downstream key may issue a request.
@@ -31,8 +28,9 @@ type Decision struct {
 // rejecting traffic because of its own missing state would be worse than one
 // that briefly under-charges.
 //
-// The check also advances the key's cycle, so a window that expired while the
-// key was idle is reset here rather than on the next billed request.
+// The first admitted use starts a key-relative period. An elapsed period is
+// archived and a fresh one starts at this use; idle time never consumes a new
+// period.
 func (s *Store) Authorize(scope string, at time.Time) Decision {
 	allowed := Decision{Allowed: true}
 	if s == nil {
@@ -47,7 +45,7 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 	}
 	s.authChecks.Add(1)
 
-	decision := UpdateResult(s, func(state *State) (Decision, bool) {
+	decision := updateResult(s, func(state *State) (Decision, bool) {
 		key := state.Keys[scope]
 		if key == nil || key.PlanID == "" {
 			return allowed, false
@@ -60,19 +58,22 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 			key.Cycle = Cycle{}
 			return allowed, true
 		}
-		changed := rollCycle(key, plan, at, s.locationLocked())
-		if key.Cycle.SpentUSD < plan.AmountUSD {
-			return allowed, changed
+		changed := activateCycle(key, plan, at)
+		current := Decision{
+			Allowed:      true,
+			PlanID:       plan.ID,
+			PlanName:     plan.Name,
+			LimitUSD:     plan.AmountUSD,
+			SpentUSD:     key.Cycle.SpentUSD,
+			CycleStartAt: key.Cycle.StartAt,
+			ResetAt:      key.Cycle.EndAt,
 		}
-		return Decision{
-			Allowed:  false,
-			Reason:   DenyQuotaExhausted,
-			PlanID:   plan.ID,
-			PlanName: plan.Name,
-			LimitUSD: plan.AmountUSD,
-			SpentUSD: key.Cycle.SpentUSD,
-			ResetAt:  key.Cycle.EndAt,
-		}, changed
+		if key.Cycle.SpentUSD < plan.AmountUSD {
+			return current, changed
+		}
+		current.Allowed = false
+		current.Reason = DenyQuotaExhausted
+		return current, changed
 	})
 	if !decision.Allowed {
 		s.authBlocked.Add(1)

@@ -8,7 +8,7 @@ import (
 func newEnforceStore(t *testing.T, now time.Time) *Store {
 	t.Helper()
 	store := NewStore()
-	store.SetNow(func() time.Time { return now })
+	store.now = func() time.Time { return now }
 	if errConfigure := store.Configure(testConfig(t)); errConfigure != nil {
 		t.Fatalf("Configure error = %v", errConfigure)
 	}
@@ -128,6 +128,28 @@ func TestAuthorizeBlocksAtExactlyTheLimit(t *testing.T) {
 	}
 }
 
+func TestAuthorizeNeverResetPlanHasNoAutomaticReset(t *testing.T) {
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	store := newEnforceStore(t, now)
+	store.Update(func(state *State) {
+		state.Plans = []Plan{{ID: "once", Name: "One-time", AmountUSD: 5, Period: Period{Kind: PeriodNever}}}
+		state.Keys["s"] = &KeyState{Scope: "s", PlanID: "once", Cycle: Cycle{
+			PlanID: "once", StartAt: now.Add(-365 * 24 * time.Hour), SpentUSD: 5,
+		}}
+	})
+
+	decision := store.Authorize("s", now.Add(10*365*24*time.Hour))
+	if decision.Allowed || !decision.ResetAt.IsZero() {
+		t.Fatalf("decision = %+v, want blocked forever with no reset time", decision)
+	}
+	if _, err := store.ResetCycles([]string{"s"}); err != nil {
+		t.Fatalf("ResetCycles error = %v", err)
+	}
+	if !store.Authorize("s", now.Add(10*365*24*time.Hour)).Allowed {
+		t.Fatal("manual reset did not restore the one-time budget")
+	}
+}
+
 // TestAuthorizeReenablesKeyAfterCycleReset is the other half of the feature:
 // the block must lift on its own when the window rolls.
 func TestAuthorizeReenablesKeyAfterCycleReset(t *testing.T) {
@@ -192,8 +214,8 @@ func TestAuthorizeRollsIdleCycle(t *testing.T) {
 	}
 	store.Read(func(state *State) {
 		key := state.Keys["s"]
-		if !key.Cycle.StartAt.Equal(time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)) {
-			t.Fatalf("Cycle.StartAt = %s, want today", key.Cycle.StartAt)
+		if !key.Cycle.StartAt.Equal(time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)) {
+			t.Fatalf("Cycle.StartAt = %s, want next use time", key.Cycle.StartAt)
 		}
 	})
 }

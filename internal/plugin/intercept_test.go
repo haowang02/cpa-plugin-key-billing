@@ -12,10 +12,10 @@ import (
 
 const testAPIKey = "sk-test-key-0001"
 
-func exhaustedApp(t *testing.T, now time.Time) *App {
+func exhaustedApp(t *testing.T, resetAfter time.Duration) *App {
 	t.Helper()
 	app := newAppWithPrice(t, true)
-	app.store.SetNow(func() time.Time { return now })
+	now := app.store.Now()
 	app.store.Update(func(state *billing.State) {
 		state.Plans = []billing.Plan{{
 			ID: "daily-5", Name: "Daily 5", AmountUSD: 5,
@@ -25,8 +25,8 @@ func exhaustedApp(t *testing.T, now time.Time) *App {
 			Scope: billing.CallerScope(testAPIKey), PlanID: "daily-5",
 			Cycle: billing.Cycle{
 				PlanID: "daily-5", SpentUSD: 5,
-				StartAt: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC),
-				EndAt:   time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
+				StartAt: now.Add(-12 * time.Hour),
+				EndAt:   now.Add(resetAfter),
 			},
 		}
 	})
@@ -36,7 +36,7 @@ func exhaustedApp(t *testing.T, now time.Time) *App {
 func callIntercept(t *testing.T, app *App, sourceFormat string) RequestInterceptResponse {
 	t.Helper()
 	raw, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{
-		RequestID: "req-1", SourceFormat: sourceFormat, Model: "gpt-5.5",
+		RequestID: "req-1", SourceFormat: sourceFormat,
 		Metadata: map[string]any{MetadataCallerScope: billing.CallerScope(testAPIKey)},
 	}))
 	if err != nil {
@@ -48,7 +48,7 @@ func callIntercept(t *testing.T, app *App, sourceFormat string) RequestIntercept
 }
 
 func TestInterceptTerminatesAnExhaustedKey(t *testing.T) {
-	app := exhaustedApp(t, time.Date(2026, 8, 3, 23, 30, 0, 0, time.UTC))
+	app := exhaustedApp(t, 30*time.Minute)
 	resp := callIntercept(t, app, "openai")
 	if !resp.Terminate || resp.StatusCode != QuotaExhaustedStatus {
 		t.Fatalf("response = %+v, want quota rejection", resp)
@@ -59,8 +59,24 @@ func TestInterceptTerminatesAnExhaustedKey(t *testing.T) {
 	}
 }
 
+func TestInterceptNeverResetPlanHasNoRetryHint(t *testing.T) {
+	app := exhaustedApp(t, 30*time.Minute)
+	app.store.Update(func(state *billing.State) {
+		state.Plans[0].Period = billing.Period{Kind: billing.PeriodNever}
+		state.Keys[billing.CallerScope(testAPIKey)].Cycle.EndAt = time.Time{}
+	})
+
+	resp := callIntercept(t, app, "openai")
+	if !resp.Terminate || resp.ResponseHeaders.Get("Retry-After") != "" {
+		t.Fatalf("response = %+v, want a rejection without Retry-After", resp)
+	}
+	if strings.Contains(string(resp.ResponseBody), "重置") {
+		t.Fatalf("body = %s, should not promise an automatic reset", resp.ResponseBody)
+	}
+}
+
 func TestInterceptUsesTheClientErrorShape(t *testing.T) {
-	app := exhaustedApp(t, time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
+	app := exhaustedApp(t, 12*time.Hour)
 	for _, test := range []struct {
 		format string
 		marker string

@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
 	"cpa-key-billing/internal/billing"
 )
 
-// callManagement issues one Management API call and returns the plugin's HTTP
-// response, decoding the RPC envelope on the way.
 func callManagement(t *testing.T, app *App, method, suffix string, query url.Values, body any) ManagementResponse {
 	t.Helper()
 	req := ManagementRequest{Method: method, Path: managementBase + suffix, Query: query}
@@ -31,7 +30,6 @@ func callManagement(t *testing.T, app *App, method, suffix string, query url.Val
 	return resp
 }
 
-// callOK asserts the response status and decodes its JSON body into target.
 func callOK(t *testing.T, app *App, method, suffix string, query url.Values, body any, wantStatus int, target any) {
 	t.Helper()
 	resp := callManagement(t, app, method, suffix, query, body)
@@ -65,7 +63,6 @@ func TestEveryDeclaredRouteIsDispatchable(t *testing.T) {
 func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 	app := newConfiguredApp(t)
 
-	// The table is materialized from the proxy's model list.
 	var synced billing.ModelSyncResult
 	callOK(t, app, http.MethodPost, routePricesSync, nil, map[string]any{
 		"models": []string{"gpt-4o", "house-model-x"},
@@ -86,7 +83,6 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("row = %+v, want an unpriced row", table.Models[1])
 	}
 
-	// Editing one row, as the price form does.
 	callOK(t, app, http.MethodPut, routePrices, nil, map[string]any{
 		"pattern":           "house-model-x",
 		"input_per_1m":      1.25,
@@ -98,7 +94,6 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("row = %+v, want the edit recorded as custom", table.Models[1])
 	}
 
-	// Restoring defaults keeps the rows and drops the edits.
 	var reset struct {
 		Restored int `json:"restored"`
 	}
@@ -111,7 +106,6 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("models = %+v, want the rows kept and the edit dropped", table.Models)
 	}
 
-	// An empty model list is refused rather than emptying the table.
 	if resp := callManagement(t, app, http.MethodPost, routePricesSync, nil, map[string]any{"models": []string{}}); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body=%s)", resp.StatusCode, resp.Body)
 	}
@@ -166,13 +160,108 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 		Plans []billing.PlanView `json:"plans"`
 	}
 	callOK(t, app, http.MethodGet, routePlans, nil, nil, http.StatusOK, &listed)
-	if len(listed.Plans) != 1 || listed.Plans[0].WindowEnd.IsZero() {
+	if len(listed.Plans) != 1 || listed.Plans[0].BoundKeys != 0 {
 		t.Fatalf("plans = %+v", listed.Plans)
 	}
 
 	callOK(t, app, http.MethodDelete, routePlans, url.Values{"id": {"team-monthly"}}, nil, http.StatusOK, nil)
 	if resp := callManagement(t, app, http.MethodDelete, routePlans, url.Values{"id": {"team-monthly"}}, nil); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("second delete status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestPlanBindingsRoundTripThroughTheManagementAPI(t *testing.T) {
+	app := newConfiguredApp(t)
+	const firstKey = "sk-plan-first-000001"
+	const secondKey = "sk-plan-second-00002"
+	firstScope := billing.CallerScope(firstKey)
+	secondScope := billing.CallerScope(secondKey)
+	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{firstKey, secondKey}}, http.StatusOK, nil)
+
+	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
+		"id": "team", "name": "Team", "amount_usd": 10,
+		"period": map[string]any{"kind": "never"}, "scopes": []string{firstScope},
+	}, http.StatusCreated, nil)
+	var directory billing.KeyDirectory
+	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
+	if len(directory.Keys) != 2 {
+		t.Fatalf("keys = %+v", directory.Keys)
+	}
+	byScope := map[string]billing.KeyView{}
+	for _, key := range directory.Keys {
+		byScope[key.Scope] = key
+	}
+	if byScope[firstScope].PlanID != "team" || !byScope[firstScope].CycleStartAt.IsZero() || byScope[secondScope].PlanID != "" {
+		t.Fatalf("keys after create = %+v", byScope)
+	}
+
+	callOK(t, app, http.MethodPatch, routePlans, nil, map[string]any{
+		"id": "team", "scopes": []string{secondScope},
+	}, http.StatusOK, nil)
+	directory = billing.KeyDirectory{}
+	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
+	byScope = map[string]billing.KeyView{}
+	for _, key := range directory.Keys {
+		byScope[key.Scope] = key
+	}
+	if byScope[firstScope].PlanID != "" || byScope[secondScope].PlanID != "team" || !byScope[secondScope].CycleStartAt.IsZero() {
+		t.Fatalf("keys after edit = %+v", byScope)
+	}
+}
+
+func TestLogClearThroughTheManagementAPI(t *testing.T) {
+	app := newConfiguredApp(t)
+	now := app.store.Now()
+	app.store.Update(func(state *billing.State) {
+		state.Log = []billing.LogEntry{{Scope: "scope-a", At: now}}
+	})
+
+	var cleared struct {
+		Cleared int `json:"cleared"`
+	}
+	callOK(t, app, http.MethodDelete, routeLogs, nil, nil, http.StatusOK, &cleared)
+	if cleared.Cleared != 1 || len(app.store.Logs(0).Entries) != 0 {
+		t.Fatalf("cleared = %+v logs=%+v", cleared, app.store.Logs(0))
+	}
+}
+
+func TestClearAllDataThroughTheManagementAPI(t *testing.T) {
+	app := newConfiguredApp(t)
+	now := app.store.Now()
+	app.store.Update(func(state *billing.State) {
+		state.Prices = []billing.PriceRule{{Pattern: "model", InputPer1M: 1}}
+		state.Plans = []billing.Plan{{ID: "plan", Name: "计划", AmountUSD: 2, Period: billing.Period{Kind: billing.PeriodNever}}}
+		state.Keys["scope"] = &billing.KeyState{Scope: "scope", PlanID: "plan", Lifetime: billing.Totals{Requests: 3}}
+		state.Log = []billing.LogEntry{{Scope: "scope", At: now}}
+		state.LastSyncAt = now
+	})
+	app.store.BeginRequest("pending", billing.PendingRequest{Scope: "scope"})
+	if errFlush := app.store.Flush(); errFlush != nil {
+		t.Fatal(errFlush)
+	}
+	path := app.store.Status(PluginName, Version).StateFile
+	if _, errStat := os.Stat(path); errStat != nil {
+		t.Fatalf("state file before clear: %v", errStat)
+	}
+
+	var result struct {
+		Cleared bool `json:"cleared"`
+	}
+	callOK(t, app, http.MethodDelete, routeData, nil, nil, http.StatusOK, &result)
+	if !result.Cleared {
+		t.Fatalf("clear result = %+v", result)
+	}
+	app.store.Read(func(state *billing.State) {
+		if state.Version != billing.StateVersion || len(state.Prices) != 0 || len(state.Plans) != 0 || len(state.Keys) != 0 || len(state.Log) != 0 || !state.LastSyncAt.IsZero() {
+			t.Fatalf("state after clear = %+v", state)
+		}
+	})
+	status := app.store.Status(PluginName, Version)
+	if status.Counters.PendingRequests != 0 || status.PendingWrite || !status.LastFlushedAt.IsZero() || status.LastError != "" {
+		t.Fatalf("status after clear = %+v", status)
+	}
+	if _, errStat := os.Stat(path); !os.IsNotExist(errStat) {
+		t.Fatalf("state file still exists after clear: %v", errStat)
 	}
 }
 
@@ -248,9 +337,6 @@ func TestSyncAcceptsTheCPAKeyListVerbatim(t *testing.T) {
 	}
 }
 
-// TestAdminAPIDrivesEnforcementEndToEnd walks the whole operator workflow and
-// checks that the request path agrees with it: sync, price, plan, bind, spend,
-// block, reset.
 func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 	app := newConfiguredApp(t)
 	const apiKey = "sk-billing-test-000001"
@@ -272,10 +358,16 @@ func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 
 	// 1M output tokens at 2.00/1M is 2.00 USD against a 0.001 USD budget.
 	app.store.RecordUsage(billing.UsageEvent{
-		Scope:     scope,
-		Model:     "gpt-5.5",
-		Semantics: billing.SemanticsSubset,
-		Tokens:    billing.TokenUsage{OutputTokens: 1_000_000},
+		Scope: scope,
+		Records: []billing.UsageRecord{{
+			Provider: "codex", ExecutorType: "CodexExecutor", Model: "gpt-5.5", Generate: true,
+			Breakdown: billing.TokenBreakdown{
+				SchemaVersion: billing.TokenAccountingSchemaVersion,
+				Quality:       billing.TokenAccountingComplete,
+				TotalTokens:   1_000_000,
+				Output:        billing.TokenOutputBreakdown{TotalTokens: 1_000_000, NonReasoningTokens: 1_000_000},
+			},
+		}},
 	})
 	decision := app.store.Authorize(scope, app.store.Now())
 	if decision.Allowed || decision.Reason != billing.DenyQuotaExhausted {
@@ -306,15 +398,12 @@ func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 		t.Fatal("the key is still blocked after a manual reset")
 	}
 
-	// Unbinding leaves the statistics but removes the budget.
 	callOK(t, app, http.MethodPost, routeKeysUnbind, nil, map[string]any{"scope": scope}, http.StatusOK, nil)
 	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
 	if !directory.Keys[0].Unlimited || directory.Keys[0].Lifetime.CostUSD != 2 {
 		t.Fatalf("view = %+v, want an unlimited key that kept its history", directory.Keys[0])
 	}
 
-	// Forgetting it removes every trace, which is what deleting the key in CPA
-	// must ultimately do.
 	callOK(t, app, http.MethodDelete, routeKeys, url.Values{"scope": {scope}}, nil, http.StatusOK, nil)
 	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
 	if len(directory.Keys) != 0 {
@@ -322,18 +411,22 @@ func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 	}
 }
 
-// TestSyncPrunesKeysDeletedFromCPA is the requirement that a key removed from
-// the proxy leaves nothing behind in the plugin.
 func TestSyncPrunesKeysDeletedFromCPA(t *testing.T) {
 	app := newConfiguredApp(t)
 	const kept, removed = "sk-kept-00000000001", "sk-removed-00000001"
 
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{kept, removed}}, http.StatusOK, nil)
 	app.store.RecordUsage(billing.UsageEvent{
-		Scope:     billing.CallerScope(removed),
-		Model:     "gpt-5.5",
-		Semantics: billing.SemanticsSubset,
-		Tokens:    billing.TokenUsage{OutputTokens: 1000},
+		Scope: billing.CallerScope(removed),
+		Records: []billing.UsageRecord{{
+			Provider: "codex", ExecutorType: "CodexExecutor", Model: "gpt-5.5", Generate: true,
+			Breakdown: billing.TokenBreakdown{
+				SchemaVersion: billing.TokenAccountingSchemaVersion,
+				Quality:       billing.TokenAccountingComplete,
+				TotalTokens:   1000,
+				Output:        billing.TokenOutputBreakdown{TotalTokens: 1000, NonReasoningTokens: 1000},
+			},
+		}},
 	})
 
 	var result billing.SyncResult

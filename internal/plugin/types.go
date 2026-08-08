@@ -13,17 +13,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"time"
+
+	"cpa-key-billing/internal/billing"
 )
 
 const (
-	// ABIVersion is the native C ABI shape understood by the host loader.
-	ABIVersion uint32 = 1
-	// SchemaVersion is the RPC JSON contract this plugin speaks. Version 2 is
-	// required because request termination (RequestInterceptResponse.Terminate)
-	// was introduced there.
-	SchemaVersion uint32 = 2
-	// MinHostSchemaVersion is the oldest host contract this plugin can run on.
-	MinHostSchemaVersion uint32 = 2
+	ABIVersion           uint32 = 1
+	SchemaVersion        uint32 = 3
+	MinHostSchemaVersion uint32 = 3
 )
 
 // Plugin identity. PluginID doubles as the dynamic library file name, the
@@ -31,15 +29,12 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "0.1.1"
+	Version    = "0.1.3"
 
-	// MenuLabel is the sidebar entry rendered by the CPA management panel.
-	// Deliberately avoids 配额/额度, which the panel already uses for upstream
-	// account quota.
 	MenuLabel       = "API Key 计费"
-	MenuDescription = "管理下游 API Key 的模型计费、订阅限额和用量统计"
+	MenuDescription = "管理下游 API Key 的计费、订阅额度和用量"
 
-	GitHubRepository = "https://github.com/router-for-me/CLIProxyAPI"
+	GitHubRepository = "https://github.com/haowang02/cpa-plugin-key-billing"
 )
 
 const (
@@ -50,16 +45,9 @@ const (
 	MethodRequestInterceptAfter  = "request.intercept_after"
 	MethodRequestComplete        = "request.complete"
 
-	MethodResponseInterceptAfter       = "response.intercept_after"
-	MethodResponseInterceptStreamChunk = "response.intercept_stream_chunk"
-
 	MethodManagementRegister = "management.register"
 	MethodManagementHandle   = "management.handle"
 )
-
-// StreamChunkHeaderInitIndex marks the header-only initialization call the host
-// makes before any stream payload arrives.
-const StreamChunkHeaderInitIndex = -1
 
 // Metadata keys the host places in Options.Metadata and forwards to interceptors.
 const (
@@ -67,8 +55,7 @@ const (
 	// in hex. It is the only downstream-key identifier available at interception
 	// time, and it covers keys presented via query string as well as headers.
 	MetadataCallerScope = "caller_scope"
-	// MetadataSource marks requests the host issues on behalf of a plugin.
-	MetadataSource = "source"
+	MetadataSource      = "source"
 	// SourcePluginHostModelCallback is the MetadataSource value for nested
 	// plugin-initiated executions, which must not be billed again.
 	SourcePluginHostModelCallback = "plugin_host_model_callback"
@@ -115,13 +102,8 @@ type ConfigField struct {
 
 // Capabilities declares the host integration points this plugin implements.
 //
-// Note the absence of usage_plugin, which would be the obvious way to collect
-// token counts. The host dispatches usage records asynchronously while still
-// carrying the originating request's context, and native plugin clients refuse
-// calls on a canceled context, so a native usage plugin receives nothing for
-// HTTP-served requests. This plugin therefore reads tokens off the response
-// itself, on the synchronous interception path, and commits them from the
-// terminal lifecycle event — which the host does detach from cancellation.
+// Canonical usage is delivered synchronously with the terminal lifecycle event;
+// this plugin never subscribes to the asynchronous usage event bus.
 type Capabilities struct {
 	RequestInterceptor     bool `json:"request_interceptor"`
 	RequestLifecyclePlugin bool `json:"request_lifecycle_plugin"`
@@ -131,11 +113,9 @@ type Capabilities struct {
 }
 
 type RequestInterceptRequest struct {
-	RequestID      string         `json:"RequestID"`
-	SourceFormat   string         `json:"SourceFormat"`
-	Model          string         `json:"Model"`
-	RequestedModel string         `json:"RequestedModel"`
-	Metadata       map[string]any `json:"Metadata"`
+	RequestID    string         `json:"RequestID"`
+	SourceFormat string         `json:"SourceFormat"`
+	Metadata     map[string]any `json:"Metadata"`
 }
 
 type RequestInterceptResponse struct {
@@ -156,19 +136,42 @@ const (
 // delivers exactly one per request and detaches it from request cancellation,
 // which is what makes it a safe commit point for billing.
 type RequestCompletion struct {
-	RequestID string                   `json:"RequestID"`
-	Outcome   RequestCompletionOutcome `json:"Outcome"`
+	RequestID    string                   `json:"RequestID"`
+	Outcome      RequestCompletionOutcome `json:"Outcome"`
+	UsageRecords []RequestUsageRecord     `json:"UsageRecords"`
 }
 
-type ResponseInterceptRequest struct {
-	RequestID string `json:"RequestID"`
-	Body      []byte `json:"Body"`
+type RequestUsageRecord struct {
+	Provider     string                `json:"Provider"`
+	ExecutorType string                `json:"ExecutorType"`
+	Model        string                `json:"Model"`
+	Alias        string                `json:"Alias"`
+	Generate     bool                  `json:"Generate"`
+	Failed       bool                  `json:"Failed"`
+	RequestedAt  time.Time             `json:"RequestedAt"`
+	Breakdown    RequestTokenBreakdown `json:"Breakdown"`
 }
 
-type StreamChunkInterceptRequest struct {
-	RequestID  string `json:"RequestID"`
-	Body       []byte `json:"Body"`
-	ChunkIndex int    `json:"ChunkIndex"`
+type RequestTokenBreakdown struct {
+	SchemaVersion      int                            `json:"SchemaVersion"`
+	Quality            billing.TokenAccountingQuality `json:"Quality"`
+	TotalTokens        int64                          `json:"TotalTokens"`
+	Input              RequestTokenInputBreakdown     `json:"Input"`
+	Output             RequestTokenOutputBreakdown    `json:"Output"`
+	UnclassifiedTokens int64                          `json:"UnclassifiedTokens"`
+}
+
+type RequestTokenInputBreakdown struct {
+	TotalTokens      int64 `json:"TotalTokens"`
+	UncachedTokens   int64 `json:"UncachedTokens"`
+	CacheReadTokens  int64 `json:"CacheReadTokens"`
+	CacheWriteTokens int64 `json:"CacheWriteTokens"`
+}
+
+type RequestTokenOutputBreakdown struct {
+	TotalTokens        int64 `json:"TotalTokens"`
+	NonReasoningTokens int64 `json:"NonReasoningTokens"`
+	ReasoningTokens    int64 `json:"ReasoningTokens"`
 }
 
 type ManagementRegistrationResponse struct {
@@ -176,8 +179,6 @@ type ManagementRegistrationResponse struct {
 	Resources []ResourceRoute   `json:"resources,omitempty"`
 }
 
-// ManagementRoute is an authenticated route under /v0/management/.
-// Paths are exact: the host rejects ':' and '*' segments.
 type ManagementRoute struct {
 	Method      string `json:"Method"`
 	Path        string `json:"Path"`
@@ -185,8 +186,6 @@ type ManagementRoute struct {
 	Description string `json:"Description,omitempty"`
 }
 
-// ResourceRoute is an unauthenticated browser-navigable GET route under
-// /v0/resource/plugins/<pluginID>/. Menu makes it a panel sidebar entry.
 type ResourceRoute struct {
 	Path        string `json:"Path"`
 	Menu        string `json:"Menu,omitempty"`

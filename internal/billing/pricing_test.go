@@ -16,21 +16,43 @@ func assertClose(t *testing.T, label string, got, want float64) {
 
 func floatPtr(v float64) *float64 { return &v }
 
-// testPrice is used across the cost cases: 1.00 input, 2.00 output,
-// 0.10 cache read, 1.25 cache write, all per 1M tokens.
-var testPrice = Price{InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: 0.1, CacheWritePer1M: 1.25}
-
-func TestBillingTypeFollowsDetectedSemantics(t *testing.T) {
-	tests := map[Semantics]BillingType{
-		SemanticsSubset:            BillingTypeOpenAI,
-		SemanticsIndependent:       BillingTypeAnthropic,
-		SemanticsSeparateReasoning: BillingTypeGemini,
-		"":                         BillingTypeOther,
+func completeBreakdown(uncached, cacheRead, cacheWrite, output, reasoning int64) TokenBreakdown {
+	return TokenBreakdown{
+		SchemaVersion: TokenAccountingSchemaVersion,
+		Quality:       TokenAccountingComplete,
+		TotalTokens:   uncached + cacheRead + cacheWrite + output,
+		Input: TokenInputBreakdown{
+			TotalTokens:      uncached + cacheRead + cacheWrite,
+			UncachedTokens:   uncached,
+			CacheReadTokens:  cacheRead,
+			CacheWriteTokens: cacheWrite,
+		},
+		Output: TokenOutputBreakdown{
+			TotalTokens:        output,
+			NonReasoningTokens: output - reasoning,
+			ReasoningTokens:    reasoning,
+		},
 	}
-	for semantics, want := range tests {
-		if got := billingTypeForSemantics(semantics); got != want {
-			t.Errorf("billingTypeForSemantics(%q) = %q, want %q", semantics, got, want)
-		}
+}
+
+func TestCanonicalBreakdownValidation(t *testing.T) {
+	valid := completeBreakdown(500, 400, 100, 500, 200)
+	if !valid.Valid() || !valid.Billable() {
+		t.Fatalf("valid breakdown rejected: %+v", valid)
+	}
+	invalid := valid
+	invalid.Input.TotalTokens++
+	if invalid.Valid() || invalid.Billable() {
+		t.Fatalf("invalid breakdown accepted: %+v", invalid)
+	}
+	unclassified := TokenBreakdown{
+		SchemaVersion:      TokenAccountingSchemaVersion,
+		Quality:            TokenAccountingUnclassified,
+		TotalTokens:        10,
+		UnclassifiedTokens: 10,
+	}
+	if !unclassified.Valid() || unclassified.Billable() {
+		t.Fatalf("unclassified breakdown state is wrong: %+v", unclassified)
 	}
 }
 
@@ -42,7 +64,6 @@ func TestGlobMatch(t *testing.T) {
 	}{
 		{pattern: "gpt-5*", value: "gpt-5.5", want: true},
 		{pattern: "gpt-5*", value: "gpt-4.1", want: false},
-		// path.Match would fail this one because its '*' stops at '/'.
 		{pattern: "*claude*", value: "anthropic/claude-sonnet-4", want: true},
 		{pattern: "claude-?-opus", value: "claude-4-opus", want: true},
 		{pattern: "claude-?-opus", value: "claude-45-opus", want: false},
@@ -57,148 +78,76 @@ func TestGlobMatch(t *testing.T) {
 	}
 }
 
-func TestResolvePricePrefersExactOverGlobAndModelOverAlias(t *testing.T) {
+func TestResolvePricePrecedenceAndCacheFallback(t *testing.T) {
 	state := NewState()
 	state.Prices = []PriceRule{
 		{Pattern: "gpt-*", InputPer1M: 9},
-		{Pattern: "gpt-5.5", InputPer1M: 1},
+		{Pattern: "gpt-5.5", InputPer1M: 1, OutputPer1M: 2},
 		{Pattern: "my-alias", InputPer1M: 5},
 	}
-
 	price := state.ResolvePrice("gpt-5.5", "my-alias")
-	if price.InputPer1M != 1 || price.MatchedOn != "model" {
-		t.Fatalf("exact model rule did not win: %+v", price)
+	if price.InputPer1M != 1 || price.MatchedOn != "model" || price.CacheReadPer1M != 1 || price.CacheWritePer1M != 1 {
+		t.Fatalf("exact model rule or cache fallback is wrong: %+v", price)
 	}
-
 	price = state.ResolvePrice("gpt-4.1", "my-alias")
 	if price.InputPer1M != 5 || price.MatchedOn != "alias" {
 		t.Fatalf("exact alias should beat a glob: %+v", price)
 	}
-
-	price = state.ResolvePrice("gpt-4.1", "unknown-alias")
+	price = state.ResolvePrice("gpt-4.1", "unknown")
 	if price.InputPer1M != 9 || price.MatchedOn != "model-glob" {
 		t.Fatalf("glob fallback did not apply: %+v", price)
 	}
 }
 
-func TestResolvePriceReturnsNoneForUnknownModel(t *testing.T) {
-	state := NewState()
-	price := state.ResolvePrice("mystery-model", "")
-	if price.Source != PriceSourceNone {
-		t.Fatalf("Source = %q, want %q", price.Source, PriceSourceNone)
+func TestComputeCostUsesCanonicalBucketsExactlyOnce(t *testing.T) {
+	price := Price{InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: 0.1, CacheWritePer1M: 1.25}
+	cost := ComputeCost(price, completeBreakdown(500, 400, 100, 500, 200))
+	if cost.UncachedInputTokens != 500 || cost.CacheReadTokens != 400 || cost.CacheWriteTokens != 100 || cost.BilledOutputTokens != 500 {
+		t.Fatalf("cost buckets = %+v", cost)
 	}
-	// An unpriced model must bill nothing at all.
-	cost := ComputeCost(price, SemanticsSubset, TokenUsage{InputTokens: 1_000_000, OutputTokens: 1_000_000})
-	assertClose(t, "TotalUSD", cost.TotalUSD, 0)
-}
-
-func TestResolvePriceCacheFallsBackToInputWhenUnset(t *testing.T) {
-	state := NewState()
-	state.Prices = []PriceRule{{Pattern: "m", InputPer1M: 3, OutputPer1M: 6}}
-
-	price := state.ResolvePrice("m", "")
-	// Unset cache prices must not silently bill cache tokens at zero: a Claude
-	// request can be almost entirely cache reads.
-	if price.CacheReadPer1M != 3 || price.CacheWritePer1M != 3 {
-		t.Fatalf("unset cache prices did not fall back to input: %+v", price)
-	}
-}
-
-func TestResolvePriceExplicitZeroCacheMeansFree(t *testing.T) {
-	state := NewState()
-	state.Prices = []PriceRule{{
-		Pattern:         "m",
-		InputPer1M:      3,
-		OutputPer1M:     6,
-		CacheReadPer1M:  floatPtr(0),
-		CacheWritePer1M: floatPtr(0),
-	}}
-
-	price := state.ResolvePrice("m", "")
-	if price.CacheReadPer1M != 0 || price.CacheWritePer1M != 0 {
-		t.Fatalf("explicit zero cache price was overridden: %+v", price)
-	}
-}
-
-func TestComputeCostSubsetPeelsCacheOutOfInput(t *testing.T) {
-	// OpenAI-style: cache is inside input, reasoning is inside output.
-	usage := TokenUsage{
-		InputTokens:         1000,
-		CacheReadTokens:     400,
-		CacheCreationTokens: 100,
-		OutputTokens:        500,
-		ReasoningTokens:     200,
-	}
-	cost := ComputeCost(testPrice, SemanticsSubset, usage)
-
-	if cost.UncachedInputTokens != 500 || cost.CacheReadTokens != 400 || cost.CacheWriteTokens != 100 {
-		t.Fatalf("input buckets = %+v", cost)
-	}
-	// Reasoning is already inside OutputTokens and must not be added again.
-	if cost.BilledOutputTokens != 500 {
-		t.Fatalf("BilledOutputTokens = %d, want 500", cost.BilledOutputTokens)
+	if cost.Tiered || cost.LongContext || cost.ThresholdInputTokens != 0 ||
+		cost.AppliedInputPer1M != 1 || cost.AppliedOutputPer1M != 2 ||
+		cost.AppliedCacheReadPer1M != 0.1 || cost.AppliedCacheWritePer1M != 1.25 {
+		t.Fatalf("non-tiered applied pricing = %+v", cost)
 	}
 	assertClose(t, "TotalUSD", cost.TotalUSD, 0.0005+0.00004+0.000125+0.001)
 }
 
-func TestComputeCostIndependentAddsCacheOnTopOfInput(t *testing.T) {
-	// Anthropic-style: InputTokens excludes cache entirely.
-	usage := TokenUsage{
-		InputTokens:         1000,
-		CacheReadTokens:     400,
-		CacheCreationTokens: 100,
-		OutputTokens:        500,
+func TestComputeCostAppliesLongContextRatesToWholeRequest(t *testing.T) {
+	price := Price{
+		InputPer1M: 5, OutputPer1M: 30, CacheReadPer1M: 0.5, CacheWritePer1M: 6.25,
+		LongContext: &ResolvedLongContextPrice{
+			ThresholdInputTokens: 272000,
+			InputPer1M:           10, OutputPer1M: 45, CacheReadPer1M: 1, CacheWritePer1M: 12.5,
+		},
 	}
-	cost := ComputeCost(testPrice, SemanticsIndependent, usage)
+	short := ComputeCost(price, completeBreakdown(200000, 72000, 0, 20000, 0))
+	if short.LongContext || !short.Tiered {
+		t.Fatalf("threshold-equal request selected wrong tier: %+v", short)
+	}
+	assertClose(t, "short total", short.TotalUSD, 1+0.036+0.6)
 
-	if cost.UncachedInputTokens != 1000 {
-		t.Fatalf("UncachedInputTokens = %d, want the full 1000 (cache is reported separately)", cost.UncachedInputTokens)
+	long := ComputeCost(price, completeBreakdown(228001, 72000, 0, 20000, 0))
+	if !long.LongContext || long.ThresholdInputTokens != 272000 {
+		t.Fatalf("long request selected wrong tier: %+v", long)
 	}
-	if cost.CacheReadTokens != 400 || cost.CacheWriteTokens != 100 {
-		t.Fatalf("cache buckets = %+v", cost)
-	}
-	assertClose(t, "TotalUSD", cost.TotalUSD, 0.001+0.00004+0.000125+0.001)
-}
-
-func TestComputeCostSeparateReasoningAddsReasoningToOutput(t *testing.T) {
-	// Gemini-style: cache inside input, reasoning outside output.
-	usage := TokenUsage{
-		InputTokens:     1000,
-		CacheReadTokens: 400,
-		OutputTokens:    500,
-		ReasoningTokens: 200,
-	}
-	cost := ComputeCost(testPrice, SemanticsSeparateReasoning, usage)
-
-	if cost.UncachedInputTokens != 600 {
-		t.Fatalf("UncachedInputTokens = %d, want 600", cost.UncachedInputTokens)
-	}
-	if cost.BilledOutputTokens != 700 {
-		t.Fatalf("BilledOutputTokens = %d, want 700 (reasoning is charged on top)", cost.BilledOutputTokens)
-	}
-	assertClose(t, "TotalUSD", cost.TotalUSD, 0.0006+0.00004+0+0.0014)
-}
-
-func TestComputeCostFallsBackToAggregateCachedTokens(t *testing.T) {
-	// Providers that report only the aggregate cached count must still get
-	// their cache tokens priced at the cache rate.
-	usage := TokenUsage{InputTokens: 1000, CachedTokens: 300, OutputTokens: 0}
-	cost := ComputeCost(testPrice, SemanticsSubset, usage)
-	if cost.CacheReadTokens != 300 || cost.UncachedInputTokens != 700 {
-		t.Fatalf("cost = %+v, want 300 cache read and 700 uncached", cost)
+	// The entire 300001 input and all output use long-context prices, not only
+	// the single input token above the threshold.
+	assertClose(t, "long total", long.TotalUSD, 2.28001+0.072+0.9)
+	if long.AppliedInputPer1M != 10 || long.AppliedOutputPer1M != 45 {
+		t.Fatalf("applied prices = %+v", long)
 	}
 }
 
-func TestComputeCostClampsCacheToReportedInput(t *testing.T) {
-	// A provider reporting more cache than input must not inflate the bill.
-	usage := TokenUsage{InputTokens: 100, CacheReadTokens: 400, CacheCreationTokens: 50}
-	cost := ComputeCost(testPrice, SemanticsSubset, usage)
-
-	if cost.CacheReadTokens != 100 || cost.CacheWriteTokens != 0 || cost.UncachedInputTokens != 0 {
-		t.Fatalf("cost = %+v, want the cache buckets clamped to the 100 reported input tokens", cost)
+func TestComputeCostRefusesInvalidOrUnclassifiedBreakdown(t *testing.T) {
+	price := Price{InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: 0.1, CacheWritePer1M: 1.25}
+	invalid := completeBreakdown(10, 0, 0, 5, 0)
+	invalid.TotalTokens++
+	if cost := ComputeCost(price, invalid); cost != (Cost{}) {
+		t.Fatalf("invalid breakdown cost = %+v", cost)
 	}
-	total := cost.UncachedInputTokens + cost.CacheReadTokens + cost.CacheWriteTokens
-	if total != 100 {
-		t.Fatalf("billed input tokens = %d, want exactly the reported 100", total)
+	unclassified := TokenBreakdown{SchemaVersion: TokenAccountingSchemaVersion, Quality: TokenAccountingUnclassified, TotalTokens: 10, UnclassifiedTokens: 10}
+	if cost := ComputeCost(price, unclassified); cost != (Cost{}) {
+		t.Fatalf("unclassified breakdown cost = %+v", cost)
 	}
 }

@@ -61,37 +61,25 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 		return OKEnvelope(quotaExhaustedResponse(req.SourceFormat, decision, now))
 	}
 
-	// Remember who to bill. Token counts arrive later, off the response, and
-	// are committed by the terminal lifecycle event under this same request ID.
-	//
-	// Before credential selection both model fields hold the client-facing
-	// name; interceptAfterAuth fills in the upstream one.
-	// No semantics are recorded here on purpose. CPA translates between
-	// protocols, so the shape of the request says nothing reliable about the
-	// shape of the counters that come back; those are read off the response
-	// payloads themselves.
+	// Remember who to bill. Canonical upstream usage arrives later with the
+	// terminal lifecycle event under this same request ID.
 	a.store.BeginRequest(req.RequestID, billing.PendingRequest{
-		Scope: scope,
-		Model: req.RequestedModel,
-		Alias: req.RequestedModel,
+		Scope:          scope,
+		ClientProtocol: req.SourceFormat,
+		CyclePlanID:    decision.PlanID,
+		CycleStartAt:   decision.CycleStartAt,
+		CycleEndAt:     decision.ResetAt,
+		CycleLimitUSD:  decision.LimitUSD,
 	})
 	return OKEnvelope(RequestInterceptResponse{})
 }
 
-// interceptAfterAuth runs once a credential has been selected, which is the
-// only point where the upstream model name is known. Recording it lets an
-// operator price a model under either the name their client asks for or the one
-// the provider bills them for.
-//
-// It never enforces: the budget check already happened before auth, so that an
-// over-quota request never occupies a credential.
+// interceptAfterAuth is intentionally a no-op. The canonical usage record owns
+// the selected provider, executor, model, and alias.
 func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 	var req RequestInterceptRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
 		return nil, fmt.Errorf("解析请求拦截参数：%w", errUnmarshal)
-	}
-	if a != nil && a.store != nil && a.store.Enabled() {
-		a.store.NoteUpstreamModel(req.RequestID, req.Model)
 	}
 	return OKEnvelope(RequestInterceptResponse{})
 }
@@ -134,21 +122,20 @@ func quotaExhaustedResponse(sourceFormat string, decision billing.Decision, now 
 
 func quotaExhaustedMessage(decision billing.Decision) string {
 	var builder strings.Builder
-	builder.WriteString("API Key 计费额度已用尽：当前周期已消费 ")
+	builder.WriteString("API Key 订阅额度已用尽：本期费用 $")
 	builder.WriteString(formatUSD(decision.SpentUSD))
-	builder.WriteString(" USD，周期额度为 ")
+	builder.WriteString("，额度为 $")
 	builder.WriteString(formatUSD(decision.LimitUSD))
-	builder.WriteString(" USD")
 	if name := strings.TrimSpace(decision.PlanName); name != "" {
-		builder.WriteString("，订阅计划：")
+		builder.WriteString("，计划：")
 		builder.WriteString(name)
 	} else if id := strings.TrimSpace(decision.PlanID); id != "" {
-		builder.WriteString("，订阅计划：")
+		builder.WriteString("，计划：")
 		builder.WriteString(id)
 	}
 	builder.WriteString("。")
 	if !decision.ResetAt.IsZero() {
-		builder.WriteString("额度将在 ")
+		builder.WriteString("额度将于 ")
 		builder.WriteString(decision.ResetAt.UTC().Format(time.RFC3339))
 		builder.WriteString(" 重置。")
 	}
@@ -187,10 +174,7 @@ func quotaExhaustedBody(sourceFormat, message string) []byte {
 			},
 		}
 	}
-	body, errMarshal := json.Marshal(payload)
-	if errMarshal != nil {
-		return []byte(`{"error":{"message":"API Key 计费额度已用尽。","type":"insufficient_quota","code":"insufficient_quota"}}`)
-	}
+	body, _ := json.Marshal(payload)
 	return body
 }
 
@@ -213,36 +197,6 @@ func formatUSD(amount float64) string {
 	return strconv.FormatFloat(amount, 'f', 4, 64)
 }
 
-func (a *App) interceptResponse(raw []byte) ([]byte, error) {
-	var req ResponseInterceptRequest
-	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
-		return nil, fmt.Errorf("解析响应拦截参数：%w", errUnmarshal)
-	}
-	a.observeTokens(req.RequestID, req.Body)
-	return OKEnvelope(struct{}{})
-}
-
-func (a *App) interceptStreamChunk(raw []byte) ([]byte, error) {
-	var req StreamChunkInterceptRequest
-	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
-		return nil, fmt.Errorf("解析流式响应拦截参数：%w", errUnmarshal)
-	}
-	if req.ChunkIndex != StreamChunkHeaderInitIndex {
-		a.observeTokens(req.RequestID, req.Body)
-	}
-	return OKEnvelope(struct{}{})
-}
-
-func (a *App) observeTokens(requestID string, body []byte) {
-	if a == nil || a.store == nil || !a.store.Enabled() || requestID == "" || len(body) == 0 {
-		return
-	}
-	usage, semantics, ok := billing.ParseUsage(body)
-	if ok {
-		a.store.ObserveTokens(requestID, semantics, usage)
-	}
-}
-
 // The terminal lifecycle event is the single billing commit point, including
 // failed and canceled requests. Rejected requests never reached an upstream.
 func (a *App) handleRequestComplete(raw []byte) ([]byte, error) {
@@ -258,7 +212,43 @@ func (a *App) handleRequestComplete(raw []byte) ([]byte, error) {
 	if completion.Outcome == RequestCompletionRejected {
 		a.store.DiscardRequest(completion.RequestID)
 	} else {
-		a.store.FinishRequest(completion.RequestID, completion.Outcome != RequestCompletionSucceeded)
+		a.store.FinishRequest(completion.RequestID, canonicalUsageRecords(completion.UsageRecords), completion.Outcome != RequestCompletionSucceeded)
 	}
 	return OKEnvelope(struct{}{})
+}
+
+func canonicalUsageRecords(records []RequestUsageRecord) []billing.UsageRecord {
+	if len(records) == 0 {
+		return nil
+	}
+	result := make([]billing.UsageRecord, 0, len(records))
+	for _, record := range records {
+		result = append(result, billing.UsageRecord{
+			Provider:     record.Provider,
+			ExecutorType: record.ExecutorType,
+			Model:        record.Model,
+			Alias:        record.Alias,
+			Generate:     record.Generate,
+			Failed:       record.Failed,
+			RequestedAt:  record.RequestedAt,
+			Breakdown: billing.TokenBreakdown{
+				SchemaVersion:      record.Breakdown.SchemaVersion,
+				Quality:            record.Breakdown.Quality,
+				TotalTokens:        record.Breakdown.TotalTokens,
+				UnclassifiedTokens: record.Breakdown.UnclassifiedTokens,
+				Input: billing.TokenInputBreakdown{
+					TotalTokens:      record.Breakdown.Input.TotalTokens,
+					UncachedTokens:   record.Breakdown.Input.UncachedTokens,
+					CacheReadTokens:  record.Breakdown.Input.CacheReadTokens,
+					CacheWriteTokens: record.Breakdown.Input.CacheWriteTokens,
+				},
+				Output: billing.TokenOutputBreakdown{
+					TotalTokens:        record.Breakdown.Output.TotalTokens,
+					NonReasoningTokens: record.Breakdown.Output.NonReasoningTokens,
+					ReasoningTokens:    record.Breakdown.Output.ReasoningTokens,
+				},
+			},
+		})
+	}
+	return result
 }

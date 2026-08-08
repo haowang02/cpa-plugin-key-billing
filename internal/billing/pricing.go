@@ -2,58 +2,64 @@ package billing
 
 import "strings"
 
-// Semantics describes how a response payload's token counters overlap. It is
-// detected from the usage block rather than the protocol label because CPA may
-// translate protocols before the plugin sees the response.
-type Semantics string
+const TokenAccountingSchemaVersion = 2
+
+type TokenAccountingQuality string
 
 const (
-	// Cache and reasoning tokens are included in the input/output totals.
-	SemanticsSubset Semantics = "subset"
-	// Cache and reasoning tokens are reported separately from input/output.
-	SemanticsIndependent Semantics = "independent"
-	// Cache is included in input, while reasoning is separate from output.
-	SemanticsSeparateReasoning Semantics = "separate_reasoning"
+	TokenAccountingComplete     TokenAccountingQuality = "complete"
+	TokenAccountingInconsistent TokenAccountingQuality = "inconsistent"
+	TokenAccountingUnclassified TokenAccountingQuality = "unclassified"
 )
 
-// BillingType names the provider-style counter layout detected for a request.
-type BillingType string
-
-const (
-	BillingTypeOpenAI    BillingType = "openai"
-	BillingTypeAnthropic BillingType = "anthropic"
-	BillingTypeGemini    BillingType = "gemini"
-	BillingTypeOther     BillingType = "other"
-)
-
-func billingTypeForSemantics(semantics Semantics) BillingType {
-	switch semantics {
-	case SemanticsSubset:
-		return BillingTypeOpenAI
-	case SemanticsIndependent:
-		return BillingTypeAnthropic
-	case SemanticsSeparateReasoning:
-		return BillingTypeGemini
-	default:
-		return BillingTypeOther
-	}
+type TokenInputBreakdown struct {
+	TotalTokens      int64 `json:"total_tokens"`
+	UncachedTokens   int64 `json:"uncached_tokens"`
+	CacheReadTokens  int64 `json:"cache_read_tokens"`
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
 }
 
-// TokenUsage mirrors the token counters CLIProxyAPI delivers with a usage
-// record. It is declared here rather than imported so the billing domain has no
-// dependency on the RPC layer.
-type TokenUsage struct {
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	// TotalTokens is carried for fidelity with what the provider reported. No
-	// price is applied to it: the bill is built from the buckets above, which
-	// is the only way it stays correct across the layouts that disagree about
-	// what the total includes.
-	TotalTokens int64
+type TokenOutputBreakdown struct {
+	TotalTokens        int64 `json:"total_tokens"`
+	NonReasoningTokens int64 `json:"non_reasoning_tokens"`
+	ReasoningTokens    int64 `json:"reasoning_tokens"`
+}
+
+// TokenBreakdown is the canonical, non-overlapping accounting contract emitted
+// by CLIProxyAPI before any downstream response translation occurs.
+type TokenBreakdown struct {
+	SchemaVersion      int                    `json:"schema_version"`
+	Quality            TokenAccountingQuality `json:"quality"`
+	TotalTokens        int64                  `json:"total_tokens"`
+	Input              TokenInputBreakdown    `json:"input"`
+	Output             TokenOutputBreakdown   `json:"output"`
+	UnclassifiedTokens int64                  `json:"unclassified_tokens"`
+}
+
+func (b TokenBreakdown) Valid() bool {
+	if b.SchemaVersion != TokenAccountingSchemaVersion {
+		return false
+	}
+	switch b.Quality {
+	case TokenAccountingComplete, TokenAccountingInconsistent, TokenAccountingUnclassified:
+	default:
+		return false
+	}
+	if b.TotalTokens < 0 || b.UnclassifiedTokens < 0 ||
+		b.Input.TotalTokens < 0 || b.Input.UncachedTokens < 0 || b.Input.CacheReadTokens < 0 || b.Input.CacheWriteTokens < 0 ||
+		b.Output.TotalTokens < 0 || b.Output.NonReasoningTokens < 0 || b.Output.ReasoningTokens < 0 {
+		return false
+	}
+	if b.Input.TotalTokens != b.Input.UncachedTokens+b.Input.CacheReadTokens+b.Input.CacheWriteTokens ||
+		b.Output.TotalTokens != b.Output.NonReasoningTokens+b.Output.ReasoningTokens ||
+		b.TotalTokens != b.Input.TotalTokens+b.Output.TotalTokens+b.UnclassifiedTokens {
+		return false
+	}
+	return b.Quality != TokenAccountingComplete || b.UnclassifiedTokens == 0
+}
+
+func (b TokenBreakdown) Billable() bool {
+	return b.Valid() && b.Quality == TokenAccountingComplete
 }
 
 // PriceSource records where a resolved price came from, for display and for
@@ -61,29 +67,30 @@ type TokenUsage struct {
 type PriceSource string
 
 const (
-	// PriceSourceOverride is a row from the stored price table, reported when
-	// resolving what one request costs.
 	PriceSourceOverride PriceSource = "override"
-	// PriceSourceBuiltin is the shipped public price catalog.
-	PriceSourceBuiltin PriceSource = "builtin"
-	// PriceSourceNone means no row matched; the model bills at zero.
-	PriceSourceNone PriceSource = "none"
-	// PriceSourceCustom marks a stored row an administrator has edited away
-	// from its catalog default. It is reported when listing the price table,
-	// where every model has a row and the question is where its number came
-	// from rather than which rule won.
-	PriceSourceCustom PriceSource = "custom"
+	PriceSourceBuiltin  PriceSource = "builtin"
+	PriceSourceNone     PriceSource = "none"
+	PriceSourceCustom   PriceSource = "custom"
 )
 
 // Price is a resolved, fully specified price in USD per 1,000,000 tokens.
 type Price struct {
-	InputPer1M      float64     `json:"input_per_1m"`
-	OutputPer1M     float64     `json:"output_per_1m"`
-	CacheReadPer1M  float64     `json:"cache_read_per_1m"`
-	CacheWritePer1M float64     `json:"cache_write_per_1m"`
-	Source          PriceSource `json:"source"`
-	Pattern         string      `json:"pattern,omitempty"`
-	MatchedOn       string      `json:"matched_on,omitempty"`
+	InputPer1M      float64                   `json:"input_per_1m"`
+	OutputPer1M     float64                   `json:"output_per_1m"`
+	CacheReadPer1M  float64                   `json:"cache_read_per_1m"`
+	CacheWritePer1M float64                   `json:"cache_write_per_1m"`
+	Source          PriceSource               `json:"source"`
+	Pattern         string                    `json:"pattern,omitempty"`
+	MatchedOn       string                    `json:"matched_on,omitempty"`
+	LongContext     *ResolvedLongContextPrice `json:"long_context,omitempty"`
+}
+
+type ResolvedLongContextPrice struct {
+	ThresholdInputTokens int64   `json:"threshold_input_tokens"`
+	InputPer1M           float64 `json:"input_per_1m"`
+	OutputPer1M          float64 `json:"output_per_1m"`
+	CacheReadPer1M       float64 `json:"cache_read_per_1m"`
+	CacheWritePer1M      float64 `json:"cache_write_per_1m"`
 }
 
 // resolve fills in the cache-price fallbacks and records provenance.
@@ -103,13 +110,29 @@ func (r PriceRule) resolve(source PriceSource, matchedOn string) Price {
 	if r.CacheWritePer1M != nil {
 		price.CacheWritePer1M = *r.CacheWritePer1M
 	}
+	if tier := r.LongContext; tier != nil {
+		resolved := &ResolvedLongContextPrice{
+			ThresholdInputTokens: tier.ThresholdInputTokens,
+			InputPer1M:           tier.InputPer1M,
+			OutputPer1M:          tier.OutputPer1M,
+			CacheReadPer1M:       tier.InputPer1M,
+			CacheWritePer1M:      tier.InputPer1M,
+		}
+		if tier.CacheReadPer1M != nil {
+			resolved.CacheReadPer1M = *tier.CacheReadPer1M
+		}
+		if tier.CacheWritePer1M != nil {
+			resolved.CacheWritePer1M = *tier.CacheWritePer1M
+		}
+		price.LongContext = resolved
+	}
 	return price
 }
 
 // ResolvePrice finds the price for one usage record.
 //
-// Administrator overrides are consulted in full before the built-in catalog, so
-// an override always wins; an override that lost to a more specific built-in
+// Administrator overrides are consulted in full before the reference catalog, so
+// an override always wins; an override that lost to a more specific reference
 // entry would be the kind of surprise that costs money. Within each table the
 // order is exact model, exact alias, glob model, glob alias.
 func (s *State) ResolvePrice(model, alias string) Price {
@@ -197,7 +220,6 @@ func globMatch(pattern, value string) bool {
 	return patternIndex == len(pattern)
 }
 
-// Cost is the priced breakdown of one usage record.
 type Cost struct {
 	TotalUSD         float64 `json:"total_usd"`
 	UncachedInputUSD float64 `json:"uncached_input_usd"`
@@ -210,89 +232,57 @@ type Cost struct {
 	CacheReadTokens     int64 `json:"cache_read_tokens"`
 	CacheWriteTokens    int64 `json:"cache_write_tokens"`
 	BilledOutputTokens  int64 `json:"billed_output_tokens"`
+
+	Tiered                 bool    `json:"tiered,omitempty"`
+	LongContext            bool    `json:"long_context,omitempty"`
+	ThresholdInputTokens   int64   `json:"threshold_input_tokens,omitempty"`
+	AppliedInputPer1M      float64 `json:"applied_input_per_1m,omitempty"`
+	AppliedOutputPer1M     float64 `json:"applied_output_per_1m,omitempty"`
+	AppliedCacheReadPer1M  float64 `json:"applied_cache_read_per_1m,omitempty"`
+	AppliedCacheWritePer1M float64 `json:"applied_cache_write_per_1m,omitempty"`
 }
 
-// ComputeCost prices one usage record.
-//
-// The token buckets are first normalized according to the semantics detected
-// from the payload the counters were read out of:
-//
-//   - independent: InputTokens excludes cache, so all four buckets are summed.
-//   - separate_reasoning: cache is inside InputTokens and reasoning is outside
-//     OutputTokens.
-//   - subset (and any unrecognized value): cache is inside InputTokens and
-//     reasoning is inside OutputTokens.
-//
-// For the two "cache inside input" cases the cache buckets are clamped so the
-// billed input tokens add up to exactly InputTokens, which keeps a provider
-// reporting inconsistent counters from inflating the bill.
-func ComputeCost(price Price, semantics Semantics, usage TokenUsage) Cost {
-	usage = clampUsage(usage)
-
-	cacheRead := usage.CacheReadTokens
-	if cacheRead == 0 {
-		// Some providers only populate the aggregate CachedTokens field.
-		cacheRead = usage.CachedTokens
+// ComputeCost prices one already-normalized canonical usage record. Invalid or
+// unclassified records are deliberately not guessed and therefore cost zero.
+func ComputeCost(price Price, breakdown TokenBreakdown) Cost {
+	if !breakdown.Billable() {
+		return Cost{}
 	}
-	cacheWrite := usage.CacheCreationTokens
-
-	var uncachedInput, billedOutput int64
-	switch semantics {
-	case SemanticsIndependent:
-		uncachedInput = usage.InputTokens
-		billedOutput = usage.OutputTokens + usage.ReasoningTokens
-	case SemanticsSeparateReasoning:
-		cacheRead, cacheWrite = clampCacheToInput(usage.InputTokens, cacheRead, cacheWrite)
-		uncachedInput = usage.InputTokens - cacheRead - cacheWrite
-		billedOutput = usage.OutputTokens + usage.ReasoningTokens
-	default: // SemanticsSubset and anything unrecognized.
-		cacheRead, cacheWrite = clampCacheToInput(usage.InputTokens, cacheRead, cacheWrite)
-		uncachedInput = usage.InputTokens - cacheRead - cacheWrite
-		billedOutput = usage.OutputTokens
+	inputPrice := price.InputPer1M
+	outputPrice := price.OutputPer1M
+	cacheReadPrice := price.CacheReadPer1M
+	cacheWritePrice := price.CacheWritePer1M
+	longContext := false
+	threshold := int64(0)
+	if tier := price.LongContext; tier != nil {
+		threshold = tier.ThresholdInputTokens
+		if breakdown.Input.TotalTokens > threshold {
+			longContext = true
+			inputPrice = tier.InputPer1M
+			outputPrice = tier.OutputPer1M
+			cacheReadPrice = tier.CacheReadPer1M
+			cacheWritePrice = tier.CacheWritePer1M
+		}
 	}
-
 	cost := Cost{
-		UncachedInputUSD:    perMillion(uncachedInput, price.InputPer1M),
-		CacheReadUSD:        perMillion(cacheRead, price.CacheReadPer1M),
-		CacheWriteUSD:       perMillion(cacheWrite, price.CacheWritePer1M),
-		OutputUSD:           perMillion(billedOutput, price.OutputPer1M),
-		UncachedInputTokens: uncachedInput,
-		CacheReadTokens:     cacheRead,
-		CacheWriteTokens:    cacheWrite,
-		BilledOutputTokens:  billedOutput,
+		UncachedInputUSD:       perMillion(breakdown.Input.UncachedTokens, inputPrice),
+		CacheReadUSD:           perMillion(breakdown.Input.CacheReadTokens, cacheReadPrice),
+		CacheWriteUSD:          perMillion(breakdown.Input.CacheWriteTokens, cacheWritePrice),
+		OutputUSD:              perMillion(breakdown.Output.TotalTokens, outputPrice),
+		UncachedInputTokens:    breakdown.Input.UncachedTokens,
+		CacheReadTokens:        breakdown.Input.CacheReadTokens,
+		CacheWriteTokens:       breakdown.Input.CacheWriteTokens,
+		BilledOutputTokens:     breakdown.Output.TotalTokens,
+		Tiered:                 price.LongContext != nil,
+		LongContext:            longContext,
+		ThresholdInputTokens:   threshold,
+		AppliedInputPer1M:      inputPrice,
+		AppliedOutputPer1M:     outputPrice,
+		AppliedCacheReadPer1M:  cacheReadPrice,
+		AppliedCacheWritePer1M: cacheWritePrice,
 	}
 	cost.TotalUSD = cost.UncachedInputUSD + cost.CacheReadUSD + cost.CacheWriteUSD + cost.OutputUSD
 	return cost
-}
-
-// clampCacheToInput caps the cache buckets so they never exceed the reported
-// input total, preferring to keep cache reads intact over cache writes.
-func clampCacheToInput(input, cacheRead, cacheWrite int64) (int64, int64) {
-	if cacheRead > input {
-		cacheRead = input
-	}
-	if remaining := input - cacheRead; cacheWrite > remaining {
-		cacheWrite = remaining
-	}
-	return cacheRead, cacheWrite
-}
-
-func clampUsage(usage TokenUsage) TokenUsage {
-	usage.InputTokens = nonNegative(usage.InputTokens)
-	usage.OutputTokens = nonNegative(usage.OutputTokens)
-	usage.ReasoningTokens = nonNegative(usage.ReasoningTokens)
-	usage.CachedTokens = nonNegative(usage.CachedTokens)
-	usage.CacheReadTokens = nonNegative(usage.CacheReadTokens)
-	usage.CacheCreationTokens = nonNegative(usage.CacheCreationTokens)
-	usage.TotalTokens = nonNegative(usage.TotalTokens)
-	return usage
-}
-
-func nonNegative(value int64) int64 {
-	if value < 0 {
-		return 0
-	}
-	return value
 }
 
 func perMillion(tokens int64, pricePer1M float64) float64 {

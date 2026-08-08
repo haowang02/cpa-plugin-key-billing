@@ -11,9 +11,6 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// scopeSelector is the shared body shape of the key mutation routes. Both
-// spellings are accepted so a single-key action does not have to wrap its
-// argument in an array.
 type scopeSelector struct {
 	Scope  string   `json:"scope,omitempty"`
 	Scopes []string `json:"scopes,omitempty"`
@@ -34,7 +31,7 @@ func (s scopeSelector) all() []string {
 func (a *App) putPrices(req ManagementRequest) ManagementResponse {
 	body := bytes.TrimSpace(req.Body)
 	if len(body) == 0 {
-		return JSONError(http.StatusBadRequest, "invalid", "请提供一条模型价格或完整价格列表")
+		return JSONError(http.StatusBadRequest, "invalid", "请提供单条或完整的模型定价")
 	}
 
 	if body[0] == '[' {
@@ -72,6 +69,9 @@ func (a *App) putPrices(req ManagementRequest) ManagementResponse {
 }
 
 func (a *App) searchPriceCatalog(req ManagementRequest) ManagementResponse {
+	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
+		return errorResponse(errCatalog)
+	}
 	limit := 20
 	if raw := strings.TrimSpace(req.Query.Get("limit")); raw != "" {
 		parsed, errParse := strconv.Atoi(raw)
@@ -93,6 +93,9 @@ func (a *App) searchPriceCatalog(req ManagementRequest) ManagementResponse {
 // management key. The browser holds both, so it does the read — the same
 // division of labour as the API key sync.
 func (a *App) syncModels(req ManagementRequest) ManagementResponse {
+	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
+		return errorResponse(errCatalog)
+	}
 	var body struct {
 		Models []string `json:"models"`
 	}
@@ -106,12 +109,37 @@ func (a *App) syncModels(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, result)
 }
 
+func (a *App) priceTable() ManagementResponse {
+	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
+		return errorResponse(errCatalog)
+	}
+	return JSONResponse(http.StatusOK, a.store.PriceTable())
+}
+
+func (a *App) refreshPriceCatalog() ManagementResponse {
+	result, errRefresh := a.store.RefreshPriceCatalog()
+	if errRefresh != nil {
+		return errorResponse(errRefresh)
+	}
+	return JSONResponse(http.StatusOK, result)
+}
+
+func (a *App) resetPrices() ManagementResponse {
+	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
+		return errorResponse(errCatalog)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"restored": a.store.ResetPrices()})
+}
+
 func (a *App) createPlan(req ManagementRequest) ManagementResponse {
-	var plan billing.Plan
-	if errDecode := decodeStrict(req.Body, &plan); errDecode != nil {
+	var body struct {
+		billing.Plan
+		Scopes []string `json:"scopes,omitempty"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	stored, errCreate := a.store.CreatePlan(plan)
+	stored, errCreate := a.store.CreatePlanWithBindings(body.Plan, body.Scopes)
 	if errCreate != nil {
 		return errorResponse(errCreate)
 	}
@@ -119,18 +147,33 @@ func (a *App) createPlan(req ManagementRequest) ManagementResponse {
 }
 
 func (a *App) updatePlan(req ManagementRequest) ManagementResponse {
-	var patch billing.PlanPatch
-	if errDecode := decodeStrict(req.Body, &patch); errDecode != nil {
+	var body struct {
+		billing.PlanPatch
+		Scopes *[]string `json:"scopes,omitempty"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
+	patch := body.PlanPatch
 	if strings.TrimSpace(patch.ID) == "" {
 		patch.ID = req.Query.Get("id")
 	}
-	stored, errUpdate := a.store.UpdatePlan(patch)
+	stored, errUpdate := a.store.UpdatePlanWithBindings(patch, body.Scopes)
 	if errUpdate != nil {
 		return errorResponse(errUpdate)
 	}
 	return JSONResponse(http.StatusOK, map[string]any{"plan": stored})
+}
+
+func (a *App) clearLogs() ManagementResponse {
+	return JSONResponse(http.StatusOK, map[string]any{"cleared": a.store.ClearLogs()})
+}
+
+func (a *App) clearAllData() ManagementResponse {
+	if errReset := a.store.ResetAllData(); errReset != nil {
+		return errorResponse(errReset)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"cleared": true})
 }
 
 func (a *App) deletePlan(req ManagementRequest) ManagementResponse {
@@ -247,10 +290,6 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, result)
 }
 
-// listLogs answers the billing log route. ?limit= trims the response to the
-// newest N entries; anything unparseable is treated as absent, because a bad
-// limit is a reason to show the whole log rather than to fail the page that
-// asked for it.
 func (a *App) listLogs(req ManagementRequest) ManagementResponse {
 	limit := 0
 	if raw := strings.TrimSpace(req.Query.Get("limit")); raw != "" {
@@ -271,8 +310,6 @@ func decodeScopes(req ManagementRequest) ([]string, error) {
 	return selector.all(), nil
 }
 
-// decodeStrict parses a request body and rejects unknown fields, so a typo in
-// an admin call fails loudly instead of silently doing half of what was meant.
 func decodeStrict(body []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(body)))
 	decoder.DisallowUnknownFields()

@@ -8,7 +8,7 @@ import (
 func newLogStore(t *testing.T, now time.Time, retention int) *Store {
 	t.Helper()
 	store := newAccountStore(t, now)
-	cfg := store.Config()
+	cfg := store.cfg
 	cfg.LogEntries = retention
 	if err := store.Configure(cfg); err != nil {
 		t.Fatalf("Configure error = %v", err)
@@ -20,13 +20,19 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	store := newLogStore(t, now, 10)
 	store.RecordUsage(subsetEvent("scope-a", now))
+	if err := store.SetLabel("scope-a", "Alice"); err != nil {
+		t.Fatalf("SetLabel error = %v", err)
+	}
 
 	view := store.Logs(0)
 	if len(view.Entries) != 1 || view.Retained != 1 || view.Limit != 10 {
 		t.Fatalf("view = %+v", view)
 	}
 	entry := view.Entries[0]
-	if entry.Scope != "scope-a" || entry.Model != "gpt-5.5" || entry.PriceSource != PriceSourceOverride || entry.BillingType != BillingTypeOpenAI {
+	if entry.Scope != "scope-a" || entry.Label != "Alice" || entry.Preview != "sk-tes…0001" ||
+		entry.Model != "gpt-5.5" || entry.PriceSource != PriceSourceOverride ||
+		entry.ClientProtocol != "claude" || entry.Provider != "codex" || entry.ExecutorType != "CodexExecutor" ||
+		entry.AccountingQuality != TokenAccountingComplete {
 		t.Fatalf("entry = %+v", entry)
 	}
 	if entry.Cost.UncachedInputTokens != 500 || entry.Cost.CacheReadTokens != 400 ||
@@ -47,7 +53,7 @@ func TestLogRetentionAndDisable(t *testing.T) {
 		t.Fatalf("entries = %+v, want the newest three", view.Entries)
 	}
 
-	cfg := store.Config()
+	cfg := store.cfg
 	cfg.LogEntries = 0
 	if err := store.Configure(cfg); err != nil {
 		t.Fatalf("Configure error = %v", err)
@@ -70,4 +76,21 @@ func TestForgettingAKeyDropsItsLog(t *testing.T) {
 	if len(entries) != 1 || entries[0].Scope != "scope-b" {
 		t.Fatalf("entries = %+v", entries)
 	}
+}
+
+func TestClearLogsOnlyClearsLogs(t *testing.T) {
+	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	store := newLogStore(t, now, 10)
+	store.RecordUsage(subsetEvent("scope-a", now))
+	if cleared := store.ClearLogs(); cleared != 1 {
+		t.Fatalf("ClearLogs = %d, want 1", cleared)
+	}
+	if entries := store.Logs(0).Entries; len(entries) != 0 {
+		t.Fatalf("entries = %+v", entries)
+	}
+	store.Read(func(state *State) {
+		if state.Keys["scope-a"] == nil || state.Keys["scope-a"].Lifetime.Requests != 1 {
+			t.Fatalf("usage was cleared with logs: %+v", state.Keys)
+		}
+	})
 }

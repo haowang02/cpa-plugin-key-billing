@@ -6,15 +6,11 @@ import (
 	"time"
 )
 
-// MaxSyncKeys bounds one key-list push. It is far above any realistic CPA
-// deployment and exists only so a malformed request cannot balloon the state
-// document.
+// MaxSyncKeys bounds one key-list push and the resulting state growth.
 const MaxSyncKeys = 10000
 
-// MaxTopKeys is how many keys the stats overview ranks.
 const MaxTopKeys = 20
 
-// ModelTotals is one row of a per-model breakdown.
 type ModelTotals struct {
 	Model string `json:"model"`
 	Totals
@@ -50,12 +46,10 @@ type KeyView struct {
 	LastSeen     time.Time      `json:"last_seen,omitzero"`
 }
 
-// KeyDirectory is the payload of the key listing route.
 type KeyDirectory struct {
-	Keys       []KeyView `json:"keys"`
-	LastSyncAt time.Time `json:"last_sync_at,omitzero"`
-	ServerTime time.Time `json:"server_time"`
-	Timezone   string    `json:"timezone"`
+	Keys        []KeyView `json:"keys"`
+	LastSyncAt  time.Time `json:"last_sync_at,omitzero"`
+	GeneratedAt time.Time `json:"generated_at"`
 }
 
 // KeyDirectory lists every tracked key.
@@ -65,8 +59,8 @@ type KeyDirectory struct {
 // hour ago must not still be displayed as blocked.
 func (s *Store) KeyDirectory() KeyDirectory {
 	now := s.Now()
-	directory := KeyDirectory{Keys: []KeyView{}, ServerTime: now, Timezone: s.Config().DefaultTimezone}
-	directory.Keys = UpdateResult(s, func(state *State) ([]KeyView, bool) {
+	directory := KeyDirectory{Keys: []KeyView{}, GeneratedAt: now}
+	directory.Keys = updateResult(s, func(state *State) ([]KeyView, bool) {
 		changed := false
 		directory.LastSyncAt = state.LastSyncAt
 		plans := make(map[string]Plan, len(state.Plans))
@@ -85,7 +79,7 @@ func (s *Store) KeyDirectory() KeyDirectory {
 					key.PlanID = ""
 					key.Cycle = Cycle{}
 					changed = true
-				} else if rollCycle(key, plan, now, s.locationLocked()) {
+				} else if settleExpiredCycle(key, plan, now) {
 					changed = true
 				}
 			}
@@ -142,8 +136,6 @@ func keyView(key *KeyState, plans map[string]Plan) KeyView {
 	return view
 }
 
-// sortKeyViews puts the keys an operator cares about first: blocked, then the
-// biggest spenders, then a stable tiebreak.
 func sortKeyViews(views []KeyView) {
 	sort.Slice(views, func(i, j int) bool {
 		if views[i].Blocked != views[j].Blocked {
@@ -156,8 +148,6 @@ func sortKeyViews(views []KeyView) {
 	})
 }
 
-// sortModelTotals orders a per-model breakdown by spend, then by name so the
-// output is stable for models that never cost anything.
 func sortModelTotals(entries []ModelTotals) {
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].CostUSD != entries[j].CostUSD {
@@ -169,9 +159,8 @@ func sortModelTotals(entries []ModelTotals) {
 
 // BindKeys attaches scopes to a plan and reports how many were changed.
 //
-// Rebinding to a different plan opens a fresh window rather than carrying the
-// spend across, because the amount and period the spend was measured against no
-// longer apply. The abandoned window is retained in the trend history.
+// Rebinding returns the subscription to its inactive state. Its first period
+// starts only when the key is next used.
 func (s *Store) BindKeys(scopes []string, planID string) (int, error) {
 	scopes = normalizeScopes(scopes)
 	if len(scopes) == 0 {
@@ -181,28 +170,32 @@ func (s *Store) BindKeys(scopes []string, planID string) (int, error) {
 	if planID == "" {
 		return 0, invalidf("订阅计划 ID 不能为空")
 	}
-	now := s.Now()
-
 	var errApply error
-	bound := UpdateResult(s, func(state *State) (int, bool) {
+	bound := updateResult(s, func(state *State) (int, bool) {
 		plan, exists := state.FindPlan(planID)
 		if !exists {
 			errApply = notFoundf("订阅计划 %q 不存在", planID)
 			return 0, false
 		}
+		for _, scope := range scopes {
+			if state.Keys[scope] == nil {
+				errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+				return 0, false
+			}
+		}
 		changed := 0
 		for _, scope := range scopes {
-			key := state.ensureKey(scope, now)
-			if key.PlanID != plan.ID {
-				previousLimit := plan.AmountUSD
-				if previous, okPrevious := state.FindPlan(key.PlanID); okPrevious {
-					previousLimit = previous.AmountUSD
-				}
-				archiveCycle(key, previousLimit, key.PlanID)
-				key.Cycle = Cycle{}
-				key.PlanID = plan.ID
+			key := state.Keys[scope]
+			if key.PlanID == plan.ID {
+				continue
 			}
-			rollCycle(key, plan, now, s.locationLocked())
+			previousLimit := plan.AmountUSD
+			if previous, okPrevious := state.FindPlan(key.PlanID); okPrevious {
+				previousLimit = previous.AmountUSD
+			}
+			archiveCycle(key, previousLimit, key.PlanID)
+			key.Cycle = Cycle{}
+			key.PlanID = plan.ID
 			changed++
 		}
 		return changed, changed > 0
@@ -210,14 +203,12 @@ func (s *Store) BindKeys(scopes []string, planID string) (int, error) {
 	return bound, errApply
 }
 
-// UnbindKeys removes the subscription from scopes, making them unlimited again.
-// Statistics are kept; only the budget goes away.
 func (s *Store) UnbindKeys(scopes []string) (int, error) {
 	scopes = normalizeScopes(scopes)
 	if len(scopes) == 0 {
 		return 0, invalidf("请至少选择一个 API Key")
 	}
-	return UpdateResult(s, func(state *State) (int, bool) {
+	return updateResult(s, func(state *State) (int, bool) {
 		changed := 0
 		for _, scope := range scopes {
 			key := state.Keys[scope]
@@ -244,8 +235,7 @@ func (s *Store) ResetCycles(scopes []string) (int, error) {
 	if len(scopes) == 0 {
 		return 0, invalidf("请至少选择一个 API Key")
 	}
-	now := s.Now()
-	return UpdateResult(s, func(state *State) (int, bool) {
+	return updateResult(s, func(state *State) (int, bool) {
 		changed := 0
 		for _, scope := range scopes {
 			key := state.Keys[scope]
@@ -254,19 +244,16 @@ func (s *Store) ResetCycles(scopes []string) (int, error) {
 			}
 			plan, exists := state.FindPlan(key.PlanID)
 			if !exists {
-				// Nothing to reset: an unbound key has no budget to restore.
 				continue
 			}
 			archiveCycle(key, plan.AmountUSD, key.PlanID)
 			key.Cycle = Cycle{}
-			rollCycle(key, plan, now, s.locationLocked())
 			changed++
 		}
 		return changed, changed > 0
 	}), nil
 }
 
-// SetLabel names a key for display. An empty label clears it.
 func (s *Store) SetLabel(scope, label string) error {
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
@@ -278,10 +265,10 @@ func (s *Store) SetLabel(scope, label string) error {
 	}
 
 	var errApply error
-	UpdateResult(s, func(state *State) (struct{}, bool) {
+	updateResult(s, func(state *State) (struct{}, bool) {
 		key := state.Keys[scope]
 		if key == nil {
-			errApply = notFoundf("API Key %q 尚未纳入统计", scope)
+			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
 			return struct{}{}, false
 		}
 		key.Label = label
@@ -290,14 +277,12 @@ func (s *Store) SetLabel(scope, label string) error {
 	return errApply
 }
 
-// ForgetKeys drops everything the plugin holds about scopes. It is the manual
-// counterpart to the pruning SyncKeys performs.
 func (s *Store) ForgetKeys(scopes []string) (int, error) {
 	scopes = normalizeScopes(scopes)
 	if len(scopes) == 0 {
 		return 0, invalidf("请至少选择一个 API Key")
 	}
-	return UpdateResult(s, func(state *State) (int, bool) {
+	return updateResult(s, func(state *State) (int, bool) {
 		removed := 0
 		for _, scope := range scopes {
 			if _, exists := state.Keys[scope]; exists {
@@ -312,7 +297,6 @@ func (s *Store) ForgetKeys(scopes []string) (int, error) {
 	}), nil
 }
 
-// SyncResult reports what one key-list push changed.
 type SyncResult struct {
 	Received int       `json:"received"`
 	Added    int       `json:"added"`
@@ -344,11 +328,11 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 		scopes[scope] = PreviewKey(key)
 	}
 	if len(scopes) == 0 && !allowEmpty {
-		return SyncResult{}, invalidf("拒绝同步空的 API Key 列表；如需清空，请传入 allow_empty")
+		return SyncResult{}, invalidf("API Key 列表为空；如需清空，请传入 allow_empty")
 	}
 
 	result := SyncResult{Received: len(scopes), SyncedAt: now}
-	UpdateResult(s, func(state *State) (struct{}, bool) {
+	updateResult(s, func(state *State) (struct{}, bool) {
 		for scope, preview := range scopes {
 			key := state.ensureKey(scope, now)
 			// The preview is derived from the live key, so it is authoritative
@@ -381,7 +365,6 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 	return result, nil
 }
 
-// KeySummary is one ranked entry in the stats overview.
 type KeySummary struct {
 	Scope    string  `json:"scope"`
 	Preview  string  `json:"preview,omitempty"`
@@ -392,10 +375,8 @@ type KeySummary struct {
 	Blocked  bool    `json:"blocked"`
 }
 
-// StatsView is the deployment-wide overview.
 type StatsView struct {
 	GeneratedAt   time.Time     `json:"generated_at"`
-	Timezone      string        `json:"timezone"`
 	Keys          int           `json:"keys"`
 	BoundKeys     int           `json:"bound_keys"`
 	BlockedKeys   int           `json:"blocked_keys"`
@@ -412,8 +393,7 @@ type StatsView struct {
 func (s *Store) Stats() StatsView {
 	directory := s.KeyDirectory()
 	stats := StatsView{
-		GeneratedAt: directory.ServerTime,
-		Timezone:    directory.Timezone,
+		GeneratedAt: directory.GeneratedAt,
 		Keys:        len(directory.Keys),
 		LastSyncAt:  directory.LastSyncAt,
 		ByModel:     []ModelTotals{},

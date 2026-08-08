@@ -2,37 +2,27 @@ package billing
 
 import "time"
 
-// LogEntry is one billed request, kept so an operator can answer "what did this
-// key actually spend money on" without correlating against the proxy's own logs.
-//
-// It records what the bill was computed from, not what the provider reported:
-// the token counts are the billed buckets after the payload's layout has been
-// normalized, which is what the amounts below were derived from. A raw provider
-// counter would be the more faithful record and the less useful one, because
-// reading it still requires knowing which layout it arrived in.
-//
-// No plaintext key is stored. Scope is the hashed caller scope and Preview is
-// the masked rendering the rest of the plugin already displays.
+// LogEntry stores the canonical inputs and result of one bill. It never stores
+// the plaintext API key.
 type LogEntry struct {
-	At      time.Time `json:"at"`
-	Scope   string    `json:"scope"`
-	Preview string    `json:"preview,omitempty"`
-	// Model is what was billed; Alias is what the client asked for, recorded
-	// only when the two differ.
-	Model  string `json:"model,omitempty"`
-	Alias  string `json:"alias,omitempty"`
-	Failed bool   `json:"failed,omitempty"`
-	// BillingType is the provider-style counter layout detected for this bill.
-	BillingType BillingType `json:"billing_type,omitempty"`
+	At             time.Time `json:"at"`
+	Scope          string    `json:"scope"`
+	Preview        string    `json:"preview,omitempty"`
+	RequestID      string    `json:"request_id,omitempty"`
+	UsageIndex     int       `json:"usage_index,omitempty"`
+	ClientProtocol string    `json:"client_protocol,omitempty"`
+	Provider       string    `json:"provider,omitempty"`
+	ExecutorType   string    `json:"executor_type,omitempty"`
+	// Model is what was billed; Alias is what the client asked for.
+	Model             string                 `json:"model,omitempty"`
+	Alias             string                 `json:"alias,omitempty"`
+	Failed            bool                   `json:"failed,omitempty"`
+	AccountingQuality TokenAccountingQuality `json:"accounting_quality,omitempty"`
 	// PriceSource says where the numbers came from. "none" is the one to look
 	// for: it means no rule matched and the request was billed at zero.
 	PriceSource PriceSource `json:"price_source,omitempty"`
-	// Cost is the priced breakdown, carrying both the billed token buckets and
-	// what each of them cost.
-	Cost Cost `json:"cost"`
-	// ReasoningTokens is reported for the record. It is not a bucket of its own
-	// in Cost, because every layout bills reasoning at the output rate and it is
-	// already inside Cost.BilledOutputTokens.
+	Cost        Cost        `json:"cost"`
+	// ReasoningTokens is already included in Cost.BilledOutputTokens.
 	ReasoningTokens int64 `json:"reasoning_tokens,omitempty"`
 	// PlanID, CycleSpentUSD and CycleLimitUSD place the request in its
 	// subscription window as it stood immediately after being billed. They are
@@ -42,22 +32,8 @@ type LogEntry struct {
 	CycleLimitUSD float64 `json:"cycle_limit_usd,omitempty"`
 }
 
-// appendLog records one entry, discarding the oldest once the log is full.
-//
-// Entries are stored oldest first, so appending is the common path and only an
-// overflow costs a shift. That shift is O(limit) and runs at most once per
-// billed request; at the retention this plugin allows it is a memmove of a few
-// hundred kilobytes, on the terminal lifecycle event rather than on a client's
-// critical path. A ring buffer would avoid it and would have to carry its head
-// index through the JSON document, which is a worse trade for a table this size.
-//
-// A limit of zero clears the log rather than merely skipping the append: turning
-// retention off is a request to stop keeping this, not to freeze whatever was
-// already kept.
+// Entries stay oldest-first to keep the persisted representation append-only.
 func appendLog(state *State, entry LogEntry, limit int) {
-	if state == nil {
-		return
-	}
 	if limit <= 0 {
 		state.Log = nil
 		return
@@ -76,7 +52,7 @@ func appendLog(state *State, entry LogEntry, limit int) {
 // entries behind would also leave rows the UI can put no name to, since the
 // label lives on the key.
 func pruneLogOrphans(state *State) {
-	if state == nil || len(state.Log) == 0 {
+	if len(state.Log) == 0 {
 		return
 	}
 	kept := state.Log[:0]
@@ -103,15 +79,10 @@ type LogRow struct {
 	Label string `json:"label,omitempty"`
 }
 
-// LogView is the payload of the /logs route.
 type LogView struct {
-	// Entries are newest first, which is the order they are read in.
-	Entries []LogRow `json:"entries"`
-	// Retained is how many entries the log currently holds, and Limit is how
-	// many it is configured to keep. Reporting both is what makes a log that
-	// stops growing legible: it has either filled up or been turned off.
-	Retained int `json:"retained"`
-	Limit    int `json:"limit"`
+	Entries  []LogRow `json:"entries"`
+	Retained int      `json:"retained"`
+	Limit    int      `json:"limit"`
 }
 
 // Logs returns the retained billing log, newest first.
@@ -120,9 +91,6 @@ type LogView struct {
 // negative means everything retained.
 func (s *Store) Logs(limit int) LogView {
 	view := LogView{Entries: []LogRow{}}
-	if s == nil {
-		return view
-	}
 	s.Read(func(state *State) {
 		view.Retained = len(state.Log)
 		view.Limit = s.cfg.LogEntries
@@ -140,4 +108,15 @@ func (s *Store) Logs(limit int) LogView {
 		}
 	})
 	return view
+}
+
+func (s *Store) ClearLogs() int {
+	return updateResult(s, func(state *State) (int, bool) {
+		count := len(state.Log)
+		if count == 0 {
+			return 0, false
+		}
+		state.Log = nil
+		return count, true
+	})
 }

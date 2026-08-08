@@ -10,9 +10,6 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// Route prefixes. The host resolves relative paths under these bases, but
-// declaring them in full keeps the registration and the dispatch table in the
-// same shape, which is what makes the switch in handleManagement readable.
 const (
 	managementBase = "/v0/management/plugins/" + PluginID
 	resourceBase   = "/v0/resource/plugins/" + PluginID
@@ -22,22 +19,23 @@ const (
 //go:embed ui.html
 var uiHTML []byte
 
-// Management route suffixes, relative to managementBase.
 const (
-	routeStatus       = "/status"
-	routePrices       = "/prices"
-	routePriceCatalog = "/prices/catalog"
-	routePricesReset  = "/prices/reset"
-	routePricesSync   = "/prices/sync"
-	routePlans        = "/plans"
-	routeKeys         = "/keys"
-	routeKeysBind     = "/keys/bind"
-	routeKeysUnbind   = "/keys/unbind"
-	routeKeysReset    = "/keys/reset"
-	routeKeysLabel    = "/keys/label"
-	routeKeysSync     = "/keys/sync"
-	routeStats        = "/stats"
-	routeLogs         = "/logs"
+	routeStatus         = "/status"
+	routePrices         = "/prices"
+	routePriceCatalog   = "/prices/catalog"
+	routeCatalogRefresh = "/prices/catalog/refresh"
+	routePricesReset    = "/prices/reset"
+	routePricesSync     = "/prices/sync"
+	routePlans          = "/plans"
+	routeKeys           = "/keys"
+	routeKeysBind       = "/keys/bind"
+	routeKeysUnbind     = "/keys/unbind"
+	routeKeysReset      = "/keys/reset"
+	routeKeysLabel      = "/keys/label"
+	routeKeysSync       = "/keys/sync"
+	routeStats          = "/stats"
+	routeLogs           = "/logs"
+	routeData           = "/data"
 )
 
 // managementRegistration declares every route this plugin owns.
@@ -50,13 +48,14 @@ func managementRegistration() ManagementRegistrationResponse {
 		Routes: []ManagementRoute{
 			{Method: http.MethodGet, Path: managementBase + routeStatus, Description: "查看运行状态和诊断计数。"},
 
-			{Method: http.MethodGet, Path: managementBase + routePrices, Description: "查看所有模型的计费价格。"},
-			{Method: http.MethodGet, Path: managementBase + routePriceCatalog, Description: "搜索内置模型参考价格。"},
-			{Method: http.MethodPut, Path: managementBase + routePrices, Description: "更新单个模型价格或替换完整价格表。"},
-			{Method: http.MethodPost, Path: managementBase + routePricesReset, Description: "将所有模型恢复为内置参考价格。"},
-			{Method: http.MethodPost, Path: managementBase + routePricesSync, Description: "根据代理模型列表同步价格表。"},
+			{Method: http.MethodGet, Path: managementBase + routePrices, Description: "查看模型定价。"},
+			{Method: http.MethodGet, Path: managementBase + routePriceCatalog, Description: "搜索模型参考价。"},
+			{Method: http.MethodPost, Path: managementBase + routeCatalogRefresh, Description: "从 models.dev 更新参考价目录。"},
+			{Method: http.MethodPut, Path: managementBase + routePrices, Description: "更新模型定价。"},
+			{Method: http.MethodPost, Path: managementBase + routePricesReset, Description: "恢复模型参考价。"},
+			{Method: http.MethodPost, Path: managementBase + routePricesSync, Description: "同步代理模型。"},
 
-			{Method: http.MethodGet, Path: managementBase + routePlans, Description: "查看订阅计划及其当前周期。"},
+			{Method: http.MethodGet, Path: managementBase + routePlans, Description: "查看订阅计划及其 Key 绑定数量。"},
 			{Method: http.MethodPost, Path: managementBase + routePlans, Description: "新建订阅计划。"},
 			{Method: http.MethodPatch, Path: managementBase + routePlans, Description: "更新订阅计划。"},
 			{Method: http.MethodDelete, Path: managementBase + routePlans, Description: "删除订阅计划并解除相关 Key 的绑定。"},
@@ -65,12 +64,14 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodDelete, Path: managementBase + routeKeys, Description: "删除指定 API Key 的全部计费数据。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysBind, Description: "将 API Key 绑定到订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysUnbind, Description: "解除 API Key 的订阅计划。"},
-			{Method: http.MethodPost, Path: managementBase + routeKeysReset, Description: "重置 API Key 的当前计费周期。"},
+			{Method: http.MethodPost, Path: managementBase + routeKeysReset, Description: "重置 API Key 的订阅额度。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysLabel, Description: "设置 API Key 备注。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysSync, Description: "同步 CLIProxyAPI 中的 API Key 列表。"},
 
 			{Method: http.MethodGet, Path: managementBase + routeStats, Description: "查看全局用量汇总。"},
 			{Method: http.MethodGet, Path: managementBase + routeLogs, Description: "查看最近的逐请求计费记录。"},
+			{Method: http.MethodDelete, Path: managementBase + routeLogs, Description: "清空计费日志。"},
+			{Method: http.MethodDelete, Path: managementBase + routeData, Description: "重新初始化插件数据。"},
 		},
 		Resources: []ResourceRoute{
 			{Path: resourceBase + resourceUIPath, Menu: MenuLabel, Description: MenuDescription},
@@ -105,21 +106,21 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 	return OKEnvelope(a.routeManagement(req, strings.TrimPrefix(path, managementBase)))
 }
 
-// routeManagement maps one request onto an admin handler. The table is flat
-// because the host only supports exact paths, so there is nothing to nest.
 func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementResponse {
 	switch req.Method + " " + suffix {
 	case http.MethodGet + " " + routeStatus:
 		return JSONResponse(http.StatusOK, a.store.Status(PluginName, Version))
 
 	case http.MethodGet + " " + routePrices:
-		return JSONResponse(http.StatusOK, a.store.PriceTable())
+		return a.priceTable()
 	case http.MethodGet + " " + routePriceCatalog:
 		return a.searchPriceCatalog(req)
+	case http.MethodPost + " " + routeCatalogRefresh:
+		return a.refreshPriceCatalog()
 	case http.MethodPut + " " + routePrices:
 		return a.putPrices(req)
 	case http.MethodPost + " " + routePricesReset:
-		return JSONResponse(http.StatusOK, map[string]any{"restored": a.store.ResetPrices()})
+		return a.resetPrices()
 	case http.MethodPost + " " + routePricesSync:
 		return a.syncModels(req)
 
@@ -151,14 +152,16 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 		return JSONResponse(http.StatusOK, a.store.Stats())
 	case http.MethodGet + " " + routeLogs:
 		return a.listLogs(req)
+	case http.MethodDelete + " " + routeLogs:
+		return a.clearLogs()
+	case http.MethodDelete + " " + routeData:
+		return a.clearAllData()
 
 	default:
 		return JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path)
 	}
 }
 
-// serveResource answers the browser-navigable plugin pages. Resource responses
-// are not HTML-escaped by the host, so HTML can be returned directly.
 func (a *App) serveResource(suffix string) ManagementResponse {
 	switch suffix {
 	case "", "/", resourceUIPath:

@@ -6,26 +6,17 @@ import (
 	"time"
 )
 
-// maxCustomPeriodSeconds is the longest custom period that still converts to a
-// time.Duration. Beyond it the nanosecond conversion overflows, and it does so
-// silently: 1<<55 seconds lands on exactly zero, which would turn the window
-// arithmetic below into a division by zero. Validate rejects anything larger so
-// the request path never has to survive it, and CycleWindow clamps as well
-// because a state document can be edited by hand.
 const maxCustomPeriodSeconds = int64(math.MaxInt64) / int64(time.Second)
 
-// Validate reports whether a plan is internally consistent. It is enforced at
-// the Management API boundary so an invalid plan can never reach the request
-// path, where a period error would have to fail open.
 func (p Plan) Validate() error {
 	if strings.TrimSpace(p.ID) == "" {
 		return invalidf("订阅计划 ID 不能为空")
 	}
 	if !(p.AmountUSD > 0) {
-		return invalidf("订阅计划 %s：周期额度必须大于 0", p.ID)
+		return invalidf("订阅计划 %s：额度必须大于 0", p.ID)
 	}
 	switch p.Period.Kind {
-	case PeriodDaily, PeriodWeekly, PeriodMonthly:
+	case PeriodDaily, PeriodWeekly, PeriodMonthly, PeriodNever:
 		return nil
 	case PeriodCustom:
 		if p.Period.Seconds <= 0 {
@@ -40,34 +31,15 @@ func (p Plan) Validate() error {
 	}
 }
 
-// CycleWindow returns the half-open window [start, end) containing now, in the
-// plugin's configured time zone.
-//
-// Boundaries are computed with calendar arithmetic rather than by adding fixed
-// durations, so a window stays anchored to local midnight across DST
-// transitions, where a day is 23 or 25 hours long.
-func (p Plan) CycleWindow(now time.Time, loc *time.Location) (time.Time, time.Time) {
-	if loc == nil {
-		loc = time.UTC
-	}
-	local := now.In(loc)
-
+// CycleEnd returns the end of a period started by one key at start. Calendar
+// boundaries and time zones are deliberately absent: daily, weekly, and
+// monthly are fixed 24-hour, 7-day, and 30-day subscription lengths.
+func (p Plan) CycleEnd(start time.Time) time.Time {
 	switch p.Period.Kind {
 	case PeriodWeekly:
-		// Weeks run Monday to Sunday. time.Weekday counts from Sunday, so
-		// shifting by six turns Monday into the zero point.
-		back := (int(local.Weekday()) + 6) % 7
-		start := time.Date(local.Year(), local.Month(), local.Day()-back, 0, 0, 0, 0, loc)
-		end := time.Date(local.Year(), local.Month(), local.Day()-back+7, 0, 0, 0, 0, loc)
-		return start, end
-
+		return start.Add(7 * 24 * time.Hour)
 	case PeriodMonthly:
-		// Months run from the first to the first. time.Date normalizes month 13
-		// into January of the next year, which is how the end boundary is taken.
-		start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, loc)
-		end := time.Date(local.Year(), local.Month()+1, 1, 0, 0, 0, 0, loc)
-		return start, end
-
+		return start.Add(30 * 24 * time.Hour)
 	case PeriodCustom:
 		seconds := p.Period.Seconds
 		if seconds <= 0 {
@@ -75,32 +47,14 @@ func (p Plan) CycleWindow(now time.Time, loc *time.Location) (time.Time, time.Ti
 		} else if seconds > maxCustomPeriodSeconds {
 			seconds = maxCustomPeriodSeconds
 		}
-		period := time.Duration(seconds) * time.Second
-		anchor := p.Period.Anchor
-		if anchor.IsZero() {
-			anchor = p.CreatedAt
-		}
-		if anchor.IsZero() {
-			anchor = now
-		}
-		// Floor division: a now before the anchor still lands in a whole
-		// window rather than snapping forward to the anchor.
-		elapsed := now.Sub(anchor)
-		windows := int64(elapsed / period)
-		if elapsed < 0 && elapsed%period != 0 {
-			windows--
-		}
-		start := anchor.Add(time.Duration(windows) * period)
-		return start, start.Add(period)
-
-	default: // PeriodDaily and anything unrecognized.
-		start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
-		end := time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, loc)
-		return start, end
+		return start.Add(time.Duration(seconds) * time.Second)
+	case PeriodNever:
+		return time.Time{}
+	default:
+		return start.Add(24 * time.Hour)
 	}
 }
 
-// FindPlan returns the plan with the given ID.
 func (s *State) FindPlan(id string) (Plan, bool) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -114,34 +68,32 @@ func (s *State) FindPlan(id string) (Plan, bool) {
 	return Plan{}, false
 }
 
-// rollCycle advances a key's window to the one containing now, archiving the
-// window that just closed.
-//
-// Rolling is lazy: it happens whenever a key is read or written rather than on
-// a timer, so a restarted process picks up wherever the clock actually is and
-// idle keys cost nothing.
-func rollCycle(key *KeyState, plan Plan, now time.Time, loc *time.Location) bool {
-	if key == nil {
-		return false
-	}
-	start, end := plan.CycleWindow(now, loc)
-	if key.Cycle.StartAt.Equal(start) && key.Cycle.EndAt.Equal(end) {
+// settleExpiredCycle returns an elapsed timed subscription to its inactive
+// initial state. It never starts a new period; reads and manual resets therefore
+// cannot make an idle key's clock run.
+func settleExpiredCycle(key *KeyState, plan Plan, now time.Time) bool {
+	if plan.Period.Kind == PeriodNever || key.Cycle.StartAt.IsZero() || key.Cycle.EndAt.IsZero() || now.Before(key.Cycle.EndAt) {
 		return false
 	}
 	archiveCycle(key, plan.AmountUSD, plan.ID)
-	key.Cycle = Cycle{PlanID: plan.ID, StartAt: start, EndAt: end}
+	key.Cycle = Cycle{}
 	return true
 }
 
-// archiveCycle retains the current window in the trend history when it holds
-// anything worth keeping. limitUSD is the budget that applied while the window
-// was open, and fallbackPlanID attributes windows opened before the plan ID was
-// recorded on the cycle itself.
-//
-// Every path that abandons a window — rolling, rebinding, unbinding, a manual
-// reset — goes through here, so spend is never silently erased from history.
+// activateCycle settles an old period and lazily starts the next one at the
+// instant this key is actually used. A never-reset plan records its first-use
+// time for history but intentionally has no EndAt.
+func activateCycle(key *KeyState, plan Plan, now time.Time) bool {
+	changed := settleExpiredCycle(key, plan, now)
+	if !key.Cycle.StartAt.IsZero() {
+		return changed
+	}
+	key.Cycle = Cycle{PlanID: plan.ID, StartAt: now, EndAt: plan.CycleEnd(now)}
+	return true
+}
+
 func archiveCycle(key *KeyState, limitUSD float64, fallbackPlanID string) {
-	if key == nil || key.Cycle.StartAt.IsZero() {
+	if key.Cycle.StartAt.IsZero() {
 		return
 	}
 	if key.Cycle.SpentUSD <= 0 && key.Cycle.Requests <= 0 {

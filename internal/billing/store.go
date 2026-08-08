@@ -32,11 +32,14 @@ const DefaultFlushInterval = 5 * time.Second
 // on a client's critical path. Do not reintroduce a background flusher.
 type Store struct {
 	cfgMu sync.Mutex
+	// writeMu and stateGeneration keep a flush that snapshotted pre-reset data
+	// from recreating the state file after ResetAllData removed it.
+	writeMu         sync.Mutex
+	stateGeneration atomic.Uint64
 
 	mu    sync.RWMutex
 	state *State
 	cfg   Config
-	loc   *time.Location
 	path  string
 
 	// pending tracks in-flight requests between interception and their
@@ -53,6 +56,7 @@ type Store struct {
 	usageRecorded     atomic.Int64
 	usageUnpriced     atomic.Int64
 	usageNoTokens     atomic.Int64
+	usageUnclassified atomic.Int64
 	authChecks        atomic.Int64
 	authBlocked       atomic.Int64
 
@@ -66,31 +70,17 @@ type Store struct {
 	now func() time.Time
 }
 
-// NewStore returns an unconfigured store holding an empty document.
 func NewStore() *Store {
 	return &Store{
 		state:         NewState(),
 		cfg:           DefaultConfig(),
-		loc:           time.UTC,
-		pending:       &pendingTable{entries: make(map[string]*PendingRequest)},
+		pending:       &pendingTable{entries: make(map[string]PendingRequest)},
 		flushInterval: DefaultFlushInterval,
 		now:           time.Now,
 	}
 }
 
-// SetNow overrides the clock. Tests only; call before Configure.
-func (s *Store) SetNow(now func() time.Time) {
-	if s == nil || now == nil {
-		return
-	}
-	s.now = now
-}
-
-// Now reports the store clock.
 func (s *Store) Now() time.Time {
-	if s == nil || s.now == nil {
-		return time.Now()
-	}
 	return s.now()
 }
 
@@ -98,13 +88,7 @@ func (s *Store) Now() time.Time {
 // when the target path changes. It is safe to call repeatedly: the host invokes
 // it on every plugin.reconfigure.
 func (s *Store) Configure(cfg Config) error {
-	if s == nil {
-		return fmt.Errorf("计费存储尚未初始化")
-	}
-	normalized, errNormalize := cfg.normalized()
-	if errNormalize != nil {
-		return errNormalize
-	}
+	normalized := cfg.normalized()
 	path, errPath := resolveStatePath(normalized.StateFile)
 	if errPath != nil {
 		return errPath
@@ -145,7 +129,6 @@ func (s *Store) Configure(cfg Config) error {
 
 	s.mu.Lock()
 	s.cfg = normalized
-	s.loc = normalized.Location()
 	s.path = path
 	s.mu.Unlock()
 
@@ -155,9 +138,6 @@ func (s *Store) Configure(cfg Config) error {
 // Close performs the final write. The host calls it through the C ABI shutdown
 // hook, which is the last chance to persist anything the debounce held back.
 func (s *Store) Close() {
-	if s == nil {
-		return
-	}
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	if errFlush := s.Flush(); errFlush != nil {
@@ -165,11 +145,41 @@ func (s *Store) Close() {
 	}
 }
 
-// Config returns the active configuration.
-func (s *Store) Config() Config {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.cfg
+// ResetAllData removes the persisted document and restores an empty runtime
+// state while keeping the host-supplied plugin configuration intact.
+func (s *Store) ResetAllData() error {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	s.mu.Lock()
+	path := s.path
+	if path != "" {
+		if errRemove := os.Remove(path); errRemove != nil && !os.IsNotExist(errRemove) {
+			s.mu.Unlock()
+			return fmt.Errorf("删除计费状态文件 %s：%w", path, errRemove)
+		}
+	}
+	s.state = NewState()
+	s.stateGeneration.Add(1)
+	s.dirty.Store(false)
+	s.mu.Unlock()
+
+	s.pending.clear()
+	s.usageReceived.Store(0)
+	s.usageUnattributed.Store(0)
+	s.usageRecorded.Store(0)
+	s.usageUnpriced.Store(0)
+	s.usageNoTokens.Store(0)
+	s.usageUnclassified.Store(0)
+	s.authChecks.Store(0)
+	s.authBlocked.Store(0)
+	s.statusMu.Lock()
+	s.lastFlush = time.Time{}
+	s.lastError = ""
+	s.statusMu.Unlock()
+	return nil
 }
 
 // Enabled reports whether the plugin should act on requests. A disabled plugin
@@ -182,9 +192,6 @@ func (s *Store) Enabled() bool {
 
 // Read runs fn against the state under a read lock. fn must not mutate.
 func (s *Store) Read(fn func(*State)) {
-	if s == nil || fn == nil {
-		return
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	fn(s.state)
@@ -193,23 +200,14 @@ func (s *Store) Read(fn func(*State)) {
 // Update runs fn against the state under a write lock and marks the document
 // dirty so the flusher persists it.
 func (s *Store) Update(fn func(*State)) {
-	if s == nil || fn == nil {
-		return
-	}
 	s.mu.Lock()
 	fn(s.state)
 	s.mu.Unlock()
 	s.dirty.Store(true)
 }
 
-// UpdateResult is Update for callers that need a value out of the critical
-// section. It marks the document dirty only when fn reports a change, so
-// read-mostly paths do not force needless writes.
-func UpdateResult[T any](s *Store, fn func(*State) (T, bool)) T {
-	var zero T
-	if s == nil || fn == nil {
-		return zero
-	}
+// updateResult marks the document dirty only when fn reports a change.
+func updateResult[T any](s *Store, fn func(*State) (T, bool)) T {
 	s.mu.Lock()
 	value, changed := fn(s.state)
 	s.mu.Unlock()
@@ -222,12 +220,10 @@ func UpdateResult[T any](s *Store, fn func(*State) (T, bool)) T {
 // Flush writes the document to disk when it has pending changes. It is a no-op
 // for a clean document or an unconfigured store.
 func (s *Store) Flush() error {
-	if s == nil {
-		return nil
-	}
 	if !s.dirty.CompareAndSwap(true, false) {
 		return nil
 	}
+	generation := s.stateGeneration.Load()
 	s.mu.RLock()
 	path := s.path
 	raw, errMarshal := json.MarshalIndent(s.state, "", "  ")
@@ -239,6 +235,11 @@ func (s *Store) Flush() error {
 	if path == "" {
 		s.dirty.Store(true)
 		return fmt.Errorf("尚未配置状态文件路径")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if generation != s.stateGeneration.Load() {
+		return nil
 	}
 	if errWrite := writeFileAtomic(path, raw); errWrite != nil {
 		// Keep the document dirty so a transient failure is retried on the next
@@ -297,7 +298,7 @@ func (s *Store) persistLocked(path string) error {
 // inside the debounce window waits for the next such call, and Close catches
 // whatever is still held back at shutdown.
 func (s *Store) FlushIfDue() {
-	if s == nil || !s.dirty.Load() {
+	if !s.dirty.Load() {
 		return
 	}
 	s.statusMu.Lock()
@@ -312,9 +313,6 @@ func (s *Store) FlushIfDue() {
 }
 
 func (s *Store) recordFlushError(err error) {
-	if err == nil {
-		return
-	}
 	s.statusMu.Lock()
 	s.lastError = err.Error()
 	s.statusMu.Unlock()
@@ -330,7 +328,6 @@ type Status struct {
 	Version   string `json:"version"`
 	Enabled   bool   `json:"enabled"`
 	StateFile string `json:"state_file"`
-	Timezone  string `json:"timezone"`
 	Prices    int    `json:"prices"`
 	Plans     int    `json:"plans"`
 	Keys      int    `json:"keys"`
@@ -342,7 +339,6 @@ type Status struct {
 	PendingWrite  bool      `json:"pending_write"`
 	LastFlushedAt time.Time `json:"last_flushed_at,omitzero"`
 	LastError     string    `json:"last_error,omitempty"`
-	ServerTime    time.Time `json:"server_time"`
 	Counters      Counters  `json:"counters"`
 }
 
@@ -359,6 +355,7 @@ type Counters struct {
 	UsageRecorded     int64 `json:"usage_recorded"`
 	UsageUnpriced     int64 `json:"usage_unpriced"`
 	UsageNoTokens     int64 `json:"usage_no_tokens"`
+	UsageUnclassified int64 `json:"usage_unclassified"`
 	AuthChecks        int64 `json:"auth_checks"`
 	AuthBlocked       int64 `json:"auth_blocked"`
 	PendingRequests   int   `json:"pending_requests"`
@@ -372,7 +369,6 @@ func (s *Store) Status(pluginName, version string) Status {
 		Version:     version,
 		Enabled:     s.cfg.Enabled,
 		StateFile:   s.path,
-		Timezone:    s.cfg.DefaultTimezone,
 		Prices:      len(s.state.Prices),
 		Plans:       len(s.state.Plans),
 		Keys:        len(s.state.Keys),
@@ -387,19 +383,17 @@ func (s *Store) Status(pluginName, version string) Status {
 	s.mu.RUnlock()
 
 	status.PendingWrite = s.dirty.Load()
-	status.ServerTime = s.Now()
 	status.Counters = Counters{
 		UsageReceived:     s.usageReceived.Load(),
 		UsageUnattributed: s.usageUnattributed.Load(),
 		UsageRecorded:     s.usageRecorded.Load(),
 		UsageUnpriced:     s.usageUnpriced.Load(),
 		UsageNoTokens:     s.usageNoTokens.Load(),
+		UsageUnclassified: s.usageUnclassified.Load(),
 		AuthChecks:        s.authChecks.Load(),
 		AuthBlocked:       s.authBlocked.Load(),
 	}
-	if s.pending != nil {
-		status.Counters.PendingRequests = s.pending.len()
-	}
+	status.Counters.PendingRequests = s.pending.len()
 	s.statusMu.Lock()
 	status.LastFlushedAt = s.lastFlush
 	status.LastError = s.lastError
@@ -438,9 +432,15 @@ func loadState(path string) (*State, bool, error) {
 	if state.Version > StateVersion {
 		return nil, false, fmt.Errorf("状态文件 %s 来自更高版本的插件（版本 %d > %d）", path, state.Version, StateVersion)
 	}
+	previousVersion := state.Version
 	state.Version = StateVersion
 	state.normalize()
-	return state, state.removeNonPositivePlans(), nil
+	migratedCycles := false
+	if previousVersion < 3 {
+		migratedCycles = state.migrateKeyRelativeCycles()
+	}
+	migrated := previousVersion != StateVersion
+	return state, state.removeNonPositivePlans() || migratedCycles || migrated, nil
 }
 
 // writeFileAtomic writes through a sibling temp file and renames, so a crash or
@@ -448,11 +448,11 @@ func loadState(path string) (*State, bool, error) {
 func writeFileAtomic(path string, raw []byte) error {
 	dir := filepath.Dir(path)
 	if errMkdir := os.MkdirAll(dir, 0o755); errMkdir != nil {
-		return fmt.Errorf("创建状态目录 %s：%w", dir, errMkdir)
+		return fmt.Errorf("创建文件目录 %s：%w", dir, errMkdir)
 	}
 	tmp, errTemp := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if errTemp != nil {
-		return fmt.Errorf("在 %s 创建临时状态文件：%w", dir, errTemp)
+		return fmt.Errorf("在 %s 创建临时文件：%w", dir, errTemp)
 	}
 	tmpName := tmp.Name()
 	// Removing the temp file is best effort on every failure path: a leftover
@@ -461,24 +461,24 @@ func writeFileAtomic(path string, raw []byte) error {
 	if _, errWrite := tmp.Write(raw); errWrite != nil {
 		_ = tmp.Close()
 		cleanup()
-		return fmt.Errorf("写入临时状态文件 %s：%w", tmpName, errWrite)
+		return fmt.Errorf("写入临时文件 %s：%w", tmpName, errWrite)
 	}
 	if errSync := tmp.Sync(); errSync != nil {
 		_ = tmp.Close()
 		cleanup()
-		return fmt.Errorf("同步临时状态文件 %s：%w", tmpName, errSync)
+		return fmt.Errorf("同步临时文件 %s：%w", tmpName, errSync)
 	}
 	if errClose := tmp.Close(); errClose != nil {
 		cleanup()
-		return fmt.Errorf("关闭临时状态文件 %s：%w", tmpName, errClose)
+		return fmt.Errorf("关闭临时文件 %s：%w", tmpName, errClose)
 	}
 	if errChmod := os.Chmod(tmpName, 0o600); errChmod != nil {
 		cleanup()
-		return fmt.Errorf("设置临时状态文件 %s 权限：%w", tmpName, errChmod)
+		return fmt.Errorf("设置临时文件 %s 权限：%w", tmpName, errChmod)
 	}
 	if errRename := os.Rename(tmpName, path); errRename != nil {
 		cleanup()
-		return fmt.Errorf("替换状态文件 %s：%w", path, errRename)
+		return fmt.Errorf("替换文件 %s：%w", path, errRename)
 	}
 	return nil
 }

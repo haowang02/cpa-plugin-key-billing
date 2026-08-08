@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// decodeResult unwraps a successful envelope into v.
 func decodeResult(t *testing.T, raw []byte, v any) {
 	t.Helper()
 	var envelope Envelope
@@ -26,8 +25,6 @@ func decodeResult(t *testing.T, raw []byte, v any) {
 	}
 }
 
-// newConfiguredApp returns an app that has completed plugin.register against a
-// temp state file, mirroring what the host does at load time.
 func newConfiguredApp(t *testing.T) *App {
 	t.Helper()
 	app := NewApp()
@@ -69,9 +66,9 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 		t.Fatalf("SchemaVersion = %d, want %d", registration.SchemaVersion, SchemaVersion)
 	}
 	caps := registration.Capabilities
-	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin ||
-		!caps.ResponseInterceptor || !caps.StreamChunkInterceptor || !caps.ManagementAPI {
-		t.Fatalf("capabilities = %+v, want every integration point declared", caps)
+	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.ManagementAPI ||
+		caps.ResponseInterceptor || caps.StreamChunkInterceptor {
+		t.Fatalf("capabilities = %+v, want canonical lifecycle billing only", caps)
 	}
 	if registration.Metadata.Name != PluginName || registration.Metadata.Version != Version {
 		t.Fatalf("metadata = %+v", registration.Metadata)
@@ -79,11 +76,17 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	if len(registration.Metadata.ConfigFields) == 0 {
 		t.Fatal("ConfigFields is empty, the panel needs them to render the config form")
 	}
+	fields := make(map[string]ConfigField, len(registration.Metadata.ConfigFields))
+	for _, field := range registration.Metadata.ConfigFields {
+		fields[field.Name] = field
+	}
+	if fields["log_entries"].Type != "integer" || fields["state_file"].Type != "string" || fields["enabled"].Type != "boolean" {
+		t.Fatalf("ConfigFields = %+v", registration.Metadata.ConfigFields)
+	}
 }
 
-// TestRegisterRejectsOldHostSchema guards the plugin's core promise: request
-// termination only exists from schema 2, so loading against an older host would
-// account for spend while enforcing nothing.
+// TestRegisterRejectsOldHostSchema guards the canonical usage contract added
+// in schema 3. Loading on an older host would silently lose billing records.
 func TestRegisterRejectsOldHostSchema(t *testing.T) {
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
