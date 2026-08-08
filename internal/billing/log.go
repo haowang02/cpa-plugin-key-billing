@@ -11,7 +11,6 @@ type LogEntry struct {
 	UsageIndex     int       `json:"usage_index,omitempty"`
 	ClientProtocol string    `json:"client_protocol,omitempty"`
 	Provider       string    `json:"provider,omitempty"`
-	ExecutorType   string    `json:"executor_type,omitempty"`
 	// Model is what was billed; Alias is what the client asked for.
 	Model             string                 `json:"model,omitempty"`
 	Alias             string                 `json:"alias,omitempty"`

@@ -273,13 +273,12 @@ func canonicalUsageRecords(records []RequestUsageRecord) []billing.UsageRecord {
 	result := make([]billing.UsageRecord, 0, len(records))
 	for _, record := range records {
 		result = append(result, billing.UsageRecord{
-			Provider:     record.Provider,
-			ExecutorType: record.ExecutorType,
-			Model:        record.Model,
-			Alias:        record.Alias,
-			Generate:     record.Generate,
-			Failed:       record.Failed,
-			RequestedAt:  record.RequestedAt,
+			Provider:    record.Provider,
+			Model:       record.Model,
+			Alias:       record.Alias,
+			Generate:    record.Generate,
+			Failed:      record.Failed,
+			RequestedAt: record.RequestedAt,
 			Breakdown: billing.TokenBreakdown{
 				SchemaVersion:      record.Breakdown.SchemaVersion,
 				Quality:            record.Breakdown.Quality,

@@ -36,7 +36,7 @@ func admit(t *testing.T, app *App, protocol string) {
 
 func canonicalRecord(model string, uncached, cacheRead, cacheWrite, output, reasoning int64) RequestUsageRecord {
 	return RequestUsageRecord{
-		Provider: "codex", ExecutorType: "CodexExecutor", Model: model, Alias: model, Generate: true,
+		Provider: "codex", Model: model, Alias: model, Generate: true,
 		Breakdown: RequestTokenBreakdown{
 			SchemaVersion: billing.TokenAccountingSchemaVersion,
 			Quality:       billing.TokenAccountingComplete,
@@ -124,7 +124,7 @@ func TestFlowRecordsProtocolProviderAndCanonicalQuality(t *testing.T) {
 	}
 	entry := view.Entries[0]
 	if entry.RequestID != flowRequestID || entry.ClientProtocol != "claude" || entry.Provider != "codex" ||
-		entry.ExecutorType != "CodexExecutor" || entry.AccountingQuality != billing.TokenAccountingComplete {
+		entry.AccountingQuality != billing.TokenAccountingComplete {
 		t.Fatalf("entry = %+v", entry)
 	}
 }

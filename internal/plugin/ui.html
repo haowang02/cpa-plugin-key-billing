@@ -330,7 +330,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
       <input id="plan-id" type="hidden">
       <div class="row" style="align-items:flex-end">
         <label class="field">名称<input id="plan-name" placeholder="团队 30 天额度"></label>
-        <label class="field">额度（USD）<input id="plan-amount" type="number" step="any" min="0.000001" value="10"></label>
+        <label class="field">额度（USD）<input id="plan-amount" type="number" step="any" min="0.000001"></label>
         <label class="field">周期
           <select id="plan-kind">
             <option value="daily">24 小时</option>
@@ -536,15 +536,8 @@ async function api(method, path, body, opts) {
 
 const plugin = (method, path, body) => api(method, PLUGIN_BASE + path, body);
 
-// Preserve useful precision for small token prices without padding ordinary
-// amounts with unnecessary trailing zeros.
-function usd(value) {
-  const amount = Number(value || 0);
-  if (amount === 0) return "$0";
-  const magnitude = Math.abs(amount);
-  const fixed = amount.toFixed(magnitude < 0.01 ? 6 : magnitude < 1 ? 4 : 2);
-  return "$" + fixed.replace(/(\.\d\d\d*?)0+$/, "$1");
-}
+const USD_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 });
+function usd(value) { return "$" + USD_FORMAT.format(Number(value || 0)); }
 function int(value) { return Number(value || 0).toLocaleString("zh-CN"); }
 function tokens(value) {
   const n = Number(value || 0);
@@ -556,14 +549,12 @@ function tokens(value) {
 function exactTokens(value) {
   return Math.trunc(Number(value || 0)).toLocaleString("en-US");
 }
-function unitPrice(value) {
-  const amount = Number(value || 0);
-  return "$" + amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 }) + " / 1M";
-}
-function detailUSD(value) {
-  const amount = Number(value || 0);
-  if (amount === 0) return "$0";
-  return "$" + amount.toLocaleString("en-US", { minimumFractionDigits: 6, maximumFractionDigits: 8 });
+function tokenThreshold(value) {
+  const n = Number(value || 0);
+  if (n >= 1e9) return String(Number((n / 1e9).toFixed(3))) + "B";
+  if (n >= 1e6) return String(Number((n / 1e6).toFixed(3))) + "M";
+  if (n >= 1e3) return String(Number((n / 1e3).toFixed(3))) + "K";
+  return exactTokens(n);
 }
 function when(value) {
   if (!value) return "—";
@@ -786,11 +777,12 @@ function renderModels() {
     el("td", { class: "num" }, tokens(entry.uncached_input_tokens + entry.cache_read_tokens + entry.cache_creation_tokens)),
     el("td", { class: "num" }, tokens(entry.output_tokens)),
     el("td", { class: "num" }, tokens(entry.cache_read_tokens)),
+    el("td", { class: "num" }, tokens(entry.cache_creation_tokens)),
     el("td", { class: "num" }, usd(entry.cost_usd)),
   ));
   $("models-body").replaceChildren(table(
     ["模型", { label: "请求", num: true }, { label: "输入", num: true }, { label: "输出", num: true },
-      { label: "缓存读取", num: true }, { label: "费用", num: true }],
+      { label: "缓存读取", num: true }, { label: "缓存写入", num: true }, { label: "费用", num: true }],
     rows));
 }
 
@@ -832,7 +824,7 @@ function priceSourceTag(source) {
 
 function optionalPrice(value) {
   return value === null || value === undefined
-    ? el("span", { class: "muted", text: "沿用输入单价" })
+    ? el("span", { class: "muted", text: "-" })
     : usd(value);
 }
 
@@ -840,12 +832,14 @@ function tierPriceCell(row, field, optional) {
   const base = row[field];
   const tier = row.long_context;
   if (!tier) return optional ? optionalPrice(base) : usd(base);
-  const threshold = tokens(tier.threshold_input_tokens);
+  const threshold = tokenThreshold(tier.threshold_input_tokens);
   const longValue = tier[field];
+  if (optional && (base === null || base === undefined) && (longValue === null || longValue === undefined)) {
+    return el("span", { class: "muted", text: "-" });
+  }
   return el("div", { class: "tier-price" },
-    el("span", {}, "≤" + threshold + " " + (optional && (base === null || base === undefined) ? "输入价" : usd(base))),
-    el("span", { class: "muted small" }, ">" + threshold + " " +
-      (optional && (longValue === null || longValue === undefined) ? "长输入价" : usd(longValue))),
+    el("span", {}, optional ? optionalPrice(base) : usd(base)),
+    el("span", { class: "muted small" }, ">" + threshold + " ", optional ? optionalPrice(longValue) : usd(longValue)),
   );
 }
 
@@ -873,8 +867,8 @@ function logKeyName(entry) {
 }
 
 function costTierText(cost) {
-  const threshold = exactTokens(cost.threshold_input_tokens);
-  return cost.long_context ? "长上下文（输入 > " + threshold + "）" : "标准上下文（输入 ≤ " + threshold + "）";
+  const threshold = tokenThreshold(cost.threshold_input_tokens);
+  return cost.long_context ? "长上下文 >" + threshold : "标准上下文 ≤" + threshold;
 }
 
 function showCostTooltip(anchor, cost, reasoningTokens) {
@@ -903,11 +897,11 @@ function showCostTooltip(anchor, cost, reasoningTokens) {
       el("span", { class: "cost-tooltip-head num" }, "金额"),
       rows.flatMap(([name, tokenCount, price, amount]) => [
         el("span", {}, name),
-        el("span", { class: "num" }, exactTokens(tokenCount) + " × " + unitPrice(price)),
-        el("span", { class: "num" }, detailUSD(amount)),
+        el("span", { class: "num" }, exactTokens(tokenCount) + " × " + usd(price) + " / 1M"),
+        el("span", { class: "num" }, usd(amount)),
       ]),
     ),
-    el("div", { class: "cost-tooltip-total" }, el("span", {}, "总金额"), el("span", {}, detailUSD(cost.total_usd))),
+    el("div", { class: "cost-tooltip-total" }, el("span", {}, "总金额"), el("span", {}, usd(cost.total_usd))),
   );
   tooltip.classList.add("show");
   tooltip.setAttribute("aria-hidden", "false");
@@ -935,14 +929,6 @@ function hideCostTooltip() {
   tooltip.setAttribute("aria-hidden", "true");
 }
 
-function protocolText(value) {
-  const normalized = String(value || "").toLowerCase();
-  if (normalized.includes("claude") || normalized.includes("anthropic")) return "Anthropic";
-  if (normalized.includes("gemini") || normalized.includes("antigravity")) return "Gemini";
-  if (normalized.includes("openai") || normalized.includes("codex")) return "OpenAI";
-  return value || "—";
-}
-
 function renderLogs() {
   hideCostTooltip();
   const view = state.logs;
@@ -967,7 +953,7 @@ function renderLogs() {
   const filtered = (view.entries || []).filter((entry) => !filter ||
       (logKeyName(entry) + " " + (entry.preview || "") + " " + (entry.scope || "") + " " +
         (entry.model || "") + " " + (entry.alias || "") + " " +
-        (entry.provider || "") + " " + (entry.executor_type || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter));
+        (entry.client_protocol || "") + " " + (entry.provider || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter));
   const totalPages = Math.max(1, Math.ceil(filtered.length / logPageSize));
   logPage = Math.min(Math.max(1, logPage), totalPages);
   const start = (logPage - 1) * logPageSize;
@@ -987,7 +973,7 @@ function renderLogs() {
       if (cost.tiered) {
         tierMark = el("span", {
           class: "tag " + (cost.long_context ? "warn" : "plain"),
-          text: cost.long_context ? ("长上下文 >" + tokens(cost.threshold_input_tokens)) : ("标准上下文 ≤" + tokens(cost.threshold_input_tokens)),
+          text: cost.long_context ? "长上下文" : "标准",
         });
       }
 
@@ -1009,16 +995,16 @@ function renderLogs() {
         el("td", {}, tierMark || el("span", { class: "muted", text: "—" })),
         el("td", {},
           el("div", { class: "log-cell-line" },
-            el("span", {}, protocolText(entry.client_protocol)),
+            el("span", {}, entry.client_protocol || "—"),
             statusMarks),
-          el("div", { class: "log-cell-line muted small" }, (entry.provider || "未知") + " / " + (entry.executor_type || "未知")),
+          el("div", { class: "log-cell-line muted small" }, entry.provider || "未知"),
         ),
-        el("td", { class: "num" }, tokens(input)),
-        el("td", { class: "num" }, cost.cache_read_tokens ? tokens(cost.cache_read_tokens) : el("span", { class: "muted", text: "—" })),
-        el("td", { class: "num" }, cost.cache_write_tokens ? tokens(cost.cache_write_tokens) : el("span", { class: "muted", text: "—" })),
+        el("td", { class: "num" }, exactTokens(input)),
+        el("td", { class: "num" }, exactTokens(cost.cache_read_tokens)),
+        el("td", { class: "num" }, exactTokens(cost.cache_write_tokens)),
         el("td", { class: "num" },
-          el("div", {}, tokens(output)),
-          entry.reasoning_tokens ? el("div", { class: "muted small" }, "推理 " + tokens(entry.reasoning_tokens)) : null,
+          el("div", {}, exactTokens(output)),
+          entry.reasoning_tokens ? el("div", { class: "muted small" }, "推理 " + exactTokens(entry.reasoning_tokens)) : null,
         ),
         el("td", { class: "num" },
           el("span", {
@@ -1035,7 +1021,7 @@ function renderLogs() {
     });
 
   $("logs-body").replaceChildren(table(
-    ["时间", "API Key", "模型", "计价档位", "客户端 / 上游", { label: "输入", num: true }, { label: "缓存读取", num: true },
+    ["时间", "API Key", "模型", "计价档位", "协议/上游", { label: "输入", num: true }, { label: "缓存读取", num: true },
       { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
     rows));
   pagination.classList.remove("hidden");
@@ -1092,7 +1078,7 @@ function selectedPlanScopes() {
 
 function resetPlanForm() {
   $("plan-form-title").textContent = "新建订阅计划";
-  $("plan-id").value = ""; $("plan-name").value = ""; $("plan-amount").value = "10";
+  $("plan-id").value = ""; $("plan-name").value = ""; $("plan-amount").value = "";
   $("plan-kind").value = "daily";
   $("plan-seconds").value = "3600";
   $("plan-cancel").classList.add("hidden");
@@ -1158,7 +1144,7 @@ function referencePriceText(row) {
     prices.push("缓存写 " + usd(row.cache_write_per_1m));
   }
   if (row.long_context) {
-    prices.push(">" + tokens(row.long_context.threshold_input_tokens) + " 阶梯：输入 " + usd(row.long_context.input_per_1m) +
+    prices.push(">" + tokenThreshold(row.long_context.threshold_input_tokens) + " 阶梯：输入 " + usd(row.long_context.input_per_1m) +
       " · 输出 " + usd(row.long_context.output_per_1m));
   }
   return prices.join(" · ");

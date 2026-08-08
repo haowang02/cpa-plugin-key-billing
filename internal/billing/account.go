@@ -8,14 +8,13 @@ import (
 // UsageRecord is one normalized provider usage event. Multiple records may
 // belong to one downstream request because retries are billed separately.
 type UsageRecord struct {
-	Provider     string
-	ExecutorType string
-	Model        string
-	Alias        string
-	Generate     bool
-	Failed       bool
-	RequestedAt  time.Time
-	Breakdown    TokenBreakdown
+	Provider    string
+	Model       string
+	Alias       string
+	Generate    bool
+	Failed      bool
+	RequestedAt time.Time
+	Breakdown   TokenBreakdown
 }
 
 // UsageEvent commits every canonical provider record associated with one
@@ -129,7 +128,6 @@ func (s *Store) RecordUsage(event UsageEvent) {
 				UsageIndex:        index,
 				ClientProtocol:    event.ClientProtocol,
 				Provider:          record.Provider,
-				ExecutorType:      record.ExecutorType,
 				Model:             model,
 				Failed:            failed,
 				AccountingQuality: record.Breakdown.Quality,

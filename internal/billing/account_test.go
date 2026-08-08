@@ -29,7 +29,7 @@ func subsetEvent(scope string, at time.Time) UsageEvent {
 	return UsageEvent{
 		Scope: scope, RequestID: "req-1", ClientProtocol: "claude", At: at,
 		Records: []UsageRecord{{
-			Provider: "codex", ExecutorType: "CodexExecutor", Model: "gpt-5.5", Alias: "gpt-5.5", Generate: true,
+			Provider: "codex", Model: "gpt-5.5", Alias: "gpt-5.5", Generate: true,
 			Breakdown: completeBreakdown(500, 400, 100, 500, 200),
 		}},
 	}

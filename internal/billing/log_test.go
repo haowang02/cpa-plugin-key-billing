@@ -34,7 +34,7 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 	entry := view.Entries[0]
 	if entry.Scope != "scope-a" || entry.Label != "Alice" || entry.Preview != "sk-tes…0001" ||
 		entry.Model != "gpt-5.5" || entry.PriceSource != PriceSourceOverride ||
-		entry.ClientProtocol != "claude" || entry.Provider != "codex" || entry.ExecutorType != "CodexExecutor" ||
+		entry.ClientProtocol != "claude" || entry.Provider != "codex" ||
 		entry.AccountingQuality != TokenAccountingComplete {
 		t.Fatalf("entry = %+v", entry)
 	}

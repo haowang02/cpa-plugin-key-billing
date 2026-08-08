@@ -31,7 +31,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "0.1.4"
+	Version    = "0.1.5"
 
 	MenuLabel       = "API Key 计费"
 	MenuDescription = "管理下游 API Key 的计费、订阅额度和用量"
@@ -151,14 +151,13 @@ type RequestCompletion struct {
 }
 
 type RequestUsageRecord struct {
-	Provider     string                `json:"Provider"`
-	ExecutorType string                `json:"ExecutorType"`
-	Model        string                `json:"Model"`
-	Alias        string                `json:"Alias"`
-	Generate     bool                  `json:"Generate"`
-	Failed       bool                  `json:"Failed"`
-	RequestedAt  time.Time             `json:"RequestedAt"`
-	Breakdown    RequestTokenBreakdown `json:"Breakdown"`
+	Provider    string                `json:"Provider"`
+	Model       string                `json:"Model"`
+	Alias       string                `json:"Alias"`
+	Generate    bool                  `json:"Generate"`
+	Failed      bool                  `json:"Failed"`
+	RequestedAt time.Time             `json:"RequestedAt"`
+	Breakdown   RequestTokenBreakdown `json:"Breakdown"`
 }
 
 type RequestTokenBreakdown struct {
