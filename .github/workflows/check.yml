@@ -5,6 +5,13 @@ on:
     branches:
       - "**"
   pull_request:
+  workflow_call:
+    inputs:
+      verify_release_version:
+        description: Verify that the release tag matches the plugin version.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -36,6 +43,15 @@ jobs:
 
       - name: Check module files
         run: go mod tidy -diff
+
+      - name: Verify release version
+        if: inputs.verify_release_version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="$(awk -F'"' '/^[[:space:]]*Version[[:space:]]*=/ {print $2; exit}' internal/plugin/types.go)"
+          test -n "$version"
+          test "$RELEASE_TAG" = "v$version"
 
       - name: Check GitHub Actions workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

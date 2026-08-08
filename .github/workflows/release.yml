@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "*"
+      - "v*"
 
 permissions:
   contents: read
@@ -11,44 +11,9 @@ permissions:
 jobs:
   check:
     name: Verify tagged source
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-
-      - name: Check formatting
-        run: |
-          gofmt -l . | tee /tmp/gofmt-files
-          test ! -s /tmp/gofmt-files
-
-      - name: Check module files
-        run: go mod tidy -diff
-
-      - name: Check GitHub Actions workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-        env:
-          GOTOOLCHAIN: auto
-
-      - name: Run tests
-        run: go test ./...
-
-      - name: Run vet
-        run: go vet ./...
-
-      - name: Check embedded UI JavaScript
-        run: |
-          ui_script="$RUNNER_TEMP/cpa-key-billing-ui.js"
-          sed -n '/^<script>$/,/^<\/script>$/p' internal/plugin/ui.html \
-            | sed -e '/^<script>$/d' -e '/^<\/script>$/d' > "$ui_script"
-          node --check "$ui_script"
+    uses: ./.github/workflows/check.yml
+    with:
+      verify_release_version: true
 
   build:
     name: Build ${{ matrix.target }}
@@ -187,11 +152,12 @@ jobs:
             revision_range="$GITHUB_SHA"
           fi
 
-          git log --reverse --pretty=tformat:'%s%x09%h%x09%H' "$revision_range" \
+          printf '### Changelog\n\n' > "$changelog"
+          git log --pretty=tformat:'%s%x09%h%x09%H' "$revision_range" \
             | while IFS="$(printf '\t')" read -r subject short_sha full_sha; do
-                printf '%s ([%s](https://github.com/%s/commit/%s))\n' \
+                printf -- '- %s ([%s](https://github.com/%s/commit/%s))\n' \
                   "$subject" "$short_sha" "$GITHUB_REPOSITORY" "$full_sha"
-              done > "$changelog"
+              done >> "$changelog"
 
       - name: Publish release
         uses: softprops/action-gh-release@v3
