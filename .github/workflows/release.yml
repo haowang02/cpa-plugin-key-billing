@@ -161,6 +161,11 @@ jobs:
       contents: write
 
     steps:
+      - name: Check out release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - name: Download release packages
         uses: actions/download-artifact@v7
         with:
@@ -168,9 +173,31 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Generate checksums
+        working-directory: release-assets
+        run: |
+          sha256sum cpa-key-billing_*.tar.gz | sort > checksums.txt
+
+      - name: Generate changelog
+        run: |
+          changelog="release-assets/CHANGELOG.md"
+          if previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null)"; then
+            revision_range="${previous_tag}..${GITHUB_SHA}"
+          else
+            revision_range="$GITHUB_SHA"
+          fi
+
+          git log --reverse --pretty=tformat:'%s%x09%h%x09%H' "$revision_range" \
+            | while IFS="$(printf '\t')" read -r subject short_sha full_sha; do
+                printf '%s ([%s](https://github.com/%s/commit/%s))\n' \
+                  "$subject" "$short_sha" "$GITHUB_REPOSITORY" "$full_sha"
+              done > "$changelog"
+
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
-          files: release-assets/*.tar.gz
+          body_path: release-assets/CHANGELOG.md
+          files: |
+            release-assets/*.tar.gz
+            release-assets/checksums.txt
           fail_on_unmatched_files: true
-          generate_release_notes: true

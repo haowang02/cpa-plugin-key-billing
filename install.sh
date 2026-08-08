@@ -13,6 +13,16 @@ fail() {
   exit 1
 }
 
+checksum_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    fail "需要 sha256sum 或 shasum 才能校验安装包"
+  fi
+}
+
 cleanup() {
   if [ -n "$staged_file" ]; then
     rm -f "$staged_file"
@@ -57,13 +67,25 @@ esac
 asset="${plugin_name}_${target_os}_${target_arch}.tar.gz"
 plugin_file="${plugin_name}.${extension}"
 download_url="https://github.com/${repository}/releases/latest/download/${asset}"
+checksums_url="https://github.com/${repository}/releases/latest/download/checksums.txt"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/${plugin_name}.XXXXXX")" || fail "无法创建临时目录"
 archive="${tmp_dir}/${asset}"
+checksums="${tmp_dir}/checksums.txt"
 
 printf '正在下载 %s...\n' "$asset"
 curl -fL --retry 3 --connect-timeout 15 -o "$archive" "$download_url" \
   || fail "下载失败：${download_url}"
+
+printf '正在下载校验和...\n'
+curl -fL --retry 3 --connect-timeout 15 -o "$checksums" "$checksums_url" \
+  || fail "下载校验和失败：${checksums_url}"
+
+expected_checksum="$(awk -v name="$asset" '$2 == name || $2 == "*" name {print $1; exit}' "$checksums")"
+[ -n "$expected_checksum" ] || fail "校验和文件中缺少 ${asset}"
+actual_checksum="$(checksum_file "$archive")"
+[ "$actual_checksum" = "$expected_checksum" ] \
+  || fail "安装包校验和不匹配"
 
 tar -xzf "$archive" -C "$tmp_dir" "$plugin_file" \
   || fail "发布包中缺少 ${plugin_file}"
