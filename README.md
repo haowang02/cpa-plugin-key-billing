@@ -2,6 +2,17 @@
 
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 下游 API Key 计费与订阅额度插件。
 
+<table>
+  <tr>
+    <td width="50%"><img src="images/API%20Key.jpeg" alt="API Key billing" width="100%" /></td>
+    <td width="50%"><img src="images/%E6%A8%A1%E5%9E%8B%E5%AE%9A%E4%BB%B7.jpeg" alt="Model pricing" width="100%" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="images/%E8%AE%A2%E9%98%85%E8%AE%A1%E5%88%92.jpeg" alt="Subscription plans" width="100%" /></td>
+    <td width="50%"><img src="images/%E8%AE%A1%E8%B4%B9%E6%97%A5%E5%BF%97.jpeg" alt="Billing logs" width="100%" /></td>
+  </tr>
+</table>
+
 ## 功能特性
 
 - 支持定期重置额度，每个 API Key 独立计时
