@@ -2,10 +2,8 @@ package billing
 
 import "time"
 
-// StateVersion is bumped whenever the on-disk document changes shape in a way
-// that needs migration. Load() refuses documents from a newer version rather
-// than silently dropping fields it does not understand.
-const StateVersion = 3
+// StateVersion identifies the only on-disk document shape this build accepts.
+const StateVersion = 4
 
 // MaxModelsPerKey caps the per-key model breakdown. Overflow is folded into
 // OtherModelsBucket so a key that sweeps through many model names cannot grow
@@ -29,7 +27,7 @@ func NewState() *State {
 	return &State{Version: StateVersion, Keys: make(map[string]*KeyState)}
 }
 
-// PriceRule prices one model. Pattern is the model or alias name, matched
+// PriceRule prices one model. Pattern is the model name or matching rule,
 // case-insensitively; a pattern containing '*' or '?' is still honoured as a
 // glob for rules written by hand, though SyncModels does not preserve those.
 // All prices are USD per 1,000,000 tokens.
@@ -89,14 +87,13 @@ type Plan struct {
 // KeyState is everything tracked for one downstream API key, identified only by
 // its caller scope. The plaintext key is never stored.
 type KeyState struct {
-	Scope   string `json:"scope"`
 	Preview string `json:"preview,omitempty"`
 	Label   string `json:"label,omitempty"`
 	// InConfig records that this scope appeared in a key list pushed by the
 	// admin UI. It is what makes pruning safe: a scope that was once in the
 	// list and later vanished has genuinely been deleted from CPA, while a
 	// scope only ever seen in traffic may belong to another access provider
-	// and is kept until an operator removes it explicitly.
+	// and must not be pruned by a CPA Key-list sync.
 	InConfig     bool               `json:"in_config,omitempty"`
 	PlanID       string             `json:"plan_id,omitempty"`
 	Cycle        Cycle              `json:"cycle"`
@@ -158,8 +155,7 @@ func (t *Totals) Add(other Totals) {
 	t.CacheCreationTokens += other.CacheCreationTokens
 }
 
-// normalize repairs a document loaded from disk so the rest of the code can
-// assume non-nil maps and a populated Scope on every entry.
+// normalize initializes maps omitted from the JSON document when empty.
 func (s *State) normalize() {
 	if s.Keys == nil {
 		s.Keys = make(map[string]*KeyState)
@@ -169,7 +165,6 @@ func (s *State) normalize() {
 			delete(s.Keys, scope)
 			continue
 		}
-		key.Scope = scope
 		if key.ByModel == nil {
 			key.ByModel = make(map[string]*Totals)
 		}
@@ -179,59 +174,4 @@ func (s *State) normalize() {
 			}
 		}
 	}
-}
-
-// migrateKeyRelativeCycles retires calendar-anchored v1/v2 windows. Their
-// spend remains in lifetime totals and cycle history, while every binding
-// becomes inactive until that key's first use under the new rules.
-func (s *State) migrateKeyRelativeCycles() bool {
-	changed := false
-	for _, key := range s.Keys {
-		if key == nil || key.Cycle == (Cycle{}) {
-			continue
-		}
-		limit := 0.0
-		if plan, ok := s.FindPlan(key.PlanID); ok {
-			limit = plan.AmountUSD
-		}
-		archiveCycle(key, limit, key.PlanID)
-		key.Cycle = Cycle{}
-		changed = true
-	}
-	return changed
-}
-
-// removeNonPositivePlans migrates the former "zero means unlimited" state to
-// its canonical representation: no plan binding. Existing usage is preserved.
-func (s *State) removeNonPositivePlans() bool {
-	validIDs := make(map[string]struct{}, len(s.Plans))
-	removedIDs := make(map[string]struct{})
-	plans := s.Plans[:0]
-	for _, plan := range s.Plans {
-		if plan.AmountUSD > 0 {
-			plans = append(plans, plan)
-			validIDs[plan.ID] = struct{}{}
-		} else {
-			removedIDs[plan.ID] = struct{}{}
-		}
-	}
-	if len(plans) == len(s.Plans) {
-		return false
-	}
-	s.Plans = plans
-	for _, key := range s.Keys {
-		if key == nil || key.PlanID == "" {
-			continue
-		}
-		if _, removed := removedIDs[key.PlanID]; !removed {
-			continue
-		}
-		if _, exists := validIDs[key.PlanID]; exists {
-			continue
-		}
-		archiveCycle(key, 0, key.PlanID)
-		key.PlanID = ""
-		key.Cycle = Cycle{}
-	}
-	return true
 }

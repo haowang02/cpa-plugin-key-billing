@@ -75,12 +75,12 @@ func settleExpiredCycle(key *KeyState, plan Plan, now time.Time) bool {
 	if plan.Period.Kind == PeriodNever || key.Cycle.StartAt.IsZero() || key.Cycle.EndAt.IsZero() || now.Before(key.Cycle.EndAt) {
 		return false
 	}
-	archiveCycle(key, plan.AmountUSD, plan.ID)
+	archiveCycle(key, plan.AmountUSD)
 	key.Cycle = Cycle{}
 	return true
 }
 
-// activateCycle settles an old period and lazily starts the next one at the
+// activateCycle settles an expired period and lazily starts the next one at the
 // instant this key is actually used. A never-reset plan records its first-use
 // time for history but intentionally has no EndAt.
 func activateCycle(key *KeyState, plan Plan, now time.Time) bool {
@@ -92,16 +92,12 @@ func activateCycle(key *KeyState, plan Plan, now time.Time) bool {
 	return true
 }
 
-func archiveCycle(key *KeyState, limitUSD float64, fallbackPlanID string) {
+func archiveCycle(key *KeyState, limitUSD float64) {
 	if key.Cycle.StartAt.IsZero() {
 		return
 	}
 	if key.Cycle.SpentUSD <= 0 && key.Cycle.Requests <= 0 {
 		return
-	}
-	planID := key.Cycle.PlanID
-	if planID == "" {
-		planID = fallbackPlanID
 	}
 	key.RecentCycles = append(key.RecentCycles, CycleSummary{
 		StartAt:  key.Cycle.StartAt,
@@ -109,7 +105,7 @@ func archiveCycle(key *KeyState, limitUSD float64, fallbackPlanID string) {
 		SpentUSD: key.Cycle.SpentUSD,
 		Requests: key.Cycle.Requests,
 		LimitUSD: limitUSD,
-		PlanID:   planID,
+		PlanID:   key.Cycle.PlanID,
 	})
 	if len(key.RecentCycles) > MaxRecentCycles {
 		key.RecentCycles = key.RecentCycles[len(key.RecentCycles)-MaxRecentCycles:]

@@ -22,7 +22,7 @@ func exhaustedApp(t *testing.T, resetAfter time.Duration) *App {
 			Period: billing.Period{Kind: billing.PeriodDaily},
 		}}
 		state.Keys[billing.CallerScope(testAPIKey)] = &billing.KeyState{
-			Scope: billing.CallerScope(testAPIKey), PlanID: "daily-5",
+			PlanID: "daily-5",
 			Cycle: billing.Cycle{
 				PlanID: "daily-5", SpentUSD: 5,
 				StartAt: now.Add(-12 * time.Hour),

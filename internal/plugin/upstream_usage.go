@@ -63,7 +63,7 @@ func mergeTokenValue(current *tokenValue, next tokenValue) {
 	}
 }
 
-func parseUpstreamResponse(provider string, body []byte) []upstreamResponseFrame {
+func parseUpstreamResponse(format string, body []byte) []upstreamResponseFrame {
 	objects := responseObjects(body)
 	if len(objects) == 0 {
 		return nil
@@ -72,7 +72,7 @@ func parseUpstreamResponse(provider string, body []byte) []upstreamResponseFrame
 	for _, object := range objects {
 		frames = append(frames, upstreamResponseFrame{
 			responseID: responseID(object),
-			usage:      parseUsageObject(provider, object),
+			usage:      parseUsageObject(format, object),
 		})
 	}
 	return frames
@@ -132,37 +132,37 @@ func responseID(object map[string]any) string {
 	return ""
 }
 
-func parseUsageObject(provider string, object map[string]any) upstreamUsage {
-	semantics := usageSemantics(provider)
+func parseUsageObject(format string, object map[string]any) upstreamUsage {
+	semantics := usageSemantics(format)
 	switch semantics {
 	case tokenSemanticsIndependent:
 		return parseAnthropicUsage(object)
 	case tokenSemanticsSeparateReasoning:
-		if strings.Contains(strings.ToLower(provider), "interaction") {
+		if strings.Contains(strings.ToLower(format), "interaction") {
 			return parseInteractionsUsage(object)
 		}
 		return parseGeminiUsage(object)
 	case tokenSemanticsSubset:
 		return parseOpenAIUsage(object, semantics)
 	default:
-		// Preserve authoritative totals for diagnostics, but unknown token
-		// semantics remain unclassified and therefore cost zero.
+		// Preserve the authoritative total, but unknown token semantics remain
+		// unclassified and therefore cost zero.
 		return parseOpenAIUsage(object, semantics)
 	}
 }
 
-func usageSemantics(provider string) tokenSemantics {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	if strings.Contains(provider, "claude") || strings.Contains(provider, "anthropic") {
+func usageSemantics(format string) tokenSemantics {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if strings.Contains(format, "claude") || strings.Contains(format, "anthropic") {
 		return tokenSemanticsIndependent
 	}
 	for _, marker := range []string{"gemini", "aistudio", "antigravity", "vertex", "interaction"} {
-		if strings.Contains(provider, marker) {
+		if strings.Contains(format, marker) {
 			return tokenSemanticsSeparateReasoning
 		}
 	}
 	for _, marker := range []string{"openai", "codex", "xai", "grok", "kimi", "qwen", "deepseek", "openrouter"} {
-		if strings.Contains(provider, marker) {
+		if strings.Contains(format, marker) {
 			return tokenSemanticsSubset
 		}
 	}
@@ -434,9 +434,9 @@ func unclassifiedBreakdown(total int64) billing.TokenBreakdown {
 	}
 }
 
-func inconsistentBreakdown(total, fallback int64) billing.TokenBreakdown {
+func inconsistentBreakdown(total, computedTotal int64) billing.TokenBreakdown {
 	if total <= 0 {
-		total = fallback
+		total = computedTotal
 	}
 	if total < 0 {
 		total = 0

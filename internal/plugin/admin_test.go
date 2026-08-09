@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -225,56 +224,6 @@ func TestLogClearThroughTheManagementAPI(t *testing.T) {
 	}
 }
 
-func TestClearAllDataThroughTheManagementAPI(t *testing.T) {
-	app := newConfiguredApp(t)
-	now := app.store.Now()
-	app.store.Update(func(state *billing.State) {
-		state.Prices = []billing.PriceRule{{Pattern: "model", InputPer1M: 1}}
-		state.Plans = []billing.Plan{{ID: "plan", Name: "计划", AmountUSD: 2, Period: billing.Period{Kind: billing.PeriodNever}}}
-		state.Keys["scope"] = &billing.KeyState{Scope: "scope", PlanID: "plan", Lifetime: billing.Totals{Requests: 3}}
-		state.Log = []billing.LogEntry{{Scope: "scope", At: now}}
-		state.LastSyncAt = now
-	})
-	app.store.BeginRequest("pending", billing.PendingRequest{Scope: "scope"})
-	requestBody := []byte(`{"model":"model","messages":[]}`)
-	app.protocol2.begin("protocol2-pending", "claude", "model", "model", true, now)
-	app.protocol2.addRoute("protocol2-pending", "codex", "model", "model", false, requestBody)
-	app.protocol2.observeUpstream(ResponseTransformRequest{
-		FromFormat: "codex", Model: "model", OriginalRequest: requestBody,
-		Body: []byte(`{"usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11}}`),
-	}, now)
-	if errFlush := app.store.Flush(); errFlush != nil {
-		t.Fatal(errFlush)
-	}
-	path := app.store.Status(PluginName, Version).StateFile
-	if _, errStat := os.Stat(path); errStat != nil {
-		t.Fatalf("state file before clear: %v", errStat)
-	}
-
-	var result struct {
-		Cleared bool `json:"cleared"`
-	}
-	callOK(t, app, http.MethodDelete, routeData, nil, nil, http.StatusOK, &result)
-	if !result.Cleared {
-		t.Fatalf("clear result = %+v", result)
-	}
-	app.store.Read(func(state *billing.State) {
-		if state.Version != billing.StateVersion || len(state.Prices) != 0 || len(state.Plans) != 0 || len(state.Keys) != 0 || len(state.Log) != 0 || !state.LastSyncAt.IsZero() {
-			t.Fatalf("state after clear = %+v", state)
-		}
-	})
-	status := app.store.Status(PluginName, Version)
-	if status.Counters.PendingRequests != 0 || status.PendingWrite || !status.LastFlushedAt.IsZero() || status.LastError != "" {
-		t.Fatalf("status after clear = %+v", status)
-	}
-	if _, errStat := os.Stat(path); !os.IsNotExist(errStat) {
-		t.Fatalf("state file still exists after clear: %v", errStat)
-	}
-	if records := app.protocol2.finish("protocol2-pending"); len(records) != 0 {
-		t.Fatalf("protocol 2 usage survived reinitialization: %+v", records)
-	}
-}
-
 func TestManagementErrorsMapToStatusCodes(t *testing.T) {
 	app := newConfiguredApp(t)
 	cases := []struct {
@@ -375,7 +324,7 @@ func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 	app.store.RecordUsage(billing.UsageEvent{
 		Scope: scope,
 		Records: []billing.UsageRecord{{
-			Provider: "codex", Model: "gpt-5.5", Generate: true,
+			Provider: "codex", BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
 			Breakdown: billing.TokenBreakdown{
 				SchemaVersion: billing.TokenAccountingSchemaVersion,
 				Quality:       billing.TokenAccountingComplete,
@@ -398,7 +347,7 @@ func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 	if !view.Blocked || view.Label != "Alice" || view.RemainingUSD != 0 {
 		t.Fatalf("view = %+v, want a blocked, labelled key with no budget left", view)
 	}
-	if len(view.ByModel) != 1 || view.ByModel[0].Model != "gpt-5.5" {
+	if len(view.ByModel) != 1 || view.ByModel[0].BillingModel != "gpt-5.5" {
 		t.Fatalf("ByModel = %+v", view.ByModel)
 	}
 
@@ -419,11 +368,6 @@ func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 		t.Fatalf("view = %+v, want an unlimited key that kept its history", directory.Keys[0])
 	}
 
-	callOK(t, app, http.MethodDelete, routeKeys, url.Values{"scope": {scope}}, nil, http.StatusOK, nil)
-	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
-	if len(directory.Keys) != 0 {
-		t.Fatalf("keys = %+v, want none", directory.Keys)
-	}
 }
 
 func TestSyncPrunesKeysDeletedFromCPA(t *testing.T) {
@@ -434,7 +378,7 @@ func TestSyncPrunesKeysDeletedFromCPA(t *testing.T) {
 	app.store.RecordUsage(billing.UsageEvent{
 		Scope: billing.CallerScope(removed),
 		Records: []billing.UsageRecord{{
-			Provider: "codex", Model: "gpt-5.5", Generate: true,
+			Provider: "codex", BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
 			Breakdown: billing.TokenBreakdown{
 				SchemaVersion: billing.TokenAccountingSchemaVersion,
 				Quality:       billing.TokenAccountingComplete,

@@ -39,7 +39,6 @@ func TestStoreConfigureCreatesFreshStateWhenFileMissing(t *testing.T) {
 
 func TestStoreFlushPersistsAndReloads(t *testing.T) {
 	cfg := testConfig(t)
-	cycleStart := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 
 	store := NewStore()
 	if errConfigure := store.Configure(cfg); errConfigure != nil {
@@ -47,21 +46,12 @@ func TestStoreFlushPersistsAndReloads(t *testing.T) {
 	}
 	store.Update(func(state *State) {
 		state.Plans = append(state.Plans,
-			Plan{ID: "monthly-20", Name: "Monthly 20 USD", AmountUSD: 20, Period: Period{Kind: PeriodMonthly}},
-			Plan{ID: "legacy-zero", Name: "Legacy Unlimited", Period: Period{Kind: PeriodDaily}},
-		)
+			Plan{ID: "monthly-20", Name: "Monthly 20 USD", AmountUSD: 20, Period: Period{Kind: PeriodMonthly}})
 		state.Keys["scope-a"] = &KeyState{
-			Scope:    "scope-a",
 			Preview:  "sk-tes…0001",
 			PlanID:   "monthly-20",
 			Cycle:    Cycle{SpentUSD: 1.5, Requests: 3},
 			Lifetime: Totals{CostUSD: 1.5, Requests: 3, UncachedInputTokens: 100},
-		}
-		state.Keys["scope-legacy"] = &KeyState{
-			Scope:    "scope-legacy",
-			PlanID:   "legacy-zero",
-			Cycle:    Cycle{PlanID: "legacy-zero", StartAt: cycleStart, EndAt: cycleStart.Add(time.Hour), SpentUSD: 2, Requests: 1},
-			Lifetime: Totals{CostUSD: 2, Requests: 1},
 		}
 	})
 	if errFlush := store.Flush(); errFlush != nil {
@@ -89,13 +79,6 @@ func TestStoreFlushPersistsAndReloads(t *testing.T) {
 		if key.ByModel == nil {
 			t.Fatal("ByModel is nil after reload, normalize must populate it")
 		}
-		legacy := state.Keys["scope-legacy"]
-		if legacy == nil || legacy.PlanID != "" || !legacy.Cycle.StartAt.IsZero() || legacy.Lifetime.CostUSD != 2 {
-			t.Fatalf("legacy zero plan was not migrated to an unbound key: %+v", legacy)
-		}
-		if len(legacy.RecentCycles) != 1 || legacy.RecentCycles[0].SpentUSD != 2 {
-			t.Fatalf("legacy cycle was not preserved: %+v", legacy.RecentCycles)
-		}
 	})
 }
 
@@ -107,7 +90,7 @@ func TestStoreFlushLeavesNoTempFiles(t *testing.T) {
 	}
 	defer store.Close()
 
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a"} })
+	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{} })
 	if errFlush := store.Flush(); errFlush != nil {
 		t.Fatalf("Flush error = %v", errFlush)
 	}
@@ -135,7 +118,7 @@ func TestStoreCreatesMissingParentDirectory(t *testing.T) {
 	}
 	defer store.Close()
 
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a"} })
+	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{} })
 	if errFlush := store.Flush(); errFlush != nil {
 		t.Fatalf("Flush error = %v", errFlush)
 	}
@@ -144,7 +127,7 @@ func TestStoreCreatesMissingParentDirectory(t *testing.T) {
 	}
 }
 
-func TestStoreReconfigureToNewPathFlushesOldAndLoadsNew(t *testing.T) {
+func TestStoreReconfigureFlushesCurrentPathBeforeSwitching(t *testing.T) {
 	dir := t.TempDir()
 	first := DefaultConfig()
 	first.Enabled = true
@@ -155,7 +138,7 @@ func TestStoreReconfigureToNewPathFlushesOldAndLoadsNew(t *testing.T) {
 		t.Fatalf("Configure(first) error = %v", errConfigure)
 	}
 	defer store.Close()
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a", Lifetime: Totals{CostUSD: 7}} })
+	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{CostUSD: 7}} })
 
 	second := first
 	second.StateFile = filepath.Join(dir, "second.json")
@@ -163,18 +146,18 @@ func TestStoreReconfigureToNewPathFlushesOldAndLoadsNew(t *testing.T) {
 		t.Fatalf("Configure(second) error = %v", errConfigure)
 	}
 
-	// The pending spend must have landed in the old file rather than moving
-	// to the new one or being dropped.
+	// Pending spend belongs to the first configured document and must not move
+	// to the second one or be dropped.
 	raw, errRead := os.ReadFile(first.StateFile)
 	if errRead != nil {
-		t.Fatalf("old state file not written: %v", errRead)
+		t.Fatalf("first state file not written: %v", errRead)
 	}
 	var persisted State
 	if errUnmarshal := json.Unmarshal(raw, &persisted); errUnmarshal != nil {
-		t.Fatalf("decode old state: %v", errUnmarshal)
+		t.Fatalf("decode first state: %v", errUnmarshal)
 	}
 	if persisted.Keys["scope-a"] == nil || persisted.Keys["scope-a"].Lifetime.CostUSD != 7 {
-		t.Fatalf("old state did not capture pending changes: %+v", persisted.Keys)
+		t.Fatalf("first state did not capture pending changes: %+v", persisted.Keys)
 	}
 	store.Read(func(state *State) {
 		if len(state.Keys) != 0 {
@@ -183,7 +166,7 @@ func TestStoreReconfigureToNewPathFlushesOldAndLoadsNew(t *testing.T) {
 	})
 }
 
-func TestStoreRejectsNewerStateVersion(t *testing.T) {
+func TestStoreRejectsUnsupportedStateVersion(t *testing.T) {
 	cfg := testConfig(t)
 	raw, errMarshal := json.Marshal(map[string]any{"version": StateVersion + 1})
 	if errMarshal != nil {
@@ -193,46 +176,8 @@ func TestStoreRejectsNewerStateVersion(t *testing.T) {
 		t.Fatalf("write: %v", errWrite)
 	}
 	if errConfigure := NewStore().Configure(cfg); errConfigure == nil {
-		t.Fatal("Configure accepted a state file from a newer plugin, want an error")
+		t.Fatal("Configure accepted an unsupported state format")
 	}
-}
-
-func TestStoreMigratesCalendarCyclesToInactiveKeyCycles(t *testing.T) {
-	cfg := testConfig(t)
-	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	legacy := &State{
-		Version: 2,
-		Plans:   []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}},
-		Keys: map[string]*KeyState{
-			"scope-a": {
-				Scope: "scope-a", PlanID: "p",
-				Cycle:    Cycle{PlanID: "p", StartAt: start, EndAt: start.Add(24 * time.Hour), SpentUSD: 3, Requests: 2},
-				Lifetime: Totals{CostUSD: 3, Requests: 2},
-			},
-		},
-	}
-	raw, errMarshal := json.Marshal(legacy)
-	if errMarshal != nil {
-		t.Fatal(errMarshal)
-	}
-	if errWrite := os.WriteFile(cfg.StateFile, raw, 0o600); errWrite != nil {
-		t.Fatal(errWrite)
-	}
-
-	store := NewStore()
-	if errConfigure := store.Configure(cfg); errConfigure != nil {
-		t.Fatalf("Configure error = %v", errConfigure)
-	}
-	t.Cleanup(store.Close)
-	store.Read(func(state *State) {
-		key := state.Keys["scope-a"]
-		if state.Version != StateVersion || key == nil || key.PlanID != "p" || key.Cycle != (Cycle{}) || key.Lifetime.CostUSD != 3 {
-			t.Fatalf("migrated state = %+v", state)
-		}
-		if len(key.RecentCycles) != 1 || key.RecentCycles[0].SpentUSD != 3 {
-			t.Fatalf("recent cycles = %+v", key.RecentCycles)
-		}
-	})
 }
 
 func TestStoreRejectsCorruptStateFile(t *testing.T) {
@@ -260,7 +205,7 @@ func TestStoreFlushIfDueDebouncesWrites(t *testing.T) {
 		t.Fatalf("a clean store wrote its document: %v", errStat)
 	}
 
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a", Lifetime: Totals{CostUSD: 1}} })
+	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{CostUSD: 1}} })
 	store.FlushIfDue()
 	if _, errStat := os.Stat(cfg.StateFile); errStat != nil {
 		t.Fatalf("the first due flush did not write: %v", errStat)
@@ -311,7 +256,7 @@ func TestStoreKeepsPersistingAfterARejectedReconfigure(t *testing.T) {
 		t.Fatalf("Path = %q, want the original %q to still be live", got, cfg.StateFile)
 	}
 
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a"} })
+	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{} })
 	store.FlushIfDue()
 	if _, errStat := os.Stat(cfg.StateFile); errStat != nil {
 		t.Fatalf("the rejected reconfigure stranded the original state file: %v", errStat)
@@ -324,7 +269,7 @@ func TestStoreCloseFlushesPendingChanges(t *testing.T) {
 	if errConfigure := store.Configure(cfg); errConfigure != nil {
 		t.Fatalf("Configure error = %v", errConfigure)
 	}
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a", Lifetime: Totals{CostUSD: 3}} })
+	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{CostUSD: 3}} })
 	store.Close()
 
 	raw, errRead := os.ReadFile(cfg.StateFile)
@@ -385,7 +330,7 @@ func TestStoreFlushKeepsDocumentDirtyOnWriteFailure(t *testing.T) {
 		}
 	})
 
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Scope: "scope-a"} })
+	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{} })
 	if errFlush := store.Flush(); errFlush == nil {
 		t.Fatal("Flush succeeded against an unwritable directory, want an error")
 	}

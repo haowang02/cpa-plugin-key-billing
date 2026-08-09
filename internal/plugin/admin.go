@@ -11,54 +11,9 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-type scopeSelector struct {
-	Scope  string   `json:"scope,omitempty"`
-	Scopes []string `json:"scopes,omitempty"`
-}
-
-func (s scopeSelector) all() []string {
-	scopes := make([]string, 0, len(s.Scopes)+1)
-	if strings.TrimSpace(s.Scope) != "" {
-		scopes = append(scopes, s.Scope)
-	}
-	return append(scopes, s.Scopes...)
-}
-
-// putPrices accepts either one model's price or a whole table.
-//
-// A row editor saves one and a bulk import saves many; both shapes are natural
-// to write, so both are accepted rather than forcing the caller to adapt.
 func (a *App) putPrices(req ManagementRequest) ManagementResponse {
-	body := bytes.TrimSpace(req.Body)
-	if len(body) == 0 {
-		return JSONError(http.StatusBadRequest, "invalid", "请提供单条或完整的模型定价")
-	}
-
-	if body[0] == '[' {
-		var rules []billing.PriceRule
-		if errDecode := decodeStrict(body, &rules); errDecode != nil {
-			return errorResponse(errDecode)
-		}
-		stored, errReplace := a.store.ReplacePrices(rules)
-		if errReplace != nil {
-			return errorResponse(errReplace)
-		}
-		return JSONResponse(http.StatusOK, map[string]any{"replaced": len(stored)})
-	}
-
-	var wrapper struct {
-		Rules []billing.PriceRule `json:"rules"`
-	}
-	if errDecode := decodeStrict(body, &wrapper); errDecode == nil && wrapper.Rules != nil {
-		stored, errReplace := a.store.ReplacePrices(wrapper.Rules)
-		if errReplace != nil {
-			return errorResponse(errReplace)
-		}
-		return JSONResponse(http.StatusOK, map[string]any{"replaced": len(stored)})
-	}
-
 	var rule billing.PriceRule
-	if errDecode := decodeStrict(body, &rule); errDecode != nil {
+	if errDecode := decodeStrict(req.Body, &rule); errDecode != nil {
 		return errorResponse(errDecode)
 	}
 	stored, errUpsert := a.store.UpsertPrice(rule)
@@ -169,27 +124,8 @@ func (a *App) clearLogs() ManagementResponse {
 	return JSONResponse(http.StatusOK, map[string]any{"cleared": a.store.ClearLogs()})
 }
 
-func (a *App) clearAllData() ManagementResponse {
-	if errReset := a.store.ResetAllData(); errReset != nil {
-		return errorResponse(errReset)
-	}
-	a.protocol2.clear()
-	return JSONResponse(http.StatusOK, map[string]any{"cleared": true})
-}
-
 func (a *App) deletePlan(req ManagementRequest) ManagementResponse {
 	id := strings.TrimSpace(req.Query.Get("id"))
-	if id == "" {
-		var body struct {
-			ID string `json:"id"`
-		}
-		if len(bytes.TrimSpace(req.Body)) > 0 {
-			if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
-				return errorResponse(errDecode)
-			}
-		}
-		id = strings.TrimSpace(body.ID)
-	}
 	unbound, errDelete := a.store.DeletePlan(id)
 	if errDelete != nil {
 		return errorResponse(errDelete)
@@ -199,13 +135,13 @@ func (a *App) deletePlan(req ManagementRequest) ManagementResponse {
 
 func (a *App) bindKeys(req ManagementRequest) ManagementResponse {
 	var body struct {
-		scopeSelector
+		Scope  string `json:"scope"`
 		PlanID string `json:"plan_id"`
 	}
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	bound, errBind := a.store.BindKeys(body.all(), body.PlanID)
+	bound, errBind := a.store.BindKeys([]string{body.Scope}, body.PlanID)
 	if errBind != nil {
 		return errorResponse(errBind)
 	}
@@ -213,11 +149,13 @@ func (a *App) bindKeys(req ManagementRequest) ManagementResponse {
 }
 
 func (a *App) unbindKeys(req ManagementRequest) ManagementResponse {
-	scopes, errDecode := decodeScopes(req)
-	if errDecode != nil {
+	var body struct {
+		Scope string `json:"scope"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	unbound, errUnbind := a.store.UnbindKeys(scopes)
+	unbound, errUnbind := a.store.UnbindKeys([]string{body.Scope})
 	if errUnbind != nil {
 		return errorResponse(errUnbind)
 	}
@@ -225,30 +163,17 @@ func (a *App) unbindKeys(req ManagementRequest) ManagementResponse {
 }
 
 func (a *App) resetKeys(req ManagementRequest) ManagementResponse {
-	scopes, errDecode := decodeScopes(req)
-	if errDecode != nil {
+	var body struct {
+		Scope string `json:"scope"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	reset, errReset := a.store.ResetCycles(scopes)
+	reset, errReset := a.store.ResetCycles([]string{body.Scope})
 	if errReset != nil {
 		return errorResponse(errReset)
 	}
 	return JSONResponse(http.StatusOK, map[string]any{"reset": reset})
-}
-
-func (a *App) forgetKeys(req ManagementRequest) ManagementResponse {
-	scopes, errDecode := decodeScopes(req)
-	if errDecode != nil {
-		return errorResponse(errDecode)
-	}
-	if scope := strings.TrimSpace(req.Query.Get("scope")); scope != "" {
-		scopes = append(scopes, scope)
-	}
-	removed, errForget := a.store.ForgetKeys(scopes)
-	if errForget != nil {
-		return errorResponse(errForget)
-	}
-	return JSONResponse(http.StatusOK, map[string]any{"forgotten": removed})
 }
 
 func (a *App) labelKey(req ManagementRequest) ManagementResponse {
@@ -299,16 +224,6 @@ func (a *App) listLogs(req ManagementRequest) ManagementResponse {
 		}
 	}
 	return JSONResponse(http.StatusOK, a.store.Logs(limit))
-}
-
-func decodeScopes(req ManagementRequest) ([]string, error) {
-	var selector scopeSelector
-	if len(bytes.TrimSpace(req.Body)) > 0 {
-		if errDecode := decodeStrict(req.Body, &selector); errDecode != nil {
-			return nil, errDecode
-		}
-	}
-	return selector.all(), nil
 }
 
 func decodeStrict(body []byte, target any) error {

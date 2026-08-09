@@ -12,7 +12,7 @@ const MaxSyncKeys = 10000
 const MaxTopKeys = 20
 
 type ModelTotals struct {
-	Model string `json:"model"`
+	BillingModel string `json:"billing_model"`
 	Totals
 }
 
@@ -68,7 +68,7 @@ func (s *Store) KeyDirectory() KeyDirectory {
 			plans[plan.ID] = plan
 		}
 		views := make([]KeyView, 0, len(state.Keys))
-		for _, key := range state.Keys {
+		for scope, key := range state.Keys {
 			if key == nil {
 				continue
 			}
@@ -83,7 +83,7 @@ func (s *Store) KeyDirectory() KeyDirectory {
 					changed = true
 				}
 			}
-			views = append(views, keyView(key, plans))
+			views = append(views, keyView(scope, key, plans))
 		}
 		sortKeyViews(views)
 		return views, changed
@@ -91,9 +91,9 @@ func (s *Store) KeyDirectory() KeyDirectory {
 	return directory
 }
 
-func keyView(key *KeyState, plans map[string]Plan) KeyView {
+func keyView(scope string, key *KeyState, plans map[string]Plan) KeyView {
 	view := KeyView{
-		Scope:         key.Scope,
+		Scope:         scope,
 		Preview:       key.Preview,
 		Label:         key.Label,
 		InConfig:      key.InConfig,
@@ -120,8 +120,7 @@ func keyView(key *KeyState, plans map[string]Plan) KeyView {
 			view.UsedPercent = key.Cycle.SpentUSD / plan.AmountUSD * 100
 			view.Blocked = key.Cycle.SpentUSD >= plan.AmountUSD
 		} else {
-			// Plans created by current versions cannot reach this branch. Treat
-			// legacy or manually edited zero-value plans as exhausted.
+			// Invalid persisted plans must never grant unlimited usage.
 			view.UsedPercent = 100
 			view.Blocked = true
 		}
@@ -130,7 +129,7 @@ func keyView(key *KeyState, plans map[string]Plan) KeyView {
 		if totals == nil {
 			continue
 		}
-		view.ByModel = append(view.ByModel, ModelTotals{Model: model, Totals: *totals})
+		view.ByModel = append(view.ByModel, ModelTotals{BillingModel: model, Totals: *totals})
 	}
 	sortModelTotals(view.ByModel)
 	return view
@@ -153,7 +152,7 @@ func sortModelTotals(entries []ModelTotals) {
 		if entries[i].CostUSD != entries[j].CostUSD {
 			return entries[i].CostUSD > entries[j].CostUSD
 		}
-		return entries[i].Model < entries[j].Model
+		return entries[i].BillingModel < entries[j].BillingModel
 	})
 }
 
@@ -193,7 +192,7 @@ func (s *Store) BindKeys(scopes []string, planID string) (int, error) {
 			if previous, okPrevious := state.FindPlan(key.PlanID); okPrevious {
 				previousLimit = previous.AmountUSD
 			}
-			archiveCycle(key, previousLimit, key.PlanID)
+			archiveCycle(key, previousLimit)
 			key.Cycle = Cycle{}
 			key.PlanID = plan.ID
 			changed++
@@ -219,7 +218,7 @@ func (s *Store) UnbindKeys(scopes []string) (int, error) {
 			if plan, exists := state.FindPlan(key.PlanID); exists {
 				limit = plan.AmountUSD
 			}
-			archiveCycle(key, limit, key.PlanID)
+			archiveCycle(key, limit)
 			key.PlanID = ""
 			key.Cycle = Cycle{}
 			changed++
@@ -246,7 +245,7 @@ func (s *Store) ResetCycles(scopes []string) (int, error) {
 			if !exists {
 				continue
 			}
-			archiveCycle(key, plan.AmountUSD, key.PlanID)
+			archiveCycle(key, plan.AmountUSD)
 			key.Cycle = Cycle{}
 			changed++
 		}
@@ -275,26 +274,6 @@ func (s *Store) SetLabel(scope, label string) error {
 		return struct{}{}, true
 	})
 	return errApply
-}
-
-func (s *Store) ForgetKeys(scopes []string) (int, error) {
-	scopes = normalizeScopes(scopes)
-	if len(scopes) == 0 {
-		return 0, invalidf("请至少选择一个 API Key")
-	}
-	return updateResult(s, func(state *State) (int, bool) {
-		removed := 0
-		for _, scope := range scopes {
-			if _, exists := state.Keys[scope]; exists {
-				delete(state.Keys, scope)
-				removed++
-			}
-		}
-		if removed > 0 {
-			pruneLogOrphans(state)
-		}
-		return removed, removed > 0
-	}), nil
 }
 
 type SyncResult struct {
@@ -408,10 +387,10 @@ func (s *Store) Stats() StatsView {
 			stats.BlockedKeys++
 		}
 		for _, entry := range view.ByModel {
-			totals := byModel[entry.Model]
+			totals := byModel[entry.BillingModel]
 			if totals == nil {
 				totals = &Totals{}
-				byModel[entry.Model] = totals
+				byModel[entry.BillingModel] = totals
 			}
 			totals.Add(entry.Totals)
 		}
@@ -426,7 +405,7 @@ func (s *Store) Stats() StatsView {
 		})
 	}
 	for model, totals := range byModel {
-		stats.ByModel = append(stats.ByModel, ModelTotals{Model: model, Totals: *totals})
+		stats.ByModel = append(stats.ByModel, ModelTotals{BillingModel: model, Totals: *totals})
 	}
 	sortModelTotals(stats.ByModel)
 	sort.Slice(stats.TopKeys, func(i, j int) bool {

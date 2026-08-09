@@ -67,15 +67,15 @@ func (s *Store) RefreshPriceCatalog() (CatalogRefreshResult, error) {
 		changed := 0
 		for i := range state.Prices {
 			rule := state.Prices[i]
-			oldDefault, _, oldKnown := lookupCatalog(previous, rule.Pattern, "")
-			followedBuiltin := oldKnown && samePrice(rule, oldDefault)
-			if !oldKnown && rule.InputPer1M == 0 && rule.OutputPer1M == 0 && rule.CacheReadPer1M == nil && rule.CacheWritePer1M == nil && rule.LongContext == nil {
+			previousDefault, previouslyKnown := lookupCatalog(previous, rule.Pattern, "")
+			followedBuiltin := previouslyKnown && samePrice(rule, previousDefault)
+			if !previouslyKnown && rule.InputPer1M == 0 && rule.OutputPer1M == 0 && rule.CacheReadPer1M == nil && rule.CacheWritePer1M == nil && rule.LongContext == nil {
 				followedBuiltin = true
 			}
 			if !followedBuiltin {
 				continue
 			}
-			fresh, _, known := lookupCatalog(current, rule.Pattern, "")
+			fresh, known := lookupCatalog(current, rule.Pattern, "")
 			if !known {
 				fresh = PriceRule{Pattern: rule.Pattern}
 			} else {
@@ -94,7 +94,7 @@ func (s *Store) RefreshPriceCatalog() (CatalogRefreshResult, error) {
 }
 
 func priceSourceOfCatalog(rule PriceRule, loaded *catalog) PriceSource {
-	def, _, known := lookupCatalog(loaded, rule.Pattern, "")
+	def, known := lookupCatalog(loaded, rule.Pattern, "")
 	if !known {
 		if rule.InputPer1M == 0 && rule.OutputPer1M == 0 && rule.CacheReadPer1M == nil && rule.CacheWritePer1M == nil && rule.LongContext == nil {
 			return PriceSourceNone
@@ -196,7 +196,7 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 				result.Kept++
 				continue
 			}
-			seeded, _, known := lookupCatalog(loaded, model, "")
+			seeded, known := lookupCatalog(loaded, model, "")
 			if !known {
 				seeded = PriceRule{Pattern: model}
 			} else {
@@ -276,37 +276,6 @@ func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
 	return stored, errApply
 }
 
-// ReplacePrices swaps the whole table, which is what a table editor saving
-// every row at once needs. Rows keep the order they arrive in, since glob
-// patterns are matched in order.
-func (s *Store) ReplacePrices(rules []PriceRule) ([]PriceRule, error) {
-	if len(rules) > MaxPriceRules {
-		return nil, invalidf("模型定价最多允许 %d 条，实际收到 %d 条", MaxPriceRules, len(rules))
-	}
-	now := s.Now()
-	seen := make(map[string]struct{}, len(rules))
-	normalized := make([]PriceRule, 0, len(rules))
-	for _, rule := range rules {
-		rule.Pattern = strings.TrimSpace(rule.Pattern)
-		if errValidate := rule.Validate(); errValidate != nil {
-			return nil, errValidate
-		}
-		lowered := strings.ToLower(rule.Pattern)
-		if _, exists := seen[lowered]; exists {
-			return nil, conflictf("模型名称或匹配规则 %q 重复", rule.Pattern)
-		}
-		seen[lowered] = struct{}{}
-		if rule.UpdatedAt.IsZero() {
-			rule.UpdatedAt = now
-		}
-		normalized = append(normalized, rule)
-	}
-	s.Update(func(state *State) {
-		state.Prices = normalized
-	})
-	return normalized, nil
-}
-
 // ResetPrices restores every row to its catalog default, dropping edits. Models
 // the catalog does not know go back to zero. It reports how many rows changed.
 func (s *Store) ResetPrices() int {
@@ -316,7 +285,7 @@ func (s *Store) ResetPrices() int {
 		changed := 0
 		for i := range state.Prices {
 			pattern := state.Prices[i].Pattern
-			def, _, known := lookupCatalog(loaded, pattern, "")
+			def, known := lookupCatalog(loaded, pattern, "")
 			if !known {
 				def = PriceRule{Pattern: pattern}
 			} else {
@@ -471,7 +440,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 			}
 
 			periodChanged := updated.Period != state.Plans[i].Period
-			oldPlan := state.Plans[i]
+			currentPlan := state.Plans[i]
 			if periodChanged || scopes != nil {
 				for scope, key := range state.Keys {
 					if key == nil {
@@ -479,7 +448,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 					}
 					_, shouldBind := selected[scope]
 					if key.PlanID == patch.ID && (periodChanged || !shouldBind) {
-						archiveCycle(key, oldPlan.AmountUSD, patch.ID)
+						archiveCycle(key, currentPlan.AmountUSD)
 						key.Cycle = Cycle{}
 					}
 					if scopes != nil && key.PlanID == patch.ID && !shouldBind {
@@ -533,7 +502,7 @@ func (s *Store) DeletePlan(id string) (int, error) {
 			if key == nil || key.PlanID != id {
 				continue
 			}
-			archiveCycle(key, limit, id)
+			archiveCycle(key, limit)
 			key.PlanID = ""
 			key.Cycle = Cycle{}
 			released++

@@ -2,8 +2,8 @@ package billing
 
 import "testing"
 
-func TestDecodeConfigDefaultsAndIgnoresLegacyTimezone(t *testing.T) {
-	cfg, errDecode := DecodeConfig([]byte("enabled: true\ndefault_timezone: Mars/Olympus\n"))
+func TestDecodeConfigDefaults(t *testing.T) {
+	cfg, errDecode := DecodeConfig([]byte("enabled: true\n"))
 	if errDecode != nil {
 		t.Fatalf("DecodeConfig: %v", errDecode)
 	}

@@ -76,12 +76,6 @@ func (p *pendingTable) len() int {
 	return len(p.entries)
 }
 
-func (p *pendingTable) clear() {
-	p.mu.Lock()
-	p.entries = make(map[string]PendingRequest)
-	p.mu.Unlock()
-}
-
 func (p *pendingTable) sweepLocked(now time.Time) {
 	for requestID, entry := range p.entries {
 		if now.Sub(entry.StartedAt) > PendingTTL {
@@ -104,9 +98,7 @@ func (s *Store) FinishRequest(requestID string, records []UsageRecord, failed bo
 	if !exists {
 		return
 	}
-	s.usageReceived.Add(int64(len(records)))
 	if entry.Scope == "" {
-		s.usageUnattributed.Add(1)
 		return
 	}
 	s.RecordUsage(UsageEvent{

@@ -43,7 +43,7 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	}
 }
 
-func TestRegisterRejectsOldHostSchema(t *testing.T) {
+func TestRegisterRejectsUnsupportedHostSchema(t *testing.T) {
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
 	_, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
@@ -51,11 +51,11 @@ func TestRegisterRejectsOldHostSchema(t *testing.T) {
 		SchemaVersion: MinHostSchemaVersion - 1,
 	}))
 	if errHandle == nil {
-		t.Fatal("plugin.register succeeded on an old host schema, want an error")
+		t.Fatal("plugin.register accepted an unsupported host schema")
 	}
 }
 
-func TestRegisterNegotiatesProtocol2ResponseCompatibility(t *testing.T) {
+func TestRegisterEnablesProtocol2ResponseHooks(t *testing.T) {
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
 	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
@@ -73,7 +73,7 @@ func TestRegisterNegotiatesProtocol2ResponseCompatibility(t *testing.T) {
 	caps := registration.Capabilities
 	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.ResponseBeforeTranslator ||
 		!caps.ResponseInterceptor || !caps.StreamChunkInterceptor || !caps.ManagementAPI {
-		t.Fatalf("capabilities = %+v, want protocol 2 response compatibility hooks", caps)
+		t.Fatalf("capabilities = %+v, want protocol 2 response hooks", caps)
 	}
 }
 

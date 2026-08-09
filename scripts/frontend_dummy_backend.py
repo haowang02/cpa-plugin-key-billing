@@ -110,7 +110,7 @@ PRICES = [
 
 MODEL_TOTALS = [
     {
-        "model": "gpt-5.6-sol",
+        "billing_model": "gpt-5.6-sol",
         "requests": 1832,
         "uncached_input_tokens": 140000,
         "cache_read_tokens": 19857,
@@ -119,7 +119,7 @@ MODEL_TOTALS = [
         "cost_usd": 1.050121,
     },
     {
-        "model": "claude-sonnet-4-5",
+        "billing_model": "claude-sonnet-4-5",
         "requests": 924,
         "uncached_input_tokens": 4921000,
         "cache_read_tokens": 2814000,
@@ -128,7 +128,7 @@ MODEL_TOTALS = [
         "cost_usd": 27.3904,
     },
     {
-        "model": "deepseek-v4-flash",
+        "billing_model": "deepseek-v4-flash",
         "requests": 618,
         "uncached_input_tokens": 882000,
         "cache_read_tokens": 0,
@@ -168,36 +168,40 @@ LOG_CASES = [
     {
         "client_protocol": "openai-response",
         "provider": "codex",
-        "model": "gpt-5.6-sol",
-        "alias": "gpt-5.6-sol-preview",
+        "upstream_model": "gpt-5.6-sol",
+        "billing_model": "team/gpt-5.6-sol",
         "reasoning_tokens": 2100,
         "cost": make_cost(140000, 19857, 1032, 4852, (5, 0.5, 5, 30), True, False),
     },
     {
         "client_protocol": "claude",
         "provider": "openai-response",
-        "model": "gpt-5.6-sol",
+        "upstream_model": "gpt-5.6-sol",
+        "billing_model": "gpt-5.6-sol",
         "reasoning_tokens": 8000,
         "cost": make_cost(280000, 19000, 1001, 20000, (10, 1, 10, 45), True, True),
     },
     {
         "client_protocol": "interactions",
         "provider": "deepseek",
-        "model": "deepseek-v4-flash",
+        "upstream_model": "deepseek-v4-flash",
+        "billing_model": "deepseek-v4-flash",
         "reasoning_tokens": 0,
         "cost": make_cost(160889, 0, 0, 12001, (0.28, 0.28, 0.28, 0.42)),
     },
     {
         "client_protocol": "gemini",
         "provider": "claude",
-        "model": "claude-sonnet-4-5",
+        "upstream_model": "claude-sonnet-4-5",
+        "billing_model": "claude-sonnet-4-5",
         "reasoning_tokens": 0,
         "cost": make_cost(38122, 9931, 2048, 7240, (3, 0.3, 3.75, 15)),
     },
     {
         "client_protocol": "openai",
         "provider": "openai",
-        "model": "gpt-5.5",
+        "upstream_model": "gpt-5.5",
+        "billing_model": "gpt-5.5",
         "reasoning_tokens": 400,
         "cost": make_cost(160889, 0, 0, 4096, (2.5, 2.5, 2.5, 15), True, False),
     },
@@ -218,10 +222,10 @@ def make_logs(count=120):
                 "request_id": f"req-dummy-{index + 1:04d}",
                 "client_protocol": case["client_protocol"],
                 "provider": case["provider"],
-                "model": case["model"],
-                "alias": case.get("alias", ""),
+                "upstream_model": case["upstream_model"],
+                "billing_model": case["billing_model"],
                 "accounting_quality": "complete",
-                "price_source": "builtin" if index % 4 else "custom",
+                "price_source": "builtin" if index % 4 else "override",
                 "cost": case["cost"],
                 "reasoning_tokens": case["reasoning_tokens"],
             }
@@ -237,6 +241,7 @@ def payload_for(path, query):
         return {
             "plugin": "cpa-key-billing",
             "version": "dummy",
+            "plugin_protocol": 2,
             "enabled": True,
             "prices": len(PRICES),
             "plans": len(PLANS),
@@ -245,7 +250,12 @@ def payload_for(path, query):
             "log_retained": len(LOGS),
             "log_entries": 1000,
             "pending_write": False,
-            "counters": {"usage_recorded": len(LOGS), "pending_requests": 2},
+            "counters": {
+                "usage_unpriced": 3,
+                "usage_no_tokens": 1,
+                "usage_unclassified": 2,
+                "pending_requests": 2,
+            },
         }
     if path == f"{API_BASE}/keys":
         return {"keys": KEYS, "generated_at": iso(NOW), "last_sync_at": iso(NOW)}
@@ -345,7 +355,6 @@ class Handler(BaseHTTPRequestHandler):
             ("PATCH", f"{API_BASE}/plans"),
             ("DELETE", f"{API_BASE}/plans"),
             ("PUT", f"{API_BASE}/prices"),
-            ("DELETE", f"{API_BASE}/data"),
         }:
             self.send_json(200, {"ok": True})
         else:

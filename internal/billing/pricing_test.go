@@ -83,19 +83,53 @@ func TestResolvePricePrecedenceAndCacheFallback(t *testing.T) {
 	state.Prices = []PriceRule{
 		{Pattern: "gpt-*", InputPer1M: 9},
 		{Pattern: "gpt-5.5", InputPer1M: 1, OutputPer1M: 2},
-		{Pattern: "my-alias", InputPer1M: 5},
+		{Pattern: "team/gpt-5.5", InputPer1M: 5},
 	}
-	price := state.ResolvePrice("gpt-5.5", "my-alias")
-	if price.InputPer1M != 1 || price.MatchedOn != "model" || price.CacheReadPer1M != 1 || price.CacheWritePer1M != 1 {
-		t.Fatalf("exact model rule or cache fallback is wrong: %+v", price)
+	price := state.ResolvePrice("gpt-5.5", "team/gpt-5.5")
+	if price.InputPer1M != 5 || price.CacheReadPer1M != 5 || price.CacheWritePer1M != 5 {
+		t.Fatalf("billing model rule or cache fallback is wrong: %+v", price)
 	}
-	price = state.ResolvePrice("gpt-4.1", "my-alias")
-	if price.InputPer1M != 5 || price.MatchedOn != "alias" {
-		t.Fatalf("exact alias should beat a glob: %+v", price)
+	price = state.ResolvePrice("gpt-5.5", "unknown")
+	if price.InputPer1M != 1 {
+		t.Fatalf("upstream model fallback is wrong: %+v", price)
+	}
+	price = state.ResolvePrice("gpt-5.5(high)", "unknown")
+	if price.InputPer1M != 1 {
+		t.Fatalf("upstream model suffix handling is wrong: %+v", price)
 	}
 	price = state.ResolvePrice("gpt-4.1", "unknown")
-	if price.InputPer1M != 9 || price.MatchedOn != "model-glob" {
+	if price.InputPer1M != 9 {
 		t.Fatalf("glob fallback did not apply: %+v", price)
+	}
+}
+
+func TestResolveBillingModel(t *testing.T) {
+	state := NewState()
+	state.Prices = []PriceRule{
+		{Pattern: "grok-4.5"},
+		{Pattern: "claude/deepseek-flash"},
+		{Pattern: "configured(low)"},
+	}
+	tests := []struct {
+		name     string
+		upstream string
+		route    string
+		want     string
+	}{
+		{name: "model", upstream: "grok-4.5", route: "grok-4.5", want: "grok-4.5"},
+		{name: "thinking", upstream: "grok-4.5", route: "grok-4.5(high)", want: "grok-4.5"},
+		{name: "route", upstream: "deepseek-v4-flash", route: "claude/deepseek-flash", want: "claude/deepseek-flash"},
+		{name: "route thinking", upstream: "deepseek-v4-flash", route: "claude/deepseek-flash(high)", want: "claude/deepseek-flash"},
+		{name: "configured suffix", upstream: "upstream-low", route: "configured(low)", want: "configured(low)"},
+		{name: "request suffix", upstream: "upstream-high", route: "configured(high)", want: "configured"},
+		{name: "auto", upstream: "gpt-5.5", route: "auto(high)", want: "gpt-5.5"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := state.ResolveBillingModel(test.upstream, test.route); got != test.want {
+				t.Fatalf("ResolveBillingModel(%q, %q) = %q, want %q", test.upstream, test.route, got, test.want)
+			}
+		})
 	}
 }
 

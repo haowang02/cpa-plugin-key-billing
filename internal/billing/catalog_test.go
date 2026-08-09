@@ -20,18 +20,18 @@ func TestCachedCatalogIsUsable(t *testing.T) {
 		t.Fatalf("catalog = %+v with %d rules", info, len(rules))
 	}
 	for _, model := range []string{"gpt-4o", "claude-sonnet-4-5-20250929", "gemini-2.0-flash"} {
-		rule, _, known := lookupBuiltin(model, "")
+		rule, known := lookupBuiltin(model, "")
 		if !known || rule.InputPer1M <= 0 || rule.OutputPer1M <= 0 {
 			t.Fatalf("catalog price %q = %+v, %v", model, rule, known)
 		}
 	}
-	if _, _, known := lookupBuiltin(unpricedModel, ""); known {
+	if _, known := lookupBuiltin(unpricedModel, ""); known {
 		t.Fatalf("test sentinel %q unexpectedly has a catalog price", unpricedModel)
 	}
 }
 
 func TestCatalogCarriesSingleLongContextTier(t *testing.T) {
-	rule, _, known := lookupBuiltin("gpt-5.6-sol", "")
+	rule, known := lookupBuiltin("gpt-5.6-sol", "")
 	if !known || rule.LongContext == nil || rule.LongContext.ThresholdInputTokens != 272000 ||
 		rule.LongContext.InputPer1M != 10 || rule.LongContext.OutputPer1M != 45 {
 		t.Fatalf("tiered default = %+v, known=%v", rule, known)
@@ -49,21 +49,21 @@ func TestSearchCatalogRanksExactMatchAndCapsResults(t *testing.T) {
 }
 
 func TestCatalogBareNameUsesCanonicalProviderPrice(t *testing.T) {
-	bare, _, known := lookupBuiltin("gpt-5.3-codex", "")
-	canonical, _, canonicalKnown := lookupBuiltin("openai/gpt-5.3-codex", "")
+	bare, known := lookupBuiltin("gpt-5.3-codex", "")
+	canonical, canonicalKnown := lookupBuiltin("openai/gpt-5.3-codex", "")
 	if !known || !canonicalKnown || !samePrice(bare, canonical) {
 		t.Fatalf("bare = %+v (%v), canonical = %+v (%v)", bare, known, canonical, canonicalKnown)
 	}
 }
 
-func TestCatalogLookupUsesModelThenAlias(t *testing.T) {
+func TestCatalogLookupUsesUpstreamThenBillingModel(t *testing.T) {
 	sample := builtinCatalog().rules[0]
-	rule, matchedOn, ok := lookupBuiltin(strings.ToUpper(sample.Pattern), "")
-	if !ok || rule.Pattern != sample.Pattern || matchedOn != "model" {
-		t.Fatalf("lookup = %+v, %q, %v", rule, matchedOn, ok)
+	rule, ok := lookupBuiltin(strings.ToUpper(sample.Pattern), "")
+	if !ok || rule.Pattern != sample.Pattern {
+		t.Fatalf("lookup = %+v, %v", rule, ok)
 	}
-	if _, matchedOn, ok = lookupBuiltin(unpricedModel, sample.Pattern); !ok || matchedOn != "alias" {
-		t.Fatalf("alias lookup matched on %q, found=%v", matchedOn, ok)
+	if _, ok = lookupBuiltin(unpricedModel, sample.Pattern); !ok {
+		t.Fatal("billing model lookup did not find the catalog row")
 	}
 }
 
@@ -89,29 +89,25 @@ func TestCatalogDownloadsToSystemCacheAndRedownloadsWhenDeleted(t *testing.T) {
 	}))
 	defer server.Close()
 
-	oldCache := os.Getenv(catalogCacheEnv)
-	oldSource := os.Getenv(catalogSourceEnv)
+	t.Setenv(catalogCacheEnv, filepath.Join(t.TempDir(), "catalog.json"))
+	t.Setenv(catalogSourceEnv, server.URL)
 	runtimeCatalog.Lock()
-	oldLoaded := runtimeCatalog.loaded
-	oldRetryAfter := runtimeCatalog.retryAfter
-	oldLastError := runtimeCatalog.lastError
+	savedLoaded := runtimeCatalog.loaded
+	savedRetryAfter := runtimeCatalog.retryAfter
+	savedLastError := runtimeCatalog.lastError
 	runtimeCatalog.loaded = nil
 	runtimeCatalog.retryAfter = time.Time{}
 	runtimeCatalog.lastError = nil
 	runtimeCatalog.Unlock()
 	t.Cleanup(func() {
-		_ = os.Setenv(catalogCacheEnv, oldCache)
-		_ = os.Setenv(catalogSourceEnv, oldSource)
 		runtimeCatalog.Lock()
-		runtimeCatalog.loaded = oldLoaded
-		runtimeCatalog.retryAfter = oldRetryAfter
-		runtimeCatalog.lastError = oldLastError
+		runtimeCatalog.loaded = savedLoaded
+		runtimeCatalog.retryAfter = savedRetryAfter
+		runtimeCatalog.lastError = savedLastError
 		runtimeCatalog.Unlock()
 	})
 
-	cache := filepath.Join(t.TempDir(), "catalog.json")
-	_ = os.Setenv(catalogCacheEnv, cache)
-	_ = os.Setenv(catalogSourceEnv, server.URL)
+	cache := CatalogCachePath()
 	if _, errEnsure := EnsureBuiltinCatalog(); errEnsure != nil {
 		t.Fatalf("first ensure: %v", errEnsure)
 	}
@@ -133,11 +129,7 @@ func TestCatalogDownloadsToSystemCacheAndRedownloadsWhenDeleted(t *testing.T) {
 }
 
 func TestCatalogCachePathUsesOperatingSystemTemporaryDirectory(t *testing.T) {
-	oldCache := os.Getenv(catalogCacheEnv)
-	if errUnset := os.Unsetenv(catalogCacheEnv); errUnset != nil {
-		t.Fatal(errUnset)
-	}
-	t.Cleanup(func() { _ = os.Setenv(catalogCacheEnv, oldCache) })
+	t.Setenv(catalogCacheEnv, "")
 
 	want := filepath.Join(os.TempDir(), catalogCacheName)
 	if got := CatalogCachePath(); got != want {
@@ -146,47 +138,43 @@ func TestCatalogCachePathUsesOperatingSystemTemporaryDirectory(t *testing.T) {
 }
 
 func TestRefreshPriceCatalogAdvancesBuiltinRowsAndPreservesCustomRows(t *testing.T) {
-	oldRaw, errRead := os.ReadFile(filepath.Join("testdata", "catalog.json"))
+	initialRaw, errRead := os.ReadFile(filepath.Join("testdata", "catalog.json"))
 	if errRead != nil {
 		t.Fatal(errRead)
 	}
-	newRaw := []byte(strings.Replace(string(oldRaw),
+	refreshedRaw := []byte(strings.Replace(string(initialRaw),
 		`"input":5,"output":15,"cache_read":2.5`,
 		`"input":6,"output":18,"cache_read":3`, 1))
-	if string(newRaw) == string(oldRaw) {
+	if string(refreshedRaw) == string(initialRaw) {
 		t.Fatal("test catalog replacement did not change the fixture")
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(newRaw)
+		_, _ = w.Write(refreshedRaw)
 	}))
 	defer server.Close()
 
-	oldCache := os.Getenv(catalogCacheEnv)
-	oldSource := os.Getenv(catalogSourceEnv)
+	cache := filepath.Join(t.TempDir(), "catalog.json")
+	t.Setenv(catalogCacheEnv, cache)
+	t.Setenv(catalogSourceEnv, server.URL)
 	runtimeCatalog.Lock()
-	oldLoaded := runtimeCatalog.loaded
-	oldRetryAfter := runtimeCatalog.retryAfter
-	oldLastError := runtimeCatalog.lastError
+	savedLoaded := runtimeCatalog.loaded
+	savedRetryAfter := runtimeCatalog.retryAfter
+	savedLastError := runtimeCatalog.lastError
 	runtimeCatalog.loaded = nil
 	runtimeCatalog.retryAfter = time.Time{}
 	runtimeCatalog.lastError = nil
 	runtimeCatalog.Unlock()
 	t.Cleanup(func() {
-		_ = os.Setenv(catalogCacheEnv, oldCache)
-		_ = os.Setenv(catalogSourceEnv, oldSource)
 		runtimeCatalog.Lock()
-		runtimeCatalog.loaded = oldLoaded
-		runtimeCatalog.retryAfter = oldRetryAfter
-		runtimeCatalog.lastError = oldLastError
+		runtimeCatalog.loaded = savedLoaded
+		runtimeCatalog.retryAfter = savedRetryAfter
+		runtimeCatalog.lastError = savedLastError
 		runtimeCatalog.Unlock()
 	})
 
-	cache := filepath.Join(t.TempDir(), "catalog.json")
-	if errWrite := os.WriteFile(cache, oldRaw, 0o600); errWrite != nil {
+	if errWrite := os.WriteFile(cache, initialRaw, 0o600); errWrite != nil {
 		t.Fatal(errWrite)
 	}
-	_ = os.Setenv(catalogCacheEnv, cache)
-	_ = os.Setenv(catalogSourceEnv, server.URL)
 	if _, errEnsure := EnsureBuiltinCatalog(); errEnsure != nil {
 		t.Fatal(errEnsure)
 	}

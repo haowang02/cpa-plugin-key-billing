@@ -36,7 +36,7 @@ func admit(t *testing.T, app *App, protocol string) {
 
 func canonicalRecord(model string, uncached, cacheRead, cacheWrite, output, reasoning int64) RequestUsageRecord {
 	return RequestUsageRecord{
-		Provider: "codex", Model: model, Alias: model, Generate: true,
+		Provider: "codex", Model: model, RequestedModel: model, Generate: true,
 		Breakdown: RequestTokenBreakdown{
 			SchemaVersion: billing.TokenAccountingSchemaVersion,
 			Quality:       billing.TokenAccountingComplete,
@@ -199,7 +199,7 @@ func TestFlowEnforcementUsesCanonicalSpend(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	app.store.Update(func(state *billing.State) {
 		state.Plans = []billing.Plan{{ID: "p", Name: "Tiny", AmountUSD: 0.0015, Period: billing.Period{Kind: billing.PeriodDaily}}}
-		state.Keys[flowScope()] = &billing.KeyState{Scope: flowScope(), PlanID: "p"}
+		state.Keys[flowScope()] = &billing.KeyState{PlanID: "p"}
 	})
 	admit(t, app, "openai")
 	complete(t, app, RequestCompletionSucceeded, canonicalRecord("gpt-5.5", 1000, 0, 0, 500, 0))

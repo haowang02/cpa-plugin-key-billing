@@ -238,8 +238,8 @@ func parseSourceCatalog(raw []byte, fetchedAt time.Time) (*catalog, error) {
 	}
 
 	rules := make(map[string]PriceRule)
-	aliases := make(map[string][]catalogAliasCandidate)
-	blockedAliases := make(map[string]struct{})
+	shortNames := make(map[string][]catalogShortNameCandidate)
+	blockedShortNames := make(map[string]struct{})
 	for providerKey, provider := range source.Providers {
 		providerID := normalizeCatalogID(provider.ID, providerKey)
 		for modelKey, rawModel := range provider.Models {
@@ -253,28 +253,28 @@ func parseSourceCatalog(raw []byte, fetchedAt time.Time) (*catalog, error) {
 			}
 			fullID := providerID + "/" + modelID
 			_, canonical := canonicalModels[fullID]
-			alias := catalogModelSuffix(modelID)
+			shortName := catalogModelShortName(modelID)
 			if !supportedTokenCost(model.Cost) {
 				if canonical {
-					blockedAliases[alias] = struct{}{}
+					blockedShortNames[shortName] = struct{}{}
 				}
 				continue
 			}
 			rule := priceRuleFromSource(fullID, model.Cost)
 			rules[fullID] = rule
-			aliases[alias] = append(aliases[alias], catalogAliasCandidate{rule: rule, canonical: canonical})
+			shortNames[shortName] = append(shortNames[shortName], catalogShortNameCandidate{rule: rule, canonical: canonical})
 		}
 	}
-	for alias, candidates := range aliases {
-		if alias == "" {
+	for shortName, candidates := range shortNames {
+		if shortName == "" {
 			continue
 		}
-		if _, blocked := blockedAliases[alias]; blocked {
+		if _, blocked := blockedShortNames[shortName]; blocked {
 			continue
 		}
-		if rule, ok := safeCatalogAlias(candidates); ok {
-			rule.Pattern = alias
-			rules[alias] = rule
+		if rule, ok := safeCatalogShortName(candidates); ok {
+			rule.Pattern = shortName
+			rules[shortName] = rule
 		}
 	}
 	if len(rules) == 0 {
@@ -300,15 +300,15 @@ func parseSourceCatalog(raw []byte, fetchedAt time.Time) (*catalog, error) {
 	return parsed, nil
 }
 
-func normalizeCatalogID(id, fallback string) string {
+func normalizeCatalogID(id, defaultID string) string {
 	id = strings.ToLower(strings.TrimSpace(id))
 	if id != "" {
 		return id
 	}
-	return strings.ToLower(strings.TrimSpace(fallback))
+	return strings.ToLower(strings.TrimSpace(defaultID))
 }
 
-func catalogModelSuffix(id string) string {
+func catalogModelShortName(id string) string {
 	if slash := strings.LastIndex(id, "/"); slash >= 0 {
 		return id[slash+1:]
 	}
@@ -373,16 +373,16 @@ func optionalPriceMatches(special, standard *float64) bool {
 	return special == nil || (standard != nil && *special == *standard)
 }
 
-type catalogAliasCandidate struct {
+type catalogShortNameCandidate struct {
 	rule      PriceRule
 	canonical bool
 }
 
-func safeCatalogAlias(candidates []catalogAliasCandidate) (PriceRule, bool) {
+func safeCatalogShortName(candidates []catalogShortNameCandidate) (PriceRule, bool) {
 	if len(candidates) == 0 {
 		return PriceRule{}, false
 	}
-	canonical := make([]catalogAliasCandidate, 0, len(candidates))
+	canonical := make([]catalogShortNameCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		if candidate.canonical {
 			canonical = append(canonical, candidate)
@@ -391,7 +391,7 @@ func safeCatalogAlias(candidates []catalogAliasCandidate) (PriceRule, bool) {
 	if len(canonical) > 0 {
 		candidates = canonical
 	} else {
-		paid := make([]catalogAliasCandidate, 0, len(candidates))
+		paid := make([]catalogShortNameCandidate, 0, len(candidates))
 		for _, candidate := range candidates {
 			if !freeCatalogPrice(candidate.rule) {
 				paid = append(paid, candidate)
@@ -460,30 +460,30 @@ func SearchCatalog(query string, limit int) []PriceRule {
 	return results
 }
 
-func lookupBuiltin(model, alias string) (PriceRule, string, bool) {
-	return lookupCatalog(builtinCatalog(), model, alias)
+func lookupBuiltin(upstreamModel, billingModel string) (PriceRule, bool) {
+	return lookupCatalog(builtinCatalog(), upstreamModel, billingModel)
 }
 
-func lookupCatalog(loaded *catalog, model, alias string) (PriceRule, string, bool) {
+func lookupCatalog(loaded *catalog, upstreamModel, billingModel string) (PriceRule, bool) {
 	if loaded == nil {
-		return PriceRule{}, "", false
+		return PriceRule{}, false
 	}
-	candidates := [...]struct{ value, label string }{{model, "model"}, {alias, "alias"}}
+	candidates := [...]string{upstreamModel, billingModel}
 	for _, candidate := range candidates {
-		name := strings.ToLower(strings.TrimSpace(candidate.value))
+		name := strings.ToLower(strings.TrimSpace(candidate))
 		if name != "" {
 			if rule := loaded.byName[name]; rule != nil {
-				return *rule, candidate.label, true
+				return *rule, true
 			}
 		}
 	}
 	for _, candidate := range candidates {
-		name := strings.ToLower(strings.TrimSpace(candidate.value))
+		name := strings.ToLower(strings.TrimSpace(candidate))
 		if slash := strings.LastIndex(name, "/"); slash >= 0 && slash < len(name)-1 {
 			if rule := loaded.byName[name[slash+1:]]; rule != nil {
-				return *rule, candidate.label + "-suffix", true
+				return *rule, true
 			}
 		}
 	}
-	return PriceRule{}, "", false
+	return PriceRule{}, false
 }

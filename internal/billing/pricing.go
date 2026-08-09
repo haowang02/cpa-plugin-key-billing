@@ -80,8 +80,6 @@ type Price struct {
 	CacheReadPer1M  float64                   `json:"cache_read_per_1m"`
 	CacheWritePer1M float64                   `json:"cache_write_per_1m"`
 	Source          PriceSource               `json:"source"`
-	Pattern         string                    `json:"pattern,omitempty"`
-	MatchedOn       string                    `json:"matched_on,omitempty"`
 	LongContext     *ResolvedLongContextPrice `json:"long_context,omitempty"`
 }
 
@@ -94,15 +92,13 @@ type ResolvedLongContextPrice struct {
 }
 
 // resolve fills in the cache-price fallbacks and records provenance.
-func (r PriceRule) resolve(source PriceSource, matchedOn string) Price {
+func (r PriceRule) resolve(source PriceSource) Price {
 	price := Price{
 		InputPer1M:      r.InputPer1M,
 		OutputPer1M:     r.OutputPer1M,
 		CacheReadPer1M:  r.InputPer1M,
 		CacheWritePer1M: r.InputPer1M,
 		Source:          source,
-		Pattern:         r.Pattern,
-		MatchedOn:       matchedOn,
 	}
 	if r.CacheReadPer1M != nil {
 		price.CacheReadPer1M = *r.CacheReadPer1M
@@ -129,53 +125,93 @@ func (r PriceRule) resolve(source PriceSource, matchedOn string) Price {
 	return price
 }
 
-// ResolvePrice finds the price for one usage record.
-//
-// Administrator overrides are consulted in full before the reference catalog, so
-// an override always wins; an override that lost to a more specific reference
-// entry would be the kind of surprise that costs money. Within each table the
-// order is exact model, exact alias, glob model, glob alias.
-func (s *State) ResolvePrice(model, alias string) Price {
-	if rule, matchedOn, ok := matchPriceRule(s.Prices, model, alias); ok {
-		return rule.resolve(PriceSourceOverride, matchedOn)
+// ResolvePrice finds the price for one usage record. Route-specific prices win
+// over upstream-model fallbacks; built-in prices use the opposite order because
+// models.dev normally knows the upstream model rather than local route names.
+func (s *State) ResolvePrice(upstreamModel, billingModel string) Price {
+	baseUpstreamModel := modelWithoutSuffix(upstreamModel)
+	if rule, ok := matchPriceRule(s.Prices, billingModel, baseUpstreamModel); ok {
+		return rule.resolve(PriceSourceOverride)
 	}
-	if rule, matchedOn, ok := lookupBuiltin(model, alias); ok {
-		return rule.resolve(PriceSourceBuiltin, matchedOn)
+	if rule, ok := lookupBuiltin(baseUpstreamModel, billingModel); ok {
+		return rule.resolve(PriceSourceBuiltin)
 	}
 	return Price{Source: PriceSourceNone}
 }
 
-func matchPriceRule(rules []PriceRule, model, alias string) (PriceRule, string, bool) {
-	model = strings.TrimSpace(model)
-	alias = strings.TrimSpace(alias)
+// ResolveBillingModel returns the stable client-visible model used for pricing
+// and aggregation. A trailing CPA thinking suffix is a request option unless an
+// exact model row declares it as part of a configured model ID.
+func (s *State) ResolveBillingModel(upstreamModel, routeModel string) string {
+	upstreamModel = modelWithoutSuffix(upstreamModel)
+	routeModel = strings.TrimSpace(routeModel)
+	if routeModel == "" {
+		return upstreamModel
+	}
 
-	for _, candidate := range []struct {
-		value string
-		label string
-	}{{model, "model"}, {alias, "alias"}} {
-		if candidate.value == "" {
+	base := modelWithoutSuffix(routeModel)
+	if strings.EqualFold(base, "auto") {
+		return upstreamModel
+	}
+	if model, ok := exactPriceModel(s.Prices, routeModel); ok {
+		return model
+	}
+	if model, ok := exactPriceModel(s.Prices, base); ok {
+		return model
+	}
+	if strings.EqualFold(base, upstreamModel) {
+		return upstreamModel
+	}
+	return base
+}
+
+func modelWithoutSuffix(model string) string {
+	model = strings.TrimSpace(model)
+	if open := strings.LastIndex(model, "("); open >= 0 && strings.HasSuffix(model, ")") {
+		return strings.TrimSpace(model[:open])
+	}
+	return model
+}
+
+func exactPriceModel(rules []PriceRule, model string) (string, bool) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "", false
+	}
+	for _, rule := range rules {
+		pattern := strings.TrimSpace(rule.Pattern)
+		if !isGlob(pattern) && strings.EqualFold(pattern, model) {
+			return pattern, true
+		}
+	}
+	return "", false
+}
+
+func matchPriceRule(rules []PriceRule, billingModel, upstreamModel string) (PriceRule, bool) {
+	billingModel = strings.TrimSpace(billingModel)
+	upstreamModel = strings.TrimSpace(upstreamModel)
+
+	for _, candidate := range []string{billingModel, upstreamModel} {
+		if candidate == "" {
 			continue
 		}
 		for _, rule := range rules {
-			if !isGlob(rule.Pattern) && strings.EqualFold(strings.TrimSpace(rule.Pattern), candidate.value) {
-				return rule, candidate.label, true
+			if !isGlob(rule.Pattern) && strings.EqualFold(strings.TrimSpace(rule.Pattern), candidate) {
+				return rule, true
 			}
 		}
 	}
-	for _, candidate := range []struct {
-		value string
-		label string
-	}{{model, "model-glob"}, {alias, "alias-glob"}} {
-		if candidate.value == "" {
+	for _, candidate := range []string{billingModel, upstreamModel} {
+		if candidate == "" {
 			continue
 		}
 		for _, rule := range rules {
-			if isGlob(rule.Pattern) && globMatch(strings.TrimSpace(rule.Pattern), candidate.value) {
-				return rule, candidate.label, true
+			if isGlob(rule.Pattern) && globMatch(strings.TrimSpace(rule.Pattern), candidate) {
+				return rule, true
 			}
 		}
 	}
-	return PriceRule{}, "", false
+	return PriceRule{}, false
 }
 
 func isGlob(pattern string) bool {

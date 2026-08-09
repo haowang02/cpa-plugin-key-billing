@@ -1,8 +1,10 @@
 package billing
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -32,8 +34,8 @@ const DefaultFlushInterval = 5 * time.Second
 // on a client's critical path. Do not reintroduce a background flusher.
 type Store struct {
 	cfgMu sync.Mutex
-	// writeMu and stateGeneration keep a flush based on an old state snapshot
-	// from writing after reconfiguration or ResetAllData replaces that state.
+	// writeMu and stateGeneration keep a flush based on a stale state snapshot
+	// from writing after reconfiguration replaces that state.
 	writeMu         sync.Mutex
 	stateGeneration atomic.Uint64
 
@@ -48,17 +50,9 @@ type Store struct {
 
 	dirty atomic.Bool
 
-	// Runtime counters, reset on restart. They are the fastest way to tell a
-	// silent misconfiguration (records arriving with no principal, or no
-	// records arriving at all) from a genuinely idle deployment.
-	usageReceived     atomic.Int64
-	usageUnattributed atomic.Int64
-	usageRecorded     atomic.Int64
 	usageUnpriced     atomic.Int64
 	usageNoTokens     atomic.Int64
 	usageUnclassified atomic.Int64
-	authChecks        atomic.Int64
-	authBlocked       atomic.Int64
 
 	statusMu  sync.Mutex
 	lastFlush time.Time
@@ -109,15 +103,15 @@ func (s *Store) Configure(cfg Config) error {
 	}
 
 	// Read the incoming document before touching anything, so a switch to an
-	// unreadable path is abandoned with the old one still live.
-	loaded, migrated, errLoad := loadState(path)
+	// unreadable path leaves the current document live.
+	loaded, errLoad := loadState(path)
 	if errLoad != nil {
 		return errLoad
 	}
 
 	// Serialize the final write with Flush, then publish the new document,
 	// config and path under one state lock. The generation change invalidates a
-	// Flush that captured the old state before writeMu was acquired.
+	// Flush that captured the previous state before writeMu was acquired.
 	s.writeMu.Lock()
 	s.mu.Lock()
 	errSwitch := s.persistLocked(currentPath)
@@ -126,7 +120,7 @@ func (s *Store) Configure(cfg Config) error {
 		s.cfg = normalized
 		s.path = path
 		s.stateGeneration.Add(1)
-		s.dirty.Store(migrated)
+		s.dirty.Store(false)
 	}
 	s.mu.Unlock()
 	s.writeMu.Unlock()
@@ -147,43 +141,6 @@ func (s *Store) Close() {
 	}
 }
 
-// ResetAllData removes the persisted document and restores an empty runtime
-// state while keeping the host-supplied plugin configuration intact.
-func (s *Store) ResetAllData() error {
-	s.cfgMu.Lock()
-	defer s.cfgMu.Unlock()
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-
-	s.mu.Lock()
-	path := s.path
-	if path != "" {
-		if errRemove := os.Remove(path); errRemove != nil && !os.IsNotExist(errRemove) {
-			s.mu.Unlock()
-			return fmt.Errorf("删除计费状态文件 %s：%w", path, errRemove)
-		}
-	}
-	s.state = NewState()
-	s.stateGeneration.Add(1)
-	s.dirty.Store(false)
-	s.mu.Unlock()
-
-	s.pending.clear()
-	s.usageReceived.Store(0)
-	s.usageUnattributed.Store(0)
-	s.usageRecorded.Store(0)
-	s.usageUnpriced.Store(0)
-	s.usageNoTokens.Store(0)
-	s.usageUnclassified.Store(0)
-	s.authChecks.Store(0)
-	s.authBlocked.Store(0)
-	s.statusMu.Lock()
-	s.lastFlush = time.Time{}
-	s.lastError = ""
-	s.statusMu.Unlock()
-	return nil
-}
-
 // Enabled reports whether the plugin should act on requests. A disabled plugin
 // still answers Management API calls so an operator can inspect it.
 func (s *Store) Enabled() bool {
@@ -197,6 +154,14 @@ func (s *Store) Read(fn func(*State)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	fn(s.state)
+}
+
+func (s *Store) BillingModel(upstreamModel, routeModel string) string {
+	model := ""
+	s.Read(func(state *State) {
+		model = state.ResolveBillingModel(upstreamModel, routeModel)
+	})
+	return model
 }
 
 // Update runs fn against the state under a write lock and marks the document
@@ -337,26 +302,15 @@ type Status struct {
 	Counters      Counters  `json:"counters"`
 }
 
-// Counters are since-restart runtime tallies.
-//
-// UsageUnattributed is the one to watch: a deployment where it tracks
-// UsageReceived is authenticating requests in a way that yields no principal,
-// which means nothing can ever be billed. UsageUnpriced counts billed requests
-// whose model matched no price rule, which is the other silent way a bill stays
-// at zero.
+// Counters are since-restart tallies shown above the billing log.
 type Counters struct {
-	UsageReceived     int64 `json:"usage_received"`
-	UsageUnattributed int64 `json:"usage_unattributed"`
-	UsageRecorded     int64 `json:"usage_recorded"`
 	UsageUnpriced     int64 `json:"usage_unpriced"`
 	UsageNoTokens     int64 `json:"usage_no_tokens"`
 	UsageUnclassified int64 `json:"usage_unclassified"`
-	AuthChecks        int64 `json:"auth_checks"`
-	AuthBlocked       int64 `json:"auth_blocked"`
 	PendingRequests   int   `json:"pending_requests"`
 }
 
-// Status snapshots runtime state for diagnostics.
+// Status snapshots the state exposed by the Management API.
 func (s *Store) Status(pluginName, version string) Status {
 	s.mu.RLock()
 	status := Status{
@@ -379,14 +333,9 @@ func (s *Store) Status(pluginName, version string) Status {
 
 	status.PendingWrite = s.dirty.Load()
 	status.Counters = Counters{
-		UsageReceived:     s.usageReceived.Load(),
-		UsageUnattributed: s.usageUnattributed.Load(),
-		UsageRecorded:     s.usageRecorded.Load(),
 		UsageUnpriced:     s.usageUnpriced.Load(),
 		UsageNoTokens:     s.usageNoTokens.Load(),
 		UsageUnclassified: s.usageUnclassified.Load(),
-		AuthChecks:        s.authChecks.Load(),
-		AuthBlocked:       s.authBlocked.Load(),
 	}
 	status.Counters.PendingRequests = s.pending.len()
 	s.statusMu.Lock()
@@ -409,33 +358,31 @@ func resolveStatePath(path string) (string, error) {
 
 // loadState reads the document at path. A missing file is not an error: it
 // yields a fresh document so a first run bootstraps cleanly.
-func loadState(path string) (*State, bool, error) {
+func loadState(path string) (*State, error) {
 	raw, errRead := os.ReadFile(path)
 	if errRead != nil {
 		if os.IsNotExist(errRead) {
-			return NewState(), false, nil
+			return NewState(), nil
 		}
-		return nil, false, fmt.Errorf("读取状态文件 %s：%w", path, errRead)
+		return nil, fmt.Errorf("读取状态文件 %s：%w", path, errRead)
 	}
 	if len(raw) == 0 {
-		return NewState(), false, nil
+		return NewState(), nil
 	}
 	state := NewState()
-	if errUnmarshal := json.Unmarshal(raw, state); errUnmarshal != nil {
-		return nil, false, fmt.Errorf("解析状态文件 %s：%w", path, errUnmarshal)
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if errDecode := decoder.Decode(state); errDecode != nil {
+		return nil, fmt.Errorf("解析状态文件 %s：%w", path, errDecode)
 	}
-	if state.Version > StateVersion {
-		return nil, false, fmt.Errorf("状态文件 %s 来自更高版本的插件（版本 %d > %d）", path, state.Version, StateVersion)
+	if errDecode := decoder.Decode(&struct{}{}); errDecode != io.EOF {
+		return nil, fmt.Errorf("解析状态文件 %s：文档包含多余内容", path)
 	}
-	previousVersion := state.Version
-	state.Version = StateVersion
+	if state.Version != StateVersion {
+		return nil, fmt.Errorf("状态文件 %s 的格式版本为 %d，当前插件需要版本 %d", path, state.Version, StateVersion)
+	}
 	state.normalize()
-	migratedCycles := false
-	if previousVersion < 3 {
-		migratedCycles = state.migrateKeyRelativeCycles()
-	}
-	migrated := previousVersion != StateVersion
-	return state, state.removeNonPositivePlans() || migratedCycles || migrated, nil
+	return state, nil
 }
 
 // writeFileAtomic writes through a sibling temp file and renames, so a crash or

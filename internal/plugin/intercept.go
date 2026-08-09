@@ -85,7 +85,11 @@ func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 		return nil, fmt.Errorf("解析请求拦截参数：%w", errUnmarshal)
 	}
 	if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
-		a.protocol2.addRoute(req.RequestID, req.ToFormat, req.Model, req.RequestedModel, req.Stream, req.Body)
+		provider := providerFromAuthID(metadataString(req.Metadata, MetadataSelectedAuthID))
+		if provider == "" && a.providerForAuthIndex != nil {
+			provider = a.providerForAuthIndex(metadataString(req.Metadata, MetadataSelectedAuthIndex))
+		}
+		a.protocol2.addRoute(req.RequestID, req.ToFormat, provider, req.Model, req.RequestedModel, req.Stream, req.Body)
 	}
 	return OKEnvelope(RequestInterceptResponse{})
 }
@@ -126,6 +130,22 @@ func (a *App) interceptResponseStreamChunk(raw []byte) ([]byte, error) {
 		a.protocol2.bindResponse(req.RequestID, req.Body)
 	}
 	return OKEnvelope(PayloadResponse{})
+}
+
+func providerFromAuthID(authID string) string {
+	authID = strings.ToLower(strings.TrimSpace(authID))
+	if provider, _, ok := strings.Cut(authID, ":apikey:"); ok {
+		return provider
+	}
+	const compatibility = "openai-compatibility:"
+	if !strings.HasPrefix(authID, compatibility) {
+		return ""
+	}
+	name, _, ok := strings.Cut(strings.TrimPrefix(authID, compatibility), ":")
+	if !ok || name == "" || name == "openai-compatibility" || strings.HasPrefix(name, "openai-compatible-") {
+		return name
+	}
+	return "openai-compatible-" + name
 }
 
 // metadataString reads a string value from the host's metadata snapshot. The
@@ -257,28 +277,28 @@ func (a *App) handleRequestComplete(raw []byte) ([]byte, error) {
 		a.store.DiscardRequest(completion.RequestID)
 		a.protocol2.discard(completion.RequestID)
 	} else {
-		records := canonicalUsageRecords(completion.UsageRecords)
+		records := canonicalUsageRecords(completion.UsageRecords, a.store.BillingModel)
 		if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
-			records = a.protocol2.finish(completion.RequestID)
+			records = a.protocol2.finish(completion.RequestID, a.store.BillingModel)
 		}
 		a.store.FinishRequest(completion.RequestID, records, completion.Outcome != RequestCompletionSucceeded)
 	}
 	return OKEnvelope(struct{}{})
 }
 
-func canonicalUsageRecords(records []RequestUsageRecord) []billing.UsageRecord {
+func canonicalUsageRecords(records []RequestUsageRecord, resolveModel func(string, string) string) []billing.UsageRecord {
 	if len(records) == 0 {
 		return nil
 	}
 	result := make([]billing.UsageRecord, 0, len(records))
 	for _, record := range records {
 		result = append(result, billing.UsageRecord{
-			Provider:    record.Provider,
-			Model:       record.Model,
-			Alias:       record.Alias,
-			Generate:    record.Generate,
-			Failed:      record.Failed,
-			RequestedAt: record.RequestedAt,
+			Provider:      record.Provider,
+			BillingModel:  resolveModel(record.Model, record.RequestedModel),
+			UpstreamModel: record.Model,
+			Generate:      record.Generate,
+			Failed:        record.Failed,
+			RequestedAt:   record.RequestedAt,
 			Breakdown: billing.TokenBreakdown{
 				SchemaVersion:      record.Breakdown.SchemaVersion,
 				Quality:            record.Breakdown.Quality,

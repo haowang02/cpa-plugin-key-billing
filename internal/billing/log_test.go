@@ -33,7 +33,7 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 	}
 	entry := view.Entries[0]
 	if entry.Scope != "scope-a" || entry.Label != "Alice" || entry.Preview != "sk-tes…0001" ||
-		entry.Model != "gpt-5.5" || entry.PriceSource != PriceSourceOverride ||
+		entry.UpstreamModel != "gpt-5.5" || entry.BillingModel != "gpt-5.5" || entry.PriceSource != PriceSourceOverride ||
 		entry.ClientProtocol != "claude" || entry.Provider != "codex" ||
 		entry.AccountingQuality != TokenAccountingComplete {
 		t.Fatalf("entry = %+v", entry)
@@ -64,20 +64,6 @@ func TestLogRetentionAndDisable(t *testing.T) {
 	store.RecordUsage(subsetEvent("scope-a", start))
 	if view = store.Logs(0); len(view.Entries) != 0 || view.Limit != 0 {
 		t.Fatalf("view = %+v, want logging disabled", view)
-	}
-}
-
-func TestForgettingAKeyDropsItsLog(t *testing.T) {
-	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	store := newLogStore(t, now, 10)
-	store.RecordUsage(subsetEvent("scope-a", now))
-	store.RecordUsage(subsetEvent("scope-b", now))
-	if _, err := store.ForgetKeys([]string{"scope-a"}); err != nil {
-		t.Fatalf("ForgetKeys error = %v", err)
-	}
-	entries := store.Logs(0).Entries
-	if len(entries) != 1 || entries[0].Scope != "scope-b" {
-		t.Fatalf("entries = %+v", entries)
 	}
 }
 

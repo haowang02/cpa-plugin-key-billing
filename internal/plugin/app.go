@@ -10,9 +10,14 @@ import (
 )
 
 type App struct {
-	store      *billing.Store
-	hostSchema atomic.Uint32
-	protocol2  *protocol2UsageTracker
+	store                *billing.Store
+	hostSchema           atomic.Uint32
+	protocol2            *protocol2UsageTracker
+	providerForAuthIndex func(string) string
+}
+
+func (a *App) SetProviderResolver(resolve func(string) string) {
+	a.providerForAuthIndex = resolve
 }
 
 func NewApp() *App {
@@ -103,10 +108,7 @@ func (a *App) configure(raw []byte) error {
 }
 
 func registration(hostSchema uint32) Registration {
-	negotiatedSchema := hostSchema
-	if negotiatedSchema > SchemaVersion {
-		negotiatedSchema = SchemaVersion
-	}
+	negotiatedSchema := negotiatedSchema(hostSchema)
 	protocol2Usage := negotiatedSchema < CanonicalUsageSchemaVersion
 	return Registration{
 		SchemaVersion: negotiatedSchema,
@@ -142,4 +144,11 @@ func registration(hostSchema uint32) Registration {
 			ManagementAPI:            true,
 		},
 	}
+}
+
+func negotiatedSchema(hostSchema uint32) uint32 {
+	if hostSchema > SchemaVersion {
+		return SchemaVersion
+	}
+	return hostSchema
 }

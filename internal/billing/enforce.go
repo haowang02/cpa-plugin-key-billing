@@ -35,8 +35,6 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 	if at.IsZero() {
 		at = s.Now()
 	}
-	s.authChecks.Add(1)
-
 	decision := updateResult(s, func(state *State) (Decision, bool) {
 		key := state.Keys[scope]
 		if key == nil || key.PlanID == "" {
@@ -66,8 +64,5 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 		current.Allowed = false
 		return current, changed
 	})
-	if !decision.Allowed {
-		s.authBlocked.Add(1)
-	}
 	return decision
 }

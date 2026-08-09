@@ -10,9 +10,8 @@ import (
 )
 
 // Protocol 2 splits correlation and authoritative usage across response hooks.
-// Raw usage arrives before translation without a request ID; translated responses
-// arrive with the request ID but may contain estimated tokens. Only the former
-// is accumulated, while the latter is used solely to bind stable response IDs.
+// Raw usage arrives before translation without a request ID; translated
+// responses provide the request ID used to bind stable response IDs.
 type protocol2UsageTracker struct {
 	mu             sync.Mutex
 	requests       map[string]*protocol2Request
@@ -23,8 +22,9 @@ type protocol2UsageTracker struct {
 
 type protocol2Request struct {
 	clientProtocol string
-	model          string
-	alias          string
+	upstreamFormat string
+	upstreamModel  string
+	routeModel     string
 	provider       string
 	generate       bool
 	startedAt      time.Time
@@ -33,26 +33,28 @@ type protocol2Request struct {
 }
 
 type protocol2Route struct {
-	provider    string
-	model       string
-	stream      bool
-	requestHash [sha256.Size]byte
+	format        string
+	upstreamModel string
+	stream        bool
+	requestHash   [sha256.Size]byte
 }
 
 type protocol2Observation struct {
-	provider  string
-	model     string
-	usage     upstreamUsage
-	updatedAt time.Time
+	upstreamModel string
+	usage         upstreamUsage
+	updatedAt     time.Time
 }
 
 func newProtocol2UsageTracker() *protocol2UsageTracker {
-	tracker := &protocol2UsageTracker{}
-	tracker.clear()
-	return tracker
+	return &protocol2UsageTracker{
+		requests:       make(map[string]*protocol2Request),
+		routes:         make(map[protocol2Route]map[string]struct{}),
+		responseOwners: make(map[string]string),
+		orphans:        make(map[string]*protocol2Observation),
+	}
 }
 
-func (t *protocol2UsageTracker) begin(requestID, clientProtocol, model, alias string, generate bool, now time.Time) {
+func (t *protocol2UsageTracker) begin(requestID, clientProtocol, upstreamModel, routeModel string, generate bool, now time.Time) {
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
 		return
@@ -64,20 +66,20 @@ func (t *protocol2UsageTracker) begin(requestID, clientProtocol, model, alias st
 	if len(t.requests) >= billing.MaxPendingRequests {
 		return
 	}
-	if strings.TrimSpace(alias) == "" {
-		alias = model
+	if strings.TrimSpace(routeModel) == "" {
+		routeModel = upstreamModel
 	}
 	t.requests[requestID] = &protocol2Request{
 		clientProtocol: strings.TrimSpace(clientProtocol),
-		model:          strings.TrimSpace(model),
-		alias:          strings.TrimSpace(alias),
+		upstreamModel:  strings.TrimSpace(upstreamModel),
+		routeModel:     strings.TrimSpace(routeModel),
 		generate:       generate,
 		startedAt:      now,
 		routes:         make(map[protocol2Route]struct{}),
 	}
 }
 
-func (t *protocol2UsageTracker) addRoute(requestID, provider, model, alias string, stream bool, originalRequest []byte) {
+func (t *protocol2UsageTracker) addRoute(requestID, format, provider, upstreamModel, routeModel string, stream bool, originalRequest []byte) {
 	requestID = strings.TrimSpace(requestID)
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -85,18 +87,17 @@ func (t *protocol2UsageTracker) addRoute(requestID, provider, model, alias strin
 	if request == nil {
 		return
 	}
-	provider = strings.TrimSpace(provider)
-	model = strings.TrimSpace(model)
-	if model != "" {
-		request.model = baseUsageModel(model)
+	format = strings.TrimSpace(format)
+	upstreamModel = strings.TrimSpace(upstreamModel)
+	if upstreamModel != "" {
+		request.upstreamModel = upstreamModel
 	}
-	if strings.TrimSpace(alias) != "" {
-		request.alias = strings.TrimSpace(alias)
+	if strings.TrimSpace(routeModel) != "" {
+		request.routeModel = strings.TrimSpace(routeModel)
 	}
-	if provider != "" {
-		request.provider = provider
-	}
-	key := protocol2RouteKey(provider, model, stream, originalRequest)
+	request.upstreamFormat = format
+	request.provider = strings.TrimSpace(provider)
+	key := protocol2RouteKey(format, upstreamModel, stream, originalRequest)
 	request.routes[key] = struct{}{}
 	owners := t.routes[key]
 	if owners == nil {
@@ -137,9 +138,8 @@ func (t *protocol2UsageTracker) observeUpstream(req ResponseTransformRequest, no
 		}
 		if owner != "" {
 			request := t.requests[owner]
-			request.provider = strings.TrimSpace(req.FromFormat)
 			if model := strings.TrimSpace(req.Model); model != "" {
-				request.model = baseUsageModel(model)
+				request.upstreamModel = model
 			}
 			if frame.responseID != "" {
 				t.responseOwners[frame.responseID] = owner
@@ -160,8 +160,7 @@ func (t *protocol2UsageTracker) observeUpstream(req ResponseTransformRequest, no
 			observation = &protocol2Observation{}
 			t.orphans[frame.responseID] = observation
 		}
-		observation.provider = strings.TrimSpace(req.FromFormat)
-		observation.model = baseUsageModel(req.Model)
+		observation.upstreamModel = strings.TrimSpace(req.Model)
 		observation.updatedAt = now
 		observation.usage.merge(frame.usage)
 	}
@@ -190,23 +189,20 @@ func (t *protocol2UsageTracker) bindResponse(requestID string, body []byte) {
 		t.responseOwners[id] = requestID
 		if observation := t.orphans[id]; observation != nil {
 			request.usage.merge(observation.usage)
-			if observation.provider != "" {
-				request.provider = observation.provider
-			}
-			if observation.model != "" {
-				request.model = observation.model
+			if observation.upstreamModel != "" {
+				request.upstreamModel = observation.upstreamModel
 			}
 			delete(t.orphans, id)
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(request.provider), strings.TrimSpace(request.clientProtocol)) {
+	if strings.EqualFold(strings.TrimSpace(request.upstreamFormat), strings.TrimSpace(request.clientProtocol)) {
 		for _, object := range objects {
-			request.usage.merge(parseUsageObject(request.provider, object))
+			request.usage.merge(parseUsageObject(request.upstreamFormat, object))
 		}
 	}
 }
 
-func (t *protocol2UsageTracker) finish(requestID string) []billing.UsageRecord {
+func (t *protocol2UsageTracker) finish(requestID string, resolveModel func(string, string) string) []billing.UsageRecord {
 	requestID = strings.TrimSpace(requestID)
 	t.mu.Lock()
 	request := t.requests[requestID]
@@ -221,12 +217,12 @@ func (t *protocol2UsageTracker) finish(requestID string) []billing.UsageRecord {
 	}
 	breakdown := request.usage.breakdown()
 	record := billing.UsageRecord{
-		Provider:    request.provider,
-		Model:       request.model,
-		Alias:       request.alias,
-		Generate:    request.generate,
-		RequestedAt: request.startedAt,
-		Breakdown:   breakdown,
+		Provider:      request.provider,
+		BillingModel:  resolveModel(request.upstreamModel, request.routeModel),
+		UpstreamModel: request.upstreamModel,
+		Generate:      request.generate,
+		RequestedAt:   request.startedAt,
+		Breakdown:     breakdown,
 	}
 	t.removeRequestLocked(requestID)
 	t.mu.Unlock()
@@ -236,15 +232,6 @@ func (t *protocol2UsageTracker) finish(requestID string) []billing.UsageRecord {
 func (t *protocol2UsageTracker) discard(requestID string) {
 	t.mu.Lock()
 	t.removeRequestLocked(strings.TrimSpace(requestID))
-	t.mu.Unlock()
-}
-
-func (t *protocol2UsageTracker) clear() {
-	t.mu.Lock()
-	t.requests = make(map[string]*protocol2Request)
-	t.routes = make(map[protocol2Route]map[string]struct{})
-	t.responseOwners = make(map[string]string)
-	t.orphans = make(map[string]*protocol2Observation)
 	t.mu.Unlock()
 }
 
@@ -281,20 +268,11 @@ func (t *protocol2UsageTracker) sweepLocked(now time.Time) {
 	}
 }
 
-func protocol2RouteKey(provider, model string, stream bool, request []byte) protocol2Route {
+func protocol2RouteKey(format, upstreamModel string, stream bool, request []byte) protocol2Route {
 	return protocol2Route{
-		provider:    strings.ToLower(strings.TrimSpace(provider)),
-		model:       strings.ToLower(strings.TrimSpace(model)),
-		stream:      stream,
-		requestHash: sha256.Sum256(request),
+		format:        strings.ToLower(strings.TrimSpace(format)),
+		upstreamModel: strings.ToLower(strings.TrimSpace(upstreamModel)),
+		stream:        stream,
+		requestHash:   sha256.Sum256(request),
 	}
-}
-
-func baseUsageModel(model string) string {
-	model = strings.TrimSpace(model)
-	open := strings.LastIndex(model, "(")
-	if open >= 0 && strings.HasSuffix(model, ")") {
-		return strings.TrimSpace(model[:open])
-	}
-	return model
 }

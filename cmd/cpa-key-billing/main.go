@@ -38,11 +38,32 @@ typedef struct {
 extern int cliproxyPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
 extern void cliproxyPluginFree(void*, size_t);
 extern void cliproxyPluginShutdown(void);
+
+static const cliproxy_host_api* stored_host;
+
+static void store_host_api(const cliproxy_host_api* host) {
+	stored_host = host;
+}
+
+static int call_host_api(const char* method, const uint8_t* request, size_t request_len, cliproxy_buffer* response) {
+	if (stored_host == NULL || stored_host->call == NULL) {
+		return 1;
+	}
+	return stored_host->call(stored_host->host_ctx, method, request, request_len, response);
+}
+
+static void free_host_buffer(void* ptr, size_t len) {
+	if (stored_host != NULL && stored_host->free_buffer != NULL && ptr != NULL) {
+		stored_host->free_buffer(ptr, len);
+	}
+}
 */
 import "C"
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"unsafe"
 
 	"cpa-key-billing/internal/plugin"
@@ -54,17 +75,60 @@ func main() {}
 
 //export cliproxy_plugin_init
 func cliproxy_plugin_init(host *C.cliproxy_host_api, api *C.cliproxy_plugin_api) C.int {
-	// This plugin makes no host callbacks: the admin UI performs the one
-	// Management API call it needs, so the host handle is deliberately unused.
-	_ = host
 	if api == nil {
 		return 1
 	}
+	C.store_host_api(host)
+	app.SetProviderResolver(providerForAuthIndex)
 	api.abi_version = C.uint32_t(plugin.ABIVersion)
 	api.call = C.cliproxy_plugin_call_fn(C.cliproxyPluginCall)
 	api.free_buffer = C.cliproxy_plugin_free_fn(C.cliproxyPluginFree)
 	api.shutdown = C.cliproxy_plugin_shutdown_fn(C.cliproxyPluginShutdown)
 	return 0
+}
+
+func providerForAuthIndex(authIndex string) string {
+	authIndex = strings.TrimSpace(authIndex)
+	if authIndex == "" {
+		return ""
+	}
+	request, _ := json.Marshal(struct {
+		AuthIndex string `json:"auth_index"`
+	}{AuthIndex: authIndex})
+	method := C.CString("host.auth.get_runtime")
+	defer C.free(unsafe.Pointer(method))
+	payload := C.CBytes(request)
+	if payload == nil {
+		return ""
+	}
+	defer C.free(payload)
+
+	var response C.cliproxy_buffer
+	callCode := C.call_host_api(method, (*C.uint8_t)(payload), C.size_t(len(request)), &response)
+	var raw []byte
+	if response.ptr != nil && response.len > 0 {
+		raw = C.GoBytes(response.ptr, C.int(response.len))
+	}
+	if response.ptr != nil {
+		C.free_host_buffer(response.ptr, response.len)
+	}
+	if callCode != 0 || len(raw) == 0 {
+		return ""
+	}
+
+	var envelope plugin.Envelope
+	if json.Unmarshal(raw, &envelope) != nil || !envelope.OK {
+		return ""
+	}
+	var result struct {
+		Auth struct {
+			Provider string `json:"provider"`
+		} `json:"auth"`
+	}
+	if json.Unmarshal(envelope.Result, &result) != nil {
+		return ""
+	}
+	return strings.TrimSpace(result.Auth.Provider)
 }
 
 //export cliproxyPluginCall

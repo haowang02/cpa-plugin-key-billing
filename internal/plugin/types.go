@@ -31,7 +31,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "0.1.6"
+	Version    = "0.2.0"
 
 	MenuLabel       = "API Key 计费"
 	MenuDescription = "管理下游 API Key 的计费、订阅额度和用量"
@@ -59,8 +59,10 @@ const (
 	// MetadataCallerScope is sha256("cli-proxy-api:caller-scope:v1\x00"+apiKey)
 	// in hex. It is the only downstream-key identifier available at interception
 	// time, and it covers keys presented via query string as well as headers.
-	MetadataCallerScope = "caller_scope"
-	MetadataSource      = "source"
+	MetadataCallerScope       = "caller_scope"
+	MetadataSource            = "source"
+	MetadataSelectedAuthID    = "selected_auth_id"
+	MetadataSelectedAuthIndex = "selected_auth_index"
 	// SourcePluginHostModelCallback is the MetadataSource value for nested
 	// plugin-initiated executions, which must not be billed again.
 	SourcePluginHostModelCallback = "plugin_host_model_callback"
@@ -151,13 +153,13 @@ type RequestCompletion struct {
 }
 
 type RequestUsageRecord struct {
-	Provider    string                `json:"Provider"`
-	Model       string                `json:"Model"`
-	Alias       string                `json:"Alias"`
-	Generate    bool                  `json:"Generate"`
-	Failed      bool                  `json:"Failed"`
-	RequestedAt time.Time             `json:"RequestedAt"`
-	Breakdown   RequestTokenBreakdown `json:"Breakdown"`
+	Provider       string                `json:"Provider"`
+	Model          string                `json:"Model"`
+	RequestedModel string                `json:"Alias"`
+	Generate       bool                  `json:"Generate"`
+	Failed         bool                  `json:"Failed"`
+	RequestedAt    time.Time             `json:"RequestedAt"`
+	Breakdown      RequestTokenBreakdown `json:"Breakdown"`
 }
 
 type RequestTokenBreakdown struct {

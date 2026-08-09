@@ -8,13 +8,13 @@ import (
 // UsageRecord is one normalized provider usage event. Multiple records may
 // belong to one downstream request because retries are billed separately.
 type UsageRecord struct {
-	Provider    string
-	Model       string
-	Alias       string
-	Generate    bool
-	Failed      bool
-	RequestedAt time.Time
-	Breakdown   TokenBreakdown
+	Provider      string
+	BillingModel  string
+	UpstreamModel string
+	Generate      bool
+	Failed        bool
+	RequestedAt   time.Time
+	Breakdown     TokenBreakdown
 }
 
 // UsageEvent commits every canonical provider record associated with one
@@ -84,16 +84,18 @@ func (s *Store) RecordUsage(event UsageEvent) {
 			}
 			index := usageIndex
 			usageIndex++
-			s.usageRecorded.Add(1)
 			if !record.Breakdown.Billable() {
 				s.usageUnclassified.Add(1)
 			}
-			model := strings.TrimSpace(record.Model)
-			alias := strings.TrimSpace(record.Alias)
-			if model == "" {
-				model = alias
+			upstreamModel := strings.TrimSpace(record.UpstreamModel)
+			if upstreamModel == "" {
+				upstreamModel = strings.TrimSpace(record.BillingModel)
 			}
-			price := state.ResolvePrice(model, alias)
+			billingModel := strings.TrimSpace(record.BillingModel)
+			if billingModel == "" {
+				billingModel = upstreamModel
+			}
+			price := state.ResolvePrice(upstreamModel, billingModel)
 			if price.Source == PriceSourceNone {
 				s.usageUnpriced.Add(1)
 			}
@@ -115,7 +117,7 @@ func (s *Store) RecordUsage(event UsageEvent) {
 				totals.FailedRequests = 1
 			}
 			key.Lifetime.Add(totals)
-			key.addModelTotals(model, totals)
+			key.addModelTotals(billingModel, totals)
 
 			entryAt := record.RequestedAt
 			if entryAt.IsZero() {
@@ -128,17 +130,14 @@ func (s *Store) RecordUsage(event UsageEvent) {
 				UsageIndex:        index,
 				ClientProtocol:    event.ClientProtocol,
 				Provider:          record.Provider,
-				Model:             model,
+				UpstreamModel:     upstreamModel,
+				BillingModel:      billingModel,
 				Failed:            failed,
 				AccountingQuality: record.Breakdown.Quality,
 				PriceSource:       price.Source,
 				Cost:              cost,
 				ReasoningTokens:   record.Breakdown.Output.ReasoningTokens,
 			}
-			if alias != "" && alias != model {
-				entry.Alias = alias
-			}
-
 			if planID, spentUSD, limitUSD, attributed := attributeCycleUsage(key, plan, hasPlan, event, cost.TotalUSD); attributed {
 				entry.PlanID = planID
 				entry.CycleSpentUSD = spentUSD
@@ -202,7 +201,7 @@ func (s *State) ensureKey(scope string, at time.Time) *KeyState {
 	}
 	key := s.Keys[scope]
 	if key == nil {
-		key = &KeyState{Scope: scope, FirstSeen: at, ByModel: make(map[string]*Totals)}
+		key = &KeyState{FirstSeen: at, ByModel: make(map[string]*Totals)}
 		s.Keys[scope] = key
 	}
 	if key.ByModel == nil {

@@ -5,15 +5,14 @@ import "time"
 // LogEntry stores the canonical inputs and result of one bill. It never stores
 // the plaintext API key.
 type LogEntry struct {
-	At             time.Time `json:"at"`
-	Scope          string    `json:"scope"`
-	RequestID      string    `json:"request_id,omitempty"`
-	UsageIndex     int       `json:"usage_index,omitempty"`
-	ClientProtocol string    `json:"client_protocol,omitempty"`
-	Provider       string    `json:"provider,omitempty"`
-	// Model is what was billed; Alias is what the client asked for.
-	Model             string                 `json:"model,omitempty"`
-	Alias             string                 `json:"alias,omitempty"`
+	At                time.Time              `json:"at"`
+	Scope             string                 `json:"scope"`
+	RequestID         string                 `json:"request_id,omitempty"`
+	UsageIndex        int                    `json:"usage_index,omitempty"`
+	ClientProtocol    string                 `json:"client_protocol,omitempty"`
+	Provider          string                 `json:"provider,omitempty"`
+	UpstreamModel     string                 `json:"upstream_model,omitempty"`
+	BillingModel      string                 `json:"billing_model,omitempty"`
 	Failed            bool                   `json:"failed,omitempty"`
 	AccountingQuality TokenAccountingQuality `json:"accounting_quality,omitempty"`
 	// PriceSource says where the numbers came from. "none" is the one to look
@@ -43,25 +42,12 @@ func appendLog(state *State, entry LogEntry, limit int) {
 	state.Log = append(state.Log, entry)
 }
 
-// pruneLogOrphans drops entries whose key is no longer tracked.
-//
-// Forgetting a key is described to the operator as deleting everything held
-// about it, and the log is the most detailed thing held about it. Leaving the
-// entries behind would also leave rows the UI can put no name to, since the
-// label lives on the key.
 func pruneLogOrphans(state *State) {
-	if len(state.Log) == 0 {
-		return
-	}
 	kept := state.Log[:0]
 	for _, entry := range state.Log {
 		if _, exists := state.Keys[entry.Scope]; exists {
 			kept = append(kept, entry)
 		}
-	}
-	if len(kept) == 0 {
-		state.Log = nil
-		return
 	}
 	state.Log = kept
 }

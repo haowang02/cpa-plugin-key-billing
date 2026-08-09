@@ -151,7 +151,11 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   white-space:normal;overflow-wrap:anywhere}
 .wide-search{width:360px;max-width:100%}
 .card-actions{min-width:0}
-.log-card{height:calc(100dvh - 245px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
+.log-counters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:8px}
+.log-counter{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;
+  border:1px solid var(--border-color);border-radius:9px;background:var(--bg-primary);box-shadow:var(--shadow)}
+.log-counter b{font-size:16px;font-variant-numeric:tabular-nums}
+.log-card{height:calc(100dvh - 305px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
 .log-table-region{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
 .log-table-region .table-scroll{overflow:visible}
 .log-table-region thead th{position:sticky;top:0;z-index:2;background:var(--bg-primary);box-shadow:0 1px 0 var(--border-color)}
@@ -178,7 +182,8 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .section-toolbar>.card-actions{flex:1 1 100%;width:100%}
   .card-actions .wide-search,#price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
   .card-actions #log-note{flex:1 0 100%}
-  .log-card{height:calc(100dvh - 215px);min-height:320px}
+  .log-counters{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .log-card{height:calc(100dvh - 295px);min-height:320px}
   .log-pagination{justify-content:center;flex-wrap:wrap}
 }
 @media (max-width:520px){
@@ -285,6 +290,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   <header class="head">
     <h1>API Key 计费</h1>
     <span id="head-status" class="tag plain">…</span>
+    <span id="head-protocol" class="tag plain">插件协议 …</span>
   </header>
 
   <div id="notice" class="notice"></div>
@@ -301,7 +307,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <button data-tab="plans">订阅计划</button>
     <button data-tab="prices">模型定价</button>
     <button data-tab="logs">计费日志</button>
-    <button data-tab="diag">运行诊断</button>
   </div>
 
   <section id="tab-keys">
@@ -366,6 +371,12 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   </section>
 
   <section id="tab-logs" class="hidden">
+    <div class="log-counters">
+      <div class="log-counter" title="未匹配模型定价、按 0 USD 记录的请求"><span class="muted small">未定价</span><b id="log-unpriced">—</b></div>
+      <div class="log-counter" title="未取得 Token 明细、按 0 USD 记录的请求"><span class="muted small">Token 缺失</span><b id="log-no-tokens">—</b></div>
+      <div class="log-counter" title="Token 明细无效或分类不完整的请求"><span class="muted small">分类异常</span><b id="log-unclassified">—</b></div>
+      <div class="log-counter" title="已通过额度检查、尚未结束的请求"><span class="muted small">处理中</span><b id="log-pending">—</b></div>
+    </div>
     <div class="card log-card">
       <div class="row spread section-toolbar" style="margin-bottom:12px">
         <h2 style="margin:0">计费日志</h2>
@@ -392,15 +403,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     </div>
   </section>
 
-  <section id="tab-diag" class="hidden">
-    <div class="card">
-      <div class="row spread" style="margin-bottom:12px">
-        <h2 style="margin:0">运行诊断</h2>
-        <button id="data-clear" class="danger">重新初始化</button>
-      </div>
-      <div id="diag-body"></div>
-    </div>
-  </section>
 </main>
 </div>
 
@@ -455,7 +457,7 @@ const $ = (id) => document.getElementById(id);
  * it is unavailable, the fallback keeps a manually entered key for this browser
  * tab only. */
 const PANEL_STORE_KEY = "cli-proxy-auth";
-const PANEL_LEGACY_KEY = "managementKey";
+const PANEL_KEY = "managementKey";
 const PANEL_PREFIX = "enc::v1::";
 const PANEL_SALT = "cli-proxy-api-webui::secure-storage";
 const FALLBACK_KEY = "cpa-key-billing:mgmt-key";
@@ -481,8 +483,8 @@ function readPanelKey() {
   const fromStore = session && session.state && session.state.managementKey;
   if (typeof fromStore === "string" && fromStore.trim()) return fromStore.trim();
 
-  const legacy = panelStoredValue(PANEL_LEGACY_KEY);
-  if (typeof legacy === "string" && legacy.trim()) return legacy.trim();
+  const direct = panelStoredValue(PANEL_KEY);
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
 
   return "";
 }
@@ -694,7 +696,7 @@ function render() {
   renderPlans();
   renderPrices();
   renderLogs();
-  renderDiag();
+  renderLogCounters();
 }
 
 function renderHeader() {
@@ -703,6 +705,7 @@ function renderHeader() {
   const badge = $("head-status");
   badge.textContent = status.enabled ? "运行中" : "已停用";
   badge.className = "tag " + (status.enabled ? "ok" : "warn");
+  $("head-protocol").textContent = "插件协议 v" + int(status.plugin_protocol);
   $("s-cost").textContent = usd(stats.lifetime?.cost_usd);
   $("s-req").textContent = int(stats.lifetime?.requests);
   $("s-keys").textContent = int(stats.keys);
@@ -789,18 +792,23 @@ function renderKeys() {
 }
 
 function renderModels() {
-  const rows = (state.stats?.by_model || []).map((entry) => el("tr", {},
-    el("td", { class: "mono" }, entry.model),
-    el("td", { class: "num" }, int(entry.requests)),
-    el("td", { class: "num" }, tokens(entry.uncached_input_tokens + entry.cache_read_tokens + entry.cache_creation_tokens)),
-    el("td", { class: "num" }, tokens(entry.output_tokens)),
-    el("td", { class: "num" }, tokens(entry.cache_read_tokens)),
-    el("td", { class: "num" }, tokens(entry.cache_creation_tokens)),
-    el("td", { class: "num" }, usd(entry.cost_usd)),
-  ));
+  const rows = (state.stats?.by_model || []).map((entry) => {
+    const input = entry.uncached_input_tokens + entry.cache_read_tokens + entry.cache_creation_tokens;
+    return el("tr", {},
+      el("td", { class: "mono" }, entry.billing_model),
+      el("td", { class: "num" }, int(entry.requests)),
+      el("td", { class: "num" }, tokens(input)),
+      el("td", { class: "num" }, tokens(entry.output_tokens)),
+      el("td", { class: "num" }, tokens(entry.cache_read_tokens)),
+      el("td", { class: "num" }, cacheReadRate(entry.cache_read_tokens, input)),
+      el("td", { class: "num" }, tokens(entry.cache_creation_tokens)),
+      el("td", { class: "num" }, usd(entry.cost_usd)),
+    );
+  });
   $("models-body").replaceChildren(table(
     ["模型", { label: "请求", num: true }, { label: "输入", num: true }, { label: "输出", num: true },
-      { label: "缓存读取", num: true }, { label: "缓存写入", num: true }, { label: "费用", num: true }],
+      { label: "缓存读取", num: true }, { label: "缓存率", num: true },
+      { label: "缓存写入", num: true }, { label: "费用", num: true }],
     rows));
 }
 
@@ -861,10 +869,30 @@ function tierPriceCell(row, field, optional) {
   );
 }
 
+// Split an OpenRouter-style model id into provider prefix and base name, so
+// the pricing table keeps "gpt-5.6-sol" and "openai/gpt-5.6-sol" grouped
+// under the same base name rather than scattering them alphabetically.
+function modelIdParts(pattern) {
+  const slash = pattern.indexOf("/");
+  if (slash < 0) return { name: pattern, prefix: "" };
+  return { name: pattern.slice(slash + 1), prefix: pattern.slice(0, slash) };
+}
+
+// Sort by base name first (lexicographic), then by provider prefix (unprefixed
+// ids sort before prefixed ones because their prefix is the empty string).
+function compareModelId(a, b) {
+  const ka = modelIdParts(a);
+  const kb = modelIdParts(b);
+  if (ka.name !== kb.name) return ka.name < kb.name ? -1 : 1;
+  if (ka.prefix !== kb.prefix) return ka.prefix < kb.prefix ? -1 : 1;
+  return 0;
+}
+
 function renderPrices() {
   const filter = $("price-filter").value.trim().toLowerCase();
   const rows = state.prices
     .filter((row) => !filter || row.pattern.toLowerCase().includes(filter))
+    .sort((a, b) => compareModelId(a.pattern, b.pattern))
     .map((row) => el("tr", {},
       el("td", { class: "mono" }, row.pattern),
       el("td", { class: "num" }, tierPriceCell(row, "input_per_1m", false)),
@@ -970,7 +998,7 @@ function renderLogs() {
   const filter = $("log-filter").value.trim().toLowerCase();
   const filtered = (view.entries || []).filter((entry) => !filter ||
       (logKeyName(entry) + " " + (entry.preview || "") + " " + (entry.scope || "") + " " +
-        (entry.model || "") + " " + (entry.alias || "") + " " +
+        (entry.upstream_model || "") + " " + (entry.billing_model || "") + " " +
         (entry.client_protocol || "") + " " + (entry.provider || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter));
   const totalPages = Math.max(1, Math.ceil(filtered.length / logPageSize));
   logPage = Math.min(Math.max(1, logPage), totalPages);
@@ -998,6 +1026,11 @@ function renderLogs() {
       const input = (cost.uncached_input_tokens || 0) + (cost.cache_read_tokens || 0) + (cost.cache_write_tokens || 0);
       const output = cost.billed_output_tokens || 0;
 
+      const billingModel = entry.billing_model || entry.upstream_model || "—";
+      const modelDetail = entry.upstream_model && entry.upstream_model.toLowerCase() !== billingModel.toLowerCase()
+        ? "上游 " + entry.upstream_model
+        : "";
+
       return el("tr", {},
         el("td", { class: "small" }, when(entry.at)),
         el("td", {},
@@ -1007,8 +1040,8 @@ function renderLogs() {
             : null,
         ),
         el("td", { class: "mono small" },
-          el("div", { class: "log-cell-line" }, entry.model || "—"),
-          entry.alias ? el("div", { class: "log-cell-line muted" }, "别名 " + entry.alias) : null,
+          el("div", { class: "log-cell-line" }, billingModel),
+          modelDetail ? el("div", { class: "log-cell-line muted" }, modelDetail) : null,
         ),
         el("td", {}, tierMark || el("span", { class: "muted", text: "—" })),
         el("td", {},
@@ -1052,22 +1085,12 @@ function renderLogs() {
   $("log-next").disabled = logPage >= totalPages;
 }
 
-function renderDiag() {
-  const status = state.status || {};
-  const counters = status.counters || {};
-  const pairs = [
-    ["状态", status.enabled ? "已启用" : "已停用（不会计费或限制请求）"],
-    ["数据保存", status.last_error ? "失败：" + status.last_error : (status.pending_write ? "待保存" : "正常")],
-    ["未定价请求", int(counters.usage_unpriced), "未匹配模型定价，费用按 0 USD 记录。"],
-    ["Token 缺失", int(counters.usage_no_tokens), "未取得 Token 明细，费用按 0 USD 记录。"],
-    ["Token 分类异常", int(counters.usage_unclassified), "Token 明细无效或分类不完整，费用按 0 USD 记录。"],
-    ["处理中请求", int(counters.pending_requests), "已通过额度检查、尚未结束的请求。"],
-  ];
-  $("diag-body").replaceChildren(table(["项目", "值", "说明"],
-    pairs.map(([name, value, note]) => el("tr", {},
-      el("td", {}, name),
-      el("td", { class: "mono small" }, String(value ?? "—")),
-      el("td", { class: "muted small" }, note)))));
+function renderLogCounters() {
+  const counters = state.status?.counters || {};
+  $("log-unpriced").textContent = int(counters.usage_unpriced);
+  $("log-no-tokens").textContent = int(counters.usage_no_tokens);
+  $("log-unclassified").textContent = int(counters.usage_unclassified);
+  $("log-pending").textContent = int(counters.pending_requests);
 }
 
 function syncPlanFields() {
@@ -1339,15 +1362,6 @@ $("logs-clear").onclick = () => guard(async () => {
   logPage = 1;
   renderLogs();
   notify("已清空 " + result.cleared + " 条计费日志");
-});
-
-$("data-clear").onclick = () => guard(async () => {
-  if (!await confirmAction("重新初始化插件？",
-    "模型定价、订阅计划、API Key 记录、用量和计费日志都会删除。插件配置不受影响，此操作无法撤销。")) return;
-  await plugin("DELETE", "/data");
-  state = { keys: [], plans: [], prices: [], status: null, stats: null, logs: null };
-  notify("插件已重新初始化");
-  await reloadAll();
 });
 
 $("price-filter").addEventListener("input", renderPrices);

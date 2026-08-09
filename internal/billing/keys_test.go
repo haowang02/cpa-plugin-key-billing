@@ -10,7 +10,7 @@ func TestBindingAndResetLeaveCycleInactive(t *testing.T) {
 	store := newEnforceStore(t, now)
 	store.Update(func(state *State) {
 		state.Plans = []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}}
-		state.Keys["a"] = &KeyState{Scope: "a"}
+		state.Keys["a"] = &KeyState{}
 	})
 
 	if changed, err := store.BindKeys([]string{"a"}, "p"); err != nil || changed != 1 {
@@ -40,7 +40,7 @@ func TestKeyDirectorySettlesExpiredCycleWithoutRestartingIt(t *testing.T) {
 	store := newEnforceStore(t, now)
 	store.Update(func(state *State) {
 		state.Plans = []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}}
-		state.Keys["a"] = &KeyState{Scope: "a", PlanID: "p", Cycle: Cycle{
+		state.Keys["a"] = &KeyState{PlanID: "p", Cycle: Cycle{
 			PlanID: "p", StartAt: now.Add(-48 * time.Hour), EndAt: now.Add(-24 * time.Hour), SpentUSD: 2, Requests: 3,
 		}}
 	})
@@ -61,9 +61,9 @@ func TestPlanBindingTransactions(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
 	store.Update(func(state *State) {
-		state.Keys["a"] = &KeyState{Scope: "a"}
-		state.Keys["b"] = &KeyState{Scope: "b"}
-		state.Keys["owned"] = &KeyState{Scope: "owned", PlanID: "other"}
+		state.Keys["a"] = &KeyState{}
+		state.Keys["b"] = &KeyState{}
+		state.Keys["owned"] = &KeyState{PlanID: "other"}
 		state.Plans = []Plan{{ID: "other", AmountUSD: 1, Period: Period{Kind: PeriodNever}}}
 	})
 

@@ -6,11 +6,11 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-func protocol2Admit(t *testing.T, app *App, requestID, source, provider, model string, stream bool, body []byte) {
+func protocol2Admit(t *testing.T, app *App, requestID, clientFormat, upstreamFormat, model string, stream bool, body []byte) {
 	t.Helper()
 	for _, req := range []RequestInterceptRequest{
-		{RequestID: requestID, SourceFormat: source, Model: model, RequestedModel: model, Stream: stream, Body: body, Metadata: flowMetadata()},
-		{RequestID: requestID, SourceFormat: source, ToFormat: provider, Model: model, RequestedModel: model, Stream: stream, Body: body, Metadata: flowMetadata()},
+		{RequestID: requestID, SourceFormat: clientFormat, Model: model, RequestedModel: model, Stream: stream, Body: body, Metadata: flowMetadata()},
+		{RequestID: requestID, SourceFormat: clientFormat, ToFormat: upstreamFormat, Model: model, RequestedModel: model, Stream: stream, Body: body, Metadata: flowMetadata()},
 	} {
 		method := MethodRequestInterceptBefore
 		if req.ToFormat != "" {
@@ -28,10 +28,10 @@ func protocol2Admit(t *testing.T, app *App, requestID, source, provider, model s
 	}
 }
 
-func protocol2Observe(t *testing.T, app *App, provider, model string, stream bool, requestBody, responseBody []byte) {
+func protocol2Observe(t *testing.T, app *App, upstreamFormat, model string, stream bool, requestBody, responseBody []byte) {
 	t.Helper()
 	raw, errHandle := app.HandleMethod(MethodResponseNormalizeBefore, mustMarshal(t, ResponseTransformRequest{
-		FromFormat: provider, Model: model, Stream: stream, OriginalRequest: requestBody, Body: responseBody,
+		FromFormat: upstreamFormat, Model: model, Stream: stream, OriginalRequest: requestBody, Body: responseBody,
 	}))
 	if errHandle != nil {
 		t.Fatalf("response.normalize_before error = %v", errHandle)
@@ -76,45 +76,67 @@ func protocol2Complete(t *testing.T, app *App, requestID string) {
 	decodeResult(t, raw, nil)
 }
 
-func TestProtocol2CodexStreamUsesRawUpstreamUsageNotClaudeEstimate(t *testing.T) {
+func TestProtocol2CodexStreamRecordsUsage(t *testing.T) {
 	app := newAppWithPriceSchema(t, true, MinHostSchemaVersion)
 	requestBody := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	protocol2Admit(t, app, flowRequestID, "claude", "codex", "gpt-5.5", true, requestBody)
 
 	protocol2Observe(t, app, "codex", "gpt-5.5", true, requestBody,
-		[]byte(`data: {"type":"response.created","response":{"id":"resp-real-1","model":"gpt-5.5"}}`))
-	// This translated Claude message_start contains CLIProxyAPI's synthesized
-	// 20.7K input count. It is used only to correlate the response ID.
-	protocol2StreamChunk(t, app, flowRequestID, 0,
-		[]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"resp-real-1\",\"usage\":{\"input_tokens\":20700,\"output_tokens\":0}}}"))
+		[]byte(`data: {"type":"response.created","response":{"id":"resp-1","model":"gpt-5.5"}}`))
 	protocol2Observe(t, app, "codex", "gpt-5.5", true, requestBody,
-		[]byte(`data: {"type":"response.completed","response":{"id":"resp-real-1","usage":{"input_tokens":19857,"output_tokens":11,"total_tokens":19868}}}`))
+		[]byte(`data: {"type":"response.completed","response":{"id":"resp-1","usage":{"input_tokens":19857,"output_tokens":11,"total_tokens":19868}}}`))
 	protocol2Complete(t, app, flowRequestID)
 
 	app.store.Read(func(state *billing.State) {
 		key := state.Keys[flowScope()]
 		if key == nil || key.Lifetime.UncachedInputTokens != 19857 || key.Lifetime.OutputTokens != 11 || key.Lifetime.Requests != 1 {
-			t.Fatalf("lifetime = %+v, want raw upstream input=19857 output=11", key)
+			t.Fatalf("lifetime = %+v, want input=19857 output=11", key)
 		}
 	})
 }
 
-func TestProtocol2NonStreamCodexResponseUsesRawUsage(t *testing.T) {
+func TestProtocol2NonStreamCodexResponseRecordsUsage(t *testing.T) {
 	app := newAppWithPriceSchema(t, true, MinHostSchemaVersion)
 	requestBody := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hello"}]}`)
 	protocol2Admit(t, app, flowRequestID, "claude", "codex", "gpt-5.5", false, requestBody)
 	protocol2Observe(t, app, "codex", "gpt-5.5", false, requestBody,
 		[]byte(`{"type":"response.completed","response":{"id":"resp-nonstream","usage":{"input_tokens":642,"output_tokens":11,"total_tokens":653}}}`))
 	protocol2Response(t, app, flowRequestID,
-		[]byte(`{"id":"resp-nonstream","type":"message","usage":{"input_tokens":99999,"output_tokens":11}}`))
+		[]byte(`{"id":"resp-nonstream","type":"message"}`))
 	protocol2Complete(t, app, flowRequestID)
 
 	app.store.Read(func(state *billing.State) {
 		key := state.Keys[flowScope()]
 		if key == nil || key.Lifetime.UncachedInputTokens != 642 || key.Lifetime.OutputTokens != 11 {
-			t.Fatalf("lifetime = %+v, want raw upstream input=642 output=11", key)
+			t.Fatalf("lifetime = %+v, want input=642 output=11", key)
 		}
 	})
+}
+
+func TestProtocol2RecordsProvider(t *testing.T) {
+	app := newAppWithPriceSchema(t, true, MinHostSchemaVersion)
+	requestBody := []byte(`{"model":"deepseek-v4-flash","input":"hello"}`)
+	metadata := flowMetadata()
+	metadata[MetadataSelectedAuthID] = "openai-compatibility:deepseek:0123456789ab"
+	before := RequestInterceptRequest{
+		RequestID: flowRequestID, SourceFormat: "claude", Model: "deepseek-v4-flash", RequestedModel: "deepseek-v4-flash", Body: requestBody, Metadata: metadata,
+	}
+	if _, errHandle := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, before)); errHandle != nil {
+		t.Fatal(errHandle)
+	}
+	after := before
+	after.ToFormat = "codex"
+	if _, errHandle := app.HandleMethod(MethodRequestInterceptAfter, mustMarshal(t, after)); errHandle != nil {
+		t.Fatal(errHandle)
+	}
+	protocol2Observe(t, app, "codex", "deepseek-v4-flash", false, requestBody,
+		[]byte(`{"id":"resp-1","usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110}}`))
+	protocol2Complete(t, app, flowRequestID)
+
+	logs := app.store.Logs(1)
+	if len(logs.Entries) != 1 || logs.Entries[0].Provider != "openai-compatible-deepseek" {
+		t.Fatalf("logs = %+v", logs.Entries)
+	}
 }
 
 func TestProtocol2AnthropicStreamCombinesSplitRealUsage(t *testing.T) {
@@ -157,15 +179,15 @@ func TestProtocol2AnthropicSplitUsageBeforeResponseBinding(t *testing.T) {
 	})
 }
 
-func TestProtocol2TranslatedUsageAloneNeverBills(t *testing.T) {
+func TestProtocol2RequiresUpstreamUsage(t *testing.T) {
 	app := newAppWithPriceSchema(t, true, MinHostSchemaVersion)
 	requestBody := []byte(`{"model":"gpt-5.5","messages":[],"stream":true}`)
 	protocol2Admit(t, app, flowRequestID, "claude", "codex", "gpt-5.5", true, requestBody)
 	protocol2StreamChunk(t, app, flowRequestID, 0,
-		[]byte(`data: {"type":"message_start","message":{"id":"resp-estimated-only","usage":{"input_tokens":20700,"output_tokens":0}}}`))
+		[]byte(`data: {"type":"message_start","message":{"id":"resp-1","usage":{"input_tokens":100,"output_tokens":0}}}`))
 	protocol2Complete(t, app, flowRequestID)
 	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
-		t.Fatalf("translated-only usage billed: cost=%v requests=%d", cost, requests)
+		t.Fatalf("cost=%v requests=%d", cost, requests)
 	}
 }
 

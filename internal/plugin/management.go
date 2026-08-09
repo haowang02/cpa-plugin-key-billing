@@ -35,7 +35,6 @@ const (
 	routeKeysSync       = "/keys/sync"
 	routeStats          = "/stats"
 	routeLogs           = "/logs"
-	routeData           = "/data"
 )
 
 // managementRegistration declares every route this plugin owns.
@@ -46,7 +45,7 @@ const (
 func managementRegistration() ManagementRegistrationResponse {
 	return ManagementRegistrationResponse{
 		Routes: []ManagementRoute{
-			{Method: http.MethodGet, Path: managementBase + routeStatus, Description: "查看运行状态和诊断计数。"},
+			{Method: http.MethodGet, Path: managementBase + routeStatus, Description: "查看运行状态和请求计数。"},
 
 			{Method: http.MethodGet, Path: managementBase + routePrices, Description: "查看模型定价。"},
 			{Method: http.MethodGet, Path: managementBase + routePriceCatalog, Description: "搜索模型参考价。"},
@@ -61,7 +60,6 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodDelete, Path: managementBase + routePlans, Description: "删除订阅计划并解除相关 Key 的绑定。"},
 
 			{Method: http.MethodGet, Path: managementBase + routeKeys, Description: "查看 API Key 的订阅、额度和用量。"},
-			{Method: http.MethodDelete, Path: managementBase + routeKeys, Description: "删除指定 API Key 的全部计费数据。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysBind, Description: "将 API Key 绑定到订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysUnbind, Description: "解除 API Key 的订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysReset, Description: "重置 API Key 的订阅额度。"},
@@ -71,7 +69,6 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodGet, Path: managementBase + routeStats, Description: "查看全局用量汇总。"},
 			{Method: http.MethodGet, Path: managementBase + routeLogs, Description: "查看最近的逐请求计费记录。"},
 			{Method: http.MethodDelete, Path: managementBase + routeLogs, Description: "清空计费日志。"},
-			{Method: http.MethodDelete, Path: managementBase + routeData, Description: "重新初始化插件数据。"},
 		},
 		Resources: []ResourceRoute{
 			{Path: resourceBase + resourceUIPath, Menu: MenuLabel, Description: MenuDescription},
@@ -109,7 +106,13 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementResponse {
 	switch req.Method + " " + suffix {
 	case http.MethodGet + " " + routeStatus:
-		return JSONResponse(http.StatusOK, a.store.Status(PluginName, Version))
+		return JSONResponse(http.StatusOK, struct {
+			billing.Status
+			PluginProtocol uint32 `json:"plugin_protocol"`
+		}{
+			Status:         a.store.Status(PluginName, Version),
+			PluginProtocol: negotiatedSchema(a.hostSchema.Load()),
+		})
 
 	case http.MethodGet + " " + routePrices:
 		return a.priceTable()
@@ -135,8 +138,6 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 
 	case http.MethodGet + " " + routeKeys:
 		return JSONResponse(http.StatusOK, a.store.KeyDirectory())
-	case http.MethodDelete + " " + routeKeys:
-		return a.forgetKeys(req)
 	case http.MethodPost + " " + routeKeysBind:
 		return a.bindKeys(req)
 	case http.MethodPost + " " + routeKeysUnbind:
@@ -154,9 +155,6 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 		return a.listLogs(req)
 	case http.MethodDelete + " " + routeLogs:
 		return a.clearLogs()
-	case http.MethodDelete + " " + routeData:
-		return a.clearAllData()
-
 	default:
 		return JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path)
 	}

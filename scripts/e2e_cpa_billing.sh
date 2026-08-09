@@ -4,6 +4,12 @@ set -euo pipefail
 
 readonly github_repo="router-for-me/CLIProxyAPI"
 readonly model="${DEEPSEEK_MODEL:-deepseek-v4-flash}"
+readonly pool_model="${DEEPSEEK_POOL_MODEL:-deepseek-v4-pro}"
+readonly chat_route="deepseek-chat-route"
+readonly responses_route="deepseek-responses-route"
+readonly anthropic_route="deepseek-anthropic-route"
+readonly fixed_route="deepseek-fixed"
+readonly pool_route="deepseek-pool"
 readonly openai_base_url="${DEEPSEEK_OPENAI_BASE_URL:-https://api.deepseek.com}"
 readonly anthropic_base_url="${DEEPSEEK_ANTHROPIC_BASE_URL:-https://api.deepseek.com/anthropic}"
 readonly requested_versions="${CPA_E2E_VERSIONS:-7.2.103 7.2.123 latest}"
@@ -256,15 +262,46 @@ extract_downstream_usage() {
   esac
 }
 
+request_body() {
+  local client="$1"
+  local requested_model="$2"
+  local stream="$3"
+  local prompt="$4"
+  case "$client" in
+    chat)
+      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" '
+        {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: 16, stream: $stream} +
+        (if $stream then {stream_options: {include_usage: true}} else {} end)
+      '
+      ;;
+    responses)
+      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" '
+        {
+          model: $model,
+          input: [{type: "message", role: "user", content: [{type: "input_text", text: $prompt}]}],
+          max_output_tokens: 16,
+          stream: $stream
+        }
+      '
+      ;;
+    anthropic)
+      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" '
+        {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: 16, stream: $stream}
+      '
+      ;;
+  esac
+}
+
 assert_latest_entry() {
   local port="$1"
   local expected_count="$2"
   local client="$3"
   local upstream="$4"
-  local alias="$5"
-  local logs_file="$6"
-  local response_file="$7"
-  local stream="$8"
+  local billing_model="$5"
+  local upstream_models="$6"
+  local logs_file="$7"
+  local response_file="$8"
+  local stream="$9"
   local expected_client expected_provider attempt actual_count usage input output billed_input billed_output
 
   case "$client" in
@@ -273,7 +310,7 @@ assert_latest_entry() {
     anthropic) expected_client="claude" ;;
   esac
   case "$upstream" in
-    chat) expected_provider="openai" ;;
+    chat) expected_provider="openai-compatible-deepseek-chat-e2e" ;;
     responses) expected_provider="codex" ;;
     anthropic) expected_provider="claude" ;;
   esac
@@ -293,13 +330,13 @@ assert_latest_entry() {
     return 1
   fi
   if ! jq -e \
-    --arg model "$model" \
-    --arg alias "$alias" \
+    --arg upstream_models "$upstream_models" \
+    --arg billing_model "$billing_model" \
     --arg client "$expected_client" \
     --arg provider "$expected_provider" '
       .entries[0] |
-      .model == $model and
-      .alias == $alias and
+      (.upstream_model as $actual | ($upstream_models | split(",") | index($actual)) != null) and
+      .billing_model == $billing_model and
       .client_protocol == $client and
       .provider == $provider and
       .accounting_quality == "complete" and
@@ -334,8 +371,9 @@ run_version() {
   local runtime_dir="$version_dir/runtime"
   local archive host_binary api_key_json plugins_file prompt
   local client upstream stream prefix endpoint body mode extension response_file logs_file
-  local client_label upstream_label mode_label request_number alias
+  local client_label upstream_label mode_label request_number route_model billing_model upstream_models
   local request_index expected_requests actual_requests
+  local -a model_cases
   mkdir -p "$host_dir" "$runtime_dir/plugins" "$runtime_dir/auth" "$runtime_dir/responses"
 
   archive="$(download_host "$version")"
@@ -368,6 +406,13 @@ plugins:
       state_file: "$runtime_dir/state.json"
       log_entries: 100
 openai-compatibility:
+  - name: "deepseek-direct-e2e"
+    base-url: "$openai_base_url"
+    api-key-entries:
+      - api-key: $api_key_json
+    models:
+      - name: "$model"
+        alias: "$model"
   - name: "deepseek-chat-e2e"
     prefix: "chat"
     base-url: "$openai_base_url"
@@ -376,13 +421,21 @@ openai-compatibility:
     models:
       - name: "$model"
         alias: "$model"
+      - name: "$model"
+        alias: "$chat_route"
+      - name: "$model(high)"
+        alias: "$fixed_route"
+      - name: "$model"
+        alias: "$pool_route"
+      - name: "$pool_model"
+        alias: "$pool_route"
 codex-api-key:
   - api-key: $api_key_json
     prefix: "responses"
     base-url: "$openai_base_url"
     models:
       - name: "$model"
-        alias: "$model"
+        alias: "$responses_route"
         is-compat: true
 claude-api-key:
   - api-key: $api_key_json
@@ -390,7 +443,7 @@ claude-api-key:
     base-url: "$anthropic_base_url"
     models:
       - name: "$model"
-        alias: "$model"
+        alias: "$anthropic_route"
         is-compat: true
     cloak:
       mode: "never"
@@ -417,6 +470,16 @@ EOF
     -H "Content-Type: application/json" \
     --data "{\"pattern\":\"$model\",\"input_per_1m\":1,\"output_per_1m\":2,\"cache_read_per_1m\":0.1,\"cache_write_per_1m\":1.25}" \
     >"$runtime_dir/price.json"
+  for priced_model in \
+    "$chat_route" "chat/$chat_route" "chat/$model" \
+    "$responses_route" "responses/$responses_route" \
+    "$anthropic_route" "anthropic/$anthropic_route" \
+    "chat/$fixed_route" "chat/$pool_route"; do
+    management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/prices" \
+      -H "Content-Type: application/json" \
+      --data "{\"pattern\":\"$priced_model\",\"input_per_1m\":1,\"output_per_1m\":2,\"cache_read_per_1m\":0.1,\"cache_write_per_1m\":1.25}" \
+      >"$runtime_dir/price.json"
+  done
 
   prompt="Reply with exactly OK."
   request_index=0
@@ -428,11 +491,12 @@ EOF
     esac
     for upstream in chat responses anthropic; do
       case "$upstream" in
-        chat) upstream_label="OpenAI Chat"; prefix="chat" ;;
-        responses) upstream_label="OpenAI Responses"; prefix="responses" ;;
-        anthropic) upstream_label="Anthropic Messages"; prefix="anthropic" ;;
+        chat) upstream_label="OpenAI Chat"; prefix="chat"; route_model="$prefix/$chat_route" ;;
+        responses) upstream_label="OpenAI Responses"; prefix="responses"; route_model="$prefix/$responses_route" ;;
+        anthropic) upstream_label="Anthropic Messages"; prefix="anthropic"; route_model="$prefix/$anthropic_route" ;;
       esac
-      alias="$prefix/$model"
+      billing_model="$route_model"
+      upstream_models="$model"
       for stream in false true; do
         request_index=$((request_index + 1))
         if [[ "$stream" == "true" ]]; then
@@ -440,55 +504,78 @@ EOF
         else
           mode="nonstream"; mode_label="非流式"; extension="json"
         fi
-        case "$client" in
-          chat)
-            body="$(jq -nc \
-              --arg model "$alias" --arg prompt "$prompt" --argjson stream "$stream" '
-                {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: 16, stream: $stream} +
-                (if $stream then {stream_options: {include_usage: true}} else {} end)
-              ')"
-            ;;
-          responses)
-            body="$(jq -nc \
-              --arg model "$alias" --arg prompt "$prompt" --argjson stream "$stream" '
-                {
-                  model: $model,
-                  input: [{type: "message", role: "user", content: [{type: "input_text", text: $prompt}]}],
-                  max_output_tokens: 16,
-                  stream: $stream
-                }
-              ')"
-            ;;
-          anthropic)
-            body="$(jq -nc \
-              --arg model "$alias" --arg prompt "$prompt" --argjson stream "$stream" '
-                {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: 16, stream: $stream}
-              ')"
-            ;;
-        esac
+        body="$(request_body "$client" "$route_model" "$stream" "$prompt")"
         printf -v request_number '%02d' "$request_index"
         response_file="$runtime_dir/responses/${request_number}-${client}-to-${upstream}-${mode}.${extension}"
         logs_file="$runtime_dir/responses/${request_number}-billing.json"
         api_call "$port" "${client_label} → ${upstream_label} ${mode_label}" \
           "$endpoint" "$body" "$client" "$response_file"
         assert_latest_entry "$port" "$request_index" "$client" "$upstream" \
-          "$alias" "$logs_file" "$response_file" "$stream"
+          "$billing_model" "$upstream_models" "$logs_file" "$response_file" "$stream"
       done
     done
   done
 
+  model_cases=(
+    "推理强度|chat|chat|false|chat/$model(high)|chat/$model|$model(high)"
+    "配置模型|responses|chat|false|$chat_route|$chat_route|$model"
+    "组合路由|anthropic|responses|true|responses/$responses_route(high)|responses/$responses_route|$model(high)"
+    "固定后缀模型|chat|chat|false|chat/$fixed_route|chat/$fixed_route|$model(high)"
+    "模型池|responses|chat|false|chat/$pool_route|chat/$pool_route|$model,$pool_model"
+  )
+  for model_case in "${model_cases[@]}"; do
+    IFS='|' read -r case_name client upstream stream route_model billing_model upstream_models <<<"$model_case"
+    case "$client" in
+      chat) client_label="OpenAI Chat"; endpoint="/v1/chat/completions" ;;
+      responses) client_label="OpenAI Responses"; endpoint="/v1/responses" ;;
+      anthropic) client_label="Anthropic Messages"; endpoint="/v1/messages" ;;
+    esac
+    case "$upstream" in
+      chat) upstream_label="OpenAI Chat" ;;
+      responses) upstream_label="OpenAI Responses" ;;
+      anthropic) upstream_label="Anthropic Messages" ;;
+    esac
+    request_index=$((request_index + 1))
+    if [[ "$stream" == "true" ]]; then
+      mode="stream"; mode_label="流式"; extension="sse"
+    else
+      mode="nonstream"; mode_label="非流式"; extension="json"
+    fi
+    body="$(request_body "$client" "$route_model" "$stream" "$prompt")"
+    printf -v request_number '%02d' "$request_index"
+    response_file="$runtime_dir/responses/${request_number}-${case_name}-${mode}.${extension}"
+    logs_file="$runtime_dir/responses/${request_number}-billing.json"
+    api_call "$port" "${case_name}：${client_label} → ${upstream_label} ${mode_label}" \
+      "$endpoint" "$body" "$client" "$response_file"
+    assert_latest_entry "$port" "$request_index" "$client" "$upstream" \
+      "$billing_model" "$upstream_models" "$logs_file" "$response_file" "$stream"
+  done
+
   logs_file="$runtime_dir/logs.json"
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"
-  expected_requests=18
+  expected_requests=23
   actual_requests="$(jq -er '.entries | length' "$logs_file")"
   if [[ "$actual_requests" != "$expected_requests" ]]; then
     echo "CLIProxyAPI v${version} 计费日志数量为 ${actual_requests}，预期 ${expected_requests}。" >&2
     return 1
   fi
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/stats" >"$runtime_dir/stats.json"
+  if ! jq -e \
+    --arg chat "chat/$chat_route" \
+    --arg responses "responses/$responses_route" \
+    --arg anthropic "anthropic/$anthropic_route" '
+      .by_model as $models |
+      ([ $models[] | select(.billing_model == $chat) | .requests ] | add) == 6 and
+      ([ $models[] | select(.billing_model == $responses) | .requests ] | add) == 7 and
+      ([ $models[] | select(.billing_model == $anthropic) | .requests ] | add) == 6
+    ' "$runtime_dir/stats.json" >/dev/null; then
+    echo "复杂模型路由的用量统计不正确。" >&2
+    return 1
+  fi
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  echo "CLIProxyAPI v${version}：通过（18 个真实上游请求）。"
+  echo "CLIProxyAPI v${version}：通过（23 个真实上游请求）。"
 }
 
 version_index=0
