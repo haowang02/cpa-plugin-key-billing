@@ -1015,13 +1015,6 @@ function renderLogs() {
         statusMarks.push(el("span", { class: "tag warn",
           text: entry.accounting_quality === "inconsistent" ? "Token 明细异常" : "Token 未分类" }));
       }
-      let tierMark = null;
-      if (cost.tiered) {
-        tierMark = el("span", {
-          class: "tag " + (cost.long_context ? "warn" : "plain"),
-          text: cost.long_context ? "长上下文" : "标准",
-        });
-      }
 
       const input = (cost.uncached_input_tokens || 0) + (cost.cache_read_tokens || 0) + (cost.cache_write_tokens || 0);
       const output = cost.billed_output_tokens || 0;
@@ -1043,7 +1036,6 @@ function renderLogs() {
           el("div", { class: "log-cell-line" }, billingModel),
           modelDetail ? el("div", { class: "log-cell-line muted" }, modelDetail) : null,
         ),
-        el("td", {}, tierMark || el("span", { class: "muted", text: "—" })),
         el("td", {},
           el("div", { class: "log-cell-line" },
             el("span", {}, entry.client_protocol || "—"),
@@ -1061,21 +1053,26 @@ function renderLogs() {
           entry.reasoning_tokens ? el("div", { class: "muted small" }, "推理 " + exactTokens(entry.reasoning_tokens)) : null,
         ),
         el("td", { class: "num" },
-          el("span", {
-            class: "cost-value",
-            tabindex: "0",
-            "aria-label": "查看计价详情",
-            onmouseenter: (event) => showCostTooltip(event.currentTarget, cost, entry.reasoning_tokens),
-            onmouseleave: hideCostTooltip,
-            onfocus: (event) => showCostTooltip(event.currentTarget, cost, entry.reasoning_tokens),
-            onblur: hideCostTooltip,
-          }, usd(cost.total_usd)),
+          el("div", {},
+            el("span", {
+              class: "cost-value",
+              tabindex: "0",
+              "aria-label": "查看计价详情",
+              onmouseenter: (event) => showCostTooltip(event.currentTarget, cost, entry.reasoning_tokens),
+              onmouseleave: hideCostTooltip,
+              onfocus: (event) => showCostTooltip(event.currentTarget, cost, entry.reasoning_tokens),
+              onblur: hideCostTooltip,
+            }, usd(cost.total_usd)),
+          ),
+          cost.tiered
+            ? el("div", { class: "muted small" }, cost.long_context ? "长上下文" : "标准")
+            : null,
         ),
       );
     });
 
   $("logs-body").replaceChildren(table(
-    ["时间", "API Key", "模型", "计价档位", "协议/上游", { label: "输入", num: true }, { label: "缓存读取", num: true },
+    ["时间", "API Key", "模型", "协议/上游", { label: "输入", num: true }, { label: "缓存读取", num: true },
       { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
     rows));
   pagination.classList.remove("hidden");
