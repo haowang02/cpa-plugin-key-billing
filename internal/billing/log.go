@@ -5,12 +5,15 @@ import "time"
 // LogEntry stores the canonical inputs and result of one bill. It never stores
 // the plaintext API key.
 type LogEntry struct {
-	At                time.Time              `json:"at"`
-	Scope             string                 `json:"scope"`
-	RequestID         string                 `json:"request_id,omitempty"`
-	UsageIndex        int                    `json:"usage_index,omitempty"`
-	ClientProtocol    string                 `json:"client_protocol,omitempty"`
-	Provider          string                 `json:"provider,omitempty"`
+	At         time.Time `json:"at"`
+	Scope      string    `json:"scope"`
+	RequestID  string    `json:"request_id,omitempty"`
+	UsageIndex int       `json:"usage_index,omitempty"`
+	// Endpoint is the downstream route the client called, as the host reports
+	// it. AuthIndex identifies the upstream credential that served it; the name
+	// to show for it lives in State.Credentials.
+	Endpoint          string                 `json:"endpoint,omitempty"`
+	AuthIndex         string                 `json:"auth_index,omitempty"`
 	UpstreamModel     string                 `json:"upstream_model,omitempty"`
 	BillingModel      string                 `json:"billing_model,omitempty"`
 	Failed            bool                   `json:"failed,omitempty"`
@@ -52,15 +55,17 @@ func pruneLogOrphans(state *State) {
 	state.Log = kept
 }
 
-// LogRow is one log entry as the admin UI reads it, with the key's current
-// display name resolved.
+// LogRow is one log entry as the admin UI reads it, with the current display
+// names of its downstream key and upstream credential resolved.
 //
 // Display identity is looked up rather than copied into every entry, so Key
-// synchronization and remark changes update historical rows too.
+// synchronization, remark changes and newly learned credentials update
+// historical rows too.
 type LogRow struct {
 	LogEntry
 	Preview string `json:"preview,omitempty"`
 	Label   string `json:"label,omitempty"`
+	Source  string `json:"source,omitempty"`
 }
 
 type LogView struct {
@@ -89,6 +94,7 @@ func (s *Store) Logs(limit int) LogView {
 				row.Preview = key.Preview
 				row.Label = key.Label
 			}
+			row.Source = state.Credentials[entry.AuthIndex].Name()
 			view.Entries = append(view.Entries, row)
 		}
 	})

@@ -3,7 +3,7 @@ package billing
 import "time"
 
 // StateVersion identifies the only on-disk document shape this build accepts.
-const StateVersion = 4
+const StateVersion = 5
 
 // MaxModelsPerKey caps the per-key model breakdown. Overflow is folded into
 // OtherModelsBucket so a key that sweeps through many model names cannot grow
@@ -15,12 +15,16 @@ const OtherModelsBucket = "__other__"
 const MaxRecentCycles = 12
 
 type State struct {
-	Version    int                  `json:"version"`
-	Prices     []PriceRule          `json:"prices"`
-	Plans      []Plan               `json:"plans"`
-	Keys       map[string]*KeyState `json:"keys"`
-	Log        []LogEntry           `json:"log,omitempty"`
-	LastSyncAt time.Time            `json:"last_sync_at,omitzero"`
+	Version int                  `json:"version"`
+	Prices  []PriceRule          `json:"prices"`
+	Plans   []Plan               `json:"plans"`
+	Keys    map[string]*KeyState `json:"keys"`
+	// Credentials names the upstream credentials seen so far, keyed by the
+	// host's runtime auth index. The log stores that index and reads the name
+	// from here, so a credential renamed upstream renames its history too.
+	Credentials map[string]Credential `json:"credentials,omitempty"`
+	Log         []LogEntry            `json:"log,omitempty"`
+	LastSyncAt  time.Time             `json:"last_sync_at,omitzero"`
 }
 
 func NewState() *State {

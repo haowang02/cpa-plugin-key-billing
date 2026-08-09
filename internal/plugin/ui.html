@@ -160,6 +160,10 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .log-table-region .table-scroll{overflow:visible}
 .log-table-region thead th{position:sticky;top:0;z-index:2;background:var(--bg-primary);box-shadow:0 1px 0 var(--border-color)}
 .log-cell-line{display:flex;align-items:center;gap:4px;min-height:20px;white-space:nowrap}
+/* Credential names are operator data. The cap fits a provider and an account
+   address, and holds the column steady when a name runs past that; the full
+   value stays available as the cell's tooltip. */
+.log-source{min-height:20px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cost-value{display:inline-block;cursor:help;text-decoration:underline dotted var(--text-tertiary);text-underline-offset:3px}
 .cost-tooltip{position:fixed;z-index:1000;width:min(430px,calc(100vw - 24px));padding:12px 14px;border:1px solid var(--border-color);
   border-radius:10px;background:var(--floating-surface);color:var(--text-primary);box-shadow:var(--floating-shadow);
@@ -999,7 +1003,7 @@ function renderLogs() {
   const filtered = (view.entries || []).filter((entry) => !filter ||
       (logKeyName(entry) + " " + (entry.preview || "") + " " + (entry.scope || "") + " " +
         (entry.upstream_model || "") + " " + (entry.billing_model || "") + " " +
-        (entry.client_protocol || "") + " " + (entry.provider || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter));
+        (entry.endpoint || "") + " " + (entry.source || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter));
   const totalPages = Math.max(1, Math.ceil(filtered.length / logPageSize));
   logPage = Math.min(Math.max(1, logPage), totalPages);
   const start = (logPage - 1) * logPageSize;
@@ -1038,9 +1042,9 @@ function renderLogs() {
         ),
         el("td", {},
           el("div", { class: "log-cell-line" },
-            el("span", {}, entry.client_protocol || "—"),
+            el("span", { class: "mono" }, entry.endpoint || "—"),
             statusMarks),
-          el("div", { class: "log-cell-line muted small" }, entry.provider || "未知"),
+          el("div", { class: "log-source muted small", title: entry.source || null }, entry.source || "未知"),
         ),
         el("td", { class: "num" }, exactTokens(input)),
         el("td", { class: "num" },
@@ -1072,7 +1076,7 @@ function renderLogs() {
     });
 
   $("logs-body").replaceChildren(table(
-    ["时间", "API Key", "模型", "协议/上游", { label: "输入", num: true }, { label: "缓存读取", num: true },
+    ["时间", "API Key", "模型", "端点/来源", { label: "输入", num: true }, { label: "缓存读取", num: true },
       { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
     rows));
   pagination.classList.remove("hidden");

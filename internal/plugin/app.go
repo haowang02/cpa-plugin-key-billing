@@ -10,14 +10,9 @@ import (
 )
 
 type App struct {
-	store                *billing.Store
-	hostSchema           atomic.Uint32
-	protocol2            *protocol2UsageTracker
-	providerForAuthIndex func(string) string
-}
-
-func (a *App) SetProviderResolver(resolve func(string) string) {
-	a.providerForAuthIndex = resolve
+	store      *billing.Store
+	hostSchema atomic.Uint32
+	protocol2  *protocol2UsageTracker
 }
 
 func NewApp() *App {
@@ -40,7 +35,7 @@ func (a *App) HandleMethod(method string, request []byte) (response []byte, err 
 	response, err = a.handleMethod(method, request)
 	if err == nil {
 		switch method {
-		case MethodPluginRegister, MethodPluginReconfigure, MethodRequestComplete, MethodManagementHandle:
+		case MethodPluginRegister, MethodPluginReconfigure, MethodRequestComplete, MethodUsageHandle, MethodManagementHandle:
 			// These calls are off the request interception path. They drive
 			// persistence because a c-shared plugin must not run a background
 			// flusher; see billing.Store.
@@ -63,6 +58,8 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 		return a.interceptAfterAuth(request)
 	case MethodRequestComplete:
 		return a.handleRequestComplete(request)
+	case MethodUsageHandle:
+		return a.handleUsage(request)
 	case MethodResponseNormalizeBefore:
 		return a.normalizeResponseBefore(request)
 	case MethodResponseInterceptAfter:
@@ -141,6 +138,7 @@ func registration(hostSchema uint32) Registration {
 			ResponseBeforeTranslator: protocol2Usage,
 			ResponseInterceptor:      protocol2Usage,
 			StreamChunkInterceptor:   protocol2Usage,
+			UsagePlugin:              true,
 			ManagementAPI:            true,
 		},
 	}

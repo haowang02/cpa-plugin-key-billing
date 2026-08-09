@@ -62,12 +62,12 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	}
 
 	a.store.BeginRequest(req.RequestID, billing.PendingRequest{
-		Scope:          scope,
-		ClientProtocol: req.SourceFormat,
-		CyclePlanID:    decision.PlanID,
-		CycleStartAt:   decision.CycleStartAt,
-		CycleEndAt:     decision.ResetAt,
-		CycleLimitUSD:  decision.LimitUSD,
+		Scope:         scope,
+		Endpoint:      metadataString(req.Metadata, MetadataRequestPath),
+		CyclePlanID:   decision.PlanID,
+		CycleStartAt:  decision.CycleStartAt,
+		CycleEndAt:    decision.ResetAt,
+		CycleLimitUSD: decision.LimitUSD,
 	})
 	if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
 		generate := true
@@ -79,17 +79,22 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	return OKEnvelope(RequestInterceptResponse{})
 }
 
+// interceptAfterAuth runs once per upstream attempt, after the host picked the
+// credential for it. That makes it the only point where a request can be
+// attributed to the credential serving it.
 func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 	var req RequestInterceptRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
 		return nil, fmt.Errorf("解析请求拦截参数：%w", errUnmarshal)
 	}
+	if a == nil || a.store == nil || !a.store.Enabled() {
+		return OKEnvelope(RequestInterceptResponse{})
+	}
+	// Both usage protocols attribute a request from here, so a log entry names
+	// its credential the same way whichever one the host speaks.
+	a.store.SetRequestCredential(req.RequestID, metadataString(req.Metadata, MetadataSelectedAuthIndex))
 	if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
-		provider := providerFromAuthID(metadataString(req.Metadata, MetadataSelectedAuthID))
-		if provider == "" && a.providerForAuthIndex != nil {
-			provider = a.providerForAuthIndex(metadataString(req.Metadata, MetadataSelectedAuthIndex))
-		}
-		a.protocol2.addRoute(req.RequestID, req.ToFormat, provider, req.Model, req.RequestedModel, req.Stream, req.Body)
+		a.protocol2.addRoute(req.RequestID, req.ToFormat, req.Model, req.RequestedModel, req.Stream, req.Body)
 	}
 	return OKEnvelope(RequestInterceptResponse{})
 }
@@ -132,20 +137,19 @@ func (a *App) interceptResponseStreamChunk(raw []byte) ([]byte, error) {
 	return OKEnvelope(PayloadResponse{})
 }
 
-func providerFromAuthID(authID string) string {
-	authID = strings.ToLower(strings.TrimSpace(authID))
-	if provider, _, ok := strings.Cut(authID, ":apikey:"); ok {
-		return provider
+// handleUsage learns what an upstream credential is. The record carries no
+// request ID, so it can only name credentials, never bill them; billing stays
+// on the terminal lifecycle event.
+func (a *App) handleUsage(raw []byte) ([]byte, error) {
+	var record UsageRecord
+	if errUnmarshal := json.Unmarshal(raw, &record); errUnmarshal != nil {
+		return nil, fmt.Errorf("解析用量记录：%w", errUnmarshal)
 	}
-	const compatibility = "openai-compatibility:"
-	if !strings.HasPrefix(authID, compatibility) {
-		return ""
+	if a == nil || a.store == nil || !a.store.Enabled() {
+		return OKEnvelope(struct{}{})
 	}
-	name, _, ok := strings.Cut(strings.TrimPrefix(authID, compatibility), ":")
-	if !ok || name == "" || name == "openai-compatibility" || strings.HasPrefix(name, "openai-compatible-") {
-		return name
-	}
-	return "openai-compatible-" + name
+	a.store.LearnCredential(record.AuthIndex, record.Provider, record.AuthType, record.Source)
+	return OKEnvelope(struct{}{})
 }
 
 // metadataString reads a string value from the host's metadata snapshot. The
@@ -293,7 +297,6 @@ func canonicalUsageRecords(records []RequestUsageRecord, resolveModel func(strin
 	result := make([]billing.UsageRecord, 0, len(records))
 	for _, record := range records {
 		result = append(result, billing.UsageRecord{
-			Provider:      record.Provider,
 			BillingModel:  resolveModel(record.Model, record.RequestedModel),
 			UpstreamModel: record.Model,
 			Generate:      record.Generate,

@@ -20,9 +20,13 @@ const (
 // PendingRequest accumulates one in-flight request between interception and its
 // terminal event. Nothing here is persisted.
 type PendingRequest struct {
-	Scope          string
-	ClientProtocol string
-	StartedAt      time.Time
+	Scope     string
+	Endpoint  string
+	StartedAt time.Time
+	// AuthIndex identifies the upstream credential currently serving the
+	// request. The host selects one per attempt, so a retried request ends up
+	// attributed to the credential that produced its response.
+	AuthIndex string
 	// Cycle fields capture the subscription window at admission. Completion can
 	// arrive after that window ended or after an operator changed the binding.
 	CyclePlanID   string
@@ -52,6 +56,25 @@ func (p *pendingTable) begin(requestID string, entry PendingRequest, now time.Ti
 		// request's billing, which is strictly better than unbounded growth.
 		return
 	}
+	p.entries[requestID] = entry
+}
+
+// setAuthIndex attributes an admitted request to the credential the host just
+// selected for it. An unknown request ID is ignored: it was never admitted, so
+// there is nothing to bill and nothing to attribute.
+func (p *pendingTable) setAuthIndex(requestID, authIndex string) {
+	requestID = strings.TrimSpace(requestID)
+	authIndex = strings.TrimSpace(authIndex)
+	if requestID == "" || authIndex == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, exists := p.entries[requestID]
+	if !exists {
+		return
+	}
+	entry.AuthIndex = authIndex
 	p.entries[requestID] = entry
 }
 
@@ -88,6 +111,14 @@ func (s *Store) BeginRequest(requestID string, entry PendingRequest) {
 	s.pending.begin(requestID, entry, s.Now())
 }
 
+// SetRequestCredential records which upstream credential is serving an
+// in-flight request. The host calls the after-auth interceptor once per
+// attempt, so the last call before completion names the credential that
+// answered.
+func (s *Store) SetRequestCredential(requestID, authIndex string) {
+	s.pending.setAuthIndex(requestID, authIndex)
+}
+
 // FinishRequest bills an in-flight request and clears it.
 //
 // It is the single commit point for every outcome — success, failure, and
@@ -104,7 +135,8 @@ func (s *Store) FinishRequest(requestID string, records []UsageRecord, failed bo
 	s.RecordUsage(UsageEvent{
 		Scope:            entry.Scope,
 		RequestID:        requestID,
-		ClientProtocol:   entry.ClientProtocol,
+		Endpoint:         entry.Endpoint,
+		AuthIndex:        entry.AuthIndex,
 		Failed:           failed,
 		Records:          records,
 		At:               s.Now(),

@@ -8,7 +8,6 @@ import (
 // UsageRecord is one normalized provider usage event. Multiple records may
 // belong to one downstream request because retries are billed separately.
 type UsageRecord struct {
-	Provider      string
 	BillingModel  string
 	UpstreamModel string
 	Generate      bool
@@ -20,12 +19,14 @@ type UsageRecord struct {
 // UsageEvent commits every canonical provider record associated with one
 // terminal downstream request.
 type UsageEvent struct {
-	Scope          string
-	RequestID      string
-	ClientProtocol string
-	Failed         bool
-	Records        []UsageRecord
-	At             time.Time
+	Scope     string
+	RequestID string
+	Endpoint  string
+	// AuthIndex identifies the upstream credential that served the request.
+	AuthIndex string
+	Failed    bool
+	Records   []UsageRecord
+	At        time.Time
 	// AttributionKnown and the cycle fields snapshot subscription state when
 	// the downstream request was admitted. They prevent a late completion from
 	// being charged to a newer period or binding.
@@ -128,8 +129,8 @@ func (s *Store) RecordUsage(event UsageEvent) {
 				Scope:             scope,
 				RequestID:         event.RequestID,
 				UsageIndex:        index,
-				ClientProtocol:    event.ClientProtocol,
-				Provider:          record.Provider,
+				Endpoint:          event.Endpoint,
+				AuthIndex:         event.AuthIndex,
 				UpstreamModel:     upstreamModel,
 				BillingModel:      billingModel,
 				Failed:            failed,

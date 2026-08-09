@@ -166,40 +166,44 @@ def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, lo
 
 LOG_CASES = [
     {
-        "client_protocol": "openai-response",
-        "provider": "codex",
+        "endpoint": "/v1/responses",
+        "source": "codex · haowang4455@gmail.com",
         "upstream_model": "gpt-5.6-sol",
         "billing_model": "team/gpt-5.6-sol",
         "reasoning_tokens": 2100,
         "cost": make_cost(140000, 19857, 1032, 4852, (5, 0.5, 5, 30), True, False),
     },
     {
-        "client_protocol": "claude",
-        "provider": "openai-response",
+        "endpoint": "/v1/messages",
+        "source": "xai · 00f7ghqi90@haowang.im",
         "upstream_model": "gpt-5.6-sol",
         "billing_model": "gpt-5.6-sol",
         "reasoning_tokens": 8000,
         "cost": make_cost(280000, 19000, 1001, 20000, (10, 1, 10, 45), True, True),
     },
     {
-        "client_protocol": "interactions",
-        "provider": "deepseek",
+        # A provider configured in config.yaml, named by the masked API key
+        # that separates it from the other keys of that provider.
+        "endpoint": "/v1/chat/completions",
+        "source": "deepseek · sk-ups…0001",
         "upstream_model": "deepseek-v4-flash",
         "billing_model": "deepseek-v4-flash",
         "reasoning_tokens": 0,
         "cost": make_cost(160889, 0, 0, 12001, (0.28, 0.28, 0.28, 0.42)),
     },
     {
-        "client_protocol": "gemini",
-        "provider": "claude",
+        "endpoint": "/v1beta/models/*action",
+        "source": "claude · sk-ups…0001",
         "upstream_model": "claude-sonnet-4-5",
         "billing_model": "claude-sonnet-4-5",
         "reasoning_tokens": 0,
         "cost": make_cost(38122, 9931, 2048, 7240, (3, 0.3, 3.75, 15)),
     },
     {
-        "client_protocol": "openai",
-        "provider": "openai",
+        # An execution with no route, and a credential no usage record has
+        # named yet, so both fields fall back to their placeholders.
+        "endpoint": "",
+        "source": "",
         "upstream_model": "gpt-5.5",
         "billing_model": "gpt-5.5",
         "reasoning_tokens": 400,
@@ -220,8 +224,8 @@ def make_logs(count=120):
                 "preview": key["preview"],
                 "label": key["label"],
                 "request_id": f"req-dummy-{index + 1:04d}",
-                "client_protocol": case["client_protocol"],
-                "provider": case["provider"],
+                "endpoint": case["endpoint"],
+                "source": case["source"],
                 "upstream_model": case["upstream_model"],
                 "billing_model": case["billing_model"],
                 "accounting_quality": "complete",

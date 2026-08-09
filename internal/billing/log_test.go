@@ -22,6 +22,7 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 	store.Update(func(state *State) {
 		state.ensureKey("scope-a", now).Preview = "sk-tes…0001"
 	})
+	store.LearnCredential("auth-codex", "codex", "oauth", "ops@example.com")
 	store.RecordUsage(subsetEvent("scope-a", now))
 	if err := store.SetLabel("scope-a", "Alice"); err != nil {
 		t.Fatalf("SetLabel error = %v", err)
@@ -34,7 +35,7 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 	entry := view.Entries[0]
 	if entry.Scope != "scope-a" || entry.Label != "Alice" || entry.Preview != "sk-tes…0001" ||
 		entry.UpstreamModel != "gpt-5.5" || entry.BillingModel != "gpt-5.5" || entry.PriceSource != PriceSourceOverride ||
-		entry.ClientProtocol != "claude" || entry.Provider != "codex" ||
+		entry.Endpoint != "/v1/messages" || entry.Source != "codex · ops@example.com" ||
 		entry.AccountingQuality != TokenAccountingComplete {
 		t.Fatalf("entry = %+v", entry)
 	}

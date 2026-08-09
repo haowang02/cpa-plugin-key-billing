@@ -324,7 +324,7 @@ func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
 	app.store.RecordUsage(billing.UsageEvent{
 		Scope: scope,
 		Records: []billing.UsageRecord{{
-			Provider: "codex", BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
+			BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
 			Breakdown: billing.TokenBreakdown{
 				SchemaVersion: billing.TokenAccountingSchemaVersion,
 				Quality:       billing.TokenAccountingComplete,
@@ -378,7 +378,7 @@ func TestSyncPrunesKeysDeletedFromCPA(t *testing.T) {
 	app.store.RecordUsage(billing.UsageEvent{
 		Scope: billing.CallerScope(removed),
 		Records: []billing.UsageRecord{{
-			Provider: "codex", BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
+			BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
 			Breakdown: billing.TokenBreakdown{
 				SchemaVersion: billing.TokenAccountingSchemaVersion,
 				Quality:       billing.TokenAccountingComplete,

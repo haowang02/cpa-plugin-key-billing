@@ -113,11 +113,13 @@ func TestProtocol2NonStreamCodexResponseRecordsUsage(t *testing.T) {
 	})
 }
 
-func TestProtocol2RecordsProvider(t *testing.T) {
+func TestProtocol2RecordsEndpointAndSource(t *testing.T) {
 	app := newAppWithPriceSchema(t, true, MinHostSchemaVersion)
+	publishUsage(t, app, "auth-3", "openai-compatible-deepseek", "apikey", "sk-upstream-key-0001")
 	requestBody := []byte(`{"model":"deepseek-v4-flash","input":"hello"}`)
 	metadata := flowMetadata()
-	metadata[MetadataSelectedAuthID] = "openai-compatibility:deepseek:0123456789ab"
+	metadata[MetadataRequestPath] = "/v1/responses"
+	metadata[MetadataSelectedAuthIndex] = "auth-3"
 	before := RequestInterceptRequest{
 		RequestID: flowRequestID, SourceFormat: "claude", Model: "deepseek-v4-flash", RequestedModel: "deepseek-v4-flash", Body: requestBody, Metadata: metadata,
 	}
@@ -134,7 +136,8 @@ func TestProtocol2RecordsProvider(t *testing.T) {
 	protocol2Complete(t, app, flowRequestID)
 
 	logs := app.store.Logs(1)
-	if len(logs.Entries) != 1 || logs.Entries[0].Provider != "openai-compatible-deepseek" {
+	if len(logs.Entries) != 1 || logs.Entries[0].Endpoint != "/v1/responses" ||
+		logs.Entries[0].Source != "deepseek · sk-ups…0001" {
 		t.Fatalf("logs = %+v", logs.Entries)
 	}
 }

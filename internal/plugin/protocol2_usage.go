@@ -25,7 +25,6 @@ type protocol2Request struct {
 	upstreamFormat string
 	upstreamModel  string
 	routeModel     string
-	provider       string
 	generate       bool
 	startedAt      time.Time
 	routes         map[protocol2Route]struct{}
@@ -79,7 +78,7 @@ func (t *protocol2UsageTracker) begin(requestID, clientProtocol, upstreamModel, 
 	}
 }
 
-func (t *protocol2UsageTracker) addRoute(requestID, format, provider, upstreamModel, routeModel string, stream bool, originalRequest []byte) {
+func (t *protocol2UsageTracker) addRoute(requestID, format, upstreamModel, routeModel string, stream bool, originalRequest []byte) {
 	requestID = strings.TrimSpace(requestID)
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -96,7 +95,6 @@ func (t *protocol2UsageTracker) addRoute(requestID, format, provider, upstreamMo
 		request.routeModel = strings.TrimSpace(routeModel)
 	}
 	request.upstreamFormat = format
-	request.provider = strings.TrimSpace(provider)
 	key := protocol2RouteKey(format, upstreamModel, stream, originalRequest)
 	request.routes[key] = struct{}{}
 	owners := t.routes[key]
@@ -217,7 +215,6 @@ func (t *protocol2UsageTracker) finish(requestID string, resolveModel func(strin
 	}
 	breakdown := request.usage.breakdown()
 	record := billing.UsageRecord{
-		Provider:      request.provider,
 		BillingModel:  resolveModel(request.upstreamModel, request.routeModel),
 		UpstreamModel: request.upstreamModel,
 		Generate:      request.generate,

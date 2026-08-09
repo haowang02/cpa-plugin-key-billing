@@ -31,7 +31,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "0.2.1"
+	Version    = "0.2.2"
 
 	MenuLabel       = "API Key 计费"
 	MenuDescription = "管理下游 API Key 的计费、订阅额度和用量"
@@ -50,6 +50,8 @@ const (
 	MethodResponseInterceptAfter  = "response.intercept_after"
 	MethodResponseStreamChunk     = "response.intercept_stream_chunk"
 
+	MethodUsageHandle = "usage.handle"
+
 	MethodManagementRegister = "management.register"
 	MethodManagementHandle   = "management.handle"
 )
@@ -59,9 +61,12 @@ const (
 	// MetadataCallerScope is sha256("cli-proxy-api:caller-scope:v1\x00"+apiKey)
 	// in hex. It is the only downstream-key identifier available at interception
 	// time, and it covers keys presented via query string as well as headers.
-	MetadataCallerScope       = "caller_scope"
-	MetadataSource            = "source"
-	MetadataSelectedAuthID    = "selected_auth_id"
+	MetadataCallerScope = "caller_scope"
+	MetadataSource      = "source"
+	// MetadataRequestPath is the inbound HTTP route the client called, such as
+	// "/v1/messages". The host fills it from the matched route pattern, so a
+	// wildcard route reports the pattern rather than the concrete path.
+	MetadataRequestPath       = "request_path"
 	MetadataSelectedAuthIndex = "selected_auth_index"
 	// SourcePluginHostModelCallback is the MetadataSource value for nested
 	// plugin-initiated executions, which must not be billed again.
@@ -115,6 +120,7 @@ type Capabilities struct {
 	ResponseBeforeTranslator bool `json:"response_before_translator"`
 	ResponseInterceptor      bool `json:"response_interceptor"`
 	StreamChunkInterceptor   bool `json:"response_stream_interceptor"`
+	UsagePlugin              bool `json:"usage_plugin"`
 	ManagementAPI            bool `json:"management_api"`
 }
 
@@ -153,7 +159,6 @@ type RequestCompletion struct {
 }
 
 type RequestUsageRecord struct {
-	Provider       string                `json:"Provider"`
 	Model          string                `json:"Model"`
 	RequestedModel string                `json:"Alias"`
 	Generate       bool                  `json:"Generate"`
@@ -182,6 +187,18 @@ type RequestTokenOutputBreakdown struct {
 	TotalTokens        int64 `json:"TotalTokens"`
 	NonReasoningTokens int64 `json:"NonReasoningTokens"`
 	ReasoningTokens    int64 `json:"ReasoningTokens"`
+}
+
+// UsageRecord is the usage event CLIProxyAPI publishes for every request it
+// serves. Only the credential identity is read from it; see billing.Store's
+// LearnCredential.
+type UsageRecord struct {
+	Provider  string `json:"Provider"`
+	AuthIndex string `json:"AuthIndex"`
+	AuthType  string `json:"AuthType"`
+	// Source is the account behind the credential: an address for a signed-in
+	// account, a plaintext API key for a provider from config.yaml.
+	Source string `json:"Source"`
 }
 
 type ResponseTransformRequest struct {

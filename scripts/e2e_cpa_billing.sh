@@ -302,18 +302,23 @@ assert_latest_entry() {
   local logs_file="$7"
   local response_file="$8"
   local stream="$9"
-  local expected_client expected_provider attempt actual_count usage input output billed_input billed_output
+  local expected_endpoint expected_source attempt actual_count usage input output billed_input billed_output
 
   case "$client" in
-    chat) expected_client="openai" ;;
-    responses) expected_client="openai-response" ;;
-    anthropic) expected_client="claude" ;;
+    chat) expected_endpoint="/v1/chat/completions" ;;
+    responses) expected_endpoint="/v1/responses" ;;
+    anthropic) expected_endpoint="/v1/messages" ;;
   esac
+  # Every upstream here is a provider configured in config.yaml, so its source
+  # is the provider and the masked API key CLIProxyAPI reports for it. All three
+  # are the same key, which is what makes the provider the part that separates
+  # them.
   case "$upstream" in
-    chat) expected_provider="openai-compatible-deepseek-chat-e2e" ;;
-    responses) expected_provider="codex" ;;
-    anthropic) expected_provider="claude" ;;
+    chat) expected_source="deepseek-chat-e2e" ;;
+    responses) expected_source="codex" ;;
+    anthropic) expected_source="claude" ;;
   esac
+  expected_source+=" · ${DEEPSEEK_API_KEY:0:6}…${DEEPSEEK_API_KEY: -4}"
 
   attempt=0
   while (( attempt < 20 )); do
@@ -332,20 +337,20 @@ assert_latest_entry() {
   if ! jq -e \
     --arg upstream_models "$upstream_models" \
     --arg billing_model "$billing_model" \
-    --arg client "$expected_client" \
-    --arg provider "$expected_provider" '
+    --arg endpoint "$expected_endpoint" \
+    --arg source "$expected_source" '
       .entries[0] |
       (.upstream_model as $actual | ($upstream_models | split(",") | index($actual)) != null) and
       .billing_model == $billing_model and
-      .client_protocol == $client and
-      .provider == $provider and
+      .endpoint == $endpoint and
+      .source == $source and
       .accounting_quality == "complete" and
       .price_source == "override" and
       ((.cost.uncached_input_tokens + .cost.cache_read_tokens + .cost.cache_write_tokens) > 0) and
       (.cost.billed_output_tokens > 0) and
       (.cost.total_usd > 0)
     ' "$logs_file" >/dev/null; then
-    echo "最新计费日志的协议、usage 或定价不正确。" >&2
+    echo "最新计费日志的端点、来源、usage 或定价不正确。" >&2
     return 1
   fi
 

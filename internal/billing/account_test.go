@@ -27,9 +27,9 @@ func newAccountStore(t *testing.T, now time.Time) *Store {
 
 func subsetEvent(scope string, at time.Time) UsageEvent {
 	return UsageEvent{
-		Scope: scope, RequestID: "req-1", ClientProtocol: "claude", At: at,
+		Scope: scope, RequestID: "req-1", Endpoint: "/v1/messages", AuthIndex: "auth-codex", At: at,
 		Records: []UsageRecord{{
-			Provider: "codex", BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
+			BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
 			Breakdown: completeBreakdown(500, 400, 100, 500, 200),
 		}},
 	}
