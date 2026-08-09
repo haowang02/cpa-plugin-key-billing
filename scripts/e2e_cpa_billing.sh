@@ -517,10 +517,10 @@ EOF
   done
 
   model_cases=(
-    "推理强度|chat|chat|false|chat/$model(high)|chat/$model|$model(high)"
+    "推理强度|chat|chat|false|chat/$model(high)|chat/$model|$model"
     "配置模型|responses|chat|false|$chat_route|$chat_route|$model"
-    "组合路由|anthropic|responses|true|responses/$responses_route(high)|responses/$responses_route|$model(high)"
-    "固定后缀模型|chat|chat|false|chat/$fixed_route|chat/$fixed_route|$model(high)"
+    "组合路由|anthropic|responses|true|responses/$responses_route(high)|responses/$responses_route|$model"
+    "固定后缀模型|chat|chat|false|chat/$fixed_route|chat/$fixed_route|$model"
     "模型池|responses|chat|false|chat/$pool_route|chat/$pool_route|$model,$pool_model"
   )
   for model_case in "${model_cases[@]}"; do

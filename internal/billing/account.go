@@ -87,9 +87,9 @@ func (s *Store) RecordUsage(event UsageEvent) {
 			if !record.Breakdown.Billable() {
 				s.usageUnclassified.Add(1)
 			}
-			upstreamModel := strings.TrimSpace(record.UpstreamModel)
+			upstreamModel := modelWithoutSuffix(record.UpstreamModel)
 			if upstreamModel == "" {
-				upstreamModel = strings.TrimSpace(record.BillingModel)
+				upstreamModel = modelWithoutSuffix(record.BillingModel)
 			}
 			billingModel := strings.TrimSpace(record.BillingModel)
 			if billingModel == "" {
