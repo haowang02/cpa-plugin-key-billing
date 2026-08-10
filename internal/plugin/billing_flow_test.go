@@ -3,6 +3,7 @@ package plugin
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -11,7 +12,13 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-const flowRequestID = "req-flow-1"
+const (
+	flowRequestID  = "req-flow-1"
+	flowResponseID = "resp-flow-1"
+	flowModel      = "gpt-5.5"
+)
+
+var flowRequestBody = []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hello"}]}`)
 
 func flowScope() string { return billing.CallerScope(testAPIKey) }
 
@@ -19,14 +26,13 @@ func flowMetadata() map[string]any {
 	return map[string]any{MetadataCallerScope: flowScope()}
 }
 
-// admit runs the before-auth interceptor for one downstream call, which is
-// where a request is either rejected or registered as billable.
-func admit(t *testing.T, app *App, protocol, requestPath string) {
+func admit(t *testing.T, app *App, clientFormat, requestPath string) {
 	t.Helper()
 	metadata := flowMetadata()
 	metadata[MetadataRequestPath] = requestPath
 	raw, errHandle := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{
-		RequestID: flowRequestID, SourceFormat: protocol, Metadata: metadata,
+		RequestID: flowRequestID, SourceFormat: clientFormat, Model: flowModel, RequestedModel: flowModel,
+		Body: flowRequestBody, Metadata: metadata,
 	}))
 	if errHandle != nil {
 		t.Fatalf("request.intercept_before error = %v", errHandle)
@@ -38,14 +44,13 @@ func admit(t *testing.T, app *App, protocol, requestPath string) {
 	}
 }
 
-// selectCredential runs the after-auth interceptor, which is where the host
-// reports the credential it picked for the next upstream attempt.
 func selectCredential(t *testing.T, app *App, authIndex string) {
 	t.Helper()
 	metadata := flowMetadata()
 	metadata[MetadataSelectedAuthIndex] = authIndex
 	raw, errHandle := app.HandleMethod(MethodRequestInterceptAfter, mustMarshal(t, RequestInterceptRequest{
-		RequestID: flowRequestID, ToFormat: "codex", Metadata: metadata,
+		RequestID: flowRequestID, ToFormat: "openai", Model: flowModel, RequestedModel: flowModel,
+		Body: flowRequestBody, Metadata: metadata,
 	}))
 	if errHandle != nil {
 		t.Fatalf("request.intercept_after error = %v", errHandle)
@@ -53,8 +58,39 @@ func selectCredential(t *testing.T, app *App, authIndex string) {
 	decodeResult(t, raw, nil)
 }
 
-// publishUsage delivers the usage record CLIProxyAPI emits for a served
-// request, which is where the plugin learns what a credential is.
+func observeUpstream(t *testing.T, app *App, upstreamFormat, model string, stream bool, requestBody, responseBody []byte) {
+	t.Helper()
+	raw, errHandle := app.HandleMethod(MethodResponseNormalizeBefore, mustMarshal(t, ResponseTransformRequest{
+		FromFormat: upstreamFormat, Model: model, Stream: stream, OriginalRequest: requestBody, Body: responseBody,
+	}))
+	if errHandle != nil {
+		t.Fatalf("response.normalize_before error = %v", errHandle)
+	}
+	decodeResult(t, raw, nil)
+}
+
+func respond(t *testing.T, app *App, requestID string, body []byte) {
+	t.Helper()
+	raw, errHandle := app.HandleMethod(MethodResponseInterceptAfter, mustMarshal(t, ResponseInterceptRequest{
+		RequestID: requestID, Body: body,
+	}))
+	if errHandle != nil {
+		t.Fatalf("response.intercept_after error = %v", errHandle)
+	}
+	decodeResult(t, raw, nil)
+}
+
+func streamChunk(t *testing.T, app *App, requestID string, index int, body []byte) {
+	t.Helper()
+	raw, errHandle := app.HandleMethod(MethodResponseStreamChunk, mustMarshal(t, ResponseInterceptRequest{
+		RequestID: requestID, ChunkIndex: index, Body: body,
+	}))
+	if errHandle != nil {
+		t.Fatalf("response.intercept_stream_chunk error = %v", errHandle)
+	}
+	decodeResult(t, raw, nil)
+}
+
 func publishUsage(t *testing.T, app *App, authIndex, provider, authType, source string) {
 	t.Helper()
 	raw, errHandle := app.HandleMethod(MethodUsageHandle, mustMarshal(t, UsageRecord{
@@ -66,32 +102,20 @@ func publishUsage(t *testing.T, app *App, authIndex, provider, authType, source 
 	decodeResult(t, raw, nil)
 }
 
-func canonicalRecord(model string, uncached, cacheRead, cacheWrite, output, reasoning int64) RequestUsageRecord {
-	return RequestUsageRecord{
-		Model: model, RequestedModel: model, Generate: true,
-		Breakdown: RequestTokenBreakdown{
-			SchemaVersion: billing.TokenAccountingSchemaVersion,
-			Quality:       billing.TokenAccountingComplete,
-			TotalTokens:   uncached + cacheRead + cacheWrite + output,
-			Input: RequestTokenInputBreakdown{
-				TotalTokens:      uncached + cacheRead + cacheWrite,
-				UncachedTokens:   uncached,
-				CacheReadTokens:  cacheRead,
-				CacheWriteTokens: cacheWrite,
-			},
-			Output: RequestTokenOutputBreakdown{
-				TotalTokens:        output,
-				NonReasoningTokens: output - reasoning,
-				ReasoningTokens:    reasoning,
-			},
-		},
-	}
+func billUsage(t *testing.T, app *App, uncached, cacheRead, cacheWrite, output, reasoning int64) {
+	t.Helper()
+	usage := fmt.Sprintf(
+		`{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d,"prompt_tokens_details":{"cached_tokens":%d,"cache_creation_tokens":%d},"completion_tokens_details":{"reasoning_tokens":%d}}`,
+		uncached+cacheRead+cacheWrite, output, uncached+cacheRead+cacheWrite+output, cacheRead, cacheWrite, reasoning)
+	observeUpstream(t, app, "openai", flowModel, false, flowRequestBody,
+		[]byte(`{"id":"`+flowResponseID+`","usage":`+usage+`}`))
+	respond(t, app, flowRequestID, []byte(`{"id":"`+flowResponseID+`"}`))
 }
 
-func complete(t *testing.T, app *App, outcome RequestCompletionOutcome, records ...RequestUsageRecord) {
+func complete(t *testing.T, app *App, requestID string, outcome RequestCompletionOutcome) {
 	t.Helper()
 	raw, errHandle := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{
-		RequestID: flowRequestID, Outcome: outcome, UsageRecords: records,
+		RequestID: requestID, Outcome: outcome,
 	}))
 	if errHandle != nil {
 		t.Fatalf("request.complete error = %v", errHandle)
@@ -119,13 +143,14 @@ func assertCostClose(t *testing.T, got, want float64) {
 	}
 }
 
-func TestFlowBillsCanonicalCompletionWithoutResponseInterceptors(t *testing.T) {
+func TestFlowBillsUpstreamUsageAtTheTerminalEvent(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	admit(t, app, "claude", "/v1/messages")
+	billUsage(t, app, 500, 400, 100, 500, 200)
 	if cost, _ := lifetimeCost(t, app); cost != 0 {
 		t.Fatalf("cost before completion = %v", cost)
 	}
-	complete(t, app, RequestCompletionSucceeded, canonicalRecord("gpt-5.5", 500, 400, 100, 500, 200))
+	complete(t, app, flowRequestID, RequestCompletionSucceeded)
 	cost, requests := lifetimeCost(t, app)
 	assertCostClose(t, cost, 0.0005+0.00004+0.000125+0.001)
 	if requests != 1 {
@@ -133,24 +158,13 @@ func TestFlowBillsCanonicalCompletionWithoutResponseInterceptors(t *testing.T) {
 	}
 }
 
-func TestFlowBillsEveryUpstreamRetryRecord(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	admit(t, app, "openai", "/v1/chat/completions")
-	record := canonicalRecord("gpt-5.5", 1000, 0, 0, 500, 0)
-	complete(t, app, RequestCompletionSucceeded, record, record)
-	cost, requests := lifetimeCost(t, app)
-	assertCostClose(t, cost, 2*(0.001+0.001))
-	if requests != 2 {
-		t.Fatalf("Requests = %d, want two provider usage records", requests)
-	}
-}
-
-func TestFlowRecordsEndpointSourceAndCanonicalQuality(t *testing.T) {
+func TestFlowRecordsEndpointSourceAndAccountingQuality(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	publishUsage(t, app, "auth-7", "codex", "oauth", "billing@example.com")
 	admit(t, app, "claude", "/v1/messages")
 	selectCredential(t, app, "auth-7")
-	complete(t, app, RequestCompletionSucceeded, canonicalRecord("gpt-5.5", 500, 400, 100, 500, 200))
+	billUsage(t, app, 500, 400, 100, 500, 200)
+	complete(t, app, flowRequestID, RequestCompletionSucceeded)
 	var view billing.LogView
 	callOK(t, app, http.MethodGet, routeLogs, nil, nil, http.StatusOK, &view)
 	if len(view.Entries) != 1 {
@@ -163,16 +177,20 @@ func TestFlowRecordsEndpointSourceAndCanonicalQuality(t *testing.T) {
 	}
 }
 
-// A retried request is attributed to the credential that answered it, which is
-// the last one the host selected before the terminal event.
-func TestFlowAttributesRetriedRequestToTheServingCredential(t *testing.T) {
+func TestFlowBillsARetriedRequestOnceAgainstTheServingCredential(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	publishUsage(t, app, "auth-exhausted", "codex", "oauth", "spent@example.com")
 	publishUsage(t, app, "auth-healthy", "codex", "oauth", "live@example.com")
 	admit(t, app, "claude", "/v1/messages")
 	selectCredential(t, app, "auth-exhausted")
 	selectCredential(t, app, "auth-healthy")
-	complete(t, app, RequestCompletionSucceeded, canonicalRecord("gpt-5.5", 1000, 0, 0, 500, 0))
+	billUsage(t, app, 1000, 0, 0, 500, 0)
+	complete(t, app, flowRequestID, RequestCompletionSucceeded)
+	cost, requests := lifetimeCost(t, app)
+	assertCostClose(t, cost, 0.001+0.001)
+	if requests != 1 {
+		t.Fatalf("Requests = %d, want a single bill for the retried request", requests)
+	}
 	if entries := app.store.Logs(0).Entries; len(entries) != 1 || entries[0].Source != "codex · live@example.com" {
 		t.Fatalf("entries = %+v", entries)
 	}
@@ -185,7 +203,8 @@ func TestFlowNamesACredentialLearnedAfterTheBill(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	admit(t, app, "claude", "/v1/messages")
 	selectCredential(t, app, "auth-7")
-	complete(t, app, RequestCompletionSucceeded, canonicalRecord("gpt-5.5", 1000, 0, 0, 500, 0))
+	billUsage(t, app, 1000, 0, 0, 500, 0)
+	complete(t, app, flowRequestID, RequestCompletionSucceeded)
 	if entries := app.store.Logs(0).Entries; len(entries) != 1 || entries[0].Source != "" {
 		t.Fatalf("entries = %+v, want an unnamed credential", entries)
 	}
@@ -196,28 +215,68 @@ func TestFlowNamesACredentialLearnedAfterTheBill(t *testing.T) {
 	}
 }
 
-func TestFlowRejectsOrMissingCanonicalUsageDoesNotBill(t *testing.T) {
-	for _, outcome := range []RequestCompletionOutcome{RequestCompletionRejected, RequestCompletionSucceeded} {
-		t.Run(string(outcome), func(t *testing.T) {
-			app := newAppWithPrice(t, true)
-			admit(t, app, "openai", "/v1/chat/completions")
-			complete(t, app, outcome)
-			if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
-				t.Fatalf("cost = %v, requests = %d", cost, requests)
-			}
-		})
+func TestFlowRejectedRequestLeavesNoTrace(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	admit(t, app, "openai", "/v1/chat/completions")
+	complete(t, app, flowRequestID, RequestCompletionRejected)
+	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
+		t.Fatalf("cost = %v, requests = %d", cost, requests)
+	}
+	if entries := app.store.Logs(0).Entries; len(entries) != 0 {
+		t.Fatalf("entries = %+v, want none", entries)
 	}
 }
 
-func TestFlowCanceledRequestBillsReportedUsageAndMarksFailure(t *testing.T) {
+func TestFlowUnmeasuredRequestIsLoggedAtZeroCost(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	admit(t, app, "openai", "/v1/chat/completions")
-	complete(t, app, RequestCompletionOutcome("canceled"), canonicalRecord("gpt-5.5", 1000, 0, 0, 250, 0))
+	complete(t, app, flowRequestID, RequestCompletionSucceeded)
+	if cost, _ := lifetimeCost(t, app); cost != 0 {
+		t.Fatalf("cost = %v, want nothing charged", cost)
+	}
+	entries := app.store.Logs(0).Entries
+	if len(entries) != 1 || entries[0].AccountingQuality != "" || entries[0].Cost.TotalUSD != 0 {
+		t.Fatalf("entries = %+v, want one unmeasured zero-cost row", entries)
+	}
+	status := app.store.Status()
+	if status.Counters.UsageNoTokens != 1 || status.Counters.UsageUnclassified != 0 {
+		t.Fatalf("counters = %+v", status.Counters)
+	}
+}
+
+func TestFlowCanceledRequestBillsReportedUsageAndSaysSo(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	admit(t, app, "openai", "/v1/chat/completions")
+	billUsage(t, app, 1000, 0, 0, 250, 0)
+	complete(t, app, flowRequestID, RequestCompletionCanceled)
 	cost, _ := lifetimeCost(t, app)
 	assertCostClose(t, cost, 0.001+0.0005)
+	if entries := app.store.Logs(0).Entries; len(entries) != 1 || entries[0].Outcome != billing.OutcomeCanceled {
+		t.Fatalf("entries = %+v, want one canceled row", entries)
+	}
+}
+
+func TestFlowCanceledRequestWithoutUsageIsStillLogged(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	publishUsage(t, app, "auth-7", "codex", "oauth", "billing@example.com")
+	admit(t, app, "claude", "/v1/messages")
+	selectCredential(t, app, "auth-7")
+	complete(t, app, flowRequestID, RequestCompletionCanceled)
+
+	entries := app.store.Logs(0).Entries
+	if len(entries) != 1 {
+		t.Fatalf("entries = %+v, want the canceled request logged", entries)
+	}
+	entry := entries[0]
+	if entry.Outcome != billing.OutcomeCanceled || entry.Cost.TotalUSD != 0 || entry.AccountingQuality != "" {
+		t.Fatalf("entry = %+v, want a canceled zero-cost row with no token detail", entry)
+	}
+	if entry.Endpoint != "/v1/messages" || entry.Source != "codex · billing@example.com" || entry.BillingModel != flowModel {
+		t.Fatalf("entry = %+v", entry)
+	}
 	app.store.Read(func(state *billing.State) {
-		if state.Keys[flowScope()].Lifetime.FailedRequests != 1 {
-			t.Fatal("canceled usage was not marked failed")
+		if key := state.Keys[flowScope()]; key.Lifetime.Requests != 1 || key.Lifetime.CostUSD != 0 {
+			t.Fatalf("lifetime = %+v", key.Lifetime)
 		}
 	})
 }
@@ -225,34 +284,30 @@ func TestFlowCanceledRequestBillsReportedUsageAndMarksFailure(t *testing.T) {
 func TestFlowUnclassifiedUsageIsVisibleButCostsZero(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	admit(t, app, "openai", "/v1/chat/completions")
-	record := canonicalRecord("gpt-5.5", 0, 0, 0, 0, 0)
-	record.Breakdown = RequestTokenBreakdown{
-		SchemaVersion:      billing.TokenAccountingSchemaVersion,
-		Quality:            billing.TokenAccountingUnclassified,
-		TotalTokens:        100,
-		UnclassifiedTokens: 100,
-	}
-	complete(t, app, RequestCompletionSucceeded, record)
+	observeUpstream(t, app, "acme", flowModel, false, flowRequestBody,
+		[]byte(`{"id":"`+flowResponseID+`","usage":{"total_tokens":100}}`))
+	respond(t, app, flowRequestID, []byte(`{"id":"`+flowResponseID+`"}`))
+	complete(t, app, flowRequestID, RequestCompletionSucceeded)
 	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 1 {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
-	status := app.store.Status(PluginName, Version)
+	status := app.store.Status()
 	if status.Counters.UsageUnclassified != 1 {
 		t.Fatalf("counters = %+v", status.Counters)
 	}
 }
 
-func TestFlowTerminalEventPersistsCanonicalBillWithoutPlaintextKey(t *testing.T) {
-	app := newAppWithPrice(t, true)
+func TestFlowTerminalEventPersistsTheBillWithoutPlaintextKeys(t *testing.T) {
+	app, statePath := newAppWithPriceAndState(t, true)
 	publishUsage(t, app, "auth-3", "codex", "apikey", "sk-upstream-key-0001")
 	admit(t, app, "openai", "/v1/chat/completions")
 	selectCredential(t, app, "auth-3")
-	complete(t, app, RequestCompletionSucceeded, canonicalRecord("gpt-5.5", 1000, 0, 0, 500, 0))
-	// Writes are debounced, so ask for the one this test reads back.
+	billUsage(t, app, 1000, 0, 0, 500, 0)
+	complete(t, app, flowRequestID, RequestCompletionSucceeded)
 	if errFlush := app.store.Flush(); errFlush != nil {
 		t.Fatalf("Flush error = %v", errFlush)
 	}
-	raw, errRead := os.ReadFile(app.store.Status(PluginName, Version).StateFile)
+	raw, errRead := os.ReadFile(statePath)
 	if errRead != nil {
 		t.Fatalf("read persisted state: %v", errRead)
 	}
@@ -274,14 +329,15 @@ func TestFlowTerminalEventPersistsCanonicalBillWithoutPlaintextKey(t *testing.T)
 	}
 }
 
-func TestFlowEnforcementUsesCanonicalSpend(t *testing.T) {
+func TestFlowEnforcementUsesRecordedSpend(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	app.store.Update(func(state *billing.State) {
 		state.Plans = []billing.Plan{{ID: "p", Name: "Tiny", AmountUSD: 0.0015, Period: billing.Period{Kind: billing.PeriodDaily}}}
 		state.Keys[flowScope()] = &billing.KeyState{PlanID: "p"}
 	})
 	admit(t, app, "openai", "/v1/chat/completions")
-	complete(t, app, RequestCompletionSucceeded, canonicalRecord("gpt-5.5", 1000, 0, 0, 500, 0))
+	billUsage(t, app, 1000, 0, 0, 500, 0)
+	complete(t, app, flowRequestID, RequestCompletionSucceeded)
 	raw, errHandle := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{
 		RequestID: "req-flow-2", SourceFormat: "openai", Metadata: flowMetadata(),
 	}))

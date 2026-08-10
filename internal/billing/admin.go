@@ -3,15 +3,6 @@ package billing
 import (
 	"fmt"
 	"strings"
-	"time"
-)
-
-// These limits keep the persisted state bounded.
-const (
-	MaxPriceRules    = 5000
-	MaxPlans         = 200
-	MaxPatternLength = 200
-	MaxNameLength    = 120
 )
 
 type PriceRow struct {
@@ -19,26 +10,17 @@ type PriceRow struct {
 	Source PriceSource `json:"source"`
 }
 
-// PriceTable is the whole per-model price list.
-//
 // It holds one row per model the proxy currently serves, not a sparse set of
 // overrides: an operator asking "what does this cost" should not have to know
 // whether the answer comes from a rule they wrote or from the runtime catalog.
 type PriceTable struct {
-	CatalogVersion string      `json:"catalog_version"`
-	Catalog        CatalogInfo `json:"catalog"`
-	Models         []PriceRow  `json:"models"`
+	Catalog CatalogInfo `json:"catalog"`
+	Models  []PriceRow  `json:"models"`
 }
 
 func (s *Store) PriceTable() PriceTable {
 	loaded := builtinCatalog()
-	table := PriceTable{
-		Catalog: loaded.info,
-		Models:  []PriceRow{},
-	}
-	if !table.Catalog.FetchedAt.IsZero() {
-		table.CatalogVersion = table.Catalog.FetchedAt.Format(time.RFC3339)
-	}
+	table := PriceTable{Catalog: loaded.info, Models: []PriceRow{}}
 	s.Read(func(state *State) {
 		for _, rule := range state.Prices {
 			table.Models = append(table.Models, PriceRow{PriceRule: rule, Source: priceSourceOfCatalog(rule, loaded)})
@@ -52,9 +34,8 @@ type CatalogRefreshResult struct {
 	UpdatedModels int         `json:"updated_models"`
 }
 
-// RefreshPriceCatalog downloads a fresh directory and advances rows that were
-// still following the previous built-in value. Explicit custom prices are
-// preserved.
+// Refreshing advances rows that followed the previous built-in value while
+// preserving explicit custom prices.
 func (s *Store) RefreshPriceCatalog() (CatalogRefreshResult, error) {
 	previous := cachedBuiltinCatalog()
 	info, errRefresh := RefreshBuiltinCatalog()
@@ -62,7 +43,6 @@ func (s *Store) RefreshPriceCatalog() (CatalogRefreshResult, error) {
 		return CatalogRefreshResult{}, errRefresh
 	}
 	current := builtinCatalog()
-	now := s.Now()
 	updated := updateResult(s, func(state *State) (int, bool) {
 		changed := 0
 		for i := range state.Prices {
@@ -84,7 +64,6 @@ func (s *Store) RefreshPriceCatalog() (CatalogRefreshResult, error) {
 			if samePrice(rule, fresh) {
 				continue
 			}
-			fresh.UpdatedAt = now
 			state.Prices[i] = fresh
 			changed++
 		}
@@ -133,34 +112,23 @@ func sameOptionalPrice(a, b *float64) bool {
 }
 
 type ModelSyncResult struct {
-	Received int `json:"received"`
-	Added    int `json:"added"`
-	Kept     int `json:"kept"`
-	Removed  int `json:"removed"`
-	Priced   int `json:"priced"`
+	Added   int `json:"added"`
+	Removed int `json:"removed"`
+	Priced  int `json:"priced"`
 }
 
-// SyncModels reconciles the price table with the models the proxy serves.
-//
 // New models arrive priced from the runtime catalog, or at zero when it has no
 // entry for them. Models that disappeared are dropped. Rows that survive keep
 // whatever an administrator set, because a model list refresh must never quietly
 // undo an edit.
 //
-// Glob rows are carried across untouched. Only a row naming a model can be
-// reconciled against a list of model names; a pattern is a standing instruction
-// from an administrator, and dropping it for not being a model would delete
-// pricing nobody asked to delete — silently, since the admin page syncs every
-// time it is opened.
+// Glob rows cannot be reconciled against model names, so they are preserved.
 func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
-	if len(models) > MaxPriceRules {
-		return ModelSyncResult{}, invalidf("模型数量过多：最多允许 %d 个，实际收到 %d 个", MaxPriceRules, len(models))
-	}
 	wanted := make([]string, 0, len(models))
 	seen := make(map[string]struct{}, len(models))
 	for _, model := range models {
 		model = strings.TrimSpace(model)
-		if model == "" || len(model) > MaxPatternLength {
+		if model == "" {
 			continue
 		}
 		lowered := strings.ToLower(model)
@@ -176,8 +144,8 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 		return ModelSyncResult{}, invalidf("模型列表为空，未执行同步")
 	}
 
-	result := ModelSyncResult{Received: len(wanted)}
-	now := s.Now()
+	var result ModelSyncResult
+	kept := 0
 	loaded := builtinCatalog()
 	s.Update(func(state *State) {
 		existing := make(map[string]PriceRule, len(state.Prices))
@@ -193,7 +161,7 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 		for _, model := range wanted {
 			if rule, exists := existing[strings.ToLower(model)]; exists {
 				rows = append(rows, rule)
-				result.Kept++
+				kept++
 				continue
 			}
 			seeded, known := lookupCatalog(loaded, model, "")
@@ -202,14 +170,13 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 			} else {
 				seeded.Pattern = model
 			}
-			seeded.UpdatedAt = now
 			rows = append(rows, seeded)
 			result.Added++
 			if known {
 				result.Priced++
 			}
 		}
-		result.Removed = len(existing) - result.Kept
+		result.Removed = len(existing) - kept
 		// Keep the proxy's own ordering: it is what the operator sees elsewhere.
 		// Globs go last, which is also where ResolvePrice consults them.
 		state.Prices = append(rows, globs...)
@@ -221,9 +188,6 @@ func (r PriceRule) Validate() error {
 	pattern := strings.TrimSpace(r.Pattern)
 	if pattern == "" {
 		return invalidf("模型名称或匹配规则不能为空")
-	}
-	if len(pattern) > MaxPatternLength {
-		return invalidf("模型名称或匹配规则不能超过 %d 个字符", MaxPatternLength)
 	}
 	if r.InputPer1M < 0 || r.OutputPer1M < 0 {
 		return invalidf("模型 %q：Token 单价不能为负数", pattern)
@@ -256,30 +220,21 @@ func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
 	if errValidate := rule.Validate(); errValidate != nil {
 		return PriceRule{}, errValidate
 	}
-	rule.UpdatedAt = s.Now()
-
-	var errApply error
-	stored := updateResult(s, func(state *State) (PriceRule, bool) {
+	return updateResult(s, func(state *State) (PriceRule, bool) {
 		for i := range state.Prices {
 			if strings.EqualFold(strings.TrimSpace(state.Prices[i].Pattern), rule.Pattern) {
 				state.Prices[i] = rule
 				return rule, true
 			}
 		}
-		if len(state.Prices) >= MaxPriceRules {
-			errApply = invalidf("模型定价已达上限（%d 条）", MaxPriceRules)
-			return PriceRule{}, false
-		}
 		state.Prices = append(state.Prices, rule)
 		return rule, true
-	})
-	return stored, errApply
+	}), nil
 }
 
 // ResetPrices restores every row to its catalog default, dropping edits. Models
 // the catalog does not know go back to zero. It reports how many rows changed.
 func (s *Store) ResetPrices() int {
-	now := s.Now()
 	loaded := builtinCatalog()
 	return updateResult(s, func(state *State) (int, bool) {
 		changed := 0
@@ -294,7 +249,6 @@ func (s *Store) ResetPrices() int {
 			if samePrice(state.Prices[i], def) {
 				continue
 			}
-			def.UpdatedAt = now
 			state.Prices[i] = def
 			changed++
 		}
@@ -302,25 +256,10 @@ func (s *Store) ResetPrices() int {
 	})
 }
 
-type PlanView struct {
-	Plan
-	BoundKeys int `json:"bound_keys"`
-}
-
-func (s *Store) PlanViews() []PlanView {
-	views := []PlanView{}
-	s.Read(func(state *State) {
-		bound := make(map[string]int, len(state.Plans))
-		for _, key := range state.Keys {
-			if key != nil && key.PlanID != "" {
-				bound[key.PlanID]++
-			}
-		}
-		for _, plan := range state.Plans {
-			views = append(views, PlanView{Plan: plan, BoundKeys: bound[plan.ID]})
-		}
-	})
-	return views
+func (s *Store) Plans() []Plan {
+	plans := []Plan{}
+	s.Read(func(state *State) { plans = append(plans, state.Plans...) })
+	return plans
 }
 
 // CreatePlanWithBindings creates a plan and binds the selected currently
@@ -329,16 +268,9 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 	plan.ID = strings.TrimSpace(plan.ID)
 	plan.Name = strings.TrimSpace(plan.Name)
 	scopes = normalizeScopes(scopes)
-	if len(plan.Name) > MaxNameLength {
-		return Plan{}, invalidf("订阅计划名称不能超过 %d 个字符", MaxNameLength)
-	}
 	if plan.Period.Kind == "" {
 		plan.Period.Kind = PeriodDaily
 	}
-	now := s.Now()
-	plan.CreatedAt = now
-	plan.UpdatedAt = now
-
 	var errApply error
 	stored := updateResult(s, func(state *State) (Plan, bool) {
 		if plan.ID == "" {
@@ -350,10 +282,6 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 		}
 		if _, exists := state.FindPlan(plan.ID); exists {
 			errApply = conflictf("订阅计划 %q 已存在", plan.ID)
-			return Plan{}, false
-		}
-		if len(state.Plans) >= MaxPlans {
-			errApply = invalidf("订阅计划数量已达上限（%d 个）", MaxPlans)
 			return Plan{}, false
 		}
 		if plan.Name == "" {
@@ -404,12 +332,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 			}
 			updated := state.Plans[i]
 			if patch.Name != nil {
-				name := strings.TrimSpace(*patch.Name)
-				if len(name) > MaxNameLength {
-					errApply = invalidf("订阅计划名称不能超过 %d 个字符", MaxNameLength)
-					return Plan{}, false
-				}
-				updated.Name = name
+				updated.Name = strings.TrimSpace(*patch.Name)
 			}
 			if patch.AmountUSD != nil {
 				updated.AmountUSD = *patch.AmountUSD
@@ -440,7 +363,6 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 			}
 
 			periodChanged := updated.Period != state.Plans[i].Period
-			currentPlan := state.Plans[i]
 			if periodChanged || scopes != nil {
 				for scope, key := range state.Keys {
 					if key == nil {
@@ -448,7 +370,6 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 					}
 					_, shouldBind := selected[scope]
 					if key.PlanID == patch.ID && (periodChanged || !shouldBind) {
-						archiveCycle(key, currentPlan.AmountUSD)
 						key.Cycle = Cycle{}
 					}
 					if scopes != nil && key.PlanID == patch.ID && !shouldBind {
@@ -465,7 +386,6 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 					}
 				}
 			}
-			updated.UpdatedAt = s.Now()
 			state.Plans[i] = updated
 			return updated, true
 		}
@@ -494,7 +414,6 @@ func (s *Store) DeletePlan(id string) (int, error) {
 			errApply = notFoundf("订阅计划 %q 不存在", id)
 			return 0, false
 		}
-		limit := state.Plans[index].AmountUSD
 		state.Plans = append(state.Plans[:index], state.Plans[index+1:]...)
 
 		released := 0
@@ -502,7 +421,6 @@ func (s *Store) DeletePlan(id string) (int, error) {
 			if key == nil || key.PlanID != id {
 				continue
 			}
-			archiveCycle(key, limit)
 			key.PlanID = ""
 			key.Cycle = Cycle{}
 			released++
@@ -512,8 +430,6 @@ func (s *Store) DeletePlan(id string) (int, error) {
 	return unbound, errApply
 }
 
-// freePlanID derives an unused plan ID from a name, falling back to a counter
-// when the name yields no usable slug.
 func (s *State) freePlanID(name string) string {
 	base := slugify(name)
 	if !strings.ContainsAny(base, "abcdefghijklmnopqrstuvwxyz") {

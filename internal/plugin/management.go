@@ -35,10 +35,9 @@ const (
 	routeKeysSync       = "/keys/sync"
 	routeStats          = "/stats"
 	routeLogs           = "/logs"
+	routeEvents         = "/events"
 )
 
-// managementRegistration declares every route this plugin owns.
-//
 // Management routes are authenticated by CPA and must be exact paths: the host
 // rejects ':' and '*', so record identifiers travel in the query string or the
 // body. The single resource route is what the panel renders as a sidebar entry.
@@ -54,7 +53,7 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPost, Path: managementBase + routePricesReset, Description: "恢复模型参考价。"},
 			{Method: http.MethodPost, Path: managementBase + routePricesSync, Description: "同步代理模型。"},
 
-			{Method: http.MethodGet, Path: managementBase + routePlans, Description: "查看订阅计划及其 Key 绑定数量。"},
+			{Method: http.MethodGet, Path: managementBase + routePlans, Description: "查看订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routePlans, Description: "新建订阅计划。"},
 			{Method: http.MethodPatch, Path: managementBase + routePlans, Description: "更新订阅计划。"},
 			{Method: http.MethodDelete, Path: managementBase + routePlans, Description: "删除订阅计划并解除相关 Key 的绑定。"},
@@ -69,6 +68,8 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodGet, Path: managementBase + routeStats, Description: "查看全局用量汇总。"},
 			{Method: http.MethodGet, Path: managementBase + routeLogs, Description: "查看最近的逐请求计费记录。"},
 			{Method: http.MethodDelete, Path: managementBase + routeLogs, Description: "清空计费日志。"},
+			{Method: http.MethodGet, Path: managementBase + routeEvents, Description: "查看插件运行日志。"},
+			{Method: http.MethodDelete, Path: managementBase + routeEvents, Description: "清空插件运行日志。"},
 		},
 		Resources: []ResourceRoute{
 			{Path: resourceBase + resourceUIPath, Menu: MenuLabel, Description: MenuDescription},
@@ -76,10 +77,8 @@ func managementRegistration() ManagementRegistrationResponse {
 	}
 }
 
-// handleManagement dispatches both authenticated Management API calls and the
-// unauthenticated browser resource GETs, which CPA routes through this same
-// method.
-//
+// CPA routes authenticated Management calls and unauthenticated resource GETs
+// through this same method.
 // Note that the host HTML-escapes every string in a JSON management response
 // (internal/pluginhost/management.go). Values that survive a round trip through
 // the UI must therefore be entity-decoded on read, or "A & B" becomes
@@ -106,13 +105,7 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementResponse {
 	switch req.Method + " " + suffix {
 	case http.MethodGet + " " + routeStatus:
-		return JSONResponse(http.StatusOK, struct {
-			billing.Status
-			PluginProtocol uint32 `json:"plugin_protocol"`
-		}{
-			Status:         a.store.Status(PluginName, Version),
-			PluginProtocol: negotiatedSchema(a.hostSchema.Load()),
-		})
+		return JSONResponse(http.StatusOK, a.store.Status())
 
 	case http.MethodGet + " " + routePrices:
 		return a.priceTable()
@@ -128,7 +121,7 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 		return a.syncModels(req)
 
 	case http.MethodGet + " " + routePlans:
-		return JSONResponse(http.StatusOK, map[string]any{"plans": a.store.PlanViews()})
+		return JSONResponse(http.StatusOK, map[string]any{"plans": a.store.Plans()})
 	case http.MethodPost + " " + routePlans:
 		return a.createPlan(req)
 	case http.MethodPatch + " " + routePlans:
@@ -139,11 +132,11 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 	case http.MethodGet + " " + routeKeys:
 		return JSONResponse(http.StatusOK, a.store.KeyDirectory())
 	case http.MethodPost + " " + routeKeysBind:
-		return a.bindKeys(req)
+		return a.bindKey(req)
 	case http.MethodPost + " " + routeKeysUnbind:
-		return a.unbindKeys(req)
+		return a.unbindKey(req)
 	case http.MethodPost + " " + routeKeysReset:
-		return a.resetKeys(req)
+		return a.resetKey(req)
 	case http.MethodPost + " " + routeKeysLabel:
 		return a.labelKey(req)
 	case http.MethodPost + " " + routeKeysSync:
@@ -155,6 +148,10 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 		return a.listLogs(req)
 	case http.MethodDelete + " " + routeLogs:
 		return a.clearLogs()
+	case http.MethodGet + " " + routeEvents:
+		return JSONResponse(http.StatusOK, map[string]any{"events": a.store.Events()})
+	case http.MethodDelete + " " + routeEvents:
+		return JSONResponse(http.StatusOK, map[string]any{"cleared": a.store.ClearEvents()})
 	default:
 		return JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path)
 	}
@@ -176,8 +173,7 @@ func (a *App) serveResource(suffix string) ManagementResponse {
 	}
 }
 
-// errorResponse maps a billing-domain failure onto an HTTP status. An
-// unclassified error is a bug rather than bad input, so it reports 500.
+// An unclassified domain error is a bug rather than bad input, so it reports 500.
 func errorResponse(err error) ManagementResponse {
 	switch billing.KindOf(err) {
 	case billing.KindInvalid:

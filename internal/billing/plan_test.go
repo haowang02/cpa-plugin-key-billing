@@ -65,45 +65,12 @@ func TestCycleIsInactiveUntilUseAndAgainAfterReset(t *testing.T) {
 		t.Fatalf("first cycle = %+v", key.Cycle)
 	}
 	key.Cycle.SpentUSD = 3
-	key.Cycle.Requests = 2
 	if !settleExpiredCycle(key, plan, key.Cycle.EndAt) || key.Cycle != (Cycle{}) {
 		t.Fatalf("expired cycle did not return to initial state: %+v", key.Cycle)
-	}
-	if len(key.RecentCycles) != 1 || key.RecentCycles[0].SpentUSD != 3 {
-		t.Fatalf("history = %+v", key.RecentCycles)
 	}
 
 	nextUse := firstUse.Add(3 * 24 * time.Hour)
 	if !activateCycle(key, plan, nextUse) || !key.Cycle.StartAt.Equal(nextUse) {
 		t.Fatalf("next cycle did not start at next use: %+v", key.Cycle)
-	}
-}
-
-func TestNeverResetCycleOnlyManualResetCanClear(t *testing.T) {
-	plan := Plan{ID: "forever", AmountUSD: 5, Period: Period{Kind: PeriodNever}}
-	start := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
-	key := &KeyState{PlanID: plan.ID}
-	activateCycle(key, plan, start)
-	key.Cycle.SpentUSD = 5
-	key.Cycle.Requests = 1
-	if !key.Cycle.EndAt.IsZero() || settleExpiredCycle(key, plan, start.Add(100*365*24*time.Hour)) {
-		t.Fatalf("never-reset cycle changed automatically: %+v", key.Cycle)
-	}
-	archiveCycle(key, plan.AmountUSD)
-	key.Cycle = Cycle{}
-	if !key.Cycle.StartAt.IsZero() || len(key.RecentCycles) != 1 {
-		t.Fatalf("manual reset failed: cycle=%+v history=%+v", key.Cycle, key.RecentCycles)
-	}
-}
-
-func TestRecentCycleHistoryIsBounded(t *testing.T) {
-	key := &KeyState{}
-	for i := 0; i < MaxRecentCycles+5; i++ {
-		start := time.Date(2026, 1, 1+i, 0, 0, 0, 0, time.UTC)
-		key.Cycle = Cycle{PlanID: "p", StartAt: start, EndAt: start.Add(time.Hour), SpentUSD: float64(i + 1), Requests: 1}
-		archiveCycle(key, 100)
-	}
-	if len(key.RecentCycles) != MaxRecentCycles {
-		t.Fatalf("history len = %d", len(key.RecentCycles))
 	}
 }

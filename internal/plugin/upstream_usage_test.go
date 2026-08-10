@@ -18,7 +18,7 @@ func TestUpstreamUsageNormalizesGeminiAndInteractions(t *testing.T) {
 			format: "gemini",
 			body:   `{"usageMetadata":{"promptTokenCount":10,"toolUsePromptTokenCount":5,"cachedContentTokenCount":4,"candidatesTokenCount":2,"thoughtsTokenCount":3,"totalTokenCount":20}}`,
 			want: billing.TokenBreakdown{
-				SchemaVersion: billing.TokenAccountingSchemaVersion, Quality: billing.TokenAccountingComplete, TotalTokens: 20,
+				Quality: billing.TokenAccountingComplete, TotalTokens: 20,
 				Input:  billing.TokenInputBreakdown{TotalTokens: 15, UncachedTokens: 11, CacheReadTokens: 4},
 				Output: billing.TokenOutputBreakdown{TotalTokens: 5, NonReasoningTokens: 2, ReasoningTokens: 3},
 			},
@@ -28,7 +28,7 @@ func TestUpstreamUsageNormalizesGeminiAndInteractions(t *testing.T) {
 			format: "interactions",
 			body:   `{"interaction":{"id":"int-1","usage":{"total_input_tokens":2,"total_tool_use_tokens":4,"total_output_tokens":6,"total_thought_tokens":3,"total_tokens":15}}}`,
 			want: billing.TokenBreakdown{
-				SchemaVersion: billing.TokenAccountingSchemaVersion, Quality: billing.TokenAccountingComplete, TotalTokens: 15,
+				Quality: billing.TokenAccountingComplete, TotalTokens: 15,
 				Input:  billing.TokenInputBreakdown{TotalTokens: 6, UncachedTokens: 6},
 				Output: billing.TokenOutputBreakdown{TotalTokens: 9, NonReasoningTokens: 6, ReasoningTokens: 3},
 			},

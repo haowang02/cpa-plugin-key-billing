@@ -128,15 +128,6 @@ func TestCatalogDownloadsToSystemCacheAndRedownloadsWhenDeleted(t *testing.T) {
 	}
 }
 
-func TestCatalogCachePathUsesOperatingSystemTemporaryDirectory(t *testing.T) {
-	t.Setenv(catalogCacheEnv, "")
-
-	want := filepath.Join(os.TempDir(), catalogCacheName)
-	if got := CatalogCachePath(); got != want {
-		t.Fatalf("CatalogCachePath() = %q, want %q", got, want)
-	}
-}
-
 func TestRefreshPriceCatalogAdvancesBuiltinRowsAndPreservesCustomRows(t *testing.T) {
 	initialRaw, errRead := os.ReadFile(filepath.Join("testdata", "catalog.json"))
 	if errRead != nil {

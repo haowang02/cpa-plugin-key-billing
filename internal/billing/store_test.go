@@ -50,7 +50,7 @@ func TestStoreFlushPersistsAndReloads(t *testing.T) {
 		state.Keys["scope-a"] = &KeyState{
 			Preview:  "sk-tes…0001",
 			PlanID:   "monthly-20",
-			Cycle:    Cycle{SpentUSD: 1.5, Requests: 3},
+			Cycle:    Cycle{SpentUSD: 1.5},
 			Lifetime: Totals{CostUSD: 1.5, Requests: 3, UncachedInputTokens: 100},
 		}
 	})
@@ -214,13 +214,13 @@ func TestStoreFlushIfDueDebouncesWrites(t *testing.T) {
 	clock = clock.Add(DefaultFlushInterval - time.Second)
 	store.Update(func(state *State) { state.Keys["scope-a"].Lifetime.CostUSD = 2 })
 	store.FlushIfDue()
-	if !store.Status("p", "v").PendingWrite {
+	if !store.dirty.Load() {
 		t.Fatal("a write inside the debounce window was not held back")
 	}
 
 	clock = clock.Add(2 * time.Second)
 	store.FlushIfDue()
-	if store.Status("p", "v").PendingWrite {
+	if store.dirty.Load() {
 		t.Fatal("the held-back write never landed")
 	}
 	raw, errRead := os.ReadFile(cfg.StateFile)
@@ -334,9 +334,9 @@ func TestStoreFlushKeepsDocumentDirtyOnWriteFailure(t *testing.T) {
 	if errFlush := store.Flush(); errFlush == nil {
 		t.Fatal("Flush succeeded against an unwritable directory, want an error")
 	}
-	// Spend must not be dropped because the disk write failed; the next tick
-	// has to retry it.
-	if status := store.Status("p", "v"); !status.PendingWrite || status.LastError == "" {
-		t.Fatalf("PendingWrite = %v, LastError = %q, want a retained dirty flag and a recorded error", status.PendingWrite, status.LastError)
+	// Spend must not be dropped because the disk write failed; the next host
+	// call has to retry it.
+	if !store.dirty.Load() {
+		t.Fatal("the document was marked clean after a failed write")
 	}
 }

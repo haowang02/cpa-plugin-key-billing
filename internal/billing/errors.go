@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// ErrorKind lets the HTTP layer classify domain failures.
 type ErrorKind string
 
 const (
@@ -14,8 +13,7 @@ const (
 	KindConflict ErrorKind = "conflict"
 )
 
-// Error is an administrative failure. Msg is written for an operator to read,
-// so it carries no kind prefix; callers classify with KindOf instead.
+// Msg is operator-facing; callers classify the error with KindOf.
 type Error struct {
 	Kind ErrorKind
 	Msg  string

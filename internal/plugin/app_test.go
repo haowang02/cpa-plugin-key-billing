@@ -3,7 +3,6 @@ package plugin
 import (
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -11,8 +10,7 @@ import (
 func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	app := newConfiguredApp(t)
 	raw, errHandle := app.HandleMethod(MethodPluginReconfigure, mustMarshal(t, LifecycleRequest{
-		ConfigYAML:    []byte("enabled: true\n"),
-		SchemaVersion: SchemaVersion,
+		ConfigYAML: []byte("enabled: true\n"),
 	}))
 	if errHandle != nil {
 		t.Fatalf("plugin.reconfigure error = %v", errHandle)
@@ -20,13 +18,14 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	var registration Registration
 	decodeResult(t, raw, &registration)
 
+	// The host refuses to load a plugin declaring more than it implements.
 	if registration.SchemaVersion != SchemaVersion {
 		t.Fatalf("SchemaVersion = %d, want %d", registration.SchemaVersion, SchemaVersion)
 	}
 	caps := registration.Capabilities
-	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.ManagementAPI ||
-		caps.ResponseBeforeTranslator || caps.ResponseInterceptor || caps.StreamChunkInterceptor {
-		t.Fatalf("capabilities = %+v, want canonical lifecycle billing only", caps)
+	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.ResponseBeforeTranslator ||
+		!caps.ResponseInterceptor || !caps.StreamChunkInterceptor || !caps.UsagePlugin || !caps.ManagementAPI {
+		t.Fatalf("capabilities = %+v, want every hook billing depends on", caps)
 	}
 	if registration.Metadata.Name != PluginName || registration.Metadata.Version != Version {
 		t.Fatalf("metadata = %+v", registration.Metadata)
@@ -38,42 +37,8 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	for _, field := range registration.Metadata.ConfigFields {
 		fields[field.Name] = field
 	}
-	if fields["log_entries"].Type != "integer" || fields["state_file"].Type != "string" || fields["enabled"].Type != "boolean" {
+	if fields["state_file"].Type != "string" || fields["enabled"].Type != "boolean" {
 		t.Fatalf("ConfigFields = %+v", registration.Metadata.ConfigFields)
-	}
-}
-
-func TestRegisterRejectsUnsupportedHostSchema(t *testing.T) {
-	app := NewApp()
-	t.Cleanup(app.Shutdown)
-	_, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
-		ConfigYAML:    []byte("enabled: true\n"),
-		SchemaVersion: MinHostSchemaVersion - 1,
-	}))
-	if errHandle == nil {
-		t.Fatal("plugin.register accepted an unsupported host schema")
-	}
-}
-
-func TestRegisterEnablesProtocol2ResponseHooks(t *testing.T) {
-	app := NewApp()
-	t.Cleanup(app.Shutdown)
-	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
-		ConfigYAML:    []byte("enabled: true\nstate_file: \"" + filepath.Join(t.TempDir(), "state.json") + "\"\n"),
-		SchemaVersion: MinHostSchemaVersion,
-	}))
-	if errHandle != nil {
-		t.Fatalf("plugin.register error = %v", errHandle)
-	}
-	var registration Registration
-	decodeResult(t, raw, &registration)
-	if registration.SchemaVersion != MinHostSchemaVersion {
-		t.Fatalf("SchemaVersion = %d, want %d", registration.SchemaVersion, MinHostSchemaVersion)
-	}
-	caps := registration.Capabilities
-	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.ResponseBeforeTranslator ||
-		!caps.ResponseInterceptor || !caps.StreamChunkInterceptor || !caps.ManagementAPI {
-		t.Fatalf("capabilities = %+v, want protocol 2 response hooks", caps)
 	}
 }
 

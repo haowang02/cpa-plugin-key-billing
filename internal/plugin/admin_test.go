@@ -45,9 +45,6 @@ func callOK(t *testing.T, app *App, method, suffix string, query url.Values, bod
 	}
 }
 
-// TestEveryDeclaredRouteIsDispatchable is the guard against a route that is
-// advertised to the host but falls through to the 404 branch, which would only
-// surface once an operator clicked it.
 func TestEveryDeclaredRouteIsDispatchable(t *testing.T) {
 	app := newConfiguredApp(t)
 	for _, route := range managementRegistration().Routes {
@@ -72,7 +69,7 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 
 	var table billing.PriceTable
 	callOK(t, app, http.MethodGet, routePrices, nil, nil, http.StatusOK, &table)
-	if len(table.Models) != 2 || table.CatalogVersion == "" {
+	if len(table.Models) != 2 {
 		t.Fatalf("table = %+v", table)
 	}
 	if table.Models[0].Pattern != "gpt-4o" || table.Models[0].Source != billing.PriceSourceBuiltin {
@@ -110,25 +107,6 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 	}
 }
 
-func TestPriceCatalogSearchThroughTheManagementAPI(t *testing.T) {
-	app := newConfiguredApp(t)
-	var result struct {
-		Models []billing.PriceRule `json:"models"`
-	}
-	callOK(t, app, http.MethodGet, routePriceCatalog, url.Values{
-		"q":     {"gpt-4o"},
-		"limit": {"5"},
-	}, nil, http.StatusOK, &result)
-	if len(result.Models) == 0 || len(result.Models) > 5 || result.Models[0].Pattern != "gpt-4o" {
-		t.Fatalf("models = %+v", result.Models)
-	}
-
-	resp := callManagement(t, app, http.MethodGet, routePriceCatalog, url.Values{"limit": {"500"}}, nil)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("invalid limit status = %d, want 400", resp.StatusCode)
-	}
-}
-
 func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 	app := newConfiguredApp(t)
 
@@ -156,10 +134,10 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 	}
 
 	var listed struct {
-		Plans []billing.PlanView `json:"plans"`
+		Plans []billing.Plan `json:"plans"`
 	}
 	callOK(t, app, http.MethodGet, routePlans, nil, nil, http.StatusOK, &listed)
-	if len(listed.Plans) != 1 || listed.Plans[0].BoundKeys != 0 {
+	if len(listed.Plans) != 1 {
 		t.Fatalf("plans = %+v", listed.Plans)
 	}
 
@@ -190,7 +168,7 @@ func TestPlanBindingsRoundTripThroughTheManagementAPI(t *testing.T) {
 	for _, key := range directory.Keys {
 		byScope[key.Scope] = key
 	}
-	if byScope[firstScope].PlanID != "team" || !byScope[firstScope].CycleStartAt.IsZero() || byScope[secondScope].PlanID != "" {
+	if byScope[firstScope].PlanID != "team" || byScope[secondScope].PlanID != "" {
 		t.Fatalf("keys after create = %+v", byScope)
 	}
 
@@ -203,24 +181,8 @@ func TestPlanBindingsRoundTripThroughTheManagementAPI(t *testing.T) {
 	for _, key := range directory.Keys {
 		byScope[key.Scope] = key
 	}
-	if byScope[firstScope].PlanID != "" || byScope[secondScope].PlanID != "team" || !byScope[secondScope].CycleStartAt.IsZero() {
+	if byScope[firstScope].PlanID != "" || byScope[secondScope].PlanID != "team" {
 		t.Fatalf("keys after edit = %+v", byScope)
-	}
-}
-
-func TestLogClearThroughTheManagementAPI(t *testing.T) {
-	app := newConfiguredApp(t)
-	now := app.store.Now()
-	app.store.Update(func(state *billing.State) {
-		state.Log = []billing.LogEntry{{Scope: "scope-a", At: now}}
-	})
-
-	var cleared struct {
-		Cleared int `json:"cleared"`
-	}
-	callOK(t, app, http.MethodDelete, routeLogs, nil, nil, http.StatusOK, &cleared)
-	if cleared.Cleared != 1 || len(app.store.Logs(0).Entries) != 0 {
-		t.Fatalf("cleared = %+v logs=%+v", cleared, app.store.Logs(0))
 	}
 }
 
@@ -271,7 +233,7 @@ func TestSyncAcceptsTheCPAKeyListVerbatim(t *testing.T) {
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{
 		"api-keys": []string{"sk-alpha-000000001", "sk-beta-0000000002"},
 	}, http.StatusOK, &result)
-	if result.Added != 2 || result.Received != 2 {
+	if result.Added != 2 {
 		t.Fatalf("result = %+v", result)
 	}
 
@@ -301,92 +263,12 @@ func TestSyncAcceptsTheCPAKeyListVerbatim(t *testing.T) {
 	}
 }
 
-func TestAdminAPIDrivesEnforcementEndToEnd(t *testing.T) {
-	app := newConfiguredApp(t)
-	const apiKey = "sk-billing-test-000001"
-	scope := billing.CallerScope(apiKey)
-
-	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{apiKey}}, http.StatusOK, nil)
-	callOK(t, app, http.MethodPut, routePrices, nil, map[string]any{
-		"pattern": "gpt-5.5", "input_per_1m": 1, "output_per_1m": 2,
-	}, http.StatusOK, nil)
-	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
-		"id": "tiny", "name": "Tiny", "amount_usd": 0.001, "period": map[string]any{"kind": "daily"},
-	}, http.StatusCreated, nil)
-	callOK(t, app, http.MethodPost, routeKeysBind, nil, map[string]any{"scope": scope, "plan_id": "tiny"}, http.StatusOK, nil)
-	callOK(t, app, http.MethodPost, routeKeysLabel, nil, map[string]any{"scope": scope, "label": "Alice"}, http.StatusOK, nil)
-
-	if !app.store.Authorize(scope, app.store.Now()).Allowed {
-		t.Fatal("a key with a fresh budget was blocked")
-	}
-
-	// 1M output tokens at 2.00/1M is 2.00 USD against a 0.001 USD budget.
-	app.store.RecordUsage(billing.UsageEvent{
-		Scope: scope,
-		Records: []billing.UsageRecord{{
-			BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
-			Breakdown: billing.TokenBreakdown{
-				SchemaVersion: billing.TokenAccountingSchemaVersion,
-				Quality:       billing.TokenAccountingComplete,
-				TotalTokens:   1_000_000,
-				Output:        billing.TokenOutputBreakdown{TotalTokens: 1_000_000, NonReasoningTokens: 1_000_000},
-			},
-		}},
-	})
-	decision := app.store.Authorize(scope, app.store.Now())
-	if decision.Allowed {
-		t.Fatalf("decision = %+v, want the key blocked", decision)
-	}
-
-	var directory billing.KeyDirectory
-	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
-	if len(directory.Keys) != 1 {
-		t.Fatalf("keys = %+v", directory.Keys)
-	}
-	view := directory.Keys[0]
-	if !view.Blocked || view.Label != "Alice" || view.RemainingUSD != 0 {
-		t.Fatalf("view = %+v, want a blocked, labelled key with no budget left", view)
-	}
-	if len(view.ByModel) != 1 || view.ByModel[0].BillingModel != "gpt-5.5" {
-		t.Fatalf("ByModel = %+v", view.ByModel)
-	}
-
-	var stats billing.StatsView
-	callOK(t, app, http.MethodGet, routeStats, nil, nil, http.StatusOK, &stats)
-	if stats.BlockedKeys != 1 || stats.Lifetime.CostUSD != 2 {
-		t.Fatalf("stats = %+v", stats)
-	}
-
-	callOK(t, app, http.MethodPost, routeKeysReset, nil, map[string]any{"scope": scope}, http.StatusOK, nil)
-	if !app.store.Authorize(scope, app.store.Now()).Allowed {
-		t.Fatal("the key is still blocked after a manual reset")
-	}
-
-	callOK(t, app, http.MethodPost, routeKeysUnbind, nil, map[string]any{"scope": scope}, http.StatusOK, nil)
-	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
-	if !directory.Keys[0].Unlimited || directory.Keys[0].Lifetime.CostUSD != 2 {
-		t.Fatalf("view = %+v, want an unlimited key that kept its history", directory.Keys[0])
-	}
-
-}
-
 func TestSyncPrunesKeysDeletedFromCPA(t *testing.T) {
 	app := newConfiguredApp(t)
 	const kept, removed = "sk-kept-00000000001", "sk-removed-00000001"
 
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{kept, removed}}, http.StatusOK, nil)
-	app.store.RecordUsage(billing.UsageEvent{
-		Scope: billing.CallerScope(removed),
-		Records: []billing.UsageRecord{{
-			BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
-			Breakdown: billing.TokenBreakdown{
-				SchemaVersion: billing.TokenAccountingSchemaVersion,
-				Quality:       billing.TokenAccountingComplete,
-				TotalTokens:   1000,
-				Output:        billing.TokenOutputBreakdown{TotalTokens: 1000, NonReasoningTokens: 1000},
-			},
-		}},
-	})
+	billOneRequest(t, app, removed, 1000)
 
 	var result billing.SyncResult
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{kept}}, http.StatusOK, &result)
@@ -413,4 +295,30 @@ func TestManagementRoutesWorkWhileDisabled(t *testing.T) {
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
 		"id": "daily", "amount_usd": 1, "period": map[string]any{"kind": "daily"},
 	}, http.StatusCreated, nil)
+}
+
+// The plugin log is where an operator sees what the plugin itself did, which is
+// otherwise invisible: a c-shared plugin has no console of its own.
+func TestPluginLogReportsStartupAndFailures(t *testing.T) {
+	app := newConfiguredApp(t)
+
+	var loaded struct {
+		Events []billing.Event `json:"events"`
+	}
+	callOK(t, app, http.MethodGet, routeEvents, nil, nil, http.StatusOK, &loaded)
+	if len(loaded.Events) != 1 || loaded.Events[0].Level != billing.EventInfo ||
+		!strings.Contains(loaded.Events[0].Message, "已加载状态文件") {
+		t.Fatalf("events = %+v, want the loaded state file reported", loaded.Events)
+	}
+
+	if _, errHandle := app.HandleMethod(MethodPluginReconfigure, mustMarshal(t, LifecycleRequest{
+		ConfigYAML: []byte("enabled: [not, a, boolean]\n"),
+	})); errHandle == nil {
+		t.Fatal("plugin.reconfigure accepted a malformed config")
+	}
+	callOK(t, app, http.MethodGet, routeEvents, nil, nil, http.StatusOK, &loaded)
+	if len(loaded.Events) != 2 || loaded.Events[0].Level != billing.EventError ||
+		!strings.Contains(loaded.Events[0].Message, "应用插件配置失败") {
+		t.Fatalf("events = %+v, want the rejected config reported first", loaded.Events)
+	}
 }

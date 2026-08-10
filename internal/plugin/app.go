@@ -4,21 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync/atomic"
 
 	"cpa-key-billing/internal/billing"
 )
 
 type App struct {
-	store      *billing.Store
-	hostSchema atomic.Uint32
-	protocol2  *protocol2UsageTracker
+	store *billing.Store
+	usage *usageTracker
 }
 
 func NewApp() *App {
 	return &App{
-		store:     billing.NewStore(),
-		protocol2: newProtocol2UsageTracker(),
+		store: billing.NewStore(),
+		usage: newUsageTracker(),
 	}
 }
 
@@ -30,6 +28,7 @@ func (a *App) HandleMethod(method string, request []byte) (response []byte, err 
 		if recovered := recover(); recovered != nil {
 			response = nil
 			err = fmt.Errorf("插件处理 %s 时发生异常：%v", method, recovered)
+			a.store.Event(billing.EventError, "%v", err)
 		}
 	}()
 	response, err = a.handleMethod(method, request)
@@ -49,9 +48,10 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 	switch method {
 	case MethodPluginRegister, MethodPluginReconfigure:
 		if errConfigure := a.configure(request); errConfigure != nil {
+			a.store.Event(billing.EventError, "应用插件配置失败：%v", errConfigure)
 			return nil, errConfigure
 		}
-		return OKEnvelope(registration(a.hostSchema.Load()))
+		return OKEnvelope(registration())
 	case MethodRequestInterceptBefore:
 		return a.interceptBeforeAuth(request)
 	case MethodRequestInterceptAfter:
@@ -62,10 +62,8 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 		return a.handleUsage(request)
 	case MethodResponseNormalizeBefore:
 		return a.normalizeResponseBefore(request)
-	case MethodResponseInterceptAfter:
-		return a.interceptResponseAfter(request)
-	case MethodResponseStreamChunk:
-		return a.interceptResponseStreamChunk(request)
+	case MethodResponseInterceptAfter, MethodResponseStreamChunk:
+		return a.interceptResponse(request)
 	case MethodManagementRegister:
 		return OKEnvelope(managementRegistration())
 	case MethodManagementHandle:
@@ -89,26 +87,16 @@ func (a *App) configure(raw []byte) error {
 			return fmt.Errorf("解析插件生命周期请求：%w", errUnmarshal)
 		}
 	}
-	if req.SchemaVersion < MinHostSchemaVersion {
-		return fmt.Errorf("%s 需要宿主插件协议版本不低于 %d，当前版本为 %d",
-			PluginID, MinHostSchemaVersion, req.SchemaVersion)
-	}
 	cfg, errDecode := billing.DecodeConfig(req.ConfigYAML)
 	if errDecode != nil {
 		return errDecode
 	}
-	if errConfigure := a.store.Configure(cfg); errConfigure != nil {
-		return errConfigure
-	}
-	a.hostSchema.Store(req.SchemaVersion)
-	return nil
+	return a.store.Configure(cfg)
 }
 
-func registration(hostSchema uint32) Registration {
-	negotiatedSchema := negotiatedSchema(hostSchema)
-	protocol2Usage := negotiatedSchema < CanonicalUsageSchemaVersion
+func registration() Registration {
 	return Registration{
-		SchemaVersion: negotiatedSchema,
+		SchemaVersion: SchemaVersion,
 		Metadata: Metadata{
 			Name:             PluginName,
 			Version:          Version,
@@ -125,28 +113,16 @@ func registration(hostSchema uint32) Registration {
 					Type:        "string",
 					Description: "计费状态 JSON 文件路径。",
 				},
-				{
-					Name:        "log_entries",
-					Type:        "integer",
-					Description: "保留的计费日志条数；设为 0 可关闭日志。",
-				},
 			},
 		},
 		Capabilities: Capabilities{
 			RequestInterceptor:       true,
 			RequestLifecyclePlugin:   true,
-			ResponseBeforeTranslator: protocol2Usage,
-			ResponseInterceptor:      protocol2Usage,
-			StreamChunkInterceptor:   protocol2Usage,
+			ResponseBeforeTranslator: true,
+			ResponseInterceptor:      true,
+			StreamChunkInterceptor:   true,
 			UsagePlugin:              true,
 			ManagementAPI:            true,
 		},
 	}
-}
-
-func negotiatedSchema(hostSchema uint32) uint32 {
-	if hostSchema > SchemaVersion {
-		return SchemaVersion
-	}
-	return hostSchema
 }

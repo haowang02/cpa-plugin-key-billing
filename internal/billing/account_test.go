@@ -28,11 +28,19 @@ func newAccountStore(t *testing.T, now time.Time) *Store {
 func subsetEvent(scope string, at time.Time) UsageEvent {
 	return UsageEvent{
 		Scope: scope, RequestID: "req-1", Endpoint: "/v1/messages", AuthIndex: "auth-codex", At: at,
-		Records: []UsageRecord{{
+		Record: &UsageRecord{
 			BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
 			Breakdown: completeBreakdown(500, 400, 100, 500, 200),
-		}},
+		},
 	}
+}
+
+func admittedEvent(store *Store, scope string, at time.Time) UsageEvent {
+	decision := store.Authorize(scope, at)
+	event := subsetEvent(scope, at)
+	event.CyclePlanID = decision.PlanID
+	event.CycleStartAt = decision.CycleStartAt
+	return event
 }
 
 const wantSubsetCost = 0.0005 + 0.00004 + 0.000125 + 0.001
@@ -65,7 +73,7 @@ func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 		})
 	})
 	event := subsetEvent("scope-a", now)
-	event.Records[0].BillingModel = "claude/gpt-latest"
+	event.Record.BillingModel = "claude/gpt-latest"
 	store.RecordUsage(event)
 
 	store.Read(func(state *State) {
@@ -81,62 +89,16 @@ func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 	})
 }
 
-func TestRecordUsageIgnoresNonGenerationRecords(t *testing.T) {
+func TestRecordUsageIgnoresANonGenerationRecord(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, now)
 	event := subsetEvent("scope-a", now)
-	event.Records[0].Generate = false
+	event.Record.Generate = false
 	store.RecordUsage(event)
 	store.Read(func(state *State) {
 		if state.Keys["scope-a"] != nil || len(state.Log) != 0 {
 			t.Fatalf("non-generation record was billed: %+v", state)
 		}
-	})
-}
-
-func TestRecordUsageAccumulatesAndRollsPlanCycle(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	store := newAccountStore(t, now)
-	store.Update(func(state *State) {
-		state.Plans = []Plan{{ID: "daily-5", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
-		state.Keys["scope-a"] = &KeyState{PlanID: "daily-5"}
-	})
-
-	store.RecordUsage(subsetEvent("scope-a", now))
-	store.RecordUsage(subsetEvent("scope-a", now.Add(24*time.Hour)))
-
-	store.Read(func(state *State) {
-		key := state.Keys["scope-a"]
-		if key.Cycle.Requests != 1 || len(key.RecentCycles) != 1 {
-			t.Fatalf("key = %+v, want one current and one archived request", key)
-		}
-		assertClose(t, "CycleSpent", key.Cycle.SpentUSD, wantSubsetCost)
-		assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, 2*wantSubsetCost)
-	})
-}
-
-func TestLateCompletionStaysInItsAdmissionCycle(t *testing.T) {
-	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	store := newAccountStore(t, start)
-	store.Update(func(state *State) {
-		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
-		state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
-	})
-	decision := store.Authorize("scope-a", start)
-	event := subsetEvent("scope-a", start.Add(25*time.Hour))
-	event.AttributionKnown = true
-	event.CyclePlanID = decision.PlanID
-	event.CycleStartAt = decision.CycleStartAt
-	event.CycleEndAt = decision.ResetAt
-	event.CycleLimitUSD = decision.LimitUSD
-	store.RecordUsage(event)
-
-	store.Read(func(state *State) {
-		key := state.Keys["scope-a"]
-		if key.Cycle != (Cycle{}) || len(key.RecentCycles) != 1 || key.RecentCycles[0].Requests != 1 {
-			t.Fatalf("key = %+v, want one charged archived cycle", key)
-		}
-		assertClose(t, "archived cost", key.RecentCycles[0].SpentUSD, wantSubsetCost)
 	})
 }
 
@@ -154,20 +116,15 @@ func TestConcurrentLateCompletionDoesNotChargeNewCycle(t *testing.T) {
 	}
 
 	event := subsetEvent("scope-a", start.Add(26*time.Hour))
-	event.AttributionKnown = true
 	event.CyclePlanID = firstCycle.PlanID
 	event.CycleStartAt = firstCycle.CycleStartAt
-	event.CycleEndAt = firstCycle.ResetAt
-	event.CycleLimitUSD = firstCycle.LimitUSD
 	store.RecordUsage(event)
 
 	store.Read(func(state *State) {
 		key := state.Keys["scope-a"]
-		if !key.Cycle.StartAt.Equal(newCycle.CycleStartAt) || key.Cycle.Requests != 0 || key.Cycle.SpentUSD != 0 {
+		if !key.Cycle.StartAt.Equal(newCycle.CycleStartAt) || key.Cycle.SpentUSD != 0 {
 			t.Fatalf("new cycle was charged: %+v", key.Cycle)
 		}
-		if len(key.RecentCycles) != 1 || !key.RecentCycles[0].StartAt.Equal(firstCycle.CycleStartAt) || key.RecentCycles[0].Requests != 1 {
-			t.Fatalf("first cycle history = %+v", key.RecentCycles)
-		}
+		assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, wantSubsetCost)
 	})
 }

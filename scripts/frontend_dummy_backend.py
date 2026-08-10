@@ -24,14 +24,12 @@ PLANS = [
         "name": "研发团队",
         "amount_usd": 500,
         "period": {"kind": "monthly"},
-        "bound_keys": 14,
     },
     {
         "id": "one-time",
         "name": "一次性额度",
         "amount_usd": 50,
         "period": {"kind": "never"},
-        "bound_keys": 1,
     },
 ]
 
@@ -52,15 +50,10 @@ def make_key(index):
         "blocked": False,
         "limit_usd": 500 if plan_id == "team-monthly" else 50 if plan_id else 0,
         "spent_usd": cost if plan_id else 0,
-        "remaining_usd": max(0, (500 if plan_id == "team-monthly" else 50) - cost) if plan_id else 0,
         "used_percent": cost / (500 if plan_id == "team-monthly" else 50) * 100 if plan_id else 0,
-        "cycle_requests": requests if plan_id else 0,
         "lifetime": {"requests": requests, "cost_usd": cost},
-        "first_seen": iso(NOW - timedelta(days=30)),
-        "last_seen": iso(NOW - timedelta(minutes=index)),
     }
     if plan_id == "team-monthly":
-        result["cycle_start_at"] = iso(NOW - timedelta(days=5))
         result["cycle_end_at"] = iso(NOW + timedelta(days=25))
     return result
 
@@ -209,6 +202,28 @@ LOG_CASES = [
         "reasoning_tokens": 400,
         "cost": make_cost(160889, 0, 0, 4096, (2.5, 2.5, 2.5, 15), True, False),
     },
+    {
+        # A client that disconnected mid-generation. The provider never reported
+        # usage, so every token column is unknown rather than zero.
+        "endpoint": "/v1/messages",
+        "source": "codex · ops@example.com",
+        "upstream_model": "gpt-5.5",
+        "billing_model": "gpt-5.5",
+        "reasoning_tokens": 0,
+        "cost": make_cost(0, 0, 0, 0, (0, 0, 0, 0)),
+        "outcome": "canceled",
+        "accounting_quality": "",
+    },
+    {
+        # An upstream error after the provider had already reported its usage.
+        "endpoint": "/v1/responses",
+        "source": "xai · ops@example.com",
+        "upstream_model": "grok-4",
+        "billing_model": "grok-4",
+        "reasoning_tokens": 128,
+        "cost": make_cost(4096, 0, 0, 256, (3, 0.75, 3, 15)),
+        "outcome": "failed",
+    },
 ]
 
 
@@ -228,7 +243,8 @@ def make_logs(count=120):
                 "source": case["source"],
                 "upstream_model": case["upstream_model"],
                 "billing_model": case["billing_model"],
-                "accounting_quality": "complete",
+                "outcome": case.get("outcome", ""),
+                "accounting_quality": case.get("accounting_quality", "complete"),
                 "price_source": "builtin" if index % 4 else "override",
                 "cost": case["cost"],
                 "reasoning_tokens": case["reasoning_tokens"],
@@ -239,21 +255,37 @@ def make_logs(count=120):
 
 LOGS = make_logs()
 
+EVENTS = [
+    {
+        "at": iso(NOW - timedelta(minutes=1)),
+        "level": "error",
+        "message": "保存状态文件失败：替换文件 /srv/cli-proxy-api/plugins/cpa-key-billing-state.json：read-only file system",
+    },
+    {
+        "at": iso(NOW - timedelta(minutes=12)),
+        "level": "error",
+        "message": "更新 models.dev 参考价目录失败：Get \"https://models.dev/api.json\": dial tcp: i/o timeout",
+    },
+    {
+        "at": iso(NOW - timedelta(hours=2)),
+        "level": "info",
+        "message": "已同步 CLIProxyAPI 的 API Key 列表：新增 3 个，移除 1 个。",
+    },
+    {
+        "at": iso(NOW - timedelta(days=1)),
+        "level": "info",
+        "message": (
+            "已加载状态文件 /srv/cli-proxy-api/plugins/cpa-key-billing-state.json："
+            "16 个 API Key、2 个订阅计划、120 条计费日志。已启用。"
+        ),
+    },
+]
+
 
 def payload_for(path, query):
     if path == f"{API_BASE}/status":
         return {
-            "plugin": "cpa-key-billing",
-            "version": "dummy",
-            "plugin_protocol": 2,
             "enabled": True,
-            "prices": len(PRICES),
-            "plans": len(PLANS),
-            "keys": len(KEYS),
-            "bound_keys": 15,
-            "log_retained": len(LOGS),
-            "log_entries": 1000,
-            "pending_write": False,
             "counters": {
                 "usage_unpriced": 3,
                 "usage_no_tokens": 1,
@@ -262,25 +294,24 @@ def payload_for(path, query):
             },
         }
     if path == f"{API_BASE}/keys":
-        return {"keys": KEYS, "generated_at": iso(NOW), "last_sync_at": iso(NOW)}
+        return {"keys": KEYS}
     if path == f"{API_BASE}/plans":
         return {"plans": PLANS}
     if path == f"{API_BASE}/prices":
-        return {"catalog_version": "dummy", "catalog": {"models": len(PRICES)}, "models": PRICES}
+        return {"catalog": {"models": len(PRICES)}, "models": PRICES}
     if path == f"{API_BASE}/stats":
         lifetime_requests = sum(item["requests"] for item in MODEL_TOTALS)
         lifetime_cost = sum(item["cost_usd"] for item in MODEL_TOTALS)
         return {
-            "generated_at": iso(NOW),
             "keys": len(KEYS),
-            "bound_keys": 15,
             "blocked_keys": 0,
             "lifetime": {"requests": lifetime_requests, "cost_usd": lifetime_cost},
             "by_model": MODEL_TOTALS,
-            "top_keys": [],
         }
     if path == f"{API_BASE}/logs":
-        return {"entries": LOGS, "retained": len(LOGS), "limit": 1000}
+        return {"entries": LOGS, "total": len(LOGS)}
+    if path == f"{API_BASE}/events":
+        return {"events": EVENTS}
     if path == f"{API_BASE}/prices/catalog":
         term = query.get("q", [""])[0].lower()
         return {"models": [row for row in PRICES if term in row["pattern"].lower()]}
@@ -341,6 +372,8 @@ class Handler(BaseHTTPRequestHandler):
         route = self.command, parsed.path
         if route == ("DELETE", f"{API_BASE}/logs"):
             self.send_json(200, {"cleared": len(LOGS)})
+        elif route == ("DELETE", f"{API_BASE}/events"):
+            self.send_json(200, {"cleared": len(EVENTS)})
         elif route == ("POST", f"{API_BASE}/prices/catalog/refresh"):
             self.send_json(200, {"catalog": {"models": len(PRICES)}, "updated_models": 2})
         elif route == ("POST", f"{API_BASE}/prices/reset"):
@@ -349,7 +382,7 @@ class Handler(BaseHTTPRequestHandler):
             ("POST", f"{API_BASE}/keys/sync"),
             ("POST", f"{API_BASE}/prices/sync"),
         }:
-            self.send_json(200, {"received": len(KEYS), "added": 0, "removed": 0, "priced": len(PRICES)})
+            self.send_json(200, {"added": 0, "removed": 0, "matched": len(KEYS), "priced": len(PRICES)})
         elif route in {
             ("POST", f"{API_BASE}/keys/bind"),
             ("POST", f"{API_BASE}/keys/unbind"),

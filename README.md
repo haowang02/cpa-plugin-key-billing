@@ -74,12 +74,10 @@ plugins:
     cpa-key-billing:
       enabled: true
       state_file: "plugins/cpa-key-billing-state.json"
-      log_entries: 200
 ```
 
 - `enabled`：启用计费和订阅额度控制
 - `state_file`：计费状态文件路径
-- `log_entries`：保留的计费日志条数；设为 `0` 可关闭日志，最大为 `5000`
 
 重启 CLIProxyAPI 后，在管理中心打开「API Key 计费」。确认模型定价后，创建订阅计划并绑定需要限制的 API Key。
 
@@ -87,6 +85,7 @@ plugins:
 
 - 未绑定订阅计划的 API Key 只统计用量，不限制额度。
 - 未定价模型按 `0 USD` 记录，并在计费日志中标记。
+- 计费日志和插件日志均保留最近 30 天。
 - 每个 API Key 在首次使用时独立启动周期。周期到期后回到未开始状态，并在下一次使用时开启新周期。
 - 达到订阅额度后，后续请求返回 HTTP `429`。
 

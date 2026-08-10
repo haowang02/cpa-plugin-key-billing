@@ -40,9 +40,6 @@ func (a *App) searchPriceCatalog(req ManagementRequest) ManagementResponse {
 	})
 }
 
-// syncModels receives the model list the admin UI reads from the proxy, so the
-// price table always lines up with what clients can actually ask for.
-//
 // The plugin cannot enumerate models itself: the host exposes no callback for
 // it, and /v1/models sits behind a downstream API key rather than the
 // management key. The browser holds both, so it does the read — the same
@@ -74,8 +71,10 @@ func (a *App) priceTable() ManagementResponse {
 func (a *App) refreshPriceCatalog() ManagementResponse {
 	result, errRefresh := a.store.RefreshPriceCatalog()
 	if errRefresh != nil {
+		a.store.Event(billing.EventError, "更新 models.dev 参考价目录失败：%v", errRefresh)
 		return errorResponse(errRefresh)
 	}
+	a.store.Event(billing.EventInfo, "已更新 models.dev 参考价目录，%d 条定价随之调整。", result.UpdatedModels)
 	return JSONResponse(http.StatusOK, result)
 }
 
@@ -133,7 +132,7 @@ func (a *App) deletePlan(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, map[string]any{"deleted": id, "unbound_keys": unbound})
 }
 
-func (a *App) bindKeys(req ManagementRequest) ManagementResponse {
+func (a *App) bindKey(req ManagementRequest) ManagementResponse {
 	var body struct {
 		Scope  string `json:"scope"`
 		PlanID string `json:"plan_id"`
@@ -141,39 +140,36 @@ func (a *App) bindKeys(req ManagementRequest) ManagementResponse {
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	bound, errBind := a.store.BindKeys([]string{body.Scope}, body.PlanID)
-	if errBind != nil {
+	if errBind := a.store.BindKey(body.Scope, body.PlanID); errBind != nil {
 		return errorResponse(errBind)
 	}
-	return JSONResponse(http.StatusOK, map[string]any{"bound": bound, "plan_id": strings.TrimSpace(body.PlanID)})
+	return JSONResponse(http.StatusOK, struct{}{})
 }
 
-func (a *App) unbindKeys(req ManagementRequest) ManagementResponse {
+func (a *App) unbindKey(req ManagementRequest) ManagementResponse {
 	var body struct {
 		Scope string `json:"scope"`
 	}
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	unbound, errUnbind := a.store.UnbindKeys([]string{body.Scope})
-	if errUnbind != nil {
+	if errUnbind := a.store.UnbindKey(body.Scope); errUnbind != nil {
 		return errorResponse(errUnbind)
 	}
-	return JSONResponse(http.StatusOK, map[string]any{"unbound": unbound})
+	return JSONResponse(http.StatusOK, struct{}{})
 }
 
-func (a *App) resetKeys(req ManagementRequest) ManagementResponse {
+func (a *App) resetKey(req ManagementRequest) ManagementResponse {
 	var body struct {
 		Scope string `json:"scope"`
 	}
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	reset, errReset := a.store.ResetCycles([]string{body.Scope})
-	if errReset != nil {
+	if errReset := a.store.ResetCycle(body.Scope); errReset != nil {
 		return errorResponse(errReset)
 	}
-	return JSONResponse(http.StatusOK, map[string]any{"reset": reset})
+	return JSONResponse(http.StatusOK, struct{}{})
 }
 
 func (a *App) labelKey(req ManagementRequest) ManagementResponse {
@@ -187,12 +183,9 @@ func (a *App) labelKey(req ManagementRequest) ManagementResponse {
 	if errLabel := a.store.SetLabel(body.Scope, body.Label); errLabel != nil {
 		return errorResponse(errLabel)
 	}
-	return JSONResponse(http.StatusOK, map[string]any{"scope": strings.TrimSpace(body.Scope), "label": strings.TrimSpace(body.Label)})
+	return JSONResponse(http.StatusOK, struct{}{})
 }
 
-// syncKeys receives the plaintext key list the admin UI reads from CPA's own
-// Management API on the same origin.
-//
 // The plugin never fetches it: doing so would mean holding a management
 // credential and a base URL, both of which are avoidable when the only client
 // that needs this is already authenticated in the operator's browser. The
@@ -212,6 +205,10 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 	result, errSync := a.store.SyncKeys(keys, body.AllowEmpty)
 	if errSync != nil {
 		return errorResponse(errSync)
+	}
+	if result.Added > 0 || result.Removed > 0 {
+		a.store.Event(billing.EventInfo, "已同步 CLIProxyAPI 的 API Key 列表：新增 %d 个，移除 %d 个。",
+			result.Added, result.Removed)
 	}
 	return JSONResponse(http.StatusOK, result)
 }

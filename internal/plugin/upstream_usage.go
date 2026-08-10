@@ -361,9 +361,8 @@ func partialSubsetBreakdown(input, cacheRead, cacheWrite, output, reasoning, tot
 		quality = billing.TokenAccountingUnclassified
 	}
 	return billing.TokenBreakdown{
-		SchemaVersion: billing.TokenAccountingSchemaVersion,
-		Quality:       quality,
-		TotalTokens:   total,
+		Quality:     quality,
+		TotalTokens: total,
 		Input: billing.TokenInputBreakdown{
 			TotalTokens: input, UncachedTokens: input - cache, CacheReadTokens: cacheRead, CacheWriteTokens: cacheWrite,
 		},
@@ -407,9 +406,8 @@ func separateReasoningBreakdown(input, cacheRead, cacheWrite, output, reasoning,
 
 func completeBreakdown(input, cacheRead, cacheWrite, output, reasoning, total int64) billing.TokenBreakdown {
 	return billing.TokenBreakdown{
-		SchemaVersion: billing.TokenAccountingSchemaVersion,
-		Quality:       billing.TokenAccountingComplete,
-		TotalTokens:   total,
+		Quality:     billing.TokenAccountingComplete,
+		TotalTokens: total,
 		Input: billing.TokenInputBreakdown{
 			TotalTokens: input + cacheRead + cacheWrite, UncachedTokens: input, CacheReadTokens: cacheRead, CacheWriteTokens: cacheWrite,
 		},
@@ -424,10 +422,9 @@ func unclassifiedBreakdown(total int64) billing.TokenBreakdown {
 		return inconsistentBreakdown(total, 0)
 	}
 	if total == 0 {
-		return billing.TokenBreakdown{SchemaVersion: billing.TokenAccountingSchemaVersion, Quality: billing.TokenAccountingComplete}
+		return billing.TokenBreakdown{Quality: billing.TokenAccountingComplete}
 	}
 	return billing.TokenBreakdown{
-		SchemaVersion:      billing.TokenAccountingSchemaVersion,
 		Quality:            billing.TokenAccountingUnclassified,
 		TotalTokens:        total,
 		UnclassifiedTokens: total,
@@ -442,7 +439,6 @@ func inconsistentBreakdown(total, computedTotal int64) billing.TokenBreakdown {
 		total = 0
 	}
 	return billing.TokenBreakdown{
-		SchemaVersion:      billing.TokenAccountingSchemaVersion,
 		Quality:            billing.TokenAccountingInconsistent,
 		TotalTokens:        total,
 		UnclassifiedTokens: total,

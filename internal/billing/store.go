@@ -17,8 +17,6 @@ import (
 // updates happen on the request path and must not block it on I/O.
 const DefaultFlushInterval = 5 * time.Second
 
-// Store owns the in-memory state document and its persistence.
-//
 // Locking: cfgMu serializes Configure/Close against each other; mu guards the
 // state document and the active config. Disk writes happen outside mu, against
 // a snapshot taken under it.
@@ -58,9 +56,10 @@ type Store struct {
 	lastFlush time.Time
 	lastError string
 
+	events eventLog
+
 	flushInterval time.Duration
 
-	// now is injectable so period math and timestamps are testable.
 	now func() time.Time
 }
 
@@ -78,9 +77,8 @@ func (s *Store) Now() time.Time {
 	return s.now()
 }
 
-// Configure applies a new plugin configuration, reloading the state document
-// when the target path changes. It is safe to call repeatedly: the host invokes
-// it on every plugin.reconfigure.
+// The host invokes Configure on every plugin.reconfigure, so repeated calls
+// must be safe.
 func (s *Store) Configure(cfg Config) error {
 	normalized := cfg.normalized()
 	path, errPath := resolveStatePath(normalized.StateFile)
@@ -97,8 +95,12 @@ func (s *Store) Configure(cfg Config) error {
 
 	if currentPath == path {
 		s.mu.Lock()
+		changed := s.cfg != normalized
 		s.cfg = normalized
 		s.mu.Unlock()
+		if changed {
+			s.Event(EventInfo, "配置已更新：%s。", normalized.describe())
+		}
 		return nil
 	}
 
@@ -128,6 +130,8 @@ func (s *Store) Configure(cfg Config) error {
 		return fmt.Errorf("切换到 %s 前保存原状态失败：%w", path, errSwitch)
 	}
 
+	s.Event(EventInfo, "已加载状态文件 %s：%d 个 API Key、%d 个订阅计划、%d 条计费日志。%s。",
+		path, len(loaded.Keys), len(loaded.Plans), len(loaded.Log), normalized.describe())
 	return nil
 }
 
@@ -149,7 +153,6 @@ func (s *Store) Enabled() bool {
 	return s.cfg.Enabled
 }
 
-// Read runs fn against the state under a read lock. fn must not mutate.
 func (s *Store) Read(fn func(*State)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -164,8 +167,6 @@ func (s *Store) BillingModel(upstreamModel, routeModel string) string {
 	return model
 }
 
-// Update runs fn against the state under a write lock and marks the document
-// dirty so the flusher persists it.
 func (s *Store) Update(fn func(*State)) {
 	s.mu.Lock()
 	fn(s.state)
@@ -173,7 +174,6 @@ func (s *Store) Update(fn func(*State)) {
 	s.dirty.Store(true)
 }
 
-// updateResult marks the document dirty only when fn reports a change.
 func updateResult[T any](s *Store, fn func(*State) (T, bool)) T {
 	s.mu.Lock()
 	value, changed := fn(s.state)
@@ -184,8 +184,6 @@ func updateResult[T any](s *Store, fn func(*State) (T, bool)) T {
 	return value
 }
 
-// Flush writes the document to disk when it has pending changes. It is a no-op
-// for a clean document or an unconfigured store.
 func (s *Store) Flush() error {
 	if !s.dirty.CompareAndSwap(true, false) {
 		return nil
@@ -215,10 +213,7 @@ func (s *Store) Flush() error {
 		s.recordFlushError(errWrite)
 		return errWrite
 	}
-	s.statusMu.Lock()
-	s.lastFlush = s.Now()
-	s.lastError = ""
-	s.statusMu.Unlock()
+	s.recordFlushSuccess()
 	return nil
 }
 
@@ -241,16 +236,10 @@ func (s *Store) persistLocked(path string) error {
 		return errWrite
 	}
 	s.dirty.Store(false)
-	s.statusMu.Lock()
-	s.lastFlush = s.Now()
-	s.lastError = ""
-	s.statusMu.Unlock()
+	s.recordFlushSuccess()
 	return nil
 }
 
-// FlushIfDue writes the document when it has pending changes and the debounce
-// window has elapsed since the last successful write.
-//
 // This is the whole persistence schedule. There is no timer: see the note on
 // Store for why this library must stay inert between host calls. The plugin
 // calls it after the host RPCs that are off a client's critical path, so a
@@ -272,37 +261,35 @@ func (s *Store) FlushIfDue() {
 	}
 }
 
+func (s *Store) recordFlushSuccess() {
+	s.statusMu.Lock()
+	s.lastFlush = s.Now()
+	recovered := s.lastError != ""
+	s.lastError = ""
+	s.statusMu.Unlock()
+	if recovered {
+		s.Event(EventInfo, "状态文件恢复写入。")
+	}
+}
+
 func (s *Store) recordFlushError(err error) {
 	s.statusMu.Lock()
+	first := s.lastError == ""
 	s.lastError = err.Error()
 	s.statusMu.Unlock()
+	// A disk that refuses one write refuses the next one too, on every host call
+	// that follows. Report the onset and then stay quiet until a write succeeds,
+	// so the log still shows what happened before the failure.
+	if first {
+		s.Event(EventError, "保存状态文件失败：%v", err)
+	}
 }
 
-// Status is the payload of the /status Management API route.
-//
-// LastFlushedAt uses `omitzero` rather than `omitempty`: the latter does not
-// suppress a zero time.Time, and reporting "0001-01-01" for "never flushed"
-// reads as a bug.
 type Status struct {
-	Plugin    string `json:"plugin"`
-	Version   string `json:"version"`
-	Enabled   bool   `json:"enabled"`
-	StateFile string `json:"state_file"`
-	Prices    int    `json:"prices"`
-	Plans     int    `json:"plans"`
-	Keys      int    `json:"keys"`
-	BoundKeys int    `json:"bound_keys"`
-	// LogRetained is how many billing log entries are held and LogEntries is how
-	// many the config allows. Zero for the latter means the log is switched off.
-	LogRetained   int       `json:"log_retained"`
-	LogEntries    int       `json:"log_entries"`
-	PendingWrite  bool      `json:"pending_write"`
-	LastFlushedAt time.Time `json:"last_flushed_at,omitzero"`
-	LastError     string    `json:"last_error,omitempty"`
-	Counters      Counters  `json:"counters"`
+	Enabled  bool     `json:"enabled"`
+	Counters Counters `json:"counters"`
 }
 
-// Counters are since-restart tallies shown above the billing log.
 type Counters struct {
 	UsageUnpriced     int64 `json:"usage_unpriced"`
 	UsageNoTokens     int64 `json:"usage_no_tokens"`
@@ -310,39 +297,16 @@ type Counters struct {
 	PendingRequests   int   `json:"pending_requests"`
 }
 
-// Status snapshots the state exposed by the Management API.
-func (s *Store) Status(pluginName, version string) Status {
-	s.mu.RLock()
-	status := Status{
-		Plugin:      pluginName,
-		Version:     version,
-		Enabled:     s.cfg.Enabled,
-		StateFile:   s.path,
-		Prices:      len(s.state.Prices),
-		Plans:       len(s.state.Plans),
-		Keys:        len(s.state.Keys),
-		LogRetained: len(s.state.Log),
-		LogEntries:  s.cfg.LogEntries,
+func (s *Store) Status() Status {
+	return Status{
+		Enabled: s.Enabled(),
+		Counters: Counters{
+			UsageUnpriced:     s.usageUnpriced.Load(),
+			UsageNoTokens:     s.usageNoTokens.Load(),
+			UsageUnclassified: s.usageUnclassified.Load(),
+			PendingRequests:   s.pending.len(),
+		},
 	}
-	for _, key := range s.state.Keys {
-		if key != nil && key.PlanID != "" {
-			status.BoundKeys++
-		}
-	}
-	s.mu.RUnlock()
-
-	status.PendingWrite = s.dirty.Load()
-	status.Counters = Counters{
-		UsageUnpriced:     s.usageUnpriced.Load(),
-		UsageNoTokens:     s.usageNoTokens.Load(),
-		UsageUnclassified: s.usageUnclassified.Load(),
-	}
-	status.Counters.PendingRequests = s.pending.len()
-	s.statusMu.Lock()
-	status.LastFlushedAt = s.lastFlush
-	status.LastError = s.lastError
-	s.statusMu.Unlock()
-	return status
 }
 
 func resolveStatePath(path string) (string, error) {
@@ -356,8 +320,7 @@ func resolveStatePath(path string) (string, error) {
 	return absolute, nil
 }
 
-// loadState reads the document at path. A missing file is not an error: it
-// yields a fresh document so a first run bootstraps cleanly.
+// A missing state file yields a fresh document so first run bootstraps cleanly.
 func loadState(path string) (*State, error) {
 	raw, errRead := os.ReadFile(path)
 	if errRead != nil {
@@ -397,8 +360,6 @@ func writeFileAtomic(path string, raw []byte) error {
 		return fmt.Errorf("在 %s 创建临时文件：%w", dir, errTemp)
 	}
 	tmpName := tmp.Name()
-	// Removing the temp file is best effort on every failure path: a leftover
-	// is inert, and it is the rename below that decides correctness.
 	cleanup := func() { _ = os.Remove(tmpName) }
 	if _, errWrite := tmp.Write(raw); errWrite != nil {
 		_ = tmp.Close()

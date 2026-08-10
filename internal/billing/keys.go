@@ -6,18 +6,11 @@ import (
 	"time"
 )
 
-// MaxSyncKeys bounds one key-list push and the resulting state growth.
-const MaxSyncKeys = 10000
-
-const MaxTopKeys = 20
-
 type ModelTotals struct {
 	BillingModel string `json:"billing_model"`
 	Totals
 }
 
-// KeyView is the merged per-key row the admin UI renders: identity, binding,
-// current window, and statistics.
 type KeyView struct {
 	Scope    string `json:"scope"`
 	Preview  string `json:"preview,omitempty"`
@@ -26,43 +19,30 @@ type KeyView struct {
 
 	PlanID   string `json:"plan_id,omitempty"`
 	PlanName string `json:"plan_name,omitempty"`
-	// Unlimited is true when the key has no plan. Such keys are still fully
-	// accounted for.
-	Unlimited bool `json:"unlimited"`
-	// Blocked mirrors what Authorize would decide right now.
-	Blocked       bool      `json:"blocked"`
-	LimitUSD      float64   `json:"limit_usd"`
-	SpentUSD      float64   `json:"spent_usd"`
-	RemainingUSD  float64   `json:"remaining_usd"`
-	UsedPercent   float64   `json:"used_percent"`
-	CycleStartAt  time.Time `json:"cycle_start_at,omitzero"`
-	CycleEndAt    time.Time `json:"cycle_end_at,omitzero"`
-	CycleRequests int64     `json:"cycle_requests"`
+	// Keys without a plan are still fully accounted for.
+	Unlimited   bool      `json:"unlimited"`
+	Blocked     bool      `json:"blocked"`
+	LimitUSD    float64   `json:"limit_usd"`
+	SpentUSD    float64   `json:"spent_usd"`
+	UsedPercent float64   `json:"used_percent"`
+	CycleEndAt  time.Time `json:"cycle_end_at,omitzero"`
 
-	Lifetime     Totals         `json:"lifetime"`
-	ByModel      []ModelTotals  `json:"by_model,omitempty"`
-	RecentCycles []CycleSummary `json:"recent_cycles,omitempty"`
-	FirstSeen    time.Time      `json:"first_seen,omitzero"`
-	LastSeen     time.Time      `json:"last_seen,omitzero"`
+	Lifetime Totals        `json:"lifetime"`
+	ByModel  []ModelTotals `json:"by_model,omitempty"`
 }
 
 type KeyDirectory struct {
-	Keys        []KeyView `json:"keys"`
-	LastSyncAt  time.Time `json:"last_sync_at,omitzero"`
-	GeneratedAt time.Time `json:"generated_at"`
+	Keys []KeyView `json:"keys"`
 }
 
-// KeyDirectory lists every tracked key.
-//
 // Listing rolls expired windows first, so what an operator reads is exactly
 // what the next request would be judged against — a key whose budget reset an
 // hour ago must not still be displayed as blocked.
 func (s *Store) KeyDirectory() KeyDirectory {
 	now := s.Now()
-	directory := KeyDirectory{Keys: []KeyView{}, GeneratedAt: now}
+	directory := KeyDirectory{Keys: []KeyView{}}
 	directory.Keys = updateResult(s, func(state *State) ([]KeyView, bool) {
 		changed := false
-		directory.LastSyncAt = state.LastSyncAt
 		plans := make(map[string]Plan, len(state.Plans))
 		for _, plan := range state.Plans {
 			plans[plan.ID] = plan
@@ -93,30 +73,21 @@ func (s *Store) KeyDirectory() KeyDirectory {
 
 func keyView(scope string, key *KeyState, plans map[string]Plan) KeyView {
 	view := KeyView{
-		Scope:         scope,
-		Preview:       key.Preview,
-		Label:         key.Label,
-		InConfig:      key.InConfig,
-		PlanID:        key.PlanID,
-		Unlimited:     true,
-		SpentUSD:      key.Cycle.SpentUSD,
-		CycleStartAt:  key.Cycle.StartAt,
-		CycleEndAt:    key.Cycle.EndAt,
-		CycleRequests: key.Cycle.Requests,
-		Lifetime:      key.Lifetime,
-		RecentCycles:  key.RecentCycles,
-		FirstSeen:     key.FirstSeen,
-		LastSeen:      key.LastSeen,
+		Scope:      scope,
+		Preview:    key.Preview,
+		Label:      key.Label,
+		InConfig:   key.InConfig,
+		PlanID:     key.PlanID,
+		Unlimited:  true,
+		SpentUSD:   key.Cycle.SpentUSD,
+		CycleEndAt: key.Cycle.EndAt,
+		Lifetime:   key.Lifetime,
 	}
 	if plan, exists := plans[key.PlanID]; exists {
 		view.PlanName = plan.Name
 		view.LimitUSD = plan.AmountUSD
 		view.Unlimited = false
 		if plan.AmountUSD > 0 {
-			view.RemainingUSD = plan.AmountUSD - key.Cycle.SpentUSD
-			if view.RemainingUSD < 0 {
-				view.RemainingUSD = 0
-			}
 			view.UsedPercent = key.Cycle.SpentUSD / plan.AmountUSD * 100
 			view.Blocked = key.Cycle.SpentUSD >= plan.AmountUSD
 		} else {
@@ -156,112 +127,79 @@ func sortModelTotals(entries []ModelTotals) {
 	})
 }
 
-// BindKeys attaches scopes to a plan and reports how many were changed.
-//
 // Rebinding returns the subscription to its inactive state. Its first period
 // starts only when the key is next used.
-func (s *Store) BindKeys(scopes []string, planID string) (int, error) {
-	scopes = normalizeScopes(scopes)
-	if len(scopes) == 0 {
-		return 0, invalidf("请至少选择一个 API Key")
-	}
+func (s *Store) BindKey(scope, planID string) error {
+	scope = normalizeScope(scope)
 	planID = strings.TrimSpace(planID)
-	if planID == "" {
-		return 0, invalidf("订阅计划 ID 不能为空")
+	if scope == "" || planID == "" {
+		return invalidf("API Key 标识和订阅计划 ID 都不能为空")
 	}
 	var errApply error
-	bound := updateResult(s, func(state *State) (int, bool) {
+	updateResult(s, func(state *State) (struct{}, bool) {
 		plan, exists := state.FindPlan(planID)
 		if !exists {
 			errApply = notFoundf("订阅计划 %q 不存在", planID)
-			return 0, false
+			return struct{}{}, false
 		}
-		for _, scope := range scopes {
-			if state.Keys[scope] == nil {
-				errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
-				return 0, false
-			}
+		key := state.Keys[scope]
+		if key == nil {
+			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+			return struct{}{}, false
 		}
-		changed := 0
-		for _, scope := range scopes {
-			key := state.Keys[scope]
-			if key.PlanID == plan.ID {
-				continue
-			}
-			previousLimit := plan.AmountUSD
-			if previous, okPrevious := state.FindPlan(key.PlanID); okPrevious {
-				previousLimit = previous.AmountUSD
-			}
-			archiveCycle(key, previousLimit)
-			key.Cycle = Cycle{}
-			key.PlanID = plan.ID
-			changed++
+		if key.PlanID == plan.ID {
+			return struct{}{}, false
 		}
-		return changed, changed > 0
+		key.Cycle = Cycle{}
+		key.PlanID = plan.ID
+		return struct{}{}, true
 	})
-	return bound, errApply
+	return errApply
 }
 
-func (s *Store) UnbindKeys(scopes []string) (int, error) {
-	scopes = normalizeScopes(scopes)
-	if len(scopes) == 0 {
-		return 0, invalidf("请至少选择一个 API Key")
+func (s *Store) UnbindKey(scope string) error {
+	scope = normalizeScope(scope)
+	if scope == "" {
+		return invalidf("API Key 标识不能为空")
 	}
-	return updateResult(s, func(state *State) (int, bool) {
-		changed := 0
-		for _, scope := range scopes {
-			key := state.Keys[scope]
-			if key == nil || key.PlanID == "" {
-				continue
-			}
-			limit := 0.0
-			if plan, exists := state.FindPlan(key.PlanID); exists {
-				limit = plan.AmountUSD
-			}
-			archiveCycle(key, limit)
-			key.PlanID = ""
-			key.Cycle = Cycle{}
-			changed++
+	updateResult(s, func(state *State) (struct{}, bool) {
+		key := state.Keys[scope]
+		if key == nil || key.PlanID == "" {
+			return struct{}{}, false
 		}
-		return changed, changed > 0
-	}), nil
+		key.PlanID = ""
+		key.Cycle = Cycle{}
+		return struct{}{}, true
+	})
+	return nil
 }
 
-// ResetCycles gives scopes their budget back immediately, without waiting for
-// the period to end. The spend that is being forgiven is archived first.
-func (s *Store) ResetCycles(scopes []string) (int, error) {
-	scopes = normalizeScopes(scopes)
-	if len(scopes) == 0 {
-		return 0, invalidf("请至少选择一个 API Key")
+// The next request starts a fresh period after a reset.
+func (s *Store) ResetCycle(scope string) error {
+	scope = normalizeScope(scope)
+	if scope == "" {
+		return invalidf("API Key 标识不能为空")
 	}
-	return updateResult(s, func(state *State) (int, bool) {
-		changed := 0
-		for _, scope := range scopes {
-			key := state.Keys[scope]
-			if key == nil {
-				continue
-			}
-			plan, exists := state.FindPlan(key.PlanID)
-			if !exists {
-				continue
-			}
-			archiveCycle(key, plan.AmountUSD)
-			key.Cycle = Cycle{}
-			changed++
+	updateResult(s, func(state *State) (struct{}, bool) {
+		key := state.Keys[scope]
+		if key == nil {
+			return struct{}{}, false
 		}
-		return changed, changed > 0
-	}), nil
+		if _, exists := state.FindPlan(key.PlanID); !exists {
+			return struct{}{}, false
+		}
+		key.Cycle = Cycle{}
+		return struct{}{}, true
+	})
+	return nil
 }
 
 func (s *Store) SetLabel(scope, label string) error {
-	scope = strings.TrimSpace(scope)
+	scope = normalizeScope(scope)
 	if scope == "" {
 		return invalidf("API Key 标识不能为空")
 	}
 	label = strings.TrimSpace(label)
-	if len(label) > MaxNameLength {
-		return invalidf("API Key 备注不能超过 %d 个字符", MaxNameLength)
-	}
 
 	var errApply error
 	updateResult(s, func(state *State) (struct{}, bool) {
@@ -277,12 +215,9 @@ func (s *Store) SetLabel(scope, label string) error {
 }
 
 type SyncResult struct {
-	Received int       `json:"received"`
-	Added    int       `json:"added"`
-	Matched  int       `json:"matched"`
-	Removed  int       `json:"removed"`
-	Retained int       `json:"retained"`
-	SyncedAt time.Time `json:"synced_at"`
+	Added   int `json:"added"`
+	Matched int `json:"matched"`
+	Removed int `json:"removed"`
 }
 
 // SyncKeys reconciles the tracked keys with the list CPA currently holds.
@@ -292,10 +227,6 @@ type SyncResult struct {
 // other access providers survive. allowEmpty prevents an accidental empty push
 // from wiping every synchronized record.
 func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
-	if len(keys) > MaxSyncKeys {
-		return SyncResult{}, invalidf("API Key 数量过多：最多允许 %d 个，实际收到 %d 个", MaxSyncKeys, len(keys))
-	}
-	now := s.Now()
 	scopes := make(map[string]string, len(keys))
 	for _, key := range keys {
 		scope := CallerScope(key)
@@ -308,10 +239,10 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 		return SyncResult{}, invalidf("API Key 列表为空；如需清空，请传入 allow_empty")
 	}
 
-	result := SyncResult{Received: len(scopes), SyncedAt: now}
+	var result SyncResult
 	updateResult(s, func(state *State) (struct{}, bool) {
 		for scope, preview := range scopes {
-			key := state.ensureKey(scope, now)
+			key := state.ensureKey(scope)
 			// The live key list is authoritative for its masked preview.
 			key.Preview = preview
 			if key.InConfig {
@@ -328,61 +259,30 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 			if key.InConfig {
 				delete(state.Keys, scope)
 				result.Removed++
-				continue
 			}
-			result.Retained++
 		}
 		if result.Removed > 0 {
 			pruneLogOrphans(state)
 		}
-		state.LastSyncAt = now
 		return struct{}{}, true
 	})
 	return result, nil
 }
 
-type KeySummary struct {
-	Scope    string  `json:"scope"`
-	Preview  string  `json:"preview,omitempty"`
-	Label    string  `json:"label,omitempty"`
-	PlanID   string  `json:"plan_id,omitempty"`
-	CostUSD  float64 `json:"cost_usd"`
-	Requests int64   `json:"requests"`
-	Blocked  bool    `json:"blocked"`
-}
-
 type StatsView struct {
-	GeneratedAt   time.Time     `json:"generated_at"`
-	Keys          int           `json:"keys"`
-	BoundKeys     int           `json:"bound_keys"`
-	BlockedKeys   int           `json:"blocked_keys"`
-	Lifetime      Totals        `json:"lifetime"`
-	CycleSpentUSD float64       `json:"cycle_spent_usd"`
-	CycleLimitUSD float64       `json:"cycle_limit_usd"`
-	ByModel       []ModelTotals `json:"by_model"`
-	TopKeys       []KeySummary  `json:"top_keys"`
-	LastSyncAt    time.Time     `json:"last_sync_at,omitzero"`
+	Keys        int           `json:"keys"`
+	BlockedKeys int           `json:"blocked_keys"`
+	Lifetime    Totals        `json:"lifetime"`
+	ByModel     []ModelTotals `json:"by_model"`
 }
 
-// Stats aggregates every tracked key. It reuses KeyDirectory so the totals can
-// never disagree with the per-key rows shown beside them.
+// Reuse KeyDirectory so aggregate totals cannot disagree with the displayed rows.
 func (s *Store) Stats() StatsView {
 	directory := s.KeyDirectory()
-	stats := StatsView{
-		GeneratedAt: directory.GeneratedAt,
-		Keys:        len(directory.Keys),
-		LastSyncAt:  directory.LastSyncAt,
-		ByModel:     []ModelTotals{},
-		TopKeys:     []KeySummary{},
-	}
+	stats := StatsView{Keys: len(directory.Keys), ByModel: []ModelTotals{}}
 	byModel := make(map[string]*Totals)
 	for _, view := range directory.Keys {
 		stats.Lifetime.Add(view.Lifetime)
-		if view.PlanID != "" {
-			stats.BoundKeys++
-			stats.CycleSpentUSD += view.SpentUSD
-			stats.CycleLimitUSD += view.LimitUSD
-		}
 		if view.Blocked {
 			stats.BlockedKeys++
 		}
@@ -394,39 +294,24 @@ func (s *Store) Stats() StatsView {
 			}
 			totals.Add(entry.Totals)
 		}
-		stats.TopKeys = append(stats.TopKeys, KeySummary{
-			Scope:    view.Scope,
-			Preview:  view.Preview,
-			Label:    view.Label,
-			PlanID:   view.PlanID,
-			CostUSD:  view.Lifetime.CostUSD,
-			Requests: view.Lifetime.Requests,
-			Blocked:  view.Blocked,
-		})
 	}
 	for model, totals := range byModel {
 		stats.ByModel = append(stats.ByModel, ModelTotals{BillingModel: model, Totals: *totals})
 	}
 	sortModelTotals(stats.ByModel)
-	sort.Slice(stats.TopKeys, func(i, j int) bool {
-		if stats.TopKeys[i].CostUSD != stats.TopKeys[j].CostUSD {
-			return stats.TopKeys[i].CostUSD > stats.TopKeys[j].CostUSD
-		}
-		return stats.TopKeys[i].Scope < stats.TopKeys[j].Scope
-	})
-	if len(stats.TopKeys) > MaxTopKeys {
-		stats.TopKeys = stats.TopKeys[:MaxTopKeys]
-	}
 	return stats
 }
 
-// normalizeScopes trims, lowercases, and de-duplicates caller scopes. Scopes
-// are hex digests, so case folding is safe and makes hand-typed input work.
+// Scopes are hex digests, so case folding is safe for hand-typed input.
+func normalizeScope(scope string) string {
+	return strings.ToLower(strings.TrimSpace(scope))
+}
+
 func normalizeScopes(scopes []string) []string {
 	normalized := make([]string, 0, len(scopes))
 	seen := make(map[string]struct{}, len(scopes))
 	for _, scope := range scopes {
-		scope = strings.ToLower(strings.TrimSpace(scope))
+		scope = normalizeScope(scope)
 		if scope == "" {
 			continue
 		}

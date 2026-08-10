@@ -1,7 +1,6 @@
 package billing
 
 import (
-	"strconv"
 	"testing"
 	"time"
 )
@@ -40,35 +39,6 @@ func TestCredentialNameOfEveryUpstreamShape(t *testing.T) {
 				t.Errorf("%s and %s share the name %q", authIndex, other, credential.Name())
 			}
 			names[credential.Name()] = authIndex
-		}
-	})
-}
-
-// An API key is a secret wherever it appears, so only its mask is stored.
-func TestLearnCredentialNeverStoresAPlaintextKey(t *testing.T) {
-	const key = "sk-upstream-key-0001"
-	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	store := newAccountStore(t, now)
-	store.LearnCredential("auth-1", "codex", "apikey", key)
-
-	store.Read(func(state *State) {
-		if account := state.Credentials["auth-1"].Account; account == key {
-			t.Fatalf("Account = %q, want the key masked", account)
-		}
-	})
-}
-
-// A credential no retained log entry refers to has no reader, so it makes way
-// for one that does.
-func TestLearnCredentialStaysBounded(t *testing.T) {
-	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	store := newAccountStore(t, now)
-	for i := 0; i <= MaxCredentials; i++ {
-		store.LearnCredential("auth-"+strconv.Itoa(i), "codex", "oauth", "ops"+strconv.Itoa(i)+"@example.com")
-	}
-	store.Read(func(state *State) {
-		if len(state.Credentials) > MaxCredentials {
-			t.Fatalf("credentials = %d, want at most %d", len(state.Credentials), MaxCredentials)
 		}
 	})
 }

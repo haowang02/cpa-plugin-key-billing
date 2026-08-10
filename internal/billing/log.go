@@ -2,21 +2,19 @@ package billing
 
 import "time"
 
-// LogEntry stores the canonical inputs and result of one bill. It never stores
-// the plaintext API key.
+// LogEntry never stores the plaintext API key.
 type LogEntry struct {
-	At         time.Time `json:"at"`
-	Scope      string    `json:"scope"`
-	RequestID  string    `json:"request_id,omitempty"`
-	UsageIndex int       `json:"usage_index,omitempty"`
-	// Endpoint is the downstream route the client called, as the host reports
-	// it. AuthIndex identifies the upstream credential that served it; the name
-	// to show for it lives in State.Credentials.
-	Endpoint          string                 `json:"endpoint,omitempty"`
-	AuthIndex         string                 `json:"auth_index,omitempty"`
-	UpstreamModel     string                 `json:"upstream_model,omitempty"`
-	BillingModel      string                 `json:"billing_model,omitempty"`
-	Failed            bool                   `json:"failed,omitempty"`
+	At            time.Time `json:"at"`
+	Scope         string    `json:"scope"`
+	RequestID     string    `json:"request_id,omitempty"`
+	Endpoint      string    `json:"endpoint,omitempty"`
+	AuthIndex     string    `json:"auth_index,omitempty"`
+	UpstreamModel string    `json:"upstream_model,omitempty"`
+	BillingModel  string    `json:"billing_model,omitempty"`
+	// Outcome is empty for a request that completed normally.
+	Outcome RequestOutcome `json:"outcome,omitempty"`
+	// AccountingQuality is empty when no upstream usage was ever observed, which
+	// is the usual shape of a canceled request.
 	AccountingQuality TokenAccountingQuality `json:"accounting_quality,omitempty"`
 	// PriceSource says where the numbers came from. "none" is the one to look
 	// for: it means no rule matched and the request was billed at zero.
@@ -24,25 +22,22 @@ type LogEntry struct {
 	Cost        Cost        `json:"cost"`
 	// ReasoningTokens is already included in Cost.BilledOutputTokens.
 	ReasoningTokens int64 `json:"reasoning_tokens,omitempty"`
-	// PlanID, CycleSpentUSD and CycleLimitUSD place the request in its
-	// subscription window as it stood immediately after being billed. They are
-	// empty for an unbound key, which has no window to place it in.
-	PlanID        string  `json:"plan_id,omitempty"`
-	CycleSpentUSD float64 `json:"cycle_spent_usd,omitempty"`
-	CycleLimitUSD float64 `json:"cycle_limit_usd,omitempty"`
 }
 
+const LogRetention = 30 * 24 * time.Hour
+
 // Entries stay oldest-first to keep the persisted representation append-only.
-func appendLog(state *State, entry LogEntry, limit int) {
-	if limit <= 0 {
-		state.Log = nil
-		return
+// Appending is also when the window is trimmed: the log only ever grows here,
+// so this is the one place stale entries can be dropped from the document.
+func appendLog(state *State, entry LogEntry, now time.Time) {
+	cutoff := now.Add(-LogRetention)
+	kept := state.Log[:0]
+	for _, existing := range state.Log {
+		if !existing.At.Before(cutoff) {
+			kept = append(kept, existing)
+		}
 	}
-	if len(state.Log) >= limit {
-		drop := len(state.Log) - limit + 1
-		state.Log = append(state.Log[:0], state.Log[drop:]...)
-	}
-	state.Log = append(state.Log, entry)
+	state.Log = append(kept, entry)
 }
 
 func pruneLogOrphans(state *State) {
@@ -55,9 +50,6 @@ func pruneLogOrphans(state *State) {
 	state.Log = kept
 }
 
-// LogRow is one log entry as the admin UI reads it, with the current display
-// names of its downstream key and upstream credential resolved.
-//
 // Display identity is looked up rather than copied into every entry, so Key
 // synchronization, remark changes and newly learned credentials update
 // historical rows too.
@@ -69,26 +61,28 @@ type LogRow struct {
 }
 
 type LogView struct {
-	Entries  []LogRow `json:"entries"`
-	Retained int      `json:"retained"`
-	Limit    int      `json:"limit"`
+	Entries []LogRow `json:"entries"`
+	Total   int      `json:"total"`
 }
 
-// Logs returns the retained billing log, newest first.
+// Entries that fell out of the retention window are skipped rather than
+// returned: they are dropped from the document on the next append, and until
+// then they are no longer part of the log.
 //
-// limit trims the response for a caller that wants only the head of it; zero or
-// negative means everything retained.
+// Results are newest first; a non-positive limit returns everything retained.
 func (s *Store) Logs(limit int) LogView {
 	view := LogView{Entries: []LogRow{}}
+	cutoff := s.Now().Add(-LogRetention)
 	s.Read(func(state *State) {
-		view.Retained = len(state.Log)
-		view.Limit = s.cfg.LogEntries
-		count := len(state.Log)
-		if limit > 0 && limit < count {
-			count = limit
-		}
-		for i := 0; i < count; i++ {
-			entry := state.Log[len(state.Log)-1-i]
+		for i := len(state.Log) - 1; i >= 0; i-- {
+			entry := state.Log[i]
+			if entry.At.Before(cutoff) {
+				continue
+			}
+			view.Total++
+			if limit > 0 && len(view.Entries) >= limit {
+				continue
+			}
 			row := LogRow{LogEntry: entry}
 			if key := state.Keys[entry.Scope]; key != nil {
 				row.Preview = key.Preview

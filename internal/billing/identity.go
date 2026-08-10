@@ -14,9 +14,7 @@ import (
 // fixed host-generated vector covers it.
 const callerScopeSalt = "cli-proxy-api:caller-scope:v1\x00"
 
-// CallerScope returns the host-compatible caller scope for a downstream API key
-// (more precisely, for an access provider principal). An empty or blank value
-// yields an empty scope, which callers treat as "not attributable".
+// Blank principals are not attributable and therefore have no scope.
 func CallerScope(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -26,8 +24,7 @@ func CallerScope(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// PreviewKey masks a plaintext key for display. The plaintext itself is never
-// persisted; only this preview and the scope hash are.
+// PreviewKey masks a plaintext key for display and persistence.
 func PreviewKey(key string) string {
 	key = strings.TrimSpace(key)
 	switch {

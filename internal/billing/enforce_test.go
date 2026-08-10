@@ -106,47 +106,12 @@ func TestAuthorizeNeverResetPlanHasNoAutomaticReset(t *testing.T) {
 	if decision.Allowed || !decision.ResetAt.IsZero() {
 		t.Fatalf("decision = %+v, want blocked forever with no reset time", decision)
 	}
-	if _, err := store.ResetCycles([]string{"s"}); err != nil {
-		t.Fatalf("ResetCycles error = %v", err)
+	if errReset := store.ResetCycle("s"); errReset != nil {
+		t.Fatalf("ResetCycle error = %v", errReset)
 	}
 	if !store.Authorize("s", now.Add(10*365*24*time.Hour)).Allowed {
 		t.Fatal("manual reset did not restore the one-time budget")
 	}
-}
-
-func TestAuthorizeReenablesKeyAfterCycleReset(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	store := newEnforceStore(t, now)
-	store.Update(func(state *State) {
-		state.Plans = []Plan{{ID: "p", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
-		state.Keys["s"] = &KeyState{
-			PlanID: "p",
-			Cycle: Cycle{
-				PlanID:   "p",
-				StartAt:  time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC),
-				EndAt:    time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
-				SpentUSD: 5,
-				Requests: 10,
-			},
-		}
-	})
-	if store.Authorize("s", now).Allowed {
-		t.Fatal("the exhausted key was not blocked")
-	}
-
-	nextDay := time.Date(2026, 8, 4, 0, 0, 1, 0, time.UTC)
-	if !store.Authorize("s", nextDay).Allowed {
-		t.Fatal("the key was still blocked after its cycle reset")
-	}
-	store.Read(func(state *State) {
-		key := state.Keys["s"]
-		if key.Cycle.SpentUSD != 0 || key.Cycle.Requests != 0 {
-			t.Fatalf("Cycle = %+v, want a clean window", key.Cycle)
-		}
-		if len(key.RecentCycles) != 1 || key.RecentCycles[0].SpentUSD != 5 {
-			t.Fatalf("RecentCycles = %+v, want the exhausted window archived", key.RecentCycles)
-		}
-	})
 }
 
 // TestAuthorizeRollsIdleCycle covers a key that stopped sending traffic before
@@ -163,7 +128,6 @@ func TestAuthorizeRollsIdleCycle(t *testing.T) {
 				StartAt:  time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 				EndAt:    time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC),
 				SpentUSD: 5,
-				Requests: 3,
 			},
 		}
 	})
@@ -219,10 +183,14 @@ func TestAuthorizeAndRecordUsageAgreeOnTheCycle(t *testing.T) {
 	// before a request and billing after it; it is bounded by the number of
 	// requests in flight.
 	for index := 0; index < 3; index++ {
-		if !store.Authorize("scope-a", now).Allowed {
+		decision := store.Authorize("scope-a", now)
+		if !decision.Allowed {
 			t.Fatalf("request %d was blocked below the limit", index)
 		}
-		store.RecordUsage(subsetEvent("scope-a", now))
+		event := subsetEvent("scope-a", now)
+		event.CyclePlanID = decision.PlanID
+		event.CycleStartAt = decision.CycleStartAt
+		store.RecordUsage(event)
 	}
 	if store.Authorize("scope-a", now).Allowed {
 		t.Fatalf("the key was still allowed after spending %.6f of %.6f", 3*wantSubsetCost, limitUSD)

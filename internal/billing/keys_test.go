@@ -13,8 +13,8 @@ func TestBindingAndResetLeaveCycleInactive(t *testing.T) {
 		state.Keys["a"] = &KeyState{}
 	})
 
-	if changed, err := store.BindKeys([]string{"a"}, "p"); err != nil || changed != 1 {
-		t.Fatalf("BindKeys = %d, %v", changed, err)
+	if errBind := store.BindKey("a", "p"); errBind != nil {
+		t.Fatalf("BindKey error = %v", errBind)
 	}
 	store.Read(func(state *State) {
 		if cycle := state.Keys["a"].Cycle; cycle != (Cycle{}) {
@@ -25,8 +25,8 @@ func TestBindingAndResetLeaveCycleInactive(t *testing.T) {
 	if !store.Authorize("a", now).Allowed {
 		t.Fatal("first use was blocked")
 	}
-	if changed, err := store.ResetCycles([]string{"a"}); err != nil || changed != 1 {
-		t.Fatalf("ResetCycles = %d, %v", changed, err)
+	if errReset := store.ResetCycle("a"); errReset != nil {
+		t.Fatalf("ResetCycle error = %v", errReset)
 	}
 	store.Read(func(state *State) {
 		if cycle := state.Keys["a"].Cycle; cycle != (Cycle{}) {
@@ -41,17 +41,17 @@ func TestKeyDirectorySettlesExpiredCycleWithoutRestartingIt(t *testing.T) {
 	store.Update(func(state *State) {
 		state.Plans = []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}}
 		state.Keys["a"] = &KeyState{PlanID: "p", Cycle: Cycle{
-			PlanID: "p", StartAt: now.Add(-48 * time.Hour), EndAt: now.Add(-24 * time.Hour), SpentUSD: 2, Requests: 3,
+			PlanID: "p", StartAt: now.Add(-48 * time.Hour), EndAt: now.Add(-24 * time.Hour), SpentUSD: 2,
 		}}
 	})
 
 	directory := store.KeyDirectory()
-	if len(directory.Keys) != 1 || !directory.Keys[0].CycleStartAt.IsZero() || !directory.Keys[0].CycleEndAt.IsZero() {
+	if len(directory.Keys) != 1 || !directory.Keys[0].CycleEndAt.IsZero() {
 		t.Fatalf("directory = %+v, want inactive cycle", directory)
 	}
 	store.Read(func(state *State) {
 		key := state.Keys["a"]
-		if key.Cycle != (Cycle{}) || len(key.RecentCycles) != 1 || key.RecentCycles[0].SpentUSD != 2 {
+		if key.Cycle != (Cycle{}) {
 			t.Fatalf("key = %+v", key)
 		}
 	})

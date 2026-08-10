@@ -2,8 +2,6 @@ package billing
 
 import "strings"
 
-const TokenAccountingSchemaVersion = 2
-
 type TokenAccountingQuality string
 
 const (
@@ -13,33 +11,28 @@ const (
 )
 
 type TokenInputBreakdown struct {
-	TotalTokens      int64 `json:"total_tokens"`
-	UncachedTokens   int64 `json:"uncached_tokens"`
-	CacheReadTokens  int64 `json:"cache_read_tokens"`
-	CacheWriteTokens int64 `json:"cache_write_tokens"`
+	TotalTokens      int64
+	UncachedTokens   int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
 }
 
 type TokenOutputBreakdown struct {
-	TotalTokens        int64 `json:"total_tokens"`
-	NonReasoningTokens int64 `json:"non_reasoning_tokens"`
-	ReasoningTokens    int64 `json:"reasoning_tokens"`
+	TotalTokens        int64
+	NonReasoningTokens int64
+	ReasoningTokens    int64
 }
 
-// TokenBreakdown is the canonical, non-overlapping accounting contract used by
-// both host-provided and locally parsed upstream usage.
+// Provider usage is normalized into these non-overlapping buckets before pricing.
 type TokenBreakdown struct {
-	SchemaVersion      int                    `json:"schema_version"`
-	Quality            TokenAccountingQuality `json:"quality"`
-	TotalTokens        int64                  `json:"total_tokens"`
-	Input              TokenInputBreakdown    `json:"input"`
-	Output             TokenOutputBreakdown   `json:"output"`
-	UnclassifiedTokens int64                  `json:"unclassified_tokens"`
+	Quality            TokenAccountingQuality
+	TotalTokens        int64
+	Input              TokenInputBreakdown
+	Output             TokenOutputBreakdown
+	UnclassifiedTokens int64
 }
 
 func (b TokenBreakdown) Valid() bool {
-	if b.SchemaVersion != TokenAccountingSchemaVersion {
-		return false
-	}
 	switch b.Quality {
 	case TokenAccountingComplete, TokenAccountingInconsistent, TokenAccountingUnclassified:
 	default:
@@ -62,8 +55,14 @@ func (b TokenBreakdown) Billable() bool {
 	return b.Valid() && b.Quality == TokenAccountingComplete
 }
 
-// PriceSource records where a resolved price came from, for display and for
-// distinguishing "priced at zero" from "not priced".
+// Measured reports whether any upstream usage was observed. The zero value
+// means none ever was, which is the normal shape of a canceled request: nothing
+// to price, and nothing wrong with it either.
+func (b TokenBreakdown) Measured() bool {
+	return b.Quality != ""
+}
+
+// PriceSource distinguishes an explicit zero price from an unresolved price.
 type PriceSource string
 
 const (
@@ -73,7 +72,7 @@ const (
 	PriceSourceCustom   PriceSource = "custom"
 )
 
-// Price is a resolved, fully specified price in USD per 1,000,000 tokens.
+// Rates are USD per 1,000,000 tokens.
 type Price struct {
 	InputPer1M      float64                   `json:"input_per_1m"`
 	OutputPer1M     float64                   `json:"output_per_1m"`
@@ -91,7 +90,6 @@ type ResolvedLongContextPrice struct {
 	CacheWritePer1M      float64 `json:"cache_write_per_1m"`
 }
 
-// resolve fills in the cache-price fallbacks and records provenance.
 func (r PriceRule) resolve(source PriceSource) Price {
 	price := Price{
 		InputPer1M:      r.InputPer1M,
@@ -218,8 +216,6 @@ func isGlob(pattern string) bool {
 	return strings.ContainsAny(pattern, "*?")
 }
 
-// globMatch is a case-insensitive '*' and '?' matcher.
-//
 // path.Match is not usable here: its '*' stops at '/', which would break
 // patterns like "*claude*" against OpenRouter-style names such as
 // "anthropic/claude-sonnet-4".
@@ -227,7 +223,6 @@ func globMatch(pattern, value string) bool {
 	pattern = strings.ToLower(pattern)
 	value = strings.ToLower(value)
 
-	// Two-pointer scan with backtracking to the last '*'.
 	var (
 		patternIndex, valueIndex int
 		starIndex                = -1
@@ -263,7 +258,6 @@ type Cost struct {
 	CacheWriteUSD    float64 `json:"cache_write_usd"`
 	OutputUSD        float64 `json:"output_usd"`
 
-	// Billed token counts after semantics normalization and clamping.
 	UncachedInputTokens int64 `json:"uncached_input_tokens"`
 	CacheReadTokens     int64 `json:"cache_read_tokens"`
 	CacheWriteTokens    int64 `json:"cache_write_tokens"`
@@ -278,7 +272,7 @@ type Cost struct {
 	AppliedCacheWritePer1M float64 `json:"applied_cache_write_per_1m,omitempty"`
 }
 
-// ComputeCost prices one already-normalized canonical usage record. Invalid or
+// ComputeCost prices one already-normalized usage record. Invalid or
 // unclassified records are deliberately not guessed and therefore cost zero.
 func ComputeCost(price Price, breakdown TokenBreakdown) Cost {
 	if !breakdown.Billable() {

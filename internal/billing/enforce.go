@@ -15,8 +15,6 @@ type Decision struct {
 	ResetAt      time.Time
 }
 
-// Authorize reports whether a downstream key may issue a request.
-//
 // It fails open by design. Anything the plugin cannot resolve — an
 // unattributable request, an unknown key, no subscription, or a deleted plan —
 // is allowed through. A billing plugin that starts
@@ -24,7 +22,7 @@ type Decision struct {
 // that briefly under-charges.
 //
 // The first admitted use starts a key-relative period. An elapsed period is
-// archived and a fresh one starts at this use; idle time never consumes a new
+// closed and a fresh one starts at this use; idle time never consumes a new
 // period.
 func (s *Store) Authorize(scope string, at time.Time) Decision {
 	allowed := Decision{Allowed: true}

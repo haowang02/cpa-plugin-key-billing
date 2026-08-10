@@ -18,9 +18,8 @@ func floatPtr(v float64) *float64 { return &v }
 
 func completeBreakdown(uncached, cacheRead, cacheWrite, output, reasoning int64) TokenBreakdown {
 	return TokenBreakdown{
-		SchemaVersion: TokenAccountingSchemaVersion,
-		Quality:       TokenAccountingComplete,
-		TotalTokens:   uncached + cacheRead + cacheWrite + output,
+		Quality:     TokenAccountingComplete,
+		TotalTokens: uncached + cacheRead + cacheWrite + output,
 		Input: TokenInputBreakdown{
 			TotalTokens:      uncached + cacheRead + cacheWrite,
 			UncachedTokens:   uncached,
@@ -46,7 +45,6 @@ func TestCanonicalBreakdownValidation(t *testing.T) {
 		t.Fatalf("invalid breakdown accepted: %+v", invalid)
 	}
 	unclassified := TokenBreakdown{
-		SchemaVersion:      TokenAccountingSchemaVersion,
 		Quality:            TokenAccountingUnclassified,
 		TotalTokens:        10,
 		UnclassifiedTokens: 10,
@@ -180,7 +178,7 @@ func TestComputeCostRefusesInvalidOrUnclassifiedBreakdown(t *testing.T) {
 	if cost := ComputeCost(price, invalid); cost != (Cost{}) {
 		t.Fatalf("invalid breakdown cost = %+v", cost)
 	}
-	unclassified := TokenBreakdown{SchemaVersion: TokenAccountingSchemaVersion, Quality: TokenAccountingUnclassified, TotalTokens: 10, UnclassifiedTokens: 10}
+	unclassified := TokenBreakdown{Quality: TokenAccountingUnclassified, TotalTokens: 10, UnclassifiedTokens: 10}
 	if cost := ComputeCost(price, unclassified); cost != (Cost{}) {
 		t.Fatalf("unclassified breakdown cost = %+v", cost)
 	}

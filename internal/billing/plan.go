@@ -75,7 +75,6 @@ func settleExpiredCycle(key *KeyState, plan Plan, now time.Time) bool {
 	if plan.Period.Kind == PeriodNever || key.Cycle.StartAt.IsZero() || key.Cycle.EndAt.IsZero() || now.Before(key.Cycle.EndAt) {
 		return false
 	}
-	archiveCycle(key, plan.AmountUSD)
 	key.Cycle = Cycle{}
 	return true
 }
@@ -90,24 +89,4 @@ func activateCycle(key *KeyState, plan Plan, now time.Time) bool {
 	}
 	key.Cycle = Cycle{PlanID: plan.ID, StartAt: now, EndAt: plan.CycleEnd(now)}
 	return true
-}
-
-func archiveCycle(key *KeyState, limitUSD float64) {
-	if key.Cycle.StartAt.IsZero() {
-		return
-	}
-	if key.Cycle.SpentUSD <= 0 && key.Cycle.Requests <= 0 {
-		return
-	}
-	key.RecentCycles = append(key.RecentCycles, CycleSummary{
-		StartAt:  key.Cycle.StartAt,
-		EndAt:    key.Cycle.EndAt,
-		SpentUSD: key.Cycle.SpentUSD,
-		Requests: key.Cycle.Requests,
-		LimitUSD: limitUSD,
-		PlanID:   key.Cycle.PlanID,
-	})
-	if len(key.RecentCycles) > MaxRecentCycles {
-		key.RecentCycles = key.RecentCycles[len(key.RecentCycles)-MaxRecentCycles:]
-	}
 }

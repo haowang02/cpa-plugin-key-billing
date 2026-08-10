@@ -5,41 +5,42 @@ import (
 	"time"
 )
 
-// UsageRecord is one normalized provider usage event. Multiple records may
-// belong to one downstream request because retries are billed separately.
+// A retried request keeps only the final provider usage record.
 type UsageRecord struct {
 	BillingModel  string
 	UpstreamModel string
 	Generate      bool
-	Failed        bool
 	RequestedAt   time.Time
 	Breakdown     TokenBreakdown
 }
 
-// UsageEvent commits every canonical provider record associated with one
-// terminal downstream request.
+// RequestOutcome is how a downstream request ended. The empty outcome is a
+// request that completed normally, which is the overwhelming majority and so
+// costs nothing to store.
+type RequestOutcome string
+
+const (
+	OutcomeFailed RequestOutcome = "failed"
+	// Provider usage reported before cancellation is still charged.
+	OutcomeCanceled RequestOutcome = "canceled"
+)
+
+// UsageEvent commits one terminal downstream request. A nil Record means the
+// request produced no usage the plugin could read.
 type UsageEvent struct {
 	Scope     string
 	RequestID string
 	Endpoint  string
-	// AuthIndex identifies the upstream credential that served the request.
 	AuthIndex string
-	Failed    bool
-	Records   []UsageRecord
+	Outcome   RequestOutcome
+	Record    *UsageRecord
 	At        time.Time
-	// AttributionKnown and the cycle fields snapshot subscription state when
-	// the downstream request was admitted. They prevent a late completion from
-	// being charged to a newer period or binding.
-	AttributionKnown bool
-	CyclePlanID      string
-	CycleStartAt     time.Time
-	CycleEndAt       time.Time
-	CycleLimitUSD    float64
+	// The cycle fields identify the subscription window the request was admitted
+	// in, so a late completion is never charged to a newer period or binding.
+	CyclePlanID  string
+	CycleStartAt time.Time
 }
 
-// RecordUsage prices and commits canonical usage records atomically. Provider
-// attempts are intentionally not deduplicated: retries and additional model
-// calls are separate upstream costs, matching CLIProxyAPI's usage event model.
 func (s *Store) RecordUsage(event UsageEvent) {
 	scope := strings.TrimSpace(event.Scope)
 	if scope == "" {
@@ -49,183 +50,116 @@ func (s *Store) RecordUsage(event UsageEvent) {
 	if at.IsZero() {
 		at = s.Now()
 	}
-	if len(event.Records) == 0 {
+	if event.Record == nil {
 		s.usageNoTokens.Add(1)
 		return
 	}
-	hasGenerated := false
-	for _, record := range event.Records {
-		if record.Generate {
-			hasGenerated = true
-			break
-		}
-	}
-	if !hasGenerated {
+	record := *event.Record
+	if !record.Generate {
 		return
 	}
 
 	s.Update(func(state *State) {
-		key := state.ensureKey(scope, at)
-		key.LastSeen = at
+		key := state.ensureKey(scope)
 
-		plan, hasPlan := state.FindPlan(key.PlanID)
-		if !event.AttributionKnown {
-			if hasPlan {
-				activateCycle(key, plan, at)
-			} else if key.PlanID != "" {
-				key.PlanID = ""
-				key.Cycle = Cycle{}
-			}
+		// An unobserved breakdown is missing, not malformed: it counts as a
+		// request without tokens and nothing else.
+		if !record.Breakdown.Measured() || record.Breakdown.TotalTokens == 0 {
+			s.usageNoTokens.Add(1)
 		}
-
-		usageIndex := 0
-		for _, record := range event.Records {
-			if !record.Generate {
-				continue
-			}
-			index := usageIndex
-			usageIndex++
-			if !record.Breakdown.Billable() {
-				s.usageUnclassified.Add(1)
-			}
-			upstreamModel := modelWithoutSuffix(record.UpstreamModel)
-			if upstreamModel == "" {
-				upstreamModel = modelWithoutSuffix(record.BillingModel)
-			}
-			billingModel := strings.TrimSpace(record.BillingModel)
-			if billingModel == "" {
-				billingModel = upstreamModel
-			}
-			price := state.ResolvePrice(upstreamModel, billingModel)
-			if price.Source == PriceSourceNone {
-				s.usageUnpriced.Add(1)
-			}
-			if record.Breakdown.TotalTokens == 0 {
-				s.usageNoTokens.Add(1)
-			}
-			cost := ComputeCost(price, record.Breakdown)
-			failed := event.Failed || record.Failed
-			totals := Totals{
-				CostUSD:             cost.TotalUSD,
-				Requests:            1,
-				UncachedInputTokens: cost.UncachedInputTokens,
-				OutputTokens:        cost.BilledOutputTokens,
-				ReasoningTokens:     record.Breakdown.Output.ReasoningTokens,
-				CacheReadTokens:     cost.CacheReadTokens,
-				CacheCreationTokens: cost.CacheWriteTokens,
-			}
-			if failed {
-				totals.FailedRequests = 1
-			}
-			key.Lifetime.Add(totals)
-			key.addModelTotals(billingModel, totals)
-
-			entryAt := record.RequestedAt
-			if entryAt.IsZero() {
-				entryAt = at
-			}
-			entry := LogEntry{
-				At:                entryAt,
-				Scope:             scope,
-				RequestID:         event.RequestID,
-				UsageIndex:        index,
-				Endpoint:          event.Endpoint,
-				AuthIndex:         event.AuthIndex,
-				UpstreamModel:     upstreamModel,
-				BillingModel:      billingModel,
-				Failed:            failed,
-				AccountingQuality: record.Breakdown.Quality,
-				PriceSource:       price.Source,
-				Cost:              cost,
-				ReasoningTokens:   record.Breakdown.Output.ReasoningTokens,
-			}
-			if planID, spentUSD, limitUSD, attributed := attributeCycleUsage(key, plan, hasPlan, event, cost.TotalUSD); attributed {
-				entry.PlanID = planID
-				entry.CycleSpentUSD = spentUSD
-				entry.CycleLimitUSD = limitUSD
-			}
-			appendLog(state, entry, s.cfg.LogEntries)
+		if record.Breakdown.Measured() && !record.Breakdown.Billable() {
+			s.usageUnclassified.Add(1)
 		}
-		// A completion attributed to the current period may arrive after its end.
-		// Archive it now, but do not start the next period until another request
-		// is admitted.
-		if event.AttributionKnown && hasPlan {
+		upstreamModel := modelWithoutSuffix(record.UpstreamModel)
+		if upstreamModel == "" {
+			upstreamModel = modelWithoutSuffix(record.BillingModel)
+		}
+		billingModel := strings.TrimSpace(record.BillingModel)
+		if billingModel == "" {
+			billingModel = upstreamModel
+		}
+		price := state.ResolvePrice(upstreamModel, billingModel)
+		if price.Source == PriceSourceNone {
+			s.usageUnpriced.Add(1)
+		}
+		cost := ComputeCost(price, record.Breakdown)
+		totals := Totals{
+			CostUSD:             cost.TotalUSD,
+			Requests:            1,
+			UncachedInputTokens: cost.UncachedInputTokens,
+			OutputTokens:        cost.BilledOutputTokens,
+			ReasoningTokens:     record.Breakdown.Output.ReasoningTokens,
+			CacheReadTokens:     cost.CacheReadTokens,
+			CacheCreationTokens: cost.CacheWriteTokens,
+		}
+		key.Lifetime.Add(totals)
+		key.addModelTotals(billingModel, totals)
+
+		entryAt := record.RequestedAt
+		if entryAt.IsZero() {
+			entryAt = at
+		}
+		entry := LogEntry{
+			At:                entryAt,
+			Scope:             scope,
+			RequestID:         event.RequestID,
+			Endpoint:          event.Endpoint,
+			AuthIndex:         event.AuthIndex,
+			UpstreamModel:     upstreamModel,
+			BillingModel:      billingModel,
+			Outcome:           event.Outcome,
+			AccountingQuality: record.Breakdown.Quality,
+			PriceSource:       price.Source,
+			Cost:              cost,
+			ReasoningTokens:   record.Breakdown.Output.ReasoningTokens,
+		}
+		chargeCycle(key, event, cost.TotalUSD)
+		appendLog(state, entry, at)
+		// A completion may arrive after its period ended. Close it now, but do
+		// not start the next period until another request is admitted.
+		if plan, hasPlan := state.FindPlan(key.PlanID); hasPlan {
 			settleExpiredCycle(key, plan, at)
 		}
 	})
 }
 
-func attributeCycleUsage(key *KeyState, currentPlan Plan, hasCurrentPlan bool, event UsageEvent, costUSD float64) (string, float64, float64, bool) {
-	if !event.AttributionKnown {
-		if !hasCurrentPlan {
-			return "", 0, 0, false
-		}
-		key.Cycle.SpentUSD += costUSD
-		key.Cycle.Requests++
-		return currentPlan.ID, key.Cycle.SpentUSD, currentPlan.AmountUSD, true
-	}
+// chargeCycle charges the cost to the subscription window the request was
+// admitted in, and only to that window. A completion that arrives after its
+// window rolled, or after an operator rebound the key, finds a window it does
+// not belong to and is left out of it — the spend still lands in the lifetime
+// totals and the billing log. An unbound key has no window at all.
+func chargeCycle(key *KeyState, event UsageEvent, costUSD float64) {
 	if event.CyclePlanID == "" || event.CycleStartAt.IsZero() {
-		return "", 0, 0, false
+		return
 	}
-	if key.Cycle.PlanID == event.CyclePlanID && key.Cycle.StartAt.Equal(event.CycleStartAt) {
-		key.Cycle.SpentUSD += costUSD
-		key.Cycle.Requests++
-		return event.CyclePlanID, key.Cycle.SpentUSD, event.CycleLimitUSD, true
+	if key.Cycle.PlanID != event.CyclePlanID || !key.Cycle.StartAt.Equal(event.CycleStartAt) {
+		return
 	}
-	for index := len(key.RecentCycles) - 1; index >= 0; index-- {
-		cycle := &key.RecentCycles[index]
-		if cycle.PlanID != event.CyclePlanID || !cycle.StartAt.Equal(event.CycleStartAt) {
-			continue
-		}
-		cycle.SpentUSD += costUSD
-		cycle.Requests++
-		return cycle.PlanID, cycle.SpentUSD, cycle.LimitUSD, true
-	}
-	cycle := CycleSummary{
-		StartAt:  event.CycleStartAt,
-		EndAt:    event.CycleEndAt,
-		SpentUSD: costUSD,
-		Requests: 1,
-		LimitUSD: event.CycleLimitUSD,
-		PlanID:   event.CyclePlanID,
-	}
-	key.RecentCycles = append(key.RecentCycles, cycle)
-	if len(key.RecentCycles) > MaxRecentCycles {
-		key.RecentCycles = key.RecentCycles[len(key.RecentCycles)-MaxRecentCycles:]
-	}
-	return cycle.PlanID, cycle.SpentUSD, cycle.LimitUSD, true
+	key.Cycle.SpentUSD += costUSD
 }
 
-func (s *State) ensureKey(scope string, at time.Time) *KeyState {
+func (s *State) ensureKey(scope string) *KeyState {
 	if s.Keys == nil {
 		s.Keys = make(map[string]*KeyState)
 	}
 	key := s.Keys[scope]
 	if key == nil {
-		key = &KeyState{FirstSeen: at, ByModel: make(map[string]*Totals)}
+		key = &KeyState{ByModel: make(map[string]*Totals)}
 		s.Keys[scope] = key
 	}
 	if key.ByModel == nil {
 		key.ByModel = make(map[string]*Totals)
 	}
-	if key.FirstSeen.IsZero() {
-		key.FirstSeen = at
-	}
 	return key
 }
 
-// addModelTotals accumulates per-model statistics, folding overflow into a
-// shared bucket so a client cycling through model names cannot grow the state.
 func (k *KeyState) addModelTotals(model string, totals Totals) {
 	if k.ByModel == nil {
 		k.ByModel = make(map[string]*Totals)
 	}
 	model = strings.TrimSpace(model)
 	if model == "" {
-		model = OtherModelsBucket
-	}
-	if _, exists := k.ByModel[model]; !exists && len(k.ByModel) >= MaxModelsPerKey {
-		model = OtherModelsBucket
+		return
 	}
 	entry := k.ByModel[model]
 	if entry == nil {

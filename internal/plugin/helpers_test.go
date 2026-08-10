@@ -2,12 +2,39 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"testing"
 
 	"cpa-key-billing/internal/billing"
 )
+
+func billOneRequest(t *testing.T, app *App, apiKey string, outputTokens int64) {
+	t.Helper()
+	const requestID, responseID = "req-bill-1", "resp-bill-1"
+	body := []byte(`{"model":"gpt-5.5","messages":[]}`)
+	raw, errHandle := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{
+		RequestID: requestID, SourceFormat: "openai", Model: "gpt-5.5", RequestedModel: "gpt-5.5", Body: body,
+		Metadata: map[string]any{
+			MetadataCallerScope: billing.CallerScope(apiKey),
+			MetadataRequestPath: "/v1/chat/completions",
+		},
+	}))
+	if errHandle != nil {
+		t.Fatalf("request.intercept_before error = %v", errHandle)
+	}
+	var admitted RequestInterceptResponse
+	decodeResult(t, raw, &admitted)
+	if admitted.Terminate {
+		t.Fatalf("request was terminated: %s", admitted.ResponseBody)
+	}
+	observeUpstream(t, app, "openai", "gpt-5.5", false, body, fmt.Appendf(nil,
+		`{"id":%q,"usage":{"prompt_tokens":0,"completion_tokens":%d,"total_tokens":%d}}`,
+		responseID, outputTokens, outputTokens))
+	respond(t, app, requestID, fmt.Appendf(nil, `{"id":%q}`, responseID))
+	complete(t, app, requestID, RequestCompletionSucceeded)
+}
 
 func decodeResult(t *testing.T, raw []byte, v any) {
 	t.Helper()
@@ -40,8 +67,7 @@ func newConfiguredApp(t *testing.T) *App {
 	t.Cleanup(app.Shutdown)
 	configYAML := "enabled: true\nstate_file: \"" + filepath.Join(t.TempDir(), "state.json") + "\"\n"
 	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
-		ConfigYAML:    []byte(configYAML),
-		SchemaVersion: SchemaVersion,
+		ConfigYAML: []byte(configYAML),
 	}))
 	if errHandle != nil {
 		t.Fatalf("plugin.register error = %v", errHandle)
@@ -51,17 +77,18 @@ func newConfiguredApp(t *testing.T) *App {
 }
 
 func newAppWithPrice(t *testing.T, enabled bool) *App {
-	return newAppWithPriceSchema(t, enabled, SchemaVersion)
+	app, _ := newAppWithPriceAndState(t, enabled)
+	return app
 }
 
-func newAppWithPriceSchema(t *testing.T, enabled bool, schema uint32) *App {
+func newAppWithPriceAndState(t *testing.T, enabled bool) (*App, string) {
 	t.Helper()
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
-	configYAML := "enabled: " + strconv.FormatBool(enabled) + "\nstate_file: \"" + filepath.Join(t.TempDir(), "state.json") + "\"\n"
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	configYAML := "enabled: " + strconv.FormatBool(enabled) + "\nstate_file: \"" + statePath + "\"\n"
 	if _, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
-		ConfigYAML:    []byte(configYAML),
-		SchemaVersion: schema,
+		ConfigYAML: []byte(configYAML),
 	})); errHandle != nil {
 		t.Fatalf("plugin.register error = %v", errHandle)
 	}
@@ -76,5 +103,5 @@ func newAppWithPriceSchema(t *testing.T, enabled bool, schema uint32) *App {
 			CacheWritePer1M: &cacheWrite,
 		}}
 	})
-	return app
+	return app, statePath
 }

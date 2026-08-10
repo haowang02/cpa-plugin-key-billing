@@ -5,22 +5,11 @@ import (
 	"time"
 )
 
-func newLogStore(t *testing.T, now time.Time, retention int) *Store {
-	t.Helper()
-	store := newAccountStore(t, now)
-	cfg := store.cfg
-	cfg.LogEntries = retention
-	if err := store.Configure(cfg); err != nil {
-		t.Fatalf("Configure error = %v", err)
-	}
-	return store
-}
-
 func TestLogRecordsTheComputedBill(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	store := newLogStore(t, now, 10)
+	store := newAccountStore(t, now)
 	store.Update(func(state *State) {
-		state.ensureKey("scope-a", now).Preview = "sk-tes…0001"
+		state.ensureKey("scope-a").Preview = "sk-tes…0001"
 	})
 	store.LearnCredential("auth-codex", "codex", "oauth", "ops@example.com")
 	store.RecordUsage(subsetEvent("scope-a", now))
@@ -29,7 +18,7 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 	}
 
 	view := store.Logs(0)
-	if len(view.Entries) != 1 || view.Retained != 1 || view.Limit != 10 {
+	if len(view.Entries) != 1 || view.Total != 1 {
 		t.Fatalf("view = %+v", view)
 	}
 	entry := view.Entries[0]
@@ -46,31 +35,37 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 	assertClose(t, "TotalUSD", entry.Cost.TotalUSD, wantSubsetCost)
 }
 
-func TestLogRetentionAndDisable(t *testing.T) {
+// The log holds a window of time rather than a number of entries, so a busy
+// period is kept whole and a quiet one does not push it out.
+func TestLogKeepsTheRetentionWindow(t *testing.T) {
 	start := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	store := newLogStore(t, start, 3)
-	for i := 0; i < 5; i++ {
+	store := newAccountStore(t, start)
+	for i := 0; i < 3; i++ {
 		store.RecordUsage(subsetEvent("scope-a", start.Add(time.Duration(i)*time.Minute)))
 	}
 	view := store.Logs(0)
-	if len(view.Entries) != 3 || !view.Entries[0].At.Equal(start.Add(4*time.Minute)) {
-		t.Fatalf("entries = %+v, want the newest three", view.Entries)
+	if len(view.Entries) != 3 || view.Total != 3 {
+		t.Fatalf("view total = %d, want every entry inside the window", view.Total)
+	}
+	if !view.Entries[0].At.Equal(start.Add(2 * time.Minute)) {
+		t.Fatalf("entries = %+v, want the newest first", view.Entries[0])
 	}
 
-	cfg := store.cfg
-	cfg.LogEntries = 0
-	if err := store.Configure(cfg); err != nil {
-		t.Fatalf("Configure error = %v", err)
+	store.now = func() time.Time { return start.Add(LogRetention + 24*time.Hour) }
+	if view = store.Logs(0); view.Total != 0 || len(view.Entries) != 0 {
+		t.Fatalf("view = %+v, want the window emptied by age", view)
 	}
-	store.RecordUsage(subsetEvent("scope-a", start))
-	if view = store.Logs(0); len(view.Entries) != 0 || view.Limit != 0 {
-		t.Fatalf("view = %+v, want logging disabled", view)
-	}
+	store.RecordUsage(subsetEvent("scope-a", store.Now()))
+	store.Read(func(state *State) {
+		if len(state.Log) != 1 {
+			t.Fatalf("state.Log = %d entries, want the stale ones dropped on append", len(state.Log))
+		}
+	})
 }
 
 func TestClearLogsOnlyClearsLogs(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	store := newLogStore(t, now, 10)
+	store := newAccountStore(t, now)
 	store.RecordUsage(subsetEvent("scope-a", now))
 	if cleared := store.ClearLogs(); cleared != 1 {
 		t.Fatalf("ClearLogs = %d, want 1", cleared)

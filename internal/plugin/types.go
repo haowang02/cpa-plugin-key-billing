@@ -13,17 +13,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"time"
-
-	"cpa-key-billing/internal/billing"
 )
 
 const (
-	ABIVersion                  uint32 = 1
-	SchemaVersion               uint32 = 3
-	MinHostSchemaVersion        uint32 = 2
-	CanonicalUsageSchemaVersion uint32 = 3
-	StreamChunkHeaderInitIndex         = -1
+	// ABIVersion and SchemaVersion identify the native ABI and the register
+	// contract to the host, which refuses to load a plugin declaring either
+	// beyond its own. Both mirror CLIProxyAPI's sdk/pluginabi.
+	ABIVersion    uint32 = 1
+	SchemaVersion uint32 = 2
+
+	// StreamChunkHeaderInitIndex marks the synthetic chunk the host sends before
+	// a stream starts, which carries headers rather than response data.
+	StreamChunkHeaderInitIndex = -1
 )
 
 // Plugin identity. PluginID doubles as the dynamic library file name, the
@@ -31,7 +32,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "0.2.2"
+	Version    = "0.3.0"
 
 	MenuLabel       = "API Key 计费"
 	MenuDescription = "管理下游 API Key 的计费、订阅额度和用量"
@@ -56,7 +57,6 @@ const (
 	MethodManagementHandle   = "management.handle"
 )
 
-// Metadata keys the host places in Options.Metadata and forwards to interceptors.
 const (
 	// MetadataCallerScope is sha256("cli-proxy-api:caller-scope:v1\x00"+apiKey)
 	// in hex. It is the only downstream-key identifier available at interception
@@ -86,8 +86,7 @@ type EnvelopeError struct {
 }
 
 type LifecycleRequest struct {
-	ConfigYAML    []byte `json:"config_yaml"`
-	SchemaVersion uint32 `json:"schema_version"`
+	ConfigYAML []byte `json:"config_yaml"`
 }
 
 type Registration struct {
@@ -110,10 +109,6 @@ type ConfigField struct {
 	Description string `json:"Description"`
 }
 
-// Capabilities declares the host integration points this plugin implements.
-//
-// Protocol 3 delivers canonical usage with the terminal lifecycle event.
-// Protocol 2 uses the response hooks to read raw upstream usage instead.
 type Capabilities struct {
 	RequestInterceptor       bool `json:"request_interceptor"`
 	RequestLifecyclePlugin   bool `json:"request_lifecycle_plugin"`
@@ -147,51 +142,21 @@ type RequestCompletionOutcome string
 const (
 	RequestCompletionSucceeded RequestCompletionOutcome = "succeeded"
 	RequestCompletionRejected  RequestCompletionOutcome = "rejected"
+	// RequestCompletionCanceled is the host's outcome for a canceled context,
+	// which is what a client disconnecting mid-generation produces.
+	RequestCompletionCanceled RequestCompletionOutcome = "canceled"
 )
 
 // RequestCompletion is the terminal event for an intercepted request. The host
 // delivers exactly one per request and detaches it from request cancellation,
-// which is what makes it a safe commit point for billing.
+// which is what makes it a safe commit point for billing. It carries no tokens;
+// those come from the response hooks.
 type RequestCompletion struct {
-	RequestID    string                   `json:"RequestID"`
-	Outcome      RequestCompletionOutcome `json:"Outcome"`
-	UsageRecords []RequestUsageRecord     `json:"UsageRecords"`
+	RequestID string                   `json:"RequestID"`
+	Outcome   RequestCompletionOutcome `json:"Outcome"`
 }
 
-type RequestUsageRecord struct {
-	Model          string                `json:"Model"`
-	RequestedModel string                `json:"Alias"`
-	Generate       bool                  `json:"Generate"`
-	Failed         bool                  `json:"Failed"`
-	RequestedAt    time.Time             `json:"RequestedAt"`
-	Breakdown      RequestTokenBreakdown `json:"Breakdown"`
-}
-
-type RequestTokenBreakdown struct {
-	SchemaVersion      int                            `json:"SchemaVersion"`
-	Quality            billing.TokenAccountingQuality `json:"Quality"`
-	TotalTokens        int64                          `json:"TotalTokens"`
-	Input              RequestTokenInputBreakdown     `json:"Input"`
-	Output             RequestTokenOutputBreakdown    `json:"Output"`
-	UnclassifiedTokens int64                          `json:"UnclassifiedTokens"`
-}
-
-type RequestTokenInputBreakdown struct {
-	TotalTokens      int64 `json:"TotalTokens"`
-	UncachedTokens   int64 `json:"UncachedTokens"`
-	CacheReadTokens  int64 `json:"CacheReadTokens"`
-	CacheWriteTokens int64 `json:"CacheWriteTokens"`
-}
-
-type RequestTokenOutputBreakdown struct {
-	TotalTokens        int64 `json:"TotalTokens"`
-	NonReasoningTokens int64 `json:"NonReasoningTokens"`
-	ReasoningTokens    int64 `json:"ReasoningTokens"`
-}
-
-// UsageRecord is the usage event CLIProxyAPI publishes for every request it
-// serves. Only the credential identity is read from it; see billing.Store's
-// LearnCredential.
+// Only credential identity is read from the host's usage event.
 type UsageRecord struct {
 	Provider  string `json:"Provider"`
 	AuthIndex string `json:"AuthIndex"`
@@ -207,10 +172,6 @@ type ResponseTransformRequest struct {
 	Stream          bool   `json:"Stream"`
 	OriginalRequest []byte `json:"OriginalRequest"`
 	Body            []byte `json:"Body"`
-}
-
-type PayloadResponse struct {
-	Body []byte `json:"Body"`
 }
 
 type ResponseInterceptRequest struct {

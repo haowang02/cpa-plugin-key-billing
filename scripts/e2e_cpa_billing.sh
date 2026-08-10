@@ -174,13 +174,13 @@ api_call() {
   local name="$2"
   local path="$3"
   local body="$4"
-  local protocol="$5"
+  local client_format="$5"
   local output="$6"
   local -a headers
   local http_status error_message
 
   headers=(-H "Content-Type: application/json")
-  if [[ "$protocol" == "anthropic" ]]; then
+  if [[ "$client_format" == "anthropic" ]]; then
     headers+=(-H "x-api-key: e2e-downstream-key" -H "anthropic-version: 2023-06-01")
   else
     headers+=(-H "Authorization: Bearer e2e-downstream-key")
@@ -207,11 +207,11 @@ api_call() {
 }
 
 extract_downstream_usage() {
-  local protocol="$1"
+  local client_format="$1"
   local stream="$2"
   local response_file="$3"
   if [[ "$stream" == "false" ]]; then
-    case "$protocol" in
+    case "$client_format" in
       chat)
         jq -er '[.usage.prompt_tokens, .usage.completion_tokens] | @tsv' "$response_file"
         ;;
@@ -228,7 +228,7 @@ extract_downstream_usage() {
     return
   fi
 
-  case "$protocol" in
+  case "$client_format" in
     chat)
       jq -Rser '
         def events: split("\n")[] | sub("\r$"; "") | select(startswith("data:")) |
@@ -367,6 +367,42 @@ assert_latest_entry() {
   fi
 }
 
+# assert_canceled_request disconnects a client mid-generation, which is the one
+# outcome the plugin cannot observe from usage alone: the provider reports
+# nothing, so without the terminal event the request would vanish from the log.
+assert_canceled_request() {
+  local port="$1"
+  local runtime_dir="$2"
+  local body curl_pid attempt logs_file
+  logs_file="$runtime_dir/canceled-billing.json"
+  body="$(jq -nc --arg model "chat/$chat_route" '
+    {model: $model, max_tokens: 2048, stream: true,
+     messages: [{role: "user", content: "Count from 1 to 500, one number per line."}]}')"
+
+  curl -sS -N --max-time 30 \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer e2e-downstream-key" \
+    --data "$body" \
+    --output "$runtime_dir/responses/canceled.sse" \
+    "http://127.0.0.1:$port/v1/chat/completions" >/dev/null 2>&1 &
+  curl_pid=$!
+  sleep 1
+  kill -9 "$curl_pid" >/dev/null 2>&1 || true
+  wait "$curl_pid" >/dev/null 2>&1 || true
+
+  attempt=0
+  while (( attempt < 50 )); do
+    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=1" >"$logs_file"
+    if jq -e '.entries[0].outcome == "canceled"' "$logs_file" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.2
+  done
+  echo "断开的流式请求没有记入计费日志：$(jq -c '.entries[0]' "$logs_file")" >&2
+  return 1
+}
+
 run_version() {
   local version="$1"
   local index="$2"
@@ -409,7 +445,6 @@ plugins:
     cpa-key-billing:
       enabled: true
       state_file: "$runtime_dir/state.json"
-      log_entries: 100
 openai-compatibility:
   - name: "deepseek-direct-e2e"
     base-url: "$openai_base_url"
@@ -577,10 +612,20 @@ EOF
     echo "复杂模型路由的用量统计不正确。" >&2
     return 1
   fi
+
+  assert_canceled_request "$port" "$runtime_dir"
+
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$runtime_dir/events.json"
+  if ! jq -e '[.events[] | select(.level == "info" and (.message | contains("已加载状态文件")))] | length == 1' \
+    "$runtime_dir/events.json" >/dev/null; then
+    echo "插件日志缺少启动记录：$(jq -c '.events' "$runtime_dir/events.json")" >&2
+    return 1
+  fi
+
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  echo "CLIProxyAPI v${version}：通过（23 个真实上游请求）。"
+  echo "CLIProxyAPI v${version}：通过（23 个真实上游请求，另有 1 次客户端中途断开）。"
 }
 
 version_index=0

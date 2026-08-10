@@ -12,9 +12,7 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// QuotaExhaustedStatus is the HTTP status returned to a client whose key has
-// spent its cycle budget. 429 with an insufficient_quota error is the shape
-// OpenAI-compatible clients already understand.
+// OpenAI-compatible clients recognize 429 with an insufficient_quota error.
 const QuotaExhaustedStatus = http.StatusTooManyRequests
 
 // maxRetryAfterSeconds caps the Retry-After hint. A monthly plan can be weeks
@@ -22,9 +20,8 @@ const QuotaExhaustedStatus = http.StatusTooManyRequests
 // than one that retries hourly and gets another 429.
 const maxRetryAfterSeconds = 3600
 
-// interceptBeforeAuth runs before credential selection and is where a key that
-// has exhausted its subscription is stopped. Enforcement lands here rather than
-// after auth so an over-quota request never occupies an upstream credential.
+// Enforcement runs before auth so an over-quota request never occupies an
+// upstream credential.
 func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	var req RequestInterceptRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
@@ -34,27 +31,16 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 		return OKEnvelope(RequestInterceptResponse{})
 	}
 	if metadataString(req.Metadata, MetadataSource) == SourcePluginHostModelCallback {
-		// A nested execution another plugin started through the host, such as a
-		// router asking a small model to classify the request.
-		//
-		// Skipping it under-charges when its tokens do not show up in the outer
-		// response, which is the usual case: the host runs these as executions
-		// of their own. Billing it instead would double-charge whenever they do
-		// show up, and would charge them against a key that never asked for
-		// them. Between an error that costs the operator a little and one that
-		// overcharges their user, this takes the first.
+		// Nested plugin executions may also appear in the outer usage. Prefer a
+		// possible undercharge to double-charging a key for work it did not request.
 		return OKEnvelope(RequestInterceptResponse{})
 	}
 	scope := metadataString(req.Metadata, MetadataCallerScope)
 	if scope == "" {
-		// No access provider principal, so there is no key to charge. This is
-		// the unauthenticated-deployment case.
 		return OKEnvelope(RequestInterceptResponse{})
 	}
 
-	// One clock read for the whole decision: the Retry-After hint is derived
-	// from the same instant the budget was judged against, so it can never come
-	// out a second short because the window rolled in between.
+	// Derive Retry-After from the same instant used for the quota decision.
 	now := a.store.Now()
 	decision := a.store.Authorize(scope, now)
 	if !decision.Allowed {
@@ -62,26 +48,21 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	}
 
 	a.store.BeginRequest(req.RequestID, billing.PendingRequest{
-		Scope:         scope,
-		Endpoint:      metadataString(req.Metadata, MetadataRequestPath),
-		CyclePlanID:   decision.PlanID,
-		CycleStartAt:  decision.CycleStartAt,
-		CycleEndAt:    decision.ResetAt,
-		CycleLimitUSD: decision.LimitUSD,
+		Scope:        scope,
+		Endpoint:     metadataString(req.Metadata, MetadataRequestPath),
+		CyclePlanID:  decision.PlanID,
+		CycleStartAt: decision.CycleStartAt,
 	})
-	if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
-		generate := true
-		if value, ok := req.Metadata["generate"].(bool); ok {
-			generate = value
-		}
-		a.protocol2.begin(req.RequestID, req.SourceFormat, req.Model, req.RequestedModel, generate, a.store.Now())
+	generate := true
+	if value, ok := req.Metadata["generate"].(bool); ok {
+		generate = value
 	}
+	a.usage.begin(req.RequestID, req.SourceFormat, req.Model, req.RequestedModel, generate, a.store.Now())
 	return OKEnvelope(RequestInterceptResponse{})
 }
 
-// interceptAfterAuth runs once per upstream attempt, after the host picked the
-// credential for it. That makes it the only point where a request can be
-// attributed to the credential serving it.
+// This hook runs per attempt, so its last credential is the one that served a
+// retried request.
 func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 	var req RequestInterceptRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
@@ -90,56 +71,44 @@ func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 	if a == nil || a.store == nil || !a.store.Enabled() {
 		return OKEnvelope(RequestInterceptResponse{})
 	}
-	// Both usage protocols attribute a request from here, so a log entry names
-	// its credential the same way whichever one the host speaks.
 	a.store.SetRequestCredential(req.RequestID, metadataString(req.Metadata, MetadataSelectedAuthIndex))
-	if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
-		a.protocol2.addRoute(req.RequestID, req.ToFormat, req.Model, req.RequestedModel, req.Stream, req.Body)
-	}
+	a.usage.addRoute(req.RequestID, req.ToFormat, req.Model, req.RequestedModel, req.Stream, req.Body)
 	return OKEnvelope(RequestInterceptResponse{})
 }
 
-// Protocol 2 exposes the raw upstream response only here, before response
-// translation. The response is returned byte-for-byte; this hook observes
-// authoritative provider usage and never modifies client-visible data.
+// Only the pre-translation response has authoritative provider usage. An empty
+// result means observe-only and avoids copying every chunk across the ABI again.
 func (a *App) normalizeResponseBefore(raw []byte) ([]byte, error) {
 	var req ResponseTransformRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
 		return nil, fmt.Errorf("解析上游响应：%w", errUnmarshal)
 	}
-	if a.hostSchema.Load() < CanonicalUsageSchemaVersion && a.store.Enabled() {
-		a.protocol2.observeUpstream(req, a.store.Now())
+	if a.store.Enabled() {
+		a.usage.observeUpstream(req, a.store.Now())
 	}
-	return OKEnvelope(PayloadResponse{Body: req.Body})
+	return OKEnvelope(struct{}{})
 }
 
-// Translated responses carry the host request ID. Their token fields are not
-// trusted because protocol translation may have estimated or synthesized them.
-func (a *App) interceptResponseAfter(raw []byte) ([]byte, error) {
+// interceptResponse handles both the single translated response and each
+// translated stream chunk; the host sends the same shape for either. These
+// carry the host request ID, which is what binds a stable response ID to the
+// request that owns it. Their token fields are not trusted, because format
+// translation may have estimated or synthesized them.
+func (a *App) interceptResponse(raw []byte) ([]byte, error) {
 	var req ResponseInterceptRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
 		return nil, fmt.Errorf("解析客户端响应：%w", errUnmarshal)
 	}
-	if a.hostSchema.Load() < CanonicalUsageSchemaVersion && a.store.Enabled() {
-		a.protocol2.bindResponse(req.RequestID, req.Body)
+	// The header-only chunk that opens a stream carries no response data. The
+	// non-stream call has no chunk index at all, so it reads as chunk 0.
+	if req.ChunkIndex != StreamChunkHeaderInitIndex && a.store.Enabled() {
+		a.usage.bindResponse(req.RequestID, req.Body)
 	}
-	return OKEnvelope(PayloadResponse{})
+	return OKEnvelope(struct{}{})
 }
 
-func (a *App) interceptResponseStreamChunk(raw []byte) ([]byte, error) {
-	var req ResponseInterceptRequest
-	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
-		return nil, fmt.Errorf("解析客户端流式响应：%w", errUnmarshal)
-	}
-	if req.ChunkIndex != StreamChunkHeaderInitIndex && a.hostSchema.Load() < CanonicalUsageSchemaVersion && a.store.Enabled() {
-		a.protocol2.bindResponse(req.RequestID, req.Body)
-	}
-	return OKEnvelope(PayloadResponse{})
-}
-
-// handleUsage learns what an upstream credential is. The record carries no
-// request ID, so it can only name credentials, never bill them; billing stays
-// on the terminal lifecycle event.
+// Usage events carry no request ID, so they can name credentials but never bill
+// them; billing stays on the terminal lifecycle event.
 func (a *App) handleUsage(raw []byte) ([]byte, error) {
 	var record UsageRecord
 	if errUnmarshal := json.Unmarshal(raw, &record); errUnmarshal != nil {
@@ -169,9 +138,7 @@ func metadataString(metadata map[string]any, key string) string {
 	return strings.TrimSpace(fmt.Sprint(raw))
 }
 
-// quotaExhaustedResponse builds the downstream rejection, shaped for the
-// client's own protocol so its SDK surfaces a real error instead of a parse
-// failure.
+// Use the client's API format so its SDK surfaces an error instead of a parse failure.
 func quotaExhaustedResponse(sourceFormat string, decision billing.Decision, now time.Time) RequestInterceptResponse {
 	message := quotaExhaustedMessage(decision)
 	headers := http.Header{
@@ -210,9 +177,7 @@ func quotaExhaustedMessage(decision billing.Decision) string {
 	return builder.String()
 }
 
-// quotaExhaustedBody renders the error in the client's protocol. Matching on
-// substrings rather than exact names keeps variants such as "gemini-cli"
-// working.
+// Substring matching keeps format variants such as "gemini-cli" working.
 func quotaExhaustedBody(sourceFormat, message string) []byte {
 	normalized := strings.ToLower(strings.TrimSpace(sourceFormat))
 	var payload any
@@ -279,47 +244,21 @@ func (a *App) handleRequestComplete(raw []byte) ([]byte, error) {
 	}
 	if completion.Outcome == RequestCompletionRejected {
 		a.store.DiscardRequest(completion.RequestID)
-		a.protocol2.discard(completion.RequestID)
+		a.usage.discard(completion.RequestID)
 	} else {
-		records := canonicalUsageRecords(completion.UsageRecords, a.store.BillingModel)
-		if a.hostSchema.Load() < CanonicalUsageSchemaVersion {
-			records = a.protocol2.finish(completion.RequestID, a.store.BillingModel)
-		}
-		a.store.FinishRequest(completion.RequestID, records, completion.Outcome != RequestCompletionSucceeded)
+		record := a.usage.finish(completion.RequestID, a.store.BillingModel)
+		a.store.FinishRequest(completion.RequestID, record, billingOutcome(completion.Outcome))
 	}
 	return OKEnvelope(struct{}{})
 }
 
-func canonicalUsageRecords(records []RequestUsageRecord, resolveModel func(string, string) string) []billing.UsageRecord {
-	if len(records) == 0 {
-		return nil
+func billingOutcome(outcome RequestCompletionOutcome) billing.RequestOutcome {
+	switch outcome {
+	case RequestCompletionSucceeded:
+		return ""
+	case RequestCompletionCanceled:
+		return billing.OutcomeCanceled
+	default:
+		return billing.OutcomeFailed
 	}
-	result := make([]billing.UsageRecord, 0, len(records))
-	for _, record := range records {
-		result = append(result, billing.UsageRecord{
-			BillingModel:  resolveModel(record.Model, record.RequestedModel),
-			UpstreamModel: record.Model,
-			Generate:      record.Generate,
-			Failed:        record.Failed,
-			RequestedAt:   record.RequestedAt,
-			Breakdown: billing.TokenBreakdown{
-				SchemaVersion:      record.Breakdown.SchemaVersion,
-				Quality:            record.Breakdown.Quality,
-				TotalTokens:        record.Breakdown.TotalTokens,
-				UnclassifiedTokens: record.Breakdown.UnclassifiedTokens,
-				Input: billing.TokenInputBreakdown{
-					TotalTokens:      record.Breakdown.Input.TotalTokens,
-					UncachedTokens:   record.Breakdown.Input.UncachedTokens,
-					CacheReadTokens:  record.Breakdown.Input.CacheReadTokens,
-					CacheWriteTokens: record.Breakdown.Input.CacheWriteTokens,
-				},
-				Output: billing.TokenOutputBreakdown{
-					TotalTokens:        record.Breakdown.Output.TotalTokens,
-					NonReasoningTokens: record.Breakdown.Output.NonReasoningTokens,
-					ReasoningTokens:    record.Breakdown.Output.ReasoningTokens,
-				},
-			},
-		})
-	}
-	return result
 }

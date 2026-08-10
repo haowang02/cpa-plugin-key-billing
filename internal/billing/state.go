@@ -2,17 +2,8 @@ package billing
 
 import "time"
 
-// StateVersion identifies the only on-disk document shape this build accepts.
-const StateVersion = 5
-
-// MaxModelsPerKey caps the per-key model breakdown. Overflow is folded into
-// OtherModelsBucket so a key that sweeps through many model names cannot grow
-// the state file without bound.
-const MaxModelsPerKey = 200
-
-const OtherModelsBucket = "__other__"
-
-const MaxRecentCycles = 12
+// Advance StateVersion for releases that change the on-disk shape.
+const StateVersion = 6
 
 type State struct {
 	Version int                  `json:"version"`
@@ -24,16 +15,12 @@ type State struct {
 	// from here, so a credential renamed upstream renames its history too.
 	Credentials map[string]Credential `json:"credentials,omitempty"`
 	Log         []LogEntry            `json:"log,omitempty"`
-	LastSyncAt  time.Time             `json:"last_sync_at,omitzero"`
 }
 
 func NewState() *State {
 	return &State{Version: StateVersion, Keys: make(map[string]*KeyState)}
 }
 
-// PriceRule prices one model. Pattern is the model name or matching rule,
-// case-insensitively; a pattern containing '*' or '?' is still honoured as a
-// glob for rules written by hand, though SyncModels does not preserve those.
 // All prices are USD per 1,000,000 tokens.
 //
 // The cache prices are pointers so "not specified" and "explicitly free" stay
@@ -48,10 +35,9 @@ type PriceRule struct {
 	CacheReadPer1M  *float64          `json:"cache_read_per_1m,omitempty"`
 	CacheWritePer1M *float64          `json:"cache_write_per_1m,omitempty"`
 	LongContext     *LongContextPrice `json:"long_context,omitempty"`
-	UpdatedAt       time.Time         `json:"updated_at,omitzero"`
 }
 
-// LongContextPrice replaces the whole request's rates when total canonical
+// LongContextPrice replaces the whole request's rates when total normalized
 // input exceeds ThresholdInputTokens. Cache prices use the tier's input price
 // when omitted, exactly like the standard price.
 type LongContextPrice struct {
@@ -80,16 +66,13 @@ type Period struct {
 }
 
 type Plan struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	AmountUSD float64   `json:"amount_usd"`
-	Period    Period    `json:"period"`
-	CreatedAt time.Time `json:"created_at,omitzero"`
-	UpdatedAt time.Time `json:"updated_at,omitzero"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	AmountUSD float64 `json:"amount_usd"`
+	Period    Period  `json:"period"`
 }
 
-// KeyState is everything tracked for one downstream API key, identified only by
-// its caller scope. The plaintext key is never stored.
+// KeyState is identified by caller scope; plaintext keys are never stored.
 type KeyState struct {
 	Preview string `json:"preview,omitempty"`
 	Label   string `json:"label,omitempty"`
@@ -98,37 +81,22 @@ type KeyState struct {
 	// list and later vanished has genuinely been deleted from CPA, while a
 	// scope only ever seen in traffic may belong to another access provider
 	// and must not be pruned by a CPA Key-list sync.
-	InConfig     bool               `json:"in_config,omitempty"`
-	PlanID       string             `json:"plan_id,omitempty"`
-	Cycle        Cycle              `json:"cycle"`
-	Lifetime     Totals             `json:"lifetime"`
-	ByModel      map[string]*Totals `json:"by_model,omitempty"`
-	RecentCycles []CycleSummary     `json:"recent_cycles,omitempty"`
-	FirstSeen    time.Time          `json:"first_seen,omitzero"`
-	LastSeen     time.Time          `json:"last_seen,omitzero"`
+	InConfig bool               `json:"in_config,omitempty"`
+	PlanID   string             `json:"plan_id,omitempty"`
+	Cycle    Cycle              `json:"cycle"`
+	Lifetime Totals             `json:"lifetime"`
+	ByModel  map[string]*Totals `json:"by_model,omitempty"`
 }
 
 type Cycle struct {
-	// PlanID records which plan opened this window, so archiving attributes it
-	// correctly even if the key was rebound in the meantime.
+	// PlanID records which plan opened this window, so a completion admitted
+	// under an earlier binding is recognized as belonging elsewhere.
 	PlanID   string    `json:"plan_id,omitempty"`
 	StartAt  time.Time `json:"start_at,omitzero"`
 	EndAt    time.Time `json:"end_at,omitzero"`
 	SpentUSD float64   `json:"spent_usd"`
-	Requests int64     `json:"requests"`
 }
 
-type CycleSummary struct {
-	StartAt  time.Time `json:"start_at"`
-	EndAt    time.Time `json:"end_at"`
-	SpentUSD float64   `json:"spent_usd"`
-	Requests int64     `json:"requests"`
-	LimitUSD float64   `json:"limit_usd"`
-	PlanID   string    `json:"plan_id,omitempty"`
-}
-
-// Totals is an additive usage counter set.
-//
 // Token counts are stored post-normalization, which gives them the same meaning
 // for every provider:
 //
@@ -140,7 +108,6 @@ type CycleSummary struct {
 type Totals struct {
 	CostUSD             float64 `json:"cost_usd"`
 	Requests            int64   `json:"requests"`
-	FailedRequests      int64   `json:"failed_requests"`
 	UncachedInputTokens int64   `json:"uncached_input_tokens"`
 	OutputTokens        int64   `json:"output_tokens"`
 	ReasoningTokens     int64   `json:"reasoning_tokens"`
@@ -151,7 +118,6 @@ type Totals struct {
 func (t *Totals) Add(other Totals) {
 	t.CostUSD += other.CostUSD
 	t.Requests += other.Requests
-	t.FailedRequests += other.FailedRequests
 	t.UncachedInputTokens += other.UncachedInputTokens
 	t.OutputTokens += other.OutputTokens
 	t.ReasoningTokens += other.ReasoningTokens
@@ -159,7 +125,6 @@ func (t *Totals) Add(other Totals) {
 	t.CacheCreationTokens += other.CacheCreationTokens
 }
 
-// normalize initializes maps omitted from the JSON document when empty.
 func (s *State) normalize() {
 	if s.Keys == nil {
 		s.Keys = make(map[string]*KeyState)

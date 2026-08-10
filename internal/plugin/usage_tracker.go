@@ -9,51 +9,52 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// Protocol 2 splits correlation and authoritative usage across response hooks.
-// Raw usage arrives before translation without a request ID; translated
-// responses provide the request ID used to bind stable response IDs.
-type protocol2UsageTracker struct {
+// usageTracker reassembles one request's authoritative token usage from the
+// response hooks, which split correlation and usage between them: raw upstream
+// usage arrives before translation without a request ID, while translated
+// responses carry the request ID used to bind stable response IDs.
+type usageTracker struct {
 	mu             sync.Mutex
-	requests       map[string]*protocol2Request
-	routes         map[protocol2Route]map[string]struct{}
+	requests       map[string]*trackedRequest
+	routes         map[routeKey]map[string]struct{}
 	responseOwners map[string]string
-	orphans        map[string]*protocol2Observation
+	orphans        map[string]*pendingObservation
 }
 
-type protocol2Request struct {
-	clientProtocol string
+type trackedRequest struct {
+	clientFormat   string
 	upstreamFormat string
 	upstreamModel  string
 	routeModel     string
 	generate       bool
 	startedAt      time.Time
-	routes         map[protocol2Route]struct{}
+	routes         map[routeKey]struct{}
 	usage          upstreamUsage
 }
 
-type protocol2Route struct {
+type routeKey struct {
 	format        string
 	upstreamModel string
 	stream        bool
 	requestHash   [sha256.Size]byte
 }
 
-type protocol2Observation struct {
+type pendingObservation struct {
 	upstreamModel string
 	usage         upstreamUsage
 	updatedAt     time.Time
 }
 
-func newProtocol2UsageTracker() *protocol2UsageTracker {
-	return &protocol2UsageTracker{
-		requests:       make(map[string]*protocol2Request),
-		routes:         make(map[protocol2Route]map[string]struct{}),
+func newUsageTracker() *usageTracker {
+	return &usageTracker{
+		requests:       make(map[string]*trackedRequest),
+		routes:         make(map[routeKey]map[string]struct{}),
 		responseOwners: make(map[string]string),
-		orphans:        make(map[string]*protocol2Observation),
+		orphans:        make(map[string]*pendingObservation),
 	}
 }
 
-func (t *protocol2UsageTracker) begin(requestID, clientProtocol, upstreamModel, routeModel string, generate bool, now time.Time) {
+func (t *usageTracker) begin(requestID, clientFormat, upstreamModel, routeModel string, generate bool, now time.Time) {
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
 		return
@@ -68,17 +69,17 @@ func (t *protocol2UsageTracker) begin(requestID, clientProtocol, upstreamModel, 
 	if strings.TrimSpace(routeModel) == "" {
 		routeModel = upstreamModel
 	}
-	t.requests[requestID] = &protocol2Request{
-		clientProtocol: strings.TrimSpace(clientProtocol),
-		upstreamModel:  strings.TrimSpace(upstreamModel),
-		routeModel:     strings.TrimSpace(routeModel),
-		generate:       generate,
-		startedAt:      now,
-		routes:         make(map[protocol2Route]struct{}),
+	t.requests[requestID] = &trackedRequest{
+		clientFormat:  strings.TrimSpace(clientFormat),
+		upstreamModel: strings.TrimSpace(upstreamModel),
+		routeModel:    strings.TrimSpace(routeModel),
+		generate:      generate,
+		startedAt:     now,
+		routes:        make(map[routeKey]struct{}),
 	}
 }
 
-func (t *protocol2UsageTracker) addRoute(requestID, format, upstreamModel, routeModel string, stream bool, originalRequest []byte) {
+func (t *usageTracker) addRoute(requestID, format, upstreamModel, routeModel string, stream bool, originalRequest []byte) {
 	requestID = strings.TrimSpace(requestID)
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -95,7 +96,7 @@ func (t *protocol2UsageTracker) addRoute(requestID, format, upstreamModel, route
 		request.routeModel = strings.TrimSpace(routeModel)
 	}
 	request.upstreamFormat = format
-	key := protocol2RouteKey(format, upstreamModel, stream, originalRequest)
+	key := newRouteKey(format, upstreamModel, stream, originalRequest)
 	request.routes[key] = struct{}{}
 	owners := t.routes[key]
 	if owners == nil {
@@ -105,7 +106,7 @@ func (t *protocol2UsageTracker) addRoute(requestID, format, upstreamModel, route
 	owners[requestID] = struct{}{}
 }
 
-func (t *protocol2UsageTracker) observeUpstream(req ResponseTransformRequest, now time.Time) {
+func (t *usageTracker) observeUpstream(req ResponseTransformRequest, now time.Time) {
 	if len(req.Body) == 0 {
 		return
 	}
@@ -113,7 +114,7 @@ func (t *protocol2UsageTracker) observeUpstream(req ResponseTransformRequest, no
 	if len(frames) == 0 {
 		return
 	}
-	route := protocol2RouteKey(req.FromFormat, req.Model, req.Stream, req.OriginalRequest)
+	route := newRouteKey(req.FromFormat, req.Model, req.Stream, req.OriginalRequest)
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -155,7 +156,7 @@ func (t *protocol2UsageTracker) observeUpstream(req ResponseTransformRequest, no
 			if len(t.orphans) >= billing.MaxPendingRequests {
 				continue
 			}
-			observation = &protocol2Observation{}
+			observation = &pendingObservation{}
 			t.orphans[frame.responseID] = observation
 		}
 		observation.upstreamModel = strings.TrimSpace(req.Model)
@@ -164,7 +165,7 @@ func (t *protocol2UsageTracker) observeUpstream(req ResponseTransformRequest, no
 	}
 }
 
-func (t *protocol2UsageTracker) bindResponse(requestID string, body []byte) {
+func (t *usageTracker) bindResponse(requestID string, body []byte) {
 	if len(body) == 0 {
 		return
 	}
@@ -193,46 +194,48 @@ func (t *protocol2UsageTracker) bindResponse(requestID string, body []byte) {
 			delete(t.orphans, id)
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(request.upstreamFormat), strings.TrimSpace(request.clientProtocol)) {
+	if strings.EqualFold(strings.TrimSpace(request.upstreamFormat), strings.TrimSpace(request.clientFormat)) {
 		for _, object := range objects {
 			request.usage.merge(parseUsageObject(request.upstreamFormat, object))
 		}
 	}
 }
 
-func (t *protocol2UsageTracker) finish(requestID string, resolveModel func(string, string) string) []billing.UsageRecord {
+// finish returns what the request accumulated and forgets it. A nil result is a
+// request this tracker never saw.
+//
+// A tracked request always yields a record, even one the provider never
+// reported usage for: a canceled or failed request has none, and it still has
+// to reach the billing log so it is visible rather than merely missing. Its
+// Breakdown is then the zero value, which prices at nothing.
+func (t *usageTracker) finish(requestID string, resolveModel func(string, string) string) *billing.UsageRecord {
 	requestID = strings.TrimSpace(requestID)
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	request := t.requests[requestID]
 	if request == nil {
-		t.mu.Unlock()
 		return nil
 	}
-	if !request.usage.hasUsage() {
-		t.removeRequestLocked(requestID)
-		t.mu.Unlock()
-		return nil
-	}
-	breakdown := request.usage.breakdown()
-	record := billing.UsageRecord{
+	defer t.removeRequestLocked(requestID)
+	record := &billing.UsageRecord{
 		BillingModel:  resolveModel(request.upstreamModel, request.routeModel),
 		UpstreamModel: request.upstreamModel,
 		Generate:      request.generate,
 		RequestedAt:   request.startedAt,
-		Breakdown:     breakdown,
 	}
-	t.removeRequestLocked(requestID)
-	t.mu.Unlock()
-	return []billing.UsageRecord{record}
+	if request.usage.hasUsage() {
+		record.Breakdown = request.usage.breakdown()
+	}
+	return record
 }
 
-func (t *protocol2UsageTracker) discard(requestID string) {
+func (t *usageTracker) discard(requestID string) {
 	t.mu.Lock()
 	t.removeRequestLocked(strings.TrimSpace(requestID))
 	t.mu.Unlock()
 }
 
-func (t *protocol2UsageTracker) removeRequestLocked(requestID string) {
+func (t *usageTracker) removeRequestLocked(requestID string) {
 	request := t.requests[requestID]
 	if request == nil {
 		return
@@ -252,7 +255,7 @@ func (t *protocol2UsageTracker) removeRequestLocked(requestID string) {
 	delete(t.requests, requestID)
 }
 
-func (t *protocol2UsageTracker) sweepLocked(now time.Time) {
+func (t *usageTracker) sweepLocked(now time.Time) {
 	for requestID, request := range t.requests {
 		if now.Sub(request.startedAt) > billing.PendingTTL {
 			t.removeRequestLocked(requestID)
@@ -265,8 +268,8 @@ func (t *protocol2UsageTracker) sweepLocked(now time.Time) {
 	}
 }
 
-func protocol2RouteKey(format, upstreamModel string, stream bool, request []byte) protocol2Route {
-	return protocol2Route{
+func newRouteKey(format, upstreamModel string, stream bool, request []byte) routeKey {
+	return routeKey{
 		format:        strings.ToLower(strings.TrimSpace(format)),
 		upstreamModel: strings.ToLower(strings.TrimSpace(upstreamModel)),
 		stream:        stream,

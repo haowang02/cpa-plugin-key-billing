@@ -6,19 +6,15 @@ import (
 	"time"
 )
 
+// The host promises exactly one terminal event per intercepted request, so
+// in-flight entries normally clear themselves. These two bound what a host bug
+// or a lost callback can accumulate: the TTL is long enough that a slow stream
+// is still billable when it ends, and the count is the hard memory cap.
 const (
-	// MaxPendingRequests bounds the in-flight table. The host promises exactly
-	// one terminal event per intercepted request, so entries normally clear
-	// themselves; this cap plus PendingTTL is the backstop that keeps a host
-	// bug or a lost callback from growing memory without limit.
 	MaxPendingRequests = 8192
-	// PendingTTL keeps long streams billable while still reclaiming callbacks
-	// the host never delivers. MaxPendingRequests provides the hard memory cap.
-	PendingTTL = 24 * time.Hour
+	PendingTTL         = 24 * time.Hour
 )
 
-// PendingRequest accumulates one in-flight request between interception and its
-// terminal event. Nothing here is persisted.
 type PendingRequest struct {
 	Scope     string
 	Endpoint  string
@@ -27,12 +23,10 @@ type PendingRequest struct {
 	// request. The host selects one per attempt, so a retried request ends up
 	// attributed to the credential that produced its response.
 	AuthIndex string
-	// Cycle fields capture the subscription window at admission. Completion can
+	// Cycle fields identify the subscription window at admission. Completion can
 	// arrive after that window ended or after an operator changed the binding.
-	CyclePlanID   string
-	CycleStartAt  time.Time
-	CycleEndAt    time.Time
-	CycleLimitUSD float64
+	CyclePlanID  string
+	CycleStartAt time.Time
 }
 
 type pendingTable struct {
@@ -59,9 +53,6 @@ func (p *pendingTable) begin(requestID string, entry PendingRequest, now time.Ti
 	p.entries[requestID] = entry
 }
 
-// setAuthIndex attributes an admitted request to the credential the host just
-// selected for it. An unknown request ID is ignored: it was never admitted, so
-// there is nothing to bill and nothing to attribute.
 func (p *pendingTable) setAuthIndex(requestID, authIndex string) {
 	requestID = strings.TrimSpace(requestID)
 	authIndex = strings.TrimSpace(authIndex)
@@ -114,17 +105,16 @@ func (s *Store) BeginRequest(requestID string, entry PendingRequest) {
 // SetRequestCredential records which upstream credential is serving an
 // in-flight request. The host calls the after-auth interceptor once per
 // attempt, so the last call before completion names the credential that
-// answered.
+// answered. A request that was never admitted is ignored: there is nothing to
+// bill and nothing to attribute.
 func (s *Store) SetRequestCredential(requestID, authIndex string) {
 	s.pending.setAuthIndex(requestID, authIndex)
 }
 
-// FinishRequest bills an in-flight request and clears it.
-//
-// It is the single commit point for every outcome — success, failure, and
-// cancellation alike. Each canonical upstream usage record is retained, so
-// retries are billed exactly as separate usage events.
-func (s *Store) FinishRequest(requestID string, records []UsageRecord, failed bool) {
+// It is the single commit point for every outcome — success, failure and
+// cancellation alike. A nil record means the request was never tracked, so
+// there is nothing to log about it beyond the counter.
+func (s *Store) FinishRequest(requestID string, record *UsageRecord, outcome RequestOutcome) {
 	entry, exists := s.pending.finish(requestID)
 	if !exists {
 		return
@@ -133,18 +123,15 @@ func (s *Store) FinishRequest(requestID string, records []UsageRecord, failed bo
 		return
 	}
 	s.RecordUsage(UsageEvent{
-		Scope:            entry.Scope,
-		RequestID:        requestID,
-		Endpoint:         entry.Endpoint,
-		AuthIndex:        entry.AuthIndex,
-		Failed:           failed,
-		Records:          records,
-		At:               s.Now(),
-		AttributionKnown: true,
-		CyclePlanID:      entry.CyclePlanID,
-		CycleStartAt:     entry.CycleStartAt,
-		CycleEndAt:       entry.CycleEndAt,
-		CycleLimitUSD:    entry.CycleLimitUSD,
+		Scope:        entry.Scope,
+		RequestID:    requestID,
+		Endpoint:     entry.Endpoint,
+		AuthIndex:    entry.AuthIndex,
+		Outcome:      outcome,
+		Record:       record,
+		At:           s.Now(),
+		CyclePlanID:  entry.CyclePlanID,
+		CycleStartAt: entry.CycleStartAt,
 	})
 }
 

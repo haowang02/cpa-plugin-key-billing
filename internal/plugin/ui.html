@@ -156,6 +156,17 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   border:1px solid var(--border-color);border-radius:9px;background:var(--bg-primary);box-shadow:var(--shadow)}
 .log-counter b{font-size:16px;font-variant-numeric:tabular-nums}
 .log-card{height:calc(100dvh - 305px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
+/* Tables size to their content, which for a log message means one very wide row
+ * behind a horizontal scroll. The plugin log fixes its layout instead, so the
+ * message wraps inside the card however long it is. */
+#events-body table{table-layout:fixed;width:100%;min-width:0}
+#events-body th:nth-child(1),#events-body td:nth-child(1){width:170px}
+#events-body th:nth-child(2),#events-body td:nth-child(2){width:76px}
+.event-message{white-space:pre-wrap;overflow-wrap:anywhere}
+/* Two marks on one line push the cost column out of the card, so the status
+ * cell wraps them instead of widening the table. */
+.log-status{max-width:118px}
+.log-status .tag{display:inline-block;margin:0 4px 2px 0}
 .log-table-region{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
 .log-table-region .table-scroll{overflow:visible}
 .log-table-region thead th{position:sticky;top:0;z-index:2;background:var(--bg-primary);box-shadow:0 1px 0 var(--border-color)}
@@ -294,7 +305,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   <header class="head">
     <h1>API Key 计费</h1>
     <span id="head-status" class="tag plain">…</span>
-    <span id="head-protocol" class="tag plain">插件协议 …</span>
   </header>
 
   <div id="notice" class="notice"></div>
@@ -311,6 +321,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <button data-tab="plans">订阅计划</button>
     <button data-tab="prices">模型定价</button>
     <button data-tab="logs">计费日志</button>
+    <button data-tab="events">插件日志</button>
   </div>
 
   <section id="tab-keys">
@@ -407,6 +418,25 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     </div>
   </section>
 
+  <section id="tab-events" class="hidden">
+    <div class="card log-card">
+      <div class="row spread section-toolbar" style="margin-bottom:12px">
+        <h2 style="margin:0">插件日志</h2>
+        <div class="row card-actions">
+          <span id="event-note" class="muted small"></span>
+          <select id="event-level" aria-label="按级别筛选">
+            <option value="">全部级别</option>
+            <option value="error">错误</option>
+            <option value="info">信息</option>
+          </select>
+          <input id="event-filter" placeholder="搜索日志内容" class="wide-search">
+          <button id="events-clear" class="danger">清空日志</button>
+        </div>
+      </div>
+      <div id="events-body" class="log-table-region"></div>
+    </div>
+  </section>
+
 </main>
 </div>
 
@@ -494,7 +524,7 @@ function readPanelKey() {
 }
 
 let authKey = "";
-let state = { keys: [], plans: [], prices: [], status: null, stats: null, logs: null };
+let state = { keys: [], plans: [], prices: [], status: null, stats: null, logs: null, events: null };
 let logPage = 1;
 let logPageSize = 50;
 
@@ -673,16 +703,17 @@ async function start(key) {
 }
 
 async function reloadAll() {
-  // The log is the one payload that grows with traffic rather than with
-  // configuration, so it is fetched only while its own tab is open. Switching
-  // tabs reloads, so opening it is what fetches it.
-  const [status, directory, plans, prices, stats, logs] = await Promise.all([
+  // The two logs are the payloads that grow with traffic rather than with
+  // configuration, so each is fetched only while its own tab is open. Switching
+  // tabs reloads, so opening one is what fetches it.
+  const [status, directory, plans, prices, stats, logs, events] = await Promise.all([
     plugin("GET", "/status"),
     plugin("GET", "/keys"),
     plugin("GET", "/plans"),
     plugin("GET", "/prices"),
     plugin("GET", "/stats"),
     document.querySelector('[data-tab="logs"].active') ? plugin("GET", "/logs") : Promise.resolve(null),
+    document.querySelector('[data-tab="events"].active') ? plugin("GET", "/events") : Promise.resolve(null),
   ]);
   state.status = status;
   state.keys = directory.keys || [];
@@ -690,6 +721,7 @@ async function reloadAll() {
   state.prices = prices.models || [];
   state.stats = stats;
   if (logs) state.logs = logs;
+  if (events) state.events = events.events || [];
   render();
 }
 
@@ -701,6 +733,7 @@ function render() {
   renderPrices();
   renderLogs();
   renderLogCounters();
+  renderEvents();
 }
 
 function renderHeader() {
@@ -709,7 +742,6 @@ function renderHeader() {
   const badge = $("head-status");
   badge.textContent = status.enabled ? "运行中" : "已停用";
   badge.className = "tag " + (status.enabled ? "ok" : "warn");
-  $("head-protocol").textContent = "插件协议 v" + int(status.plugin_protocol);
   $("s-cost").textContent = usd(stats.lifetime?.cost_usd);
   $("s-req").textContent = int(stats.lifetime?.requests);
   $("s-keys").textContent = int(stats.keys);
@@ -873,17 +905,13 @@ function tierPriceCell(row, field, optional) {
   );
 }
 
-// Split an OpenRouter-style model id into provider prefix and base name, so
-// the pricing table keeps "gpt-5.6-sol" and "openai/gpt-5.6-sol" grouped
-// under the same base name rather than scattering them alphabetically.
+// Group prefixed and unprefixed variants by base model name.
 function modelIdParts(pattern) {
   const slash = pattern.indexOf("/");
   if (slash < 0) return { name: pattern, prefix: "" };
   return { name: pattern.slice(slash + 1), prefix: pattern.slice(0, slash) };
 }
 
-// Sort by base name first (lexicographic), then by provider prefix (unprefixed
-// ids sort before prefixed ones because their prefix is the empty string).
 function compareModelId(a, b) {
   const ka = modelIdParts(a);
   const kb = modelIdParts(b);
@@ -990,14 +1018,7 @@ function renderLogs() {
     $("logs-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
     return;
   }
-  if (!view.limit) {
-    note.textContent = "";
-    pagination.classList.add("hidden");
-    $("logs-body").replaceChildren(el("div", { class: "empty" },
-      "计费日志已关闭。将插件配置项 log_entries 设为大于 0 的值即可开启。"));
-    return;
-  }
-  note.textContent = "已保留 " + int(view.retained) + " / " + int(view.limit) + " 条";
+  note.textContent = int(view.total) + " 条";
 
   const filter = $("log-filter").value.trim().toLowerCase();
   const filtered = (view.entries || []).filter((entry) => !filter ||
@@ -1013,15 +1034,27 @@ function renderLogs() {
       const cost = entry.cost || {};
       const keyDisplay = logKeyName(entry);
       const statusMarks = [];
-      if (entry.failed) statusMarks.push(el("span", { class: "tag bad", text: "失败" }));
-      if (entry.price_source === "none") statusMarks.push(el("span", { class: "tag warn", text: "待定价" }));
-      if (entry.accounting_quality && entry.accounting_quality !== "complete") {
+      if (entry.outcome === "canceled") statusMarks.push(el("span", { class: "tag warn", text: "已取消" }));
+      else if (entry.outcome) statusMarks.push(el("span", { class: "tag bad", text: "失败" }));
+      else statusMarks.push(el("span", { class: "tag ok", text: "成功" }));
+      if (!entry.accounting_quality) {
+        // A canceled or failed request rarely reports usage, so the outcome
+        // already says this; the note only adds something to a normal one.
+        if (!entry.outcome) statusMarks.push(el("span", { class: "tag warn", text: "无 Token 明细" }));
+      } else if (entry.accounting_quality !== "complete") {
         statusMarks.push(el("span", { class: "tag warn",
           text: entry.accounting_quality === "inconsistent" ? "Token 明细异常" : "Token 未分类" }));
+      }
+      if (entry.price_source === "none" && entry.accounting_quality) {
+        statusMarks.push(el("span", { class: "tag warn", text: "待定价" }));
       }
 
       const input = (cost.uncached_input_tokens || 0) + (cost.cache_read_tokens || 0) + (cost.cache_write_tokens || 0);
       const output = cost.billed_output_tokens || 0;
+      // Without an observed breakdown the counts are unknown, not zero, and a
+      // column of zeroes would read as "this request used nothing".
+      const measured = !!entry.accounting_quality;
+      const tokens = (value) => measured ? exactTokens(value) : "—";
 
       const billingModel = entry.billing_model || entry.upstream_model || "—";
       const modelDetail = entry.upstream_model && entry.upstream_model.toLowerCase() !== billingModel.toLowerCase()
@@ -1041,19 +1074,18 @@ function renderLogs() {
           modelDetail ? el("div", { class: "log-cell-line muted" }, modelDetail) : null,
         ),
         el("td", {},
-          el("div", { class: "log-cell-line" },
-            el("span", { class: "mono" }, entry.endpoint || "—"),
-            statusMarks),
+          el("div", { class: "log-cell-line mono" }, entry.endpoint || "—"),
           el("div", { class: "log-source muted small", title: entry.source || null }, entry.source || "未知"),
         ),
-        el("td", { class: "num" }, exactTokens(input)),
+        el("td", { class: "log-status" }, statusMarks),
+        el("td", { class: "num" }, tokens(input)),
         el("td", { class: "num" },
-          el("div", {}, exactTokens(cost.cache_read_tokens)),
-          el("div", { class: "muted small" }, cacheReadRate(cost.cache_read_tokens, input)),
+          el("div", {}, tokens(cost.cache_read_tokens)),
+          measured ? el("div", { class: "muted small" }, cacheReadRate(cost.cache_read_tokens, input)) : null,
         ),
-        el("td", { class: "num" }, exactTokens(cost.cache_write_tokens)),
+        el("td", { class: "num" }, tokens(cost.cache_write_tokens)),
         el("td", { class: "num" },
-          el("div", {}, exactTokens(output)),
+          el("div", {}, tokens(output)),
           entry.reasoning_tokens ? el("div", { class: "muted small" }, "推理 " + exactTokens(entry.reasoning_tokens)) : null,
         ),
         el("td", { class: "num" },
@@ -1076,7 +1108,7 @@ function renderLogs() {
     });
 
   $("logs-body").replaceChildren(table(
-    ["时间", "API Key", "模型", "端点/来源", { label: "输入", num: true }, { label: "缓存读取", num: true },
+    ["时间", "API Key", "模型", "端点/来源", "状态", { label: "输入", num: true }, { label: "缓存读取", num: true },
       { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
     rows));
   pagination.classList.remove("hidden");
@@ -1084,6 +1116,39 @@ function renderLogs() {
   $("log-page-number").textContent = logPage + "/" + totalPages;
   $("log-prev").disabled = logPage <= 1;
   $("log-next").disabled = logPage >= totalPages;
+}
+
+const eventLevels = {
+  error: { label: "错误", class: "tag bad" },
+  info: { label: "信息", class: "tag plain" },
+};
+
+function renderEvents() {
+  const events = state.events;
+  const note = $("event-note");
+  if (!events) {
+    note.textContent = "";
+    $("events-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
+    return;
+  }
+  const filter = $("event-filter").value.trim().toLowerCase();
+  const level = $("event-level").value;
+  const matched = events.filter((event) =>
+    (!level || event.level === level) &&
+    (!filter || (event.message || "").toLowerCase().includes(filter)));
+  note.textContent = int(matched.length) + " 条";
+  const rows = matched
+    .map((event) => {
+      const level = eventLevels[event.level] || eventLevels.info;
+      return el("tr", {},
+        el("td", { class: "small" }, when(event.at)),
+        el("td", {}, el("span", { class: level.class, text: level.label })),
+        el("td", { class: "event-message" }, event.message || ""),
+      );
+    });
+  $("events-body").replaceChildren(rows.length
+    ? table(["时间", "级别", "内容"], rows)
+    : el("div", { class: "empty", text: events.length ? "没有匹配的日志" : "暂无插件日志" }));
 }
 
 function renderLogCounters() {
@@ -1337,6 +1402,15 @@ $("plan-save").onclick = () => guard(async () => {
   await reloadAll();
 });
 
+$("event-filter").addEventListener("input", renderEvents);
+$("event-level").addEventListener("change", renderEvents);
+$("events-clear").onclick = () => guard(async () => {
+  if (!await confirmAction("清空全部插件日志？", "该操作只清除插件自身的运行记录，不影响计费数据，且无法恢复。")) return;
+  const result = await plugin("DELETE", "/events");
+  state.events = [];
+  renderEvents();
+  notify("已清空 " + result.cleared + " 条插件日志");
+});
 $("log-filter").addEventListener("input", () => { logPage = 1; renderLogs(); });
 $("logs-body").addEventListener("scroll", hideCostTooltip, { passive: true });
 $("log-page-size").addEventListener("change", (event) => {
@@ -1359,7 +1433,7 @@ $("log-next").onclick = () => {
 $("logs-clear").onclick = () => guard(async () => {
   if (!await confirmAction("清空全部计费日志？", "该操作不会修改累计用量、费用或订阅额度，且无法恢复。")) return;
   const result = await plugin("DELETE", "/logs");
-  state.logs = { entries: [], retained: 0, limit: state.logs?.limit || 0 };
+  state.logs = { entries: [], total: 0 };
   logPage = 1;
   renderLogs();
   notify("已清空 " + result.cleared + " 条计费日志");
