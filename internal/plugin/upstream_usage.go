@@ -151,6 +151,24 @@ func parseUsageObject(format string, object map[string]any) upstreamUsage {
 	}
 }
 
+// Two formats that speak one response protocol need no response translation
+// between them, so a response delivered downstream in either is still the
+// provider's own and its tokens are authoritative.
+func sameResponseProtocol(first, second string) bool {
+	return responseProtocol(first) == responseProtocol(second)
+}
+
+// Codex answers in the OpenAI Responses protocol, and its websocket transport
+// hands those events to an openai-response client untranslated: that client sees
+// the upstream event verbatim, and no pre-translation hook ever runs.
+func responseProtocol(format string) string {
+	normalized := strings.ToLower(strings.TrimSpace(format))
+	if normalized == "codex" {
+		return "openai-response"
+	}
+	return normalized
+}
+
 func usageSemantics(format string) tokenSemantics {
 	format = strings.ToLower(strings.TrimSpace(format))
 	if strings.Contains(format, "claude") || strings.Contains(format, "anthropic") {

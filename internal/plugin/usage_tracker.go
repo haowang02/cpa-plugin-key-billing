@@ -194,7 +194,7 @@ func (t *usageTracker) bindResponse(requestID string, body []byte) {
 			delete(t.orphans, id)
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(request.upstreamFormat), strings.TrimSpace(request.clientFormat)) {
+	if sameResponseProtocol(request.upstreamFormat, request.clientFormat) {
 		for _, object := range objects {
 			request.usage.merge(parseUsageObject(request.upstreamFormat, object))
 		}
