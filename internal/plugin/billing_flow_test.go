@@ -244,6 +244,31 @@ func TestFlowUnmeasuredRequestIsLoggedAtZeroCost(t *testing.T) {
 	}
 }
 
+func TestFlowRefusedRequestIsNotLogged(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	admit(t, app, "openai", "/v1/chat/completions")
+	complete(t, app, flowRequestID, RequestCompletionFailed)
+	if entries := app.store.Logs(0).Entries; len(entries) != 0 {
+		t.Fatalf("entries = %+v, want an upstream refusal left out of the billing log", entries)
+	}
+	if counters := app.store.Status().Counters; counters.UsageNoTokens != 0 {
+		t.Fatalf("counters = %+v, want no accounting gap reported", counters)
+	}
+}
+
+// A stream that broke after output had flowed is a blind spot, not a refusal:
+// those tokens were generated whether or not usage ever arrived.
+func TestFlowFailureAfterOutputIsLogged(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	admit(t, app, "openai", "/v1/chat/completions")
+	streamChunk(t, app, flowRequestID, 0, []byte(`{"id":"`+flowResponseID+`"}`))
+	complete(t, app, flowRequestID, RequestCompletionFailed)
+	entries := app.store.Logs(0).Entries
+	if len(entries) != 1 || entries[0].Outcome != billing.OutcomeFailed || entries[0].Cost.TotalUSD != 0 {
+		t.Fatalf("entries = %+v, want one visible zero-cost row", entries)
+	}
+}
+
 func TestFlowCanceledRequestBillsReportedUsageAndSaysSo(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	admit(t, app, "openai", "/v1/chat/completions")

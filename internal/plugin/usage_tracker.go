@@ -27,6 +27,7 @@ type trackedRequest struct {
 	upstreamModel  string
 	routeModel     string
 	generate       bool
+	responded      bool
 	startedAt      time.Time
 	routes         map[routeKey]struct{}
 	usage          upstreamUsage
@@ -137,6 +138,7 @@ func (t *usageTracker) observeUpstream(req ResponseTransformRequest, now time.Ti
 		}
 		if owner != "" {
 			request := t.requests[owner]
+			request.responded = true
 			if model := strings.TrimSpace(req.Model); model != "" {
 				request.upstreamModel = model
 			}
@@ -180,6 +182,7 @@ func (t *usageTracker) bindResponse(requestID string, body []byte) {
 	if request == nil {
 		return
 	}
+	request.responded = true
 	for _, object := range objects {
 		id := responseID(object)
 		if id == "" {
@@ -207,7 +210,8 @@ func (t *usageTracker) bindResponse(requestID string, body []byte) {
 // A tracked request always yields a record, even one the provider never
 // reported usage for: a canceled or failed request has none, and it still has
 // to reach the billing log so it is visible rather than merely missing. Its
-// Breakdown is then the zero value, which prices at nothing.
+// Breakdown is then the zero value, which prices at nothing. Responded is what
+// tells that apart from an upstream that refused the request outright.
 func (t *usageTracker) finish(requestID string, resolveModel func(string, string) string) *billing.UsageRecord {
 	requestID = strings.TrimSpace(requestID)
 	t.mu.Lock()
@@ -221,6 +225,7 @@ func (t *usageTracker) finish(requestID string, resolveModel func(string, string
 		BillingModel:  resolveModel(request.upstreamModel, request.routeModel),
 		UpstreamModel: request.upstreamModel,
 		Generate:      request.generate,
+		Responded:     request.responded,
 		RequestedAt:   request.startedAt,
 	}
 	if request.usage.hasUsage() {

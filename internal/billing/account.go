@@ -10,8 +10,10 @@ type UsageRecord struct {
 	BillingModel  string
 	UpstreamModel string
 	Generate      bool
-	RequestedAt   time.Time
-	Breakdown     TokenBreakdown
+	// Responded reports whether the upstream produced any response at all.
+	Responded   bool
+	RequestedAt time.Time
+	Breakdown   TokenBreakdown
 }
 
 // RequestOutcome is how a downstream request ended. The empty outcome is a
@@ -56,6 +58,13 @@ func (s *Store) RecordUsage(event UsageEvent) {
 	}
 	record := *event.Record
 	if !record.Generate {
+		return
+	}
+	// An upstream that answered with an error produced nothing to bill and
+	// nothing to attribute; that belongs in CPA's log, not this one. A failure
+	// that arrives after output has flowed is a different thing: those tokens
+	// exist, so the request stays visible here like a canceled one does.
+	if event.Outcome == OutcomeFailed && !record.Responded {
 		return
 	}
 

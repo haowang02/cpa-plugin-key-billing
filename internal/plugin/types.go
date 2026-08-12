@@ -141,6 +141,7 @@ type RequestCompletionOutcome string
 
 const (
 	RequestCompletionSucceeded RequestCompletionOutcome = "succeeded"
+	RequestCompletionFailed    RequestCompletionOutcome = "failed"
 	RequestCompletionRejected  RequestCompletionOutcome = "rejected"
 	// RequestCompletionCanceled is the host's outcome for a canceled context,
 	// which is what a client disconnecting mid-generation produces.
