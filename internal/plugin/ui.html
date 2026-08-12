@@ -397,7 +397,13 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
         <h2 style="margin:0">计费日志</h2>
         <div class="row card-actions">
           <span id="log-note" class="muted small"></span>
-          <input id="log-filter" placeholder="搜索 API Key、备注或模型" class="wide-search">
+          <select id="log-outcome" aria-label="按状态筛选">
+            <option value="">全部状态</option>
+            <option value="succeeded">成功</option>
+            <option value="failed">失败</option>
+            <option value="canceled">中断</option>
+          </select>
+          <input id="log-filter" placeholder="搜索 API Key、备注、模型、端点或来源" class="wide-search">
           <button id="logs-clear" class="danger">清空日志</button>
         </div>
       </div>
@@ -1021,13 +1027,16 @@ function renderLogs() {
     $("logs-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
     return;
   }
-  note.textContent = int(view.total) + " 条";
-
   const filter = $("log-filter").value.trim().toLowerCase();
-  const filtered = (view.entries || []).filter((entry) => !filter ||
+  // A successful request carries no outcome, so "succeeded" is the absence of one.
+  const outcome = $("log-outcome").value;
+  const filtered = (view.entries || []).filter((entry) =>
+    (!outcome || (outcome === "succeeded" ? !entry.outcome : entry.outcome === outcome)) &&
+    (!filter ||
       (logKeyName(entry) + " " + (entry.preview || "") + " " + (entry.scope || "") + " " +
         (entry.upstream_model || "") + " " + (entry.billing_model || "") + " " +
-        (entry.endpoint || "") + " " + (entry.source || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter));
+        (entry.endpoint || "") + " " + (entry.source || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter)));
+  note.textContent = int(filtered.length) + " 条";
   const totalPages = Math.max(1, Math.ceil(filtered.length / logPageSize));
   logPage = Math.min(Math.max(1, logPage), totalPages);
   const start = (logPage - 1) * logPageSize;
@@ -1037,7 +1046,8 @@ function renderLogs() {
       const cost = entry.cost || {};
       const keyDisplay = logKeyName(entry);
       const statusMarks = [];
-      if (entry.outcome === "canceled") statusMarks.push(el("span", { class: "tag warn", text: "已取消" }));
+      if (entry.outcome === "canceled") statusMarks.push(el("span", { class: "tag warn",
+        text: "中断", title: "请求在完成前结束，通常是客户端断开或超时" }));
       else if (entry.outcome) statusMarks.push(el("span", { class: "tag bad", text: "失败" }));
       else statusMarks.push(el("span", { class: "tag ok", text: "成功" }));
       if (!entry.accounting_quality) {
@@ -1415,6 +1425,7 @@ $("events-clear").onclick = () => guard(async () => {
   notify("已清空 " + result.cleared + " 条插件日志");
 });
 $("log-filter").addEventListener("input", () => { logPage = 1; renderLogs(); });
+$("log-outcome").addEventListener("change", () => { logPage = 1; renderLogs(); });
 $("logs-body").addEventListener("scroll", hideCostTooltip, { passive: true });
 $("log-page-size").addEventListener("change", (event) => {
   logPageSize = Number(event.target.value) || 50;
