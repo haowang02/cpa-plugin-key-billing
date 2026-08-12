@@ -1401,9 +1401,8 @@ $("event-level").addEventListener("change", renderEvents);
 $("events-clear").onclick = () => guard(async () => {
   if (!await confirmAction("清空全部插件日志？", "该操作只清除插件自身的运行记录，不影响计费数据，且无法恢复。")) return;
   const result = await plugin("DELETE", "/events");
-  state.events = [];
-  renderEvents();
   notify("已清空 " + result.cleared + " 条插件日志");
+  await reloadAll();
 });
 $("log-filter").addEventListener("input", () => { logPage = 1; renderLogs(); });
 $("log-outcome").addEventListener("change", () => { logPage = 1; renderLogs(); });
@@ -1435,10 +1434,8 @@ $("keys-reset-all").onclick = () => guard(async () => {
 $("logs-clear").onclick = () => guard(async () => {
   if (!await confirmAction("清空全部计费日志？", "该操作不会修改累计用量、费用或订阅额度，且无法恢复。")) return;
   const result = await plugin("DELETE", "/logs");
-  state.logs = { entries: [], total: 0 };
-  logPage = 1;
-  renderLogs();
   notify("已清空 " + result.cleared + " 条计费日志");
+  await reloadAll();
 });
 
 $("price-filter").addEventListener("input", renderPrices);
