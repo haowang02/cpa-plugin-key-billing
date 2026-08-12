@@ -383,6 +383,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"catalog": {"models": len(PRICES)}, "updated_models": 2})
         elif route == ("POST", f"{API_BASE}/prices/reset"):
             self.send_json(200, {"restored": len(PRICES)})
+        elif route == ("POST", f"{API_BASE}/keys/reset-all"):
+            self.send_json(200, {"reset": 14})
         elif route in {
             ("POST", f"{API_BASE}/keys/sync"),
             ("POST", f"{API_BASE}/prices/sync"),

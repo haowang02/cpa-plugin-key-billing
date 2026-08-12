@@ -31,6 +31,7 @@ const (
 	routeKeysBind       = "/keys/bind"
 	routeKeysUnbind     = "/keys/unbind"
 	routeKeysReset      = "/keys/reset"
+	routeKeysResetAll   = "/keys/reset-all"
 	routeKeysLabel      = "/keys/label"
 	routeKeysSync       = "/keys/sync"
 	routeStats          = "/stats"
@@ -62,6 +63,7 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPost, Path: managementBase + routeKeysBind, Description: "将 API Key 绑定到订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysUnbind, Description: "解除 API Key 的订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysReset, Description: "重置 API Key 的订阅额度。"},
+			{Method: http.MethodPost, Path: managementBase + routeKeysResetAll, Description: "重置所有周期性计划 API Key 的订阅额度。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysLabel, Description: "设置 API Key 备注。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysSync, Description: "同步 CLIProxyAPI 中的 API Key 列表。"},
 
@@ -137,6 +139,10 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 		return a.unbindKey(req)
 	case http.MethodPost + " " + routeKeysReset:
 		return a.resetKey(req)
+	case http.MethodPost + " " + routeKeysResetAll:
+		return JSONResponse(http.StatusOK, struct {
+			Reset int `json:"reset"`
+		}{Reset: a.store.ResetAllCycles()})
 	case http.MethodPost + " " + routeKeysLabel:
 		return a.labelKey(req)
 	case http.MethodPost + " " + routeKeysSync:

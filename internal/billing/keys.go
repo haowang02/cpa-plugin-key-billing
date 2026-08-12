@@ -198,6 +198,27 @@ func (s *Store) ResetCycle(scope string) error {
 	return nil
 }
 
+// ResetAllCycles resets every key on a plan that repeats, and reports how many
+// had a period to end. A plan that never resets grants its budget once, so a
+// bulk action must not hand it out again.
+func (s *Store) ResetAllCycles() int {
+	return updateResult(s, func(state *State) (int, bool) {
+		reset := 0
+		for _, key := range state.Keys {
+			if key == nil || !key.DeletedAt.IsZero() || key.Cycle == (Cycle{}) {
+				continue
+			}
+			plan, exists := state.FindPlan(key.PlanID)
+			if !exists || plan.Period.Kind == PeriodNever {
+				continue
+			}
+			key.Cycle = Cycle{}
+			reset++
+		}
+		return reset, reset > 0
+	})
+}
+
 func (s *Store) SetLabel(scope, label string) error {
 	scope = normalizeScope(scope)
 	if scope == "" {

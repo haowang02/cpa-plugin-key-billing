@@ -325,6 +325,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
         <h2 style="margin:0">API Key</h2>
         <div class="row card-actions">
           <input id="key-filter" placeholder="搜索 API Key、备注或计划" class="wide-search">
+          <button id="keys-reset-all">全员重置</button>
         </div>
       </div>
       <div id="keys-body"></div>
@@ -1424,6 +1425,13 @@ $("log-next").onclick = () => {
   renderLogs();
   $("logs-body").scrollTop = 0;
 };
+$("keys-reset-all").onclick = () => guard(async () => {
+  if (!await confirmAction("重置所有周期性额度？",
+    "绑定周期性计划的 API Key 会结束当前周期，下一次请求开启新周期；不重置的计划和累计用量不受影响。")) return;
+  const result = await plugin("POST", "/keys/reset-all");
+  notify(result.reset ? "已重置 " + result.reset + " 个 API Key 的额度" : "没有需要重置的额度");
+  await reloadAll();
+});
 $("logs-clear").onclick = () => guard(async () => {
   if (!await confirmAction("清空全部计费日志？", "该操作不会修改累计用量、费用或订阅额度，且无法恢复。")) return;
   const result = await plugin("DELETE", "/logs");

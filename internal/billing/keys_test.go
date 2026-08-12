@@ -35,6 +35,33 @@ func TestBindingAndResetLeaveCycleInactive(t *testing.T) {
 	})
 }
 
+func TestResetAllCyclesSparesPlansThatNeverReset(t *testing.T) {
+	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
+	store := newEnforceStore(t, now)
+	spent := Cycle{PlanID: "weekly", StartAt: now, EndAt: now.Add(time.Hour), SpentUSD: 3}
+	store.Update(func(state *State) {
+		state.Plans = []Plan{
+			{ID: "weekly", AmountUSD: 10, Period: Period{Kind: PeriodWeekly}},
+			{ID: "once", AmountUSD: 10, Period: Period{Kind: PeriodNever}},
+		}
+		state.Keys["periodic"] = &KeyState{PlanID: "weekly", Cycle: spent}
+		state.Keys["one-time"] = &KeyState{PlanID: "once", Cycle: Cycle{PlanID: "once", StartAt: now, SpentUSD: 3}}
+		state.Keys["unbound"] = &KeyState{Cycle: spent}
+	})
+
+	if reset := store.ResetAllCycles(); reset != 1 {
+		t.Fatalf("reset = %d, want only the periodic key", reset)
+	}
+	store.Read(func(state *State) {
+		if state.Keys["periodic"].Cycle != (Cycle{}) {
+			t.Fatalf("periodic = %+v, want an inactive cycle", state.Keys["periodic"].Cycle)
+		}
+		if state.Keys["one-time"].Cycle.SpentUSD != 3 || state.Keys["unbound"].Cycle.SpentUSD != 3 {
+			t.Fatalf("keys = %+v, want the one-time and unbound keys untouched", state.Keys)
+		}
+	})
+}
+
 func TestKeyDirectorySettlesExpiredCycleWithoutRestartingIt(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
