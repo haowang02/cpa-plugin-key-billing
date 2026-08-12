@@ -151,11 +151,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   white-space:normal;overflow-wrap:anywhere}
 .wide-search{width:360px;max-width:100%}
 .card-actions{min-width:0}
-.log-counters{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
-.log-counter{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;
-  border:1px solid var(--border-color);border-radius:9px;background:var(--bg-primary);box-shadow:var(--shadow)}
-.log-counter b{font-size:16px;font-variant-numeric:tabular-nums}
-.log-card{height:calc(100dvh - 305px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
+.log-card{height:calc(100dvh - 247px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
 /* Tables size to their content, which for a log message means one very wide row
  * behind a horizontal scroll. The plugin log fixes its layout instead, so the
  * message wraps inside the card however long it is. */
@@ -197,7 +193,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .section-toolbar>.card-actions{flex:1 1 100%;width:100%}
   .card-actions .wide-search,#price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
   .card-actions #log-note{flex:1 0 100%}
-  .log-counters{grid-template-columns:repeat(2,minmax(0,1fr))}
   .log-card{height:calc(100dvh - 295px);min-height:320px}
   .log-pagination{justify-content:center;flex-wrap:wrap}
 }
@@ -386,12 +381,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   </section>
 
   <section id="tab-logs" class="hidden">
-    <div class="log-counters">
-      <div class="log-counter" title="未匹配模型定价、按 0 USD 记录的请求"><span class="muted small">未定价</span><b id="log-unpriced">—</b></div>
-      <div class="log-counter" title="未取得 Token 明细、按 0 USD 记录的请求"><span class="muted small">Token 缺失</span><b id="log-no-tokens">—</b></div>
-      <div class="log-counter" title="Token 明细无效或分类不完整的请求"><span class="muted small">分类异常</span><b id="log-unclassified">—</b></div>
-      <div class="log-counter" title="已通过额度检查、尚未结束的请求"><span class="muted small">处理中</span><b id="log-pending">—</b></div>
-    </div>
     <div class="card log-card">
       <div class="row spread section-toolbar" style="margin-bottom:12px">
         <h2 style="margin:0">计费日志</h2>
@@ -741,7 +730,6 @@ function render() {
   renderPlans();
   renderPrices();
   renderLogs();
-  renderLogCounters();
   renderEvents();
 }
 
@@ -1162,14 +1150,6 @@ function renderEvents() {
   $("events-body").replaceChildren(rows.length
     ? table(["时间", "级别", "内容"], rows)
     : el("div", { class: "empty", text: events.length ? "没有匹配的日志" : "暂无插件日志" }));
-}
-
-function renderLogCounters() {
-  const counters = state.status?.counters || {};
-  $("log-unpriced").textContent = int(counters.usage_unpriced);
-  $("log-no-tokens").textContent = int(counters.usage_no_tokens);
-  $("log-unclassified").textContent = int(counters.usage_unclassified);
-  $("log-pending").textContent = int(counters.pending_requests);
 }
 
 function syncPlanFields() {

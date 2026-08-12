@@ -44,7 +44,7 @@ const (
 func managementRegistration() ManagementRegistrationResponse {
 	return ManagementRegistrationResponse{
 		Routes: []ManagementRoute{
-			{Method: http.MethodGet, Path: managementBase + routeStatus, Description: "查看运行状态和请求计数。"},
+			{Method: http.MethodGet, Path: managementBase + routeStatus, Description: "查看插件运行状态。"},
 
 			{Method: http.MethodGet, Path: managementBase + routePrices, Description: "查看模型定价。"},
 			{Method: http.MethodGet, Path: managementBase + routePriceCatalog, Description: "搜索模型参考价。"},

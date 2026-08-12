@@ -48,10 +48,6 @@ type Store struct {
 
 	dirty atomic.Bool
 
-	usageUnpriced     atomic.Int64
-	usageNoTokens     atomic.Int64
-	usageUnclassified atomic.Int64
-
 	statusMu  sync.Mutex
 	lastFlush time.Time
 	lastError string
@@ -286,27 +282,11 @@ func (s *Store) recordFlushError(err error) {
 }
 
 type Status struct {
-	Enabled  bool     `json:"enabled"`
-	Counters Counters `json:"counters"`
-}
-
-type Counters struct {
-	UsageUnpriced     int64 `json:"usage_unpriced"`
-	UsageNoTokens     int64 `json:"usage_no_tokens"`
-	UsageUnclassified int64 `json:"usage_unclassified"`
-	PendingRequests   int   `json:"pending_requests"`
+	Enabled bool `json:"enabled"`
 }
 
 func (s *Store) Status() Status {
-	return Status{
-		Enabled: s.Enabled(),
-		Counters: Counters{
-			UsageUnpriced:     s.usageUnpriced.Load(),
-			UsageNoTokens:     s.usageNoTokens.Load(),
-			UsageUnclassified: s.usageUnclassified.Load(),
-			PendingRequests:   s.pending.len(),
-		},
-	}
+	return Status{Enabled: s.Enabled()}
 }
 
 func resolveStatePath(path string) (string, error) {

@@ -84,12 +84,6 @@ func (p *pendingTable) finish(requestID string) (PendingRequest, bool) {
 	return entry, true
 }
 
-func (p *pendingTable) len() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return len(p.entries)
-}
-
 func (p *pendingTable) sweepLocked(now time.Time) {
 	for requestID, entry := range p.entries {
 		if now.Sub(entry.StartedAt) > PendingTTL {

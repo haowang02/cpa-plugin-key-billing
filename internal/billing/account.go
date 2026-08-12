@@ -53,7 +53,6 @@ func (s *Store) RecordUsage(event UsageEvent) {
 		at = s.Now()
 	}
 	if event.Record == nil {
-		s.usageNoTokens.Add(1)
 		return
 	}
 	record := *event.Record
@@ -71,14 +70,6 @@ func (s *Store) RecordUsage(event UsageEvent) {
 	s.Update(func(state *State) {
 		key := state.ensureKey(scope)
 
-		// An unobserved breakdown is missing, not malformed: it counts as a
-		// request without tokens and nothing else.
-		if !record.Breakdown.Measured() || record.Breakdown.TotalTokens == 0 {
-			s.usageNoTokens.Add(1)
-		}
-		if record.Breakdown.Measured() && !record.Breakdown.Billable() {
-			s.usageUnclassified.Add(1)
-		}
 		upstreamModel := modelWithoutSuffix(record.UpstreamModel)
 		if upstreamModel == "" {
 			upstreamModel = modelWithoutSuffix(record.BillingModel)
@@ -88,9 +79,6 @@ func (s *Store) RecordUsage(event UsageEvent) {
 			billingModel = upstreamModel
 		}
 		price := state.ResolvePrice(upstreamModel, billingModel)
-		if price.Source == PriceSourceNone {
-			s.usageUnpriced.Add(1)
-		}
 		cost := ComputeCost(price, record.Breakdown)
 		totals := Totals{
 			CostUSD:             cost.TotalUSD,

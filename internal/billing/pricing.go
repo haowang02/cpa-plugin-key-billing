@@ -55,13 +55,6 @@ func (b TokenBreakdown) Billable() bool {
 	return b.Valid() && b.Quality == TokenAccountingComplete
 }
 
-// Measured reports whether any upstream usage was observed. The zero value
-// means none ever was, which is the normal shape of a canceled request: nothing
-// to price, and nothing wrong with it either.
-func (b TokenBreakdown) Measured() bool {
-	return b.Quality != ""
-}
-
 // PriceSource distinguishes an explicit zero price from an unresolved price.
 type PriceSource string
 

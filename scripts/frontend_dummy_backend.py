@@ -297,15 +297,7 @@ EVENTS = [
 
 def payload_for(path, query):
     if path == f"{API_BASE}/status":
-        return {
-            "enabled": True,
-            "counters": {
-                "usage_unpriced": 3,
-                "usage_no_tokens": 1,
-                "usage_unclassified": 2,
-                "pending_requests": 2,
-            },
-        }
+        return {"enabled": True}
     if path == f"{API_BASE}/keys":
         return {"keys": KEYS}
     if path == f"{API_BASE}/plans":

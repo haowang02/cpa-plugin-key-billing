@@ -238,10 +238,6 @@ func TestFlowUnmeasuredRequestIsLoggedAtZeroCost(t *testing.T) {
 	if len(entries) != 1 || entries[0].AccountingQuality != "" || entries[0].Cost.TotalUSD != 0 {
 		t.Fatalf("entries = %+v, want one unmeasured zero-cost row", entries)
 	}
-	status := app.store.Status()
-	if status.Counters.UsageNoTokens != 1 || status.Counters.UsageUnclassified != 0 {
-		t.Fatalf("counters = %+v", status.Counters)
-	}
 }
 
 func TestFlowRefusedRequestIsNotLogged(t *testing.T) {
@@ -250,9 +246,6 @@ func TestFlowRefusedRequestIsNotLogged(t *testing.T) {
 	complete(t, app, flowRequestID, RequestCompletionFailed)
 	if entries := app.store.Logs(0).Entries; len(entries) != 0 {
 		t.Fatalf("entries = %+v, want an upstream refusal left out of the billing log", entries)
-	}
-	if counters := app.store.Status().Counters; counters.UsageNoTokens != 0 {
-		t.Fatalf("counters = %+v, want no accounting gap reported", counters)
 	}
 }
 
@@ -316,9 +309,9 @@ func TestFlowUnclassifiedUsageIsVisibleButCostsZero(t *testing.T) {
 	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 1 {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
-	status := app.store.Status()
-	if status.Counters.UsageUnclassified != 1 {
-		t.Fatalf("counters = %+v", status.Counters)
+	entries := app.store.Logs(0).Entries
+	if len(entries) != 1 || entries[0].AccountingQuality != billing.TokenAccountingUnclassified {
+		t.Fatalf("entries = %+v, want the unclassified usage marked on the row", entries)
 	}
 }
 
