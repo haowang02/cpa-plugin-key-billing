@@ -1005,6 +1005,21 @@ function hideCostTooltip() {
   tooltip.setAttribute("aria-hidden", "true");
 }
 
+// A successful request carries no outcome, so "succeeded" is the absence of one.
+function matchesLogOutcome(entry, outcome) {
+  return !outcome || (outcome === "succeeded" ? !entry.outcome : entry.outcome === outcome);
+}
+
+// The option labels carry the counts, so the plain text lives here.
+const LOG_OUTCOME_LABELS = { "": "全部状态", succeeded: "成功", failed: "失败", canceled: "中断" };
+
+function labelLogOutcomes(entries) {
+  for (const option of $("log-outcome").options) {
+    const count = entries.filter((entry) => matchesLogOutcome(entry, option.value)).length;
+    option.textContent = LOG_OUTCOME_LABELS[option.value] + "（" + int(count) + "）";
+  }
+}
+
 function renderLogs() {
   hideCostTooltip();
   const view = state.logs;
@@ -1017,14 +1032,15 @@ function renderLogs() {
     return;
   }
   const filter = $("log-filter").value.trim().toLowerCase();
-  // A successful request carries no outcome, so "succeeded" is the absence of one.
-  const outcome = $("log-outcome").value;
-  const filtered = (view.entries || []).filter((entry) =>
-    (!outcome || (outcome === "succeeded" ? !entry.outcome : entry.outcome === outcome)) &&
-    (!filter ||
-      (logKeyName(entry) + " " + (entry.preview || "") + " " + (entry.scope || "") + " " +
-        (entry.upstream_model || "") + " " + (entry.billing_model || "") + " " +
-        (entry.endpoint || "") + " " + (entry.source || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter)));
+  const searched = (view.entries || []).filter((entry) =>
+    !filter ||
+    (logKeyName(entry) + " " + (entry.preview || "") + " " + (entry.scope || "") + " " +
+      (entry.upstream_model || "") + " " + (entry.billing_model || "") + " " +
+      (entry.endpoint || "") + " " + (entry.source || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter));
+  // The counts ignore the status choice itself, so each option says how many
+  // entries picking it would show.
+  labelLogOutcomes(searched);
+  const filtered = searched.filter((entry) => matchesLogOutcome(entry, $("log-outcome").value));
   note.textContent = int(filtered.length) + " 条";
   const totalPages = Math.max(1, Math.ceil(filtered.length / logPageSize));
   logPage = Math.min(Math.max(1, logPage), totalPages);
@@ -1125,6 +1141,18 @@ const eventLevels = {
   info: { label: "信息", class: "tag plain" },
 };
 
+function matchesEventLevel(event, level) {
+  return !level || event.level === level;
+}
+
+function labelEventLevels(events) {
+  for (const option of $("event-level").options) {
+    const label = option.value ? eventLevels[option.value].label : "全部级别";
+    const count = events.filter((event) => matchesEventLevel(event, option.value)).length;
+    option.textContent = label + "（" + int(count) + "）";
+  }
+}
+
 function renderEvents() {
   const events = state.events;
   const note = $("event-note");
@@ -1134,10 +1162,12 @@ function renderEvents() {
     return;
   }
   const filter = $("event-filter").value.trim().toLowerCase();
-  const level = $("event-level").value;
-  const matched = events.filter((event) =>
-    (!level || event.level === level) &&
-    (!filter || (event.message || "").toLowerCase().includes(filter)));
+  const searched = events.filter((event) =>
+    !filter || (event.message || "").toLowerCase().includes(filter));
+  // The counts ignore the level choice itself, so each option says how many
+  // entries picking it would show.
+  labelEventLevels(searched);
+  const matched = searched.filter((event) => matchesEventLevel(event, $("event-level").value));
   note.textContent = int(matched.length) + " 条";
   const rows = matched
     .map((event) => {
