@@ -16,6 +16,9 @@ type KeyView struct {
 	Preview  string `json:"preview,omitempty"`
 	Label    string `json:"label,omitempty"`
 	InConfig bool   `json:"in_config"`
+	// The UI leaves deleted keys out of the key list and the plan bindings,
+	// while the totals below still count them.
+	DeletedAt time.Time `json:"deleted_at,omitzero"`
 
 	PlanID   string `json:"plan_id,omitempty"`
 	PlanName string `json:"plan_name,omitempty"`
@@ -77,6 +80,7 @@ func keyView(scope string, key *KeyState, plans map[string]Plan) KeyView {
 		Preview:    key.Preview,
 		Label:      key.Label,
 		InConfig:   key.InConfig,
+		DeletedAt:  key.DeletedAt,
 		PlanID:     key.PlanID,
 		Unlimited:  true,
 		SpentUSD:   key.Cycle.SpentUSD,
@@ -142,7 +146,7 @@ func (s *Store) BindKey(scope, planID string) error {
 			errApply = notFoundf("订阅计划 %q 不存在", planID)
 			return struct{}{}, false
 		}
-		key := state.Keys[scope]
+		key := state.liveKey(scope)
 		if key == nil {
 			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
 			return struct{}{}, false
@@ -163,7 +167,7 @@ func (s *Store) UnbindKey(scope string) error {
 		return invalidf("API Key 标识不能为空")
 	}
 	updateResult(s, func(state *State) (struct{}, bool) {
-		key := state.Keys[scope]
+		key := state.liveKey(scope)
 		if key == nil || key.PlanID == "" {
 			return struct{}{}, false
 		}
@@ -181,7 +185,7 @@ func (s *Store) ResetCycle(scope string) error {
 		return invalidf("API Key 标识不能为空")
 	}
 	updateResult(s, func(state *State) (struct{}, bool) {
-		key := state.Keys[scope]
+		key := state.liveKey(scope)
 		if key == nil {
 			return struct{}{}, false
 		}
@@ -203,7 +207,7 @@ func (s *Store) SetLabel(scope, label string) error {
 
 	var errApply error
 	updateResult(s, func(state *State) (struct{}, bool) {
-		key := state.Keys[scope]
+		key := state.liveKey(scope)
 		if key == nil {
 			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
 			return struct{}{}, false
@@ -212,6 +216,16 @@ func (s *Store) SetLabel(scope, label string) error {
 		return struct{}{}, true
 	})
 	return errApply
+}
+
+// Management addresses the keys CPA holds. A deleted key keeps its record for
+// its history alone, so it is neither bindable nor renameable.
+func (s *State) liveKey(scope string) *KeyState {
+	key := s.Keys[scope]
+	if key == nil || !key.DeletedAt.IsZero() {
+		return nil
+	}
+	return key
 }
 
 type SyncResult struct {
@@ -223,9 +237,15 @@ type SyncResult struct {
 // SyncKeys reconciles the tracked keys with the list CPA currently holds.
 //
 // Plaintext keys are discarded after producing a scope hash and masked preview.
-// Missing keys are dropped only if an earlier sync saw them, so principals from
-// other access providers survive. allowEmpty prevents an accidental empty push
-// from wiping every synchronized record.
+// A key missing from the list is marked deleted rather than dropped, and only if
+// an earlier sync saw it, so principals from other access providers survive.
+// allowEmpty prevents an accidental empty push from retiring every synchronized
+// record.
+//
+// Deletion keeps the plan binding, which is what makes an accidental retirement
+// recoverable: re-adding the same key restores enforcement rather than silently
+// leaving it unlimited. Only the period is dropped, and only on the way back, so
+// that a window already exhausted cannot block a key the moment it returns.
 func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 	scopes := make(map[string]string, len(keys))
 	for _, key := range keys {
@@ -239,6 +259,7 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 		return SyncResult{}, invalidf("API Key 列表为空；如需清空，请传入 allow_empty")
 	}
 
+	now := s.Now()
 	var result SyncResult
 	updateResult(s, func(state *State) (struct{}, bool) {
 		for scope, preview := range scopes {
@@ -250,6 +271,10 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 			} else {
 				result.Added++
 			}
+			if !key.DeletedAt.IsZero() {
+				key.DeletedAt = time.Time{}
+				key.Cycle = Cycle{}
+			}
 			key.InConfig = true
 		}
 		for scope, key := range state.Keys {
@@ -257,16 +282,38 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 				continue
 			}
 			if key.InConfig {
-				delete(state.Keys, scope)
+				key.InConfig = false
+				key.DeletedAt = now
 				result.Removed++
 			}
 		}
-		if result.Removed > 0 {
-			pruneLogOrphans(state)
-		}
+		purgeDeletedKeys(state, now)
 		return struct{}{}, true
 	})
 	return result, nil
+}
+
+// A deleted key is kept for exactly as long as it can still be read: its own
+// billing history. Once the log holds nothing about it, the record is finally
+// dropped, which bounds what an operator who rotates keys accumulates on disk.
+func purgeDeletedKeys(state *State, now time.Time) {
+	cutoff := now.Add(-LogRetention)
+	referenced := make(map[string]struct{})
+	for _, entry := range state.Log {
+		if entry.At.Before(cutoff) {
+			continue
+		}
+		referenced[entry.Scope] = struct{}{}
+	}
+	for scope, key := range state.Keys {
+		if key == nil || key.DeletedAt.IsZero() || key.DeletedAt.After(cutoff) {
+			continue
+		}
+		if _, exists := referenced[scope]; exists {
+			continue
+		}
+		delete(state.Keys, scope)
+	}
 }
 
 type StatsView struct {
@@ -279,12 +326,17 @@ type StatsView struct {
 // Reuse KeyDirectory so aggregate totals cannot disagree with the displayed rows.
 func (s *Store) Stats() StatsView {
 	directory := s.KeyDirectory()
-	stats := StatsView{Keys: len(directory.Keys), ByModel: []ModelTotals{}}
+	stats := StatsView{ByModel: []ModelTotals{}}
 	byModel := make(map[string]*Totals)
 	for _, view := range directory.Keys {
+		// A deleted key still spent what it spent, and its billing log is still
+		// there to be read. It is no longer a key, so it is not counted as one.
 		stats.Lifetime.Add(view.Lifetime)
-		if view.Blocked {
-			stats.BlockedKeys++
+		if view.DeletedAt.IsZero() {
+			stats.Keys++
+			if view.Blocked {
+				stats.BlockedKeys++
+			}
 		}
 		for _, entry := range view.ByModel {
 			totals := byModel[entry.BillingModel]

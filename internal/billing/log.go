@@ -40,19 +40,10 @@ func appendLog(state *State, entry LogEntry, now time.Time) {
 	state.Log = append(kept, entry)
 }
 
-func pruneLogOrphans(state *State) {
-	kept := state.Log[:0]
-	for _, entry := range state.Log {
-		if _, exists := state.Keys[entry.Scope]; exists {
-			kept = append(kept, entry)
-		}
-	}
-	state.Log = kept
-}
-
 // Display identity is looked up rather than copied into every entry, so Key
 // synchronization, remark changes and newly learned credentials update
-// historical rows too.
+// historical rows too. Deleting a key in CPA therefore does not take its history
+// with it: the record outlives the key precisely so these rows keep naming it.
 type LogRow struct {
 	LogEntry
 	Preview string `json:"preview,omitempty"`

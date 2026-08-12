@@ -76,16 +76,23 @@ type Plan struct {
 type KeyState struct {
 	Preview string `json:"preview,omitempty"`
 	Label   string `json:"label,omitempty"`
-	// InConfig records that this scope appeared in a key list pushed by the
-	// admin UI. It is what makes pruning safe: a scope that was once in the
-	// list and later vanished has genuinely been deleted from CPA, while a
-	// scope only ever seen in traffic may belong to another access provider
-	// and must not be pruned by a CPA Key-list sync.
-	InConfig bool               `json:"in_config,omitempty"`
-	PlanID   string             `json:"plan_id,omitempty"`
-	Cycle    Cycle              `json:"cycle"`
-	Lifetime Totals             `json:"lifetime"`
-	ByModel  map[string]*Totals `json:"by_model,omitempty"`
+	// These two tell the three kinds of record apart:
+	//
+	//	InConfig set     a key CPA currently holds
+	//	DeletedAt set    a key CPA held and no longer does
+	//	neither set      a principal only ever seen in traffic, which may belong
+	//	                 to another access provider and must therefore never be
+	//	                 retired by a CPA Key-list sync
+	//
+	// A deleted key is marked rather than dropped because the record is what
+	// gives billing history its identity: the log stores a scope and reads the
+	// masked key and remark from here.
+	InConfig  bool               `json:"in_config,omitempty"`
+	DeletedAt time.Time          `json:"deleted_at,omitzero"`
+	PlanID    string             `json:"plan_id,omitempty"`
+	Cycle     Cycle              `json:"cycle"`
+	Lifetime  Totals             `json:"lifetime"`
+	ByModel   map[string]*Totals `json:"by_model,omitempty"`
 }
 
 type Cycle struct {

@@ -288,7 +288,7 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 			plan.Name = plan.ID
 		}
 		for _, scope := range scopes {
-			key := state.Keys[scope]
+			key := state.liveKey(scope)
 			if key == nil {
 				errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
 				return Plan{}, false
@@ -349,7 +349,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				normalized := normalizeScopes(*scopes)
 				selected = make(map[string]struct{}, len(normalized))
 				for _, scope := range normalized {
-					key := state.Keys[scope]
+					key := state.liveKey(scope)
 					if key == nil {
 						errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
 						return Plan{}, false
@@ -365,7 +365,10 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 			periodChanged := updated.Period != state.Plans[i].Period
 			if periodChanged || scopes != nil {
 				for scope, key := range state.Keys {
-					if key == nil {
+					// A deleted key is absent from the editor, so its absence
+					// from the selection says nothing. Unbinding it here would
+					// throw away the binding kept for a later re-add.
+					if key == nil || !key.DeletedAt.IsZero() {
 						continue
 					}
 					_, shouldBind := selected[scope]

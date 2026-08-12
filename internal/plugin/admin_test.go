@@ -263,7 +263,9 @@ func TestSyncAcceptsTheCPAKeyListVerbatim(t *testing.T) {
 	}
 }
 
-func TestSyncPrunesKeysDeletedFromCPA(t *testing.T) {
+// A key deleted from CPA leaves the key list but keeps its billing history,
+// which the log can only render while the record is there to name it.
+func TestSyncRetiresKeysDeletedFromCPA(t *testing.T) {
 	app := newConfiguredApp(t)
 	const kept, removed = "sk-kept-00000000001", "sk-removed-00000001"
 
@@ -278,8 +280,20 @@ func TestSyncPrunesKeysDeletedFromCPA(t *testing.T) {
 
 	var directory billing.KeyDirectory
 	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
-	if len(directory.Keys) != 1 || directory.Keys[0].Scope != billing.CallerScope(kept) {
-		t.Fatalf("keys = %+v, want only the surviving key", directory.Keys)
+	if len(directory.Keys) != 2 {
+		t.Fatalf("keys = %+v, want the deleted key kept alongside the live one", directory.Keys)
+	}
+	for _, view := range directory.Keys {
+		wantDeleted := view.Scope == billing.CallerScope(removed)
+		if view.DeletedAt.IsZero() == wantDeleted || view.Preview == "" {
+			t.Fatalf("view = %+v, want it marked deleted=%v with its identity kept", view, wantDeleted)
+		}
+	}
+
+	var logs billing.LogView
+	callOK(t, app, http.MethodGet, routeLogs, nil, nil, http.StatusOK, &logs)
+	if len(logs.Entries) != 1 || logs.Entries[0].Preview == "" {
+		t.Fatalf("logs = %+v, want the deleted key's history still readable", logs.Entries)
 	}
 }
 

@@ -58,7 +58,20 @@ def make_key(index):
     return result
 
 
-KEYS = [make_key(index) for index in range(1, 19)]
+# A Key deleted from CPA: the panel keeps it out of the Key list and the plan
+# bindings, while its billing log rows still name it.
+DELETED_KEY = {
+    **make_key(19),
+    "in_config": False,
+    "deleted_at": iso(NOW - timedelta(days=2)),
+    "plan_id": "team-monthly",
+    "plan_name": "研发团队",
+    "unlimited": False,
+    "limit_usd": 500,
+}
+
+KEYS = [make_key(index) for index in range(1, 19)] + [DELETED_KEY]
+LIVE_KEYS = [key for key in KEYS if not key.get("deleted_at")]
 
 PRICES = [
     {
@@ -303,7 +316,7 @@ def payload_for(path, query):
         lifetime_requests = sum(item["requests"] for item in MODEL_TOTALS)
         lifetime_cost = sum(item["cost_usd"] for item in MODEL_TOTALS)
         return {
-            "keys": len(KEYS),
+            "keys": len(LIVE_KEYS),
             "blocked_keys": 0,
             "lifetime": {"requests": lifetime_requests, "cost_usd": lifetime_cost},
             "by_model": MODEL_TOTALS,
@@ -316,7 +329,7 @@ def payload_for(path, query):
         term = query.get("q", [""])[0].lower()
         return {"models": [row for row in PRICES if term in row["pattern"].lower()]}
     if path == "/v0/management/api-keys":
-        return {"api-keys": [f"sk-demo-{index:04d}" for index in range(1, len(KEYS) + 1)]}
+        return {"api-keys": [f"sk-demo-{index:04d}" for index in range(1, len(LIVE_KEYS) + 1)]}
     if path == "/v1/models":
         return {"data": [{"id": row["pattern"]} for row in PRICES]}
     return None
@@ -382,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
             ("POST", f"{API_BASE}/keys/sync"),
             ("POST", f"{API_BASE}/prices/sync"),
         }:
-            self.send_json(200, {"added": 0, "removed": 0, "matched": len(KEYS), "priced": len(PRICES)})
+            self.send_json(200, {"added": 0, "removed": 0, "matched": len(LIVE_KEYS), "priced": len(PRICES)})
         elif route in {
             ("POST", f"{API_BASE}/keys/bind"),
             ("POST", f"{API_BASE}/keys/unbind"),

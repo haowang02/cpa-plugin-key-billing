@@ -716,7 +716,10 @@ async function reloadAll() {
     document.querySelector('[data-tab="events"].active') ? plugin("GET", "/events") : Promise.resolve(null),
   ]);
   state.status = status;
-  state.keys = directory.keys || [];
+  // Deleted keys stay in the directory so the summary still counts their spend
+  // and the billing log can still name them. Dropping them here is what keeps
+  // them out of the key list, the plan bindings and the plan editor alike.
+  state.keys = (directory.keys || []).filter((view) => !view.deleted_at);
   state.plans = plans.plans || [];
   state.prices = prices.models || [];
   state.stats = stats;

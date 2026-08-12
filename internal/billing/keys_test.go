@@ -91,3 +91,229 @@ func TestPlanBindingTransactions(t *testing.T) {
 		}
 	})
 }
+
+const (
+	keptKeyPlaintext    = "sk-live-0123456789"
+	deletedKeyPlaintext = "sk-retired-0123456789"
+)
+
+// newSyncStore returns a store holding one plan and both keys above, already
+// synchronized and bound, with a clock the caller can move.
+func newSyncStore(t *testing.T, clock *time.Time) *Store {
+	t.Helper()
+	store := newAccountStore(t, *clock)
+	store.now = func() time.Time { return *clock }
+	store.Update(func(state *State) {
+		state.Plans = []Plan{{ID: "p", Name: "Weekly", AmountUSD: 10, Period: Period{Kind: PeriodWeekly}}}
+	})
+	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext, deletedKeyPlaintext}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	if errBind := store.BindKey(CallerScope(deletedKeyPlaintext), "p"); errBind != nil {
+		t.Fatalf("BindKey error = %v", errBind)
+	}
+	return store
+}
+
+// Deleting a key in CPA must not delete what it spent. The record is what gives
+// every billing log row its masked key and remark, so dropping it would leave
+// the history unreadable even where the entries survived.
+func TestSyncKeysRetiresAMissingKeyWithoutLosingItsHistory(t *testing.T) {
+	now := time.Date(2026, 8, 12, 15, 57, 0, 0, time.UTC)
+	clock := now
+	store := newSyncStore(t, &clock)
+	scope := CallerScope(deletedKeyPlaintext)
+	store.RecordUsage(admittedEvent(store, scope, now))
+
+	result, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false)
+	if errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	if result.Removed != 1 || result.Matched != 1 || result.Added != 0 {
+		t.Fatalf("SyncResult = %+v, want one retirement and one match", result)
+	}
+
+	store.Read(func(state *State) {
+		key := state.Keys[scope]
+		if key == nil {
+			t.Fatal("the retired key was dropped, taking its history with it")
+		}
+		if key.DeletedAt != now || key.InConfig {
+			t.Fatalf("key = %+v, want marked deleted and out of config", key)
+		}
+		if key.PlanID != "p" {
+			t.Fatalf("PlanID = %q, want the binding kept for a later re-add", key.PlanID)
+		}
+		if key.Preview != PreviewKey(deletedKeyPlaintext) || key.Lifetime.Requests != 1 {
+			t.Fatalf("key = %+v, want identity and totals kept", key)
+		}
+	})
+
+	if rows := store.Logs(0).Entries; len(rows) != 1 || rows[0].Preview != PreviewKey(deletedKeyPlaintext) {
+		t.Fatalf("log rows = %+v, want the retired key still named", rows)
+	}
+
+	stats := store.Stats()
+	if stats.Keys != 1 {
+		t.Fatalf("Stats.Keys = %d, want the retired key uncounted", stats.Keys)
+	}
+	if stats.Lifetime.Requests != 1 {
+		t.Fatalf("Stats.Lifetime = %+v, want the retired key's spend still counted", stats.Lifetime)
+	}
+}
+
+// The race this whole design exists for: a request admitted before the deletion
+// commits after it. It must land on the record it was admitted under instead of
+// recreating the key as a scope nobody can identify.
+func TestUsageCommittedAfterRetirementDoesNotResurrectTheKey(t *testing.T) {
+	now := time.Date(2026, 8, 12, 15, 57, 0, 0, time.UTC)
+	clock := now
+	store := newSyncStore(t, &clock)
+	scope := CallerScope(deletedKeyPlaintext)
+	event := admittedEvent(store, scope, now)
+
+	clock = now.Add(43 * time.Minute)
+	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	clock = now.Add(time.Hour)
+	store.RecordUsage(event)
+
+	store.Read(func(state *State) {
+		key := state.Keys[scope]
+		if key.Preview != PreviewKey(deletedKeyPlaintext) {
+			t.Fatalf("key = %+v, want the retired record reused, not a bare scope", key)
+		}
+		if key.DeletedAt.IsZero() || key.InConfig {
+			t.Fatalf("key = %+v, want it to stay retired", key)
+		}
+		if key.Lifetime.Requests != 1 {
+			t.Fatalf("Lifetime = %+v, want the late usage still charged", key.Lifetime)
+		}
+		// The window was live at admission, so the spend belongs to it.
+		if key.Cycle.SpentUSD == 0 {
+			t.Fatalf("Cycle = %+v, want the admitted window charged", key.Cycle)
+		}
+	})
+}
+
+func TestSyncKeysRestoresAReaddedKeyWithAFreshPeriod(t *testing.T) {
+	now := time.Date(2026, 8, 12, 15, 57, 0, 0, time.UTC)
+	clock := now
+	store := newSyncStore(t, &clock)
+	scope := CallerScope(deletedKeyPlaintext)
+	store.RecordUsage(admittedEvent(store, scope, now))
+	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+
+	clock = now.Add(24 * time.Hour)
+	result, errSync := store.SyncKeys([]string{keptKeyPlaintext, deletedKeyPlaintext}, false)
+	if errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	if result.Added != 1 || result.Removed != 0 {
+		t.Fatalf("SyncResult = %+v, want the key counted as added back", result)
+	}
+	store.Read(func(state *State) {
+		key := state.Keys[scope]
+		if !key.DeletedAt.IsZero() || !key.InConfig {
+			t.Fatalf("key = %+v, want it live again", key)
+		}
+		if key.PlanID != "p" {
+			t.Fatalf("PlanID = %q, want the subscription restored", key.PlanID)
+		}
+		if key.Cycle != (Cycle{}) {
+			t.Fatalf("Cycle = %+v, want a period that starts on next use", key.Cycle)
+		}
+		if key.Lifetime.Requests != 1 {
+			t.Fatalf("Lifetime = %+v, want history kept across the round trip", key.Lifetime)
+		}
+	})
+}
+
+func TestSyncKeysRetiresOnlyOnceAndSparesTrafficOnlyPrincipals(t *testing.T) {
+	now := time.Date(2026, 8, 12, 15, 57, 0, 0, time.UTC)
+	clock := now
+	store := newSyncStore(t, &clock)
+	// A principal that no sync ever listed may belong to another access
+	// provider, so a CPA key-list sync has no authority over it.
+	store.RecordUsage(subsetEvent("foreign-principal", now))
+
+	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	result, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false)
+	if errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	if result.Removed != 0 {
+		t.Fatalf("SyncResult = %+v, want an already retired key counted once", result)
+	}
+	store.Read(func(state *State) {
+		foreign := state.Keys["foreign-principal"]
+		if foreign == nil || !foreign.DeletedAt.IsZero() || foreign.InConfig {
+			t.Fatalf("foreign principal = %+v, want it untouched", foreign)
+		}
+	})
+}
+
+func TestRetiredKeysAreDroppedOnceTheirLogExpired(t *testing.T) {
+	now := time.Date(2026, 8, 12, 15, 57, 0, 0, time.UTC)
+	clock := now
+	store := newSyncStore(t, &clock)
+	scope := CallerScope(deletedKeyPlaintext)
+	store.RecordUsage(admittedEvent(store, scope, now))
+	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+
+	clock = now.Add(LogRetention - time.Hour)
+	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	store.Read(func(state *State) {
+		if state.Keys[scope] == nil {
+			t.Fatal("a retired key was dropped while its billing log was still readable")
+		}
+	})
+
+	clock = now.Add(LogRetention + time.Hour)
+	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	store.Read(func(state *State) {
+		if state.Keys[scope] != nil {
+			t.Fatal("a retired key outlived every log entry that could name it")
+		}
+	})
+}
+
+// A retired key is invisible in the plan editor, so its absence from a
+// submitted selection carries no intent.
+func TestPlanEditKeepsRetiredBindings(t *testing.T) {
+	now := time.Date(2026, 8, 12, 15, 57, 0, 0, time.UTC)
+	clock := now
+	store := newSyncStore(t, &clock)
+	scope := CallerScope(deletedKeyPlaintext)
+	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+
+	selected := []string{CallerScope(keptKeyPlaintext)}
+	if _, errUpdate := store.UpdatePlanWithBindings(PlanPatch{ID: "p"}, &selected); errUpdate != nil {
+		t.Fatalf("UpdatePlanWithBindings error = %v", errUpdate)
+	}
+	store.Read(func(state *State) {
+		if state.Keys[scope].PlanID != "p" {
+			t.Fatalf("retired key = %+v, want its binding kept", state.Keys[scope])
+		}
+	})
+
+	if errBind := store.BindKey(scope, "p"); errBind == nil {
+		t.Fatal("a retired key was bindable through the management API")
+	}
+	if errLabel := store.SetLabel(scope, "x"); errLabel == nil {
+		t.Fatal("a retired key was renameable through the management API")
+	}
+}
