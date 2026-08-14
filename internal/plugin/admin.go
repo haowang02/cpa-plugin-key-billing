@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -61,11 +62,29 @@ func (a *App) syncModels(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, result)
 }
 
-func (a *App) priceTable() ManagementResponse {
+// One reload, one round trip: every management call is separately authenticated
+// through the host. The two logs stay out of it because they grow with traffic
+// rather than with configuration, and each is scoped to its own tab and page.
+type overviewResponse struct {
+	Status billing.Status     `json:"status"`
+	Keys   []billing.KeyView  `json:"keys"`
+	Plans  []billing.Plan     `json:"plans"`
+	Prices []billing.PriceRow `json:"prices"`
+	Stats  billing.StatsView  `json:"stats"`
+}
+
+func (a *App) overview() ManagementResponse {
 	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
 		return errorResponse(errCatalog)
 	}
-	return JSONResponse(http.StatusOK, a.store.PriceTable())
+	directory := a.store.KeyDirectory()
+	return JSONResponse(http.StatusOK, overviewResponse{
+		Status: a.store.Status(),
+		Keys:   directory.Keys,
+		Plans:  a.store.Plans(),
+		Prices: a.store.PriceTable().Models,
+		Stats:  billing.StatsFrom(directory),
+	})
 }
 
 func (a *App) refreshPriceCatalog() ManagementResponse {
@@ -214,13 +233,34 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 }
 
 func (a *App) listLogs(req ManagementRequest) ManagementResponse {
-	limit := 0
-	if raw := strings.TrimSpace(req.Query.Get("limit")); raw != "" {
-		if parsed, errParse := strconv.Atoi(raw); errParse == nil && parsed > 0 {
-			limit = parsed
-		}
+	query := billing.LogQuery{
+		Search:  req.Query.Get("q"),
+		Outcome: strings.TrimSpace(req.Query.Get("outcome")),
 	}
-	return JSONResponse(http.StatusOK, a.store.Logs(limit))
+	if !billing.ValidLogOutcome(query.Outcome) {
+		return JSONError(http.StatusBadRequest, "invalid", "outcome 无效："+query.Outcome)
+	}
+	if errOffset := countParam(req.Query, "offset", &query.Offset); errOffset != nil {
+		return errorResponse(errOffset)
+	}
+	if errLimit := countParam(req.Query, "limit", &query.Limit); errLimit != nil {
+		return errorResponse(errLimit)
+	}
+	return JSONResponse(http.StatusOK, a.store.Logs(query))
+}
+
+// An absent parameter leaves the target at whatever the query already means.
+func countParam(query url.Values, name string, target *int) error {
+	raw := strings.TrimSpace(query.Get(name))
+	if raw == "" {
+		return nil
+	}
+	parsed, errParse := strconv.Atoi(raw)
+	if errParse != nil || parsed < 0 {
+		return &billing.Error{Kind: billing.KindInvalid, Msg: name + " 必须是非负整数"}
+	}
+	*target = parsed
+	return nil
 }
 
 func decodeStrict(body []byte, target any) error {

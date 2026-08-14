@@ -191,7 +191,7 @@ func TestFlowBillsARetriedRequestOnceAgainstTheServingCredential(t *testing.T) {
 	if requests != 1 {
 		t.Fatalf("Requests = %d, want a single bill for the retried request", requests)
 	}
-	if entries := app.store.Logs(0).Entries; len(entries) != 1 || entries[0].Source != "codex · live@example.com" {
+	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 1 || entries[0].Source != "codex · live@example.com" {
 		t.Fatalf("entries = %+v", entries)
 	}
 }
@@ -205,12 +205,12 @@ func TestFlowNamesACredentialLearnedAfterTheBill(t *testing.T) {
 	selectCredential(t, app, "auth-7")
 	billUsage(t, app, 1000, 0, 0, 500, 0)
 	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	if entries := app.store.Logs(0).Entries; len(entries) != 1 || entries[0].Source != "" {
+	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 1 || entries[0].Source != "" {
 		t.Fatalf("entries = %+v, want an unnamed credential", entries)
 	}
 
 	publishUsage(t, app, "auth-7", "openai-compatible-deepseek", "apikey", "sk-upstream-key-0001")
-	if entries := app.store.Logs(0).Entries; entries[0].Source != "deepseek · sk-ups…0001" {
+	if entries := app.store.Logs(billing.LogQuery{}).Entries; entries[0].Source != "deepseek · sk-ups…0001" {
 		t.Fatalf("entries = %+v", entries)
 	}
 }
@@ -222,7 +222,7 @@ func TestFlowRejectedRequestLeavesNoTrace(t *testing.T) {
 	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
-	if entries := app.store.Logs(0).Entries; len(entries) != 0 {
+	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 0 {
 		t.Fatalf("entries = %+v, want none", entries)
 	}
 }
@@ -234,7 +234,7 @@ func TestFlowUnmeasuredRequestIsLoggedAtZeroCost(t *testing.T) {
 	if cost, _ := lifetimeCost(t, app); cost != 0 {
 		t.Fatalf("cost = %v, want nothing charged", cost)
 	}
-	entries := app.store.Logs(0).Entries
+	entries := app.store.Logs(billing.LogQuery{}).Entries
 	if len(entries) != 1 || entries[0].AccountingQuality != "" || entries[0].Cost.TotalUSD != 0 {
 		t.Fatalf("entries = %+v, want one unmeasured zero-cost row", entries)
 	}
@@ -244,7 +244,7 @@ func TestFlowRefusedRequestIsNotLogged(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	admit(t, app, "openai", "/v1/chat/completions")
 	complete(t, app, flowRequestID, RequestCompletionFailed)
-	if entries := app.store.Logs(0).Entries; len(entries) != 0 {
+	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 0 {
 		t.Fatalf("entries = %+v, want an upstream refusal left out of the billing log", entries)
 	}
 }
@@ -256,7 +256,7 @@ func TestFlowFailureAfterOutputIsLogged(t *testing.T) {
 	admit(t, app, "openai", "/v1/chat/completions")
 	streamChunk(t, app, flowRequestID, 0, []byte(`{"id":"`+flowResponseID+`"}`))
 	complete(t, app, flowRequestID, RequestCompletionFailed)
-	entries := app.store.Logs(0).Entries
+	entries := app.store.Logs(billing.LogQuery{}).Entries
 	if len(entries) != 1 || entries[0].Outcome != billing.OutcomeFailed || entries[0].Cost.TotalUSD != 0 {
 		t.Fatalf("entries = %+v, want one visible zero-cost row", entries)
 	}
@@ -269,7 +269,7 @@ func TestFlowCanceledRequestBillsReportedUsageAndSaysSo(t *testing.T) {
 	complete(t, app, flowRequestID, RequestCompletionCanceled)
 	cost, _ := lifetimeCost(t, app)
 	assertCostClose(t, cost, 0.001+0.0005)
-	if entries := app.store.Logs(0).Entries; len(entries) != 1 || entries[0].Outcome != billing.OutcomeCanceled {
+	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 1 || entries[0].Outcome != billing.OutcomeCanceled {
 		t.Fatalf("entries = %+v, want one canceled row", entries)
 	}
 }
@@ -281,7 +281,7 @@ func TestFlowCanceledRequestWithoutUsageIsStillLogged(t *testing.T) {
 	selectCredential(t, app, "auth-7")
 	complete(t, app, flowRequestID, RequestCompletionCanceled)
 
-	entries := app.store.Logs(0).Entries
+	entries := app.store.Logs(billing.LogQuery{}).Entries
 	if len(entries) != 1 {
 		t.Fatalf("entries = %+v, want the canceled request logged", entries)
 	}
@@ -309,7 +309,7 @@ func TestFlowUnclassifiedUsageIsVisibleButCostsZero(t *testing.T) {
 	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 1 {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
-	entries := app.store.Logs(0).Entries
+	entries := app.store.Logs(billing.LogQuery{}).Entries
 	if len(entries) != 1 || entries[0].AccountingQuality != billing.TokenAccountingUnclassified {
 		t.Fatalf("entries = %+v, want the unclassified usage marked on the row", entries)
 	}

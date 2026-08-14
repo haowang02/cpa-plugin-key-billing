@@ -344,9 +344,15 @@ type StatsView struct {
 	ByModel     []ModelTotals `json:"by_model"`
 }
 
-// Reuse KeyDirectory so aggregate totals cannot disagree with the displayed rows.
 func (s *Store) Stats() StatsView {
-	directory := s.KeyDirectory()
+	return StatsFrom(s.KeyDirectory())
+}
+
+// Totals are derived from the listing rather than counted separately, so they
+// cannot disagree with the rows an operator is reading. Listing also settles
+// expired cycles, which is why a caller that needs both lists once and passes
+// the result here instead of asking for each.
+func StatsFrom(directory KeyDirectory) StatsView {
 	stats := StatsView{ByModel: []ModelTotals{}}
 	byModel := make(map[string]*Totals)
 	for _, view := range directory.Keys {

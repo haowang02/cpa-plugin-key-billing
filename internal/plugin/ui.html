@@ -523,6 +523,8 @@ let authKey = "";
 let state = { keys: [], plans: [], prices: [], status: null, stats: null, logs: null, events: null };
 let logPage = 1;
 let logPageSize = 50;
+let logRequest = 0;
+let logSearchTimer = 0;
 
 // CLIProxyAPI HTML-escapes every string in a plugin management response, so a
 // label saved as "A & B" comes back as "A &amp; B". Left alone it would gain
@@ -699,27 +701,26 @@ async function start(key) {
 }
 
 async function reloadAll() {
-  // The two logs are the payloads that grow with traffic rather than with
-  // configuration, so each is fetched only while its own tab is open. Switching
-  // tabs reloads, so opening one is what fetches it.
-  const [status, directory, plans, prices, stats, logs, events] = await Promise.all([
-    plugin("GET", "/status"),
-    plugin("GET", "/keys"),
-    plugin("GET", "/plans"),
-    plugin("GET", "/prices"),
-    plugin("GET", "/stats"),
-    document.querySelector('[data-tab="logs"].active') ? plugin("GET", "/logs") : Promise.resolve(null),
+  // Everything the page renders outside the two log tabs arrives in one call:
+  // a reload happens on every tab switch and after every edit, and each call is
+  // a separate authenticated round trip.
+  //
+  // The two logs stay out of it. They are the payloads that grow with traffic
+  // rather than with configuration, so each is fetched only while its own tab
+  // is open, and the billing log only a page at a time.
+  const [overview, events] = await Promise.all([
+    plugin("GET", "/overview"),
     document.querySelector('[data-tab="events"].active') ? plugin("GET", "/events") : Promise.resolve(null),
+    document.querySelector('[data-tab="logs"].active') ? loadLogs() : Promise.resolve(null),
   ]);
-  state.status = status;
+  state.status = overview.status;
   // Deleted keys stay in the directory so the summary still counts their spend
   // and the billing log can still name them. Dropping them here is what keeps
   // them out of the key list, the plan bindings and the plan editor alike.
-  state.keys = (directory.keys || []).filter((view) => !view.deleted_at);
-  state.plans = plans.plans || [];
-  state.prices = prices.models || [];
-  state.stats = stats;
-  if (logs) state.logs = logs;
+  state.keys = (overview.keys || []).filter((view) => !view.deleted_at);
+  state.plans = overview.plans || [];
+  state.prices = overview.prices || [];
+  state.stats = overview.stats;
   if (events) state.events = events.events || [];
   render();
 }
@@ -1005,19 +1006,58 @@ function hideCostTooltip() {
   tooltip.setAttribute("aria-hidden", "true");
 }
 
-// A successful request carries no outcome, so "succeeded" is the absence of one.
-function matchesLogOutcome(entry, outcome) {
-  return !outcome || (outcome === "succeeded" ? !entry.outcome : entry.outcome === outcome);
-}
-
 // The option labels carry the counts, so the plain text lives here.
 const LOG_OUTCOME_LABELS = { "": "全部状态", succeeded: "成功", failed: "失败", canceled: "中断" };
 
-function labelLogOutcomes(entries) {
+// The browser only holds one page, so the counts are the server's: they cover
+// the whole search and ignore the status choice itself, which is what lets each
+// option say how many entries picking it would show.
+function labelLogOutcomes(counts) {
   for (const option of $("log-outcome").options) {
-    const count = entries.filter((entry) => matchesLogOutcome(entry, option.value)).length;
-    option.textContent = LOG_OUTCOME_LABELS[option.value] + "（" + int(count) + "）";
+    option.textContent = LOG_OUTCOME_LABELS[option.value] + "（" + int((counts || {})[option.value || "all"]) + "）";
   }
+}
+
+// Searching, filtering and paging all happen in the plugin, so each of them is
+// a request for a new page rather than a re-render of a log the browser holds.
+function logPath() {
+  const params = new URLSearchParams({
+    offset: String((logPage - 1) * logPageSize),
+    limit: String(logPageSize),
+  });
+  const search = $("log-filter").value.trim();
+  if (search) params.set("q", search);
+  const outcome = $("log-outcome").value;
+  if (outcome) params.set("outcome", outcome);
+  return "/logs?" + params.toString();
+}
+
+const logPageCount = (total) => Math.max(1, Math.ceil((total || 0) / logPageSize));
+
+async function loadLogs(clamped) {
+  const ticket = ++logRequest;
+  const view = await plugin("GET", logPath());
+  // Typing fires a request per keystroke and they need not return in order, so
+  // a superseded response is dropped rather than rendered.
+  if (ticket !== logRequest) return;
+  // The true total only arrives here, so this is where a page past the end of
+  // the log — cleared or aged out between two requests — is corrected.
+  const totalPages = logPageCount(view.total);
+  if (logPage > totalPages && !clamped) {
+    logPage = totalPages;
+    await loadLogs(true);
+    return;
+  }
+  state.logs = view;
+  renderLogs();
+}
+
+function turnLogPage(page) {
+  logPage = page;
+  guard(async () => {
+    await loadLogs();
+    $("logs-body").scrollTop = 0;
+  });
 }
 
 function renderLogs() {
@@ -1031,22 +1071,10 @@ function renderLogs() {
     $("logs-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
     return;
   }
-  const filter = $("log-filter").value.trim().toLowerCase();
-  const searched = (view.entries || []).filter((entry) =>
-    !filter ||
-    (logKeyName(entry) + " " + (entry.preview || "") + " " + (entry.scope || "") + " " +
-      (entry.upstream_model || "") + " " + (entry.billing_model || "") + " " +
-      (entry.endpoint || "") + " " + (entry.source || "") + " " + (entry.request_id || "")).toLowerCase().includes(filter));
-  // The counts ignore the status choice itself, so each option says how many
-  // entries picking it would show.
-  labelLogOutcomes(searched);
-  const filtered = searched.filter((entry) => matchesLogOutcome(entry, $("log-outcome").value));
-  note.textContent = int(filtered.length) + " 条";
-  const totalPages = Math.max(1, Math.ceil(filtered.length / logPageSize));
-  logPage = Math.min(Math.max(1, logPage), totalPages);
-  const start = (logPage - 1) * logPageSize;
-  const rows = filtered
-    .slice(start, start + logPageSize)
+  labelLogOutcomes(view.outcome_counts);
+  note.textContent = int(view.total) + " 条";
+  const totalPages = logPageCount(view.total);
+  const rows = (view.entries || [])
     .map((entry) => {
       const cost = entry.cost || {};
       const keyDisplay = logKeyName(entry);
@@ -1434,26 +1462,26 @@ $("events-clear").onclick = () => guard(async () => {
   notify("已清空 " + result.cleared + " 条插件日志");
   await reloadAll();
 });
-$("log-filter").addEventListener("input", () => { logPage = 1; renderLogs(); });
-$("log-outcome").addEventListener("change", () => { logPage = 1; renderLogs(); });
+// Typing runs against the plugin, so the keystrokes are collected before the
+// search is sent.
+$("log-filter").addEventListener("input", () => {
+  clearTimeout(logSearchTimer);
+  logSearchTimer = setTimeout(() => {
+    logSearchTimer = 0;
+    logPage = 1;
+    guard(loadLogs);
+  }, 180);
+});
+$("log-outcome").addEventListener("change", () => { logPage = 1; guard(loadLogs); });
 $("logs-body").addEventListener("scroll", hideCostTooltip, { passive: true });
 $("log-page-size").addEventListener("change", (event) => {
   logPageSize = Number(event.target.value) || 50;
-  logPage = 1;
-  renderLogs();
-  $("logs-body").scrollTop = 0;
+  turnLogPage(1);
 });
 $("log-prev").onclick = () => {
-  if (logPage <= 1) return;
-  logPage--;
-  renderLogs();
-  $("logs-body").scrollTop = 0;
+  if (logPage > 1) turnLogPage(logPage - 1);
 };
-$("log-next").onclick = () => {
-  logPage++;
-  renderLogs();
-  $("logs-body").scrollTop = 0;
-};
+$("log-next").onclick = () => turnLogPage(logPage + 1);
 $("keys-reset-all").onclick = () => guard(async () => {
   if (!await confirmAction("重置所有周期性额度？",
     "绑定周期性计划的 API Key 会结束当前周期，下一次请求开启新周期；不重置的计划和累计用量不受影响。")) return;

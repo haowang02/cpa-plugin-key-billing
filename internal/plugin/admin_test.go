@@ -45,6 +45,15 @@ func callOK(t *testing.T, app *App, method, suffix string, query url.Values, bod
 	}
 }
 
+// Everything the panel reads outside the two logs comes back from this one
+// route, so it is what the round-trip tests read their edits back through.
+func readOverview(t *testing.T, app *App) overviewResponse {
+	t.Helper()
+	var overview overviewResponse
+	callOK(t, app, http.MethodGet, routeOverview, nil, nil, http.StatusOK, &overview)
+	return overview
+}
+
 func TestEveryDeclaredRouteIsDispatchable(t *testing.T) {
 	app := newConfiguredApp(t)
 	for _, route := range managementRegistration().Routes {
@@ -67,16 +76,10 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("result = %+v, want two rows with one priced from the catalog", synced)
 	}
 
-	var table billing.PriceTable
-	callOK(t, app, http.MethodGet, routePrices, nil, nil, http.StatusOK, &table)
-	if len(table.Models) != 2 {
-		t.Fatalf("table = %+v", table)
-	}
-	if table.Models[0].Pattern != "gpt-4o" || table.Models[0].Source != billing.PriceSourceBuiltin {
-		t.Fatalf("row = %+v, want the catalog price", table.Models[0])
-	}
-	if table.Models[1].Source != billing.PriceSourceNone {
-		t.Fatalf("row = %+v, want an unpriced row", table.Models[1])
+	prices := readOverview(t, app).Prices
+	if len(prices) != 2 || prices[0].Pattern != "gpt-4o" || prices[0].Source != billing.PriceSourceBuiltin ||
+		prices[1].Source != billing.PriceSourceNone {
+		t.Fatalf("prices = %+v, want the catalog price and an unpriced row", prices)
 	}
 
 	callOK(t, app, http.MethodPut, routePrices, nil, map[string]any{
@@ -85,9 +88,9 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 		"output_per_1m":     10,
 		"cache_read_per_1m": 0.125,
 	}, http.StatusOK, nil)
-	callOK(t, app, http.MethodGet, routePrices, nil, nil, http.StatusOK, &table)
-	if table.Models[1].InputPer1M != 1.25 || table.Models[1].Source != billing.PriceSourceCustom {
-		t.Fatalf("row = %+v, want the edit recorded as custom", table.Models[1])
+	if prices = readOverview(t, app).Prices; prices[1].InputPer1M != 1.25 ||
+		prices[1].Source != billing.PriceSourceCustom {
+		t.Fatalf("row = %+v, want the edit recorded as custom", prices[1])
 	}
 
 	var reset struct {
@@ -97,9 +100,8 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 	if reset.Restored != 1 {
 		t.Fatalf("restored = %d, want 1", reset.Restored)
 	}
-	callOK(t, app, http.MethodGet, routePrices, nil, nil, http.StatusOK, &table)
-	if len(table.Models) != 2 || table.Models[1].InputPer1M != 0 {
-		t.Fatalf("models = %+v, want the rows kept and the edit dropped", table.Models)
+	if prices = readOverview(t, app).Prices; len(prices) != 2 || prices[1].InputPer1M != 0 {
+		t.Fatalf("prices = %+v, want the rows kept and the edit dropped", prices)
 	}
 
 	if resp := callManagement(t, app, http.MethodPost, routePricesSync, nil, map[string]any{"models": []string{}}); resp.StatusCode != http.StatusBadRequest {
@@ -133,12 +135,8 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("plan = %+v, want only the amount changed", patched.Plan)
 	}
 
-	var listed struct {
-		Plans []billing.Plan `json:"plans"`
-	}
-	callOK(t, app, http.MethodGet, routePlans, nil, nil, http.StatusOK, &listed)
-	if len(listed.Plans) != 1 {
-		t.Fatalf("plans = %+v", listed.Plans)
+	if plans := readOverview(t, app).Plans; len(plans) != 1 {
+		t.Fatalf("plans = %+v", plans)
 	}
 
 	callOK(t, app, http.MethodDelete, routePlans, url.Values{"id": {"team-monthly"}}, nil, http.StatusOK, nil)
@@ -159,31 +157,27 @@ func TestPlanBindingsRoundTripThroughTheManagementAPI(t *testing.T) {
 		"id": "team", "name": "Team", "amount_usd": 10,
 		"period": map[string]any{"kind": "never"}, "scopes": []string{firstScope},
 	}, http.StatusCreated, nil)
-	var directory billing.KeyDirectory
-	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
-	if len(directory.Keys) != 2 {
-		t.Fatalf("keys = %+v", directory.Keys)
-	}
-	byScope := map[string]billing.KeyView{}
-	for _, key := range directory.Keys {
-		byScope[key.Scope] = key
-	}
-	if byScope[firstScope].PlanID != "team" || byScope[secondScope].PlanID != "" {
+	byScope := keysByScope(t, app)
+	if len(byScope) != 2 || byScope[firstScope].PlanID != "team" || byScope[secondScope].PlanID != "" {
 		t.Fatalf("keys after create = %+v", byScope)
 	}
 
 	callOK(t, app, http.MethodPatch, routePlans, nil, map[string]any{
 		"id": "team", "scopes": []string{secondScope},
 	}, http.StatusOK, nil)
-	directory = billing.KeyDirectory{}
-	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
-	byScope = map[string]billing.KeyView{}
-	for _, key := range directory.Keys {
-		byScope[key.Scope] = key
-	}
-	if byScope[firstScope].PlanID != "" || byScope[secondScope].PlanID != "team" {
+	if byScope = keysByScope(t, app); byScope[firstScope].PlanID != "" ||
+		byScope[secondScope].PlanID != "team" {
 		t.Fatalf("keys after edit = %+v", byScope)
 	}
+}
+
+func keysByScope(t *testing.T, app *App) map[string]billing.KeyView {
+	t.Helper()
+	byScope := map[string]billing.KeyView{}
+	for _, key := range readOverview(t, app).Keys {
+		byScope[key.Scope] = key
+	}
+	return byScope
 }
 
 func TestManagementErrorsMapToStatusCodes(t *testing.T) {
@@ -237,12 +231,11 @@ func TestSyncAcceptsTheCPAKeyListVerbatim(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 
-	var directory billing.KeyDirectory
-	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
-	if len(directory.Keys) != 2 {
-		t.Fatalf("keys = %+v", directory.Keys)
+	keys := readOverview(t, app).Keys
+	if len(keys) != 2 {
+		t.Fatalf("keys = %+v", keys)
 	}
-	for _, view := range directory.Keys {
+	for _, view := range keys {
 		if !view.InConfig || view.Preview == "" {
 			t.Fatalf("view = %+v, want it marked as present in the config with a preview", view)
 		}
@@ -278,12 +271,11 @@ func TestSyncRetiresKeysDeletedFromCPA(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 
-	var directory billing.KeyDirectory
-	callOK(t, app, http.MethodGet, routeKeys, nil, nil, http.StatusOK, &directory)
-	if len(directory.Keys) != 2 {
-		t.Fatalf("keys = %+v, want the deleted key kept alongside the live one", directory.Keys)
+	keys := readOverview(t, app).Keys
+	if len(keys) != 2 {
+		t.Fatalf("keys = %+v, want the deleted key kept alongside the live one", keys)
 	}
-	for _, view := range directory.Keys {
+	for _, view := range keys {
 		wantDeleted := view.Scope == billing.CallerScope(removed)
 		if view.DeletedAt.IsZero() == wantDeleted || view.Preview == "" {
 			t.Fatalf("view = %+v, want it marked deleted=%v with its identity kept", view, wantDeleted)
@@ -297,14 +289,42 @@ func TestSyncRetiresKeysDeletedFromCPA(t *testing.T) {
 	}
 }
 
+// Only the query string is the handler's to get right; the paging behind it
+// belongs to the store and is covered there.
+func TestLogQueryReachesTheStore(t *testing.T) {
+	app := newConfiguredApp(t)
+	const apiKey = "sk-paged-000000000001"
+	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{apiKey}}, http.StatusOK, nil)
+	for i := 0; i < 3; i++ {
+		billOneRequest(t, app, apiKey, int64(100*(i+1)))
+	}
+
+	var logs billing.LogView
+	callOK(t, app, http.MethodGet, routeLogs, url.Values{"offset": {"2"}, "limit": {"2"}}, nil, http.StatusOK, &logs)
+	if len(logs.Entries) != 1 || logs.Total != 3 || logs.Outcomes.Succeeded != 3 {
+		t.Fatalf("logs = %d entries, total %d, outcomes %+v", len(logs.Entries), logs.Total, logs.Outcomes)
+	}
+	callOK(t, app, http.MethodGet, routeLogs,
+		url.Values{"q": {"gpt-5.5"}, "outcome": {"failed"}}, nil, http.StatusOK, &logs)
+	if logs.Total != 0 || logs.Outcomes.All != 3 {
+		t.Fatalf("logs = %+v, want the search counted and no failures shown", logs)
+	}
+
+	for _, query := range []url.Values{
+		{"outcome": {"succeded"}}, {"offset": {"-1"}}, {"limit": {"one page"}},
+	} {
+		if resp := callManagement(t, app, http.MethodGet, routeLogs, query, nil); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%v status = %d, want 400 (body=%s)", query, resp.StatusCode, resp.Body)
+		}
+	}
+}
+
 // TestManagementRoutesWorkWhileDisabled matters for diagnosis: an operator who
 // turned the plugin off still needs to read and fix its configuration.
 func TestManagementRoutesWorkWhileDisabled(t *testing.T) {
 	app := newAppWithPrice(t, false)
-	var table billing.PriceTable
-	callOK(t, app, http.MethodGet, routePrices, nil, nil, http.StatusOK, &table)
-	if len(table.Models) != 1 {
-		t.Fatalf("models = %+v", table.Models)
+	if prices := readOverview(t, app).Prices; len(prices) != 1 {
+		t.Fatalf("prices = %+v", prices)
 	}
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
 		"id": "daily", "amount_usd": 1, "period": map[string]any{"kind": "daily"},

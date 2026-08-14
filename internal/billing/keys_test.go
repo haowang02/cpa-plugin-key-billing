@@ -176,7 +176,7 @@ func TestSyncKeysRetiresAMissingKeyWithoutLosingItsHistory(t *testing.T) {
 		}
 	})
 
-	if rows := store.Logs(0).Entries; len(rows) != 1 || rows[0].Preview != PreviewKey(deletedKeyPlaintext) {
+	if rows := store.Logs(LogQuery{}).Entries; len(rows) != 1 || rows[0].Preview != PreviewKey(deletedKeyPlaintext) {
 		t.Fatalf("log rows = %+v, want the retired key still named", rows)
 	}
 

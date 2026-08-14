@@ -268,6 +268,33 @@ def make_logs(count=120):
 
 LOGS = make_logs()
 
+# The billing log is served one page at a time, and the counts beside the status
+# filter come with it, so the dummy has to answer the same query the plugin does.
+LOG_SEARCH_FIELDS = (
+    "label", "preview", "scope", "upstream_model", "billing_model", "endpoint", "source", "request_id",
+)
+
+
+def log_view(query):
+    search = query.get("q", [""])[0].strip().lower()
+    outcome = query.get("outcome", [""])[0]
+    offset = max(0, int(query.get("offset", ["0"])[0] or 0))
+    limit = max(0, int(query.get("limit", ["0"])[0] or 0))
+    counts = {"all": 0, "succeeded": 0, "failed": 0, "canceled": 0}
+    matched = []
+    for entry in LOGS:
+        haystack = " ".join(str(entry.get(field, "")) for field in LOG_SEARCH_FIELDS).lower()
+        if search and search not in haystack:
+            continue
+        status = entry.get("outcome") or "succeeded"
+        counts["all"] += 1
+        counts[status] = counts.get(status, 0) + 1
+        if outcome and status != outcome:
+            continue
+        matched.append(entry)
+    page = matched[offset:offset + limit] if limit else matched[offset:]
+    return {"entries": page, "total": len(matched), "offset": offset, "outcome_counts": counts}
+
 EVENTS = [
     {
         "at": iso(NOW - timedelta(minutes=1)),
@@ -296,25 +323,27 @@ EVENTS = [
 
 
 def payload_for(path, query):
+    # The panel reads everything but the two logs through this one route.
+    if path == f"{API_BASE}/overview":
+        return {
+            "status": {"enabled": True},
+            "keys": KEYS,
+            "plans": PLANS,
+            "prices": PRICES,
+            "stats": {
+                "keys": len(LIVE_KEYS),
+                "blocked_keys": 0,
+                "lifetime": {
+                    "requests": sum(item["requests"] for item in MODEL_TOTALS),
+                    "cost_usd": sum(item["cost_usd"] for item in MODEL_TOTALS),
+                },
+                "by_model": MODEL_TOTALS,
+            },
+        }
     if path == f"{API_BASE}/status":
         return {"enabled": True}
-    if path == f"{API_BASE}/keys":
-        return {"keys": KEYS}
-    if path == f"{API_BASE}/plans":
-        return {"plans": PLANS}
-    if path == f"{API_BASE}/prices":
-        return {"catalog": {"models": len(PRICES)}, "models": PRICES}
-    if path == f"{API_BASE}/stats":
-        lifetime_requests = sum(item["requests"] for item in MODEL_TOTALS)
-        lifetime_cost = sum(item["cost_usd"] for item in MODEL_TOTALS)
-        return {
-            "keys": len(LIVE_KEYS),
-            "blocked_keys": 0,
-            "lifetime": {"requests": lifetime_requests, "cost_usd": lifetime_cost},
-            "by_model": MODEL_TOTALS,
-        }
     if path == f"{API_BASE}/logs":
-        return {"entries": LOGS, "total": len(LOGS)}
+        return log_view(query)
     if path == f"{API_BASE}/events":
         return {"events": EVENTS}
     if path == f"{API_BASE}/prices/catalog":

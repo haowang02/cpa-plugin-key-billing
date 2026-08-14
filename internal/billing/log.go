@@ -1,6 +1,9 @@
 package billing
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // LogEntry never stores the plaintext API key.
 type LogEntry struct {
@@ -51,18 +54,99 @@ type LogRow struct {
 	Source  string `json:"source,omitempty"`
 }
 
+// OutcomeSucceeded is not stored on an entry — a request that completed
+// normally carries no outcome at all — but a filter still needs a name for it.
+const OutcomeSucceeded = "succeeded"
+
+// LogQuery selects one page of the log. Searching and filtering happen here
+// rather than in the browser so that a window holding weeks of traffic never
+// has to travel over the wire in full.
+type LogQuery struct {
+	// Search matches any one of the identity fields, case-insensitively.
+	Search string
+	// Outcome is empty for every status, OutcomeSucceeded for the entries that
+	// carry none, or a stored RequestOutcome.
+	Outcome string
+	Offset  int
+	// Limit is the page size; a non-positive limit returns every match.
+	Limit int
+}
+
+// LogView is one page plus the two things a client holding a single page cannot
+// work out for itself.
 type LogView struct {
 	Entries []LogRow `json:"entries"`
-	Total   int      `json:"total"`
+	// Total counts every entry matching the query, of which Entries is one page.
+	Total int `json:"total"`
+	// Outcomes counts what each status filter would return for the same search,
+	// so picking one does not collapse the other counts to zero.
+	Outcomes LogOutcomeCounts `json:"outcome_counts"`
+}
+
+type LogOutcomeCounts struct {
+	All       int `json:"all"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+	Canceled  int `json:"canceled"`
+}
+
+func (c *LogOutcomeCounts) add(outcome RequestOutcome) {
+	c.All++
+	switch outcome {
+	case OutcomeFailed:
+		c.Failed++
+	case OutcomeCanceled:
+		c.Canceled++
+	case "":
+		c.Succeeded++
+	}
+}
+
+// Any single field the table can show, including the ones resolved at read time.
+func (r LogRow) matches(search string) bool {
+	if search == "" {
+		return true
+	}
+	for _, field := range []string{
+		r.Label, r.Preview, r.Scope, r.UpstreamModel, r.BillingModel,
+		r.Endpoint, r.Source, r.RequestID,
+	} {
+		if strings.Contains(strings.ToLower(field), search) {
+			return true
+		}
+	}
+	return false
+}
+
+// An unknown filter is rejected by the caller rather than matching nothing, so
+// a typo in a query string does not read as "there is no traffic".
+func ValidLogOutcome(filter string) bool {
+	switch filter {
+	case "", OutcomeSucceeded, string(OutcomeFailed), string(OutcomeCanceled):
+		return true
+	}
+	return false
+}
+
+func matchesOutcome(outcome RequestOutcome, filter string) bool {
+	switch filter {
+	case "":
+		return true
+	case OutcomeSucceeded:
+		return outcome == ""
+	default:
+		return string(outcome) == filter
+	}
 }
 
 // Entries that fell out of the retention window are skipped rather than
 // returned: they are dropped from the document on the next append, and until
 // then they are no longer part of the log.
 //
-// Results are newest first; a non-positive limit returns everything retained.
-func (s *Store) Logs(limit int) LogView {
+// Results are newest first, so an offset counts back from the newest entry.
+func (s *Store) Logs(query LogQuery) LogView {
 	view := LogView{Entries: []LogRow{}}
+	search := strings.ToLower(strings.TrimSpace(query.Search))
 	cutoff := s.Now().Add(-LogRetention)
 	s.Read(func(state *State) {
 		for i := len(state.Log) - 1; i >= 0; i-- {
@@ -70,16 +154,28 @@ func (s *Store) Logs(limit int) LogView {
 			if entry.At.Before(cutoff) {
 				continue
 			}
-			view.Total++
-			if limit > 0 && len(view.Entries) >= limit {
-				continue
-			}
+			// The display identity is searchable, so it is resolved before the
+			// row is known to be wanted.
 			row := LogRow{LogEntry: entry}
 			if key := state.Keys[entry.Scope]; key != nil {
 				row.Preview = key.Preview
 				row.Label = key.Label
 			}
 			row.Source = state.Credentials[entry.AuthIndex].Name()
+			if !row.matches(search) {
+				continue
+			}
+			view.Outcomes.add(entry.Outcome)
+			if !matchesOutcome(entry.Outcome, query.Outcome) {
+				continue
+			}
+			view.Total++
+			if view.Total <= query.Offset {
+				continue
+			}
+			if query.Limit > 0 && len(view.Entries) >= query.Limit {
+				continue
+			}
 			view.Entries = append(view.Entries, row)
 		}
 	})
