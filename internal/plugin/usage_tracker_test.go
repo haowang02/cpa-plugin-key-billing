@@ -116,7 +116,7 @@ func TestUsageIgnoresTranslatedTokens(t *testing.T) {
 	if cost, _ := lifetimeCost(t, app); cost != 0 {
 		t.Fatalf("cost=%v, want nothing charged from translated tokens", cost)
 	}
-	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 1 || entries[0].AccountingQuality != "" {
+	if entries := logEntries(t, app); len(entries) != 1 || entries[0].AccountingQuality != "" {
 		t.Fatalf("entries = %+v, want one unmeasured row", entries)
 	}
 }
@@ -133,7 +133,7 @@ func TestUsageAmbiguousRawUsageWithoutResponseIDFailsClosed(t *testing.T) {
 	if cost, _ := lifetimeCost(t, app); cost != 0 {
 		t.Fatalf("ambiguous usage was attributed: cost=%v", cost)
 	}
-	for _, entry := range app.store.Logs(billing.LogQuery{}).Entries {
+	for _, entry := range logEntries(t, app) {
 		if entry.AccountingQuality != "" || entry.Cost.TotalUSD != 0 {
 			t.Fatalf("entry = %+v, want an unmeasured zero-cost row", entry)
 		}

@@ -10,7 +10,7 @@ import (
 func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	app := newConfiguredApp(t)
 	raw, errHandle := app.HandleMethod(MethodPluginReconfigure, mustMarshal(t, LifecycleRequest{
-		ConfigYAML: []byte("enabled: true\n"),
+		ConfigYAML: testConfigYAML(t, true),
 	}))
 	if errHandle != nil {
 		t.Fatalf("plugin.reconfigure error = %v", errHandle)

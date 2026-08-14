@@ -170,7 +170,7 @@ func TestRefreshPriceCatalogAdvancesBuiltinRowsAndPreservesCustomRows(t *testing
 		t.Fatal(errEnsure)
 	}
 
-	store := NewStore()
+	store := newStore(t)
 	store.state.Prices = []PriceRule{
 		{Pattern: "gpt-4o", InputPer1M: 5, OutputPer1M: 15, CacheReadPer1M: float64Pointer(2.5)},
 		{Pattern: "gpt-5.3-codex", InputPer1M: 99, OutputPer1M: 101},

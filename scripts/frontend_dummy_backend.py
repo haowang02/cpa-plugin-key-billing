@@ -299,7 +299,7 @@ EVENTS = [
     {
         "at": iso(NOW - timedelta(minutes=1)),
         "level": "error",
-        "message": "保存状态文件失败：替换文件 /srv/cli-proxy-api/plugins/cpa-key-billing-state.json：read-only file system",
+        "message": "保存计费数据失败：写入计费日志：attempt to write a readonly database",
     },
     {
         "at": iso(NOW - timedelta(minutes=12)),
@@ -315,7 +315,7 @@ EVENTS = [
         "at": iso(NOW - timedelta(days=1)),
         "level": "info",
         "message": (
-            "已加载状态文件 /srv/cli-proxy-api/plugins/cpa-key-billing-state.json："
+            "已加载计费数据库 /srv/cli-proxy-api/plugins/cpa-key-billing-state.db："
             "16 个 API Key、2 个订阅计划、120 条计费日志。已启用。"
         ),
     },

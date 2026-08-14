@@ -341,8 +341,8 @@ func TestPluginLogReportsStartupAndFailures(t *testing.T) {
 	}
 	callOK(t, app, http.MethodGet, routeEvents, nil, nil, http.StatusOK, &loaded)
 	if len(loaded.Events) != 1 || loaded.Events[0].Level != billing.EventInfo ||
-		!strings.Contains(loaded.Events[0].Message, "已加载状态文件") {
-		t.Fatalf("events = %+v, want the loaded state file reported", loaded.Events)
+		!strings.Contains(loaded.Events[0].Message, "已加载计费数据库") {
+		t.Fatalf("events = %+v, want the loaded database reported", loaded.Events)
 	}
 
 	if _, errHandle := app.HandleMethod(MethodPluginReconfigure, mustMarshal(t, LifecycleRequest{

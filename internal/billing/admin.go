@@ -43,7 +43,7 @@ func (s *Store) RefreshPriceCatalog() (CatalogRefreshResult, error) {
 		return CatalogRefreshResult{}, errRefresh
 	}
 	current := builtinCatalog()
-	updated := updateResult(s, func(state *State) (int, bool) {
+	updated := updateResult(s, func(state *State) (int, Changes) {
 		changed := 0
 		for i := range state.Prices {
 			rule := state.Prices[i]
@@ -67,7 +67,7 @@ func (s *Store) RefreshPriceCatalog() (CatalogRefreshResult, error) {
 			state.Prices[i] = fresh
 			changed++
 		}
-		return changed, changed > 0
+		return changed, Changes{Prices: changed > 0}
 	})
 	return CatalogRefreshResult{Catalog: info, UpdatedModels: updated}, nil
 }
@@ -147,7 +147,7 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 	var result ModelSyncResult
 	kept := 0
 	loaded := builtinCatalog()
-	s.Update(func(state *State) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		existing := make(map[string]PriceRule, len(state.Prices))
 		var globs []PriceRule
 		for _, rule := range state.Prices {
@@ -180,6 +180,7 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 		// Keep the proxy's own ordering: it is what the operator sees elsewhere.
 		// Globs go last, which is also where ResolvePrice consults them.
 		state.Prices = append(rows, globs...)
+		return struct{}{}, Changes{Prices: true}
 	})
 	return result, nil
 }
@@ -220,15 +221,15 @@ func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
 	if errValidate := rule.Validate(); errValidate != nil {
 		return PriceRule{}, errValidate
 	}
-	return updateResult(s, func(state *State) (PriceRule, bool) {
+	return updateResult(s, func(state *State) (PriceRule, Changes) {
 		for i := range state.Prices {
 			if strings.EqualFold(strings.TrimSpace(state.Prices[i].Pattern), rule.Pattern) {
 				state.Prices[i] = rule
-				return rule, true
+				return rule, Changes{Prices: true}
 			}
 		}
 		state.Prices = append(state.Prices, rule)
-		return rule, true
+		return rule, Changes{Prices: true}
 	}), nil
 }
 
@@ -236,7 +237,7 @@ func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
 // the catalog does not know go back to zero. It reports how many rows changed.
 func (s *Store) ResetPrices() int {
 	loaded := builtinCatalog()
-	return updateResult(s, func(state *State) (int, bool) {
+	return updateResult(s, func(state *State) (int, Changes) {
 		changed := 0
 		for i := range state.Prices {
 			pattern := state.Prices[i].Pattern
@@ -252,7 +253,7 @@ func (s *Store) ResetPrices() int {
 			state.Prices[i] = def
 			changed++
 		}
-		return changed, changed > 0
+		return changed, Changes{Prices: changed > 0}
 	})
 }
 
@@ -272,17 +273,17 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 		plan.Period.Kind = PeriodDaily
 	}
 	var errApply error
-	stored := updateResult(s, func(state *State) (Plan, bool) {
+	stored := updateResult(s, func(state *State) (Plan, Changes) {
 		if plan.ID == "" {
 			plan.ID = state.freePlanID(plan.Name)
 		}
 		if errValidate := plan.Validate(); errValidate != nil {
 			errApply = errValidate
-			return Plan{}, false
+			return Plan{}, Changes{}
 		}
 		if _, exists := state.FindPlan(plan.ID); exists {
 			errApply = conflictf("订阅计划 %q 已存在", plan.ID)
-			return Plan{}, false
+			return Plan{}, Changes{}
 		}
 		if plan.Name == "" {
 			plan.Name = plan.ID
@@ -291,11 +292,11 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 			key := state.liveKey(scope)
 			if key == nil {
 				errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
-				return Plan{}, false
+				return Plan{}, Changes{}
 			}
 			if key.PlanID != "" {
 				errApply = conflictf("API Key %q 已绑定其他订阅计划", scope)
-				return Plan{}, false
+				return Plan{}, Changes{}
 			}
 		}
 		state.Plans = append(state.Plans, plan)
@@ -303,7 +304,7 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 			state.Keys[scope].PlanID = plan.ID
 			state.Keys[scope].Cycle = Cycle{}
 		}
-		return plan, true
+		return plan, Changes{Plans: true, Keys: scopes}
 	})
 	return stored, errApply
 }
@@ -325,7 +326,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 	}
 
 	var errApply error
-	stored := updateResult(s, func(state *State) (Plan, bool) {
+	stored := updateResult(s, func(state *State) (Plan, Changes) {
 		for i := range state.Plans {
 			if state.Plans[i].ID != patch.ID {
 				continue
@@ -342,7 +343,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 			}
 			if errValidate := updated.Validate(); errValidate != nil {
 				errApply = errValidate
-				return Plan{}, false
+				return Plan{}, Changes{}
 			}
 			var selected map[string]struct{}
 			if scopes != nil {
@@ -352,11 +353,11 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 					key := state.liveKey(scope)
 					if key == nil {
 						errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
-						return Plan{}, false
+						return Plan{}, Changes{}
 					}
 					if key.PlanID != "" && key.PlanID != patch.ID {
 						errApply = conflictf("API Key %q 已绑定其他订阅计划", scope)
-						return Plan{}, false
+						return Plan{}, Changes{}
 					}
 					selected[scope] = struct{}{}
 				}
@@ -390,10 +391,10 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				}
 			}
 			state.Plans[i] = updated
-			return updated, true
+			return updated, Changes{Plans: true, AllKeys: true}
 		}
 		errApply = notFoundf("订阅计划 %q 不存在", patch.ID)
-		return Plan{}, false
+		return Plan{}, Changes{}
 	})
 	return stored, errApply
 }
@@ -405,7 +406,7 @@ func (s *Store) DeletePlan(id string) (int, error) {
 	}
 
 	var errApply error
-	unbound := updateResult(s, func(state *State) (int, bool) {
+	unbound := updateResult(s, func(state *State) (int, Changes) {
 		index := -1
 		for i := range state.Plans {
 			if state.Plans[i].ID == id {
@@ -415,7 +416,7 @@ func (s *Store) DeletePlan(id string) (int, error) {
 		}
 		if index < 0 {
 			errApply = notFoundf("订阅计划 %q 不存在", id)
-			return 0, false
+			return 0, Changes{}
 		}
 		state.Plans = append(state.Plans[:index], state.Plans[index+1:]...)
 
@@ -428,7 +429,7 @@ func (s *Store) DeletePlan(id string) (int, error) {
 			key.Cycle = Cycle{}
 			released++
 		}
-		return released, true
+		return released, Changes{Plans: true, AllKeys: true}
 	})
 	return unbound, errApply
 }

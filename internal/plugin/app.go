@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"cpa-key-billing/internal/billing"
+	"cpa-key-billing/internal/sqlite"
 )
 
 type App struct {
@@ -15,9 +16,16 @@ type App struct {
 
 func NewApp() *App {
 	return &App{
-		store: billing.NewStore(),
+		store: billing.NewStore(openRepository),
 		usage: newUsageTracker(),
 	}
+}
+
+// openRepository is where the domain meets its storage. It is named here, in
+// the composition root, so that internal/billing depends on the repository it
+// declares rather than on a database driver.
+func openRepository(path string) (billing.Repository, error) {
+	return sqlite.Open(path)
 }
 
 // HandleMethod dispatches one host RPC call. A panic anywhere below is
@@ -31,17 +39,7 @@ func (a *App) HandleMethod(method string, request []byte) (response []byte, err 
 			a.store.Event(billing.EventError, "%v", err)
 		}
 	}()
-	response, err = a.handleMethod(method, request)
-	if err == nil {
-		switch method {
-		case MethodPluginRegister, MethodPluginReconfigure, MethodRequestComplete, MethodUsageHandle, MethodManagementHandle:
-			// These calls are off the request interception path. They drive
-			// persistence because a c-shared plugin must not run a background
-			// flusher; see billing.Store.
-			a.store.FlushIfDue()
-		}
-	}
-	return response, err
+	return a.handleMethod(method, request)
 }
 
 func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
@@ -111,7 +109,7 @@ func registration() Registration {
 				{
 					Name:        "state_file",
 					Type:        "string",
-					Description: "计费状态 JSON 文件路径。",
+					Description: "计费数据库文件路径。",
 				},
 			},
 		},

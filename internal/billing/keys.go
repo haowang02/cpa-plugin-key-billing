@@ -44,8 +44,8 @@ type KeyDirectory struct {
 func (s *Store) KeyDirectory() KeyDirectory {
 	now := s.Now()
 	directory := KeyDirectory{Keys: []KeyView{}}
-	directory.Keys = updateResult(s, func(state *State) ([]KeyView, bool) {
-		changed := false
+	directory.Keys = updateResult(s, func(state *State) ([]KeyView, Changes) {
+		var settled []string
 		plans := make(map[string]Plan, len(state.Plans))
 		for _, plan := range state.Plans {
 			plans[plan.ID] = plan
@@ -61,15 +61,15 @@ func (s *Store) KeyDirectory() KeyDirectory {
 					// Self-heal a binding whose plan was removed out of band.
 					key.PlanID = ""
 					key.Cycle = Cycle{}
-					changed = true
+					settled = append(settled, scope)
 				} else if settleExpiredCycle(key, plan, now) {
-					changed = true
+					settled = append(settled, scope)
 				}
 			}
 			views = append(views, keyView(scope, key, plans))
 		}
 		sortKeyViews(views)
-		return views, changed
+		return views, Changes{Keys: settled}
 	})
 	return directory
 }
@@ -140,23 +140,23 @@ func (s *Store) BindKey(scope, planID string) error {
 		return invalidf("API Key 标识和订阅计划 ID 都不能为空")
 	}
 	var errApply error
-	updateResult(s, func(state *State) (struct{}, bool) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		plan, exists := state.FindPlan(planID)
 		if !exists {
 			errApply = notFoundf("订阅计划 %q 不存在", planID)
-			return struct{}{}, false
+			return struct{}{}, Changes{}
 		}
 		key := state.liveKey(scope)
 		if key == nil {
 			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
-			return struct{}{}, false
+			return struct{}{}, Changes{}
 		}
 		if key.PlanID == plan.ID {
-			return struct{}{}, false
+			return struct{}{}, Changes{}
 		}
 		key.Cycle = Cycle{}
 		key.PlanID = plan.ID
-		return struct{}{}, true
+		return struct{}{}, Changes{Keys: []string{scope}}
 	})
 	return errApply
 }
@@ -166,14 +166,14 @@ func (s *Store) UnbindKey(scope string) error {
 	if scope == "" {
 		return invalidf("API Key 标识不能为空")
 	}
-	updateResult(s, func(state *State) (struct{}, bool) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.liveKey(scope)
 		if key == nil || key.PlanID == "" {
-			return struct{}{}, false
+			return struct{}{}, Changes{}
 		}
 		key.PlanID = ""
 		key.Cycle = Cycle{}
-		return struct{}{}, true
+		return struct{}{}, Changes{Keys: []string{scope}}
 	})
 	return nil
 }
@@ -184,16 +184,16 @@ func (s *Store) ResetCycle(scope string) error {
 	if scope == "" {
 		return invalidf("API Key 标识不能为空")
 	}
-	updateResult(s, func(state *State) (struct{}, bool) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.liveKey(scope)
 		if key == nil {
-			return struct{}{}, false
+			return struct{}{}, Changes{}
 		}
 		if _, exists := state.FindPlan(key.PlanID); !exists {
-			return struct{}{}, false
+			return struct{}{}, Changes{}
 		}
 		key.Cycle = Cycle{}
-		return struct{}{}, true
+		return struct{}{}, Changes{Keys: []string{scope}}
 	})
 	return nil
 }
@@ -202,9 +202,9 @@ func (s *Store) ResetCycle(scope string) error {
 // had a period to end. A plan that never resets grants its budget once, so a
 // bulk action must not hand it out again.
 func (s *Store) ResetAllCycles() int {
-	return updateResult(s, func(state *State) (int, bool) {
-		reset := 0
-		for _, key := range state.Keys {
+	return updateResult(s, func(state *State) (int, Changes) {
+		var reset []string
+		for scope, key := range state.Keys {
 			if key == nil || !key.DeletedAt.IsZero() || key.Cycle == (Cycle{}) {
 				continue
 			}
@@ -213,9 +213,9 @@ func (s *Store) ResetAllCycles() int {
 				continue
 			}
 			key.Cycle = Cycle{}
-			reset++
+			reset = append(reset, scope)
 		}
-		return reset, reset > 0
+		return len(reset), Changes{Keys: reset}
 	})
 }
 
@@ -227,14 +227,14 @@ func (s *Store) SetLabel(scope, label string) error {
 	label = strings.TrimSpace(label)
 
 	var errApply error
-	updateResult(s, func(state *State) (struct{}, bool) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.liveKey(scope)
 		if key == nil {
 			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
-			return struct{}{}, false
+			return struct{}{}, Changes{}
 		}
 		key.Label = label
-		return struct{}{}, true
+		return struct{}{}, Changes{Keys: []string{scope}}
 	})
 	return errApply
 }
@@ -281,8 +281,18 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 	}
 
 	now := s.Now()
+	// The log decides which retired records may finally go, and it is read
+	// before the mutation takes the lock the repository is reached under.
+	var referenced map[string]struct{}
+	if repo := s.repository(); repo != nil {
+		var errScopes error
+		if referenced, errScopes = repo.LoggedScopes(now.Add(-LogRetention)); errScopes != nil {
+			return SyncResult{}, errScopes
+		}
+	}
+
 	var result SyncResult
-	updateResult(s, func(state *State) (struct{}, bool) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		for scope, preview := range scopes {
 			key := state.ensureKey(scope)
 			// The live key list is authoritative for its masked preview.
@@ -308,8 +318,8 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 				result.Removed++
 			}
 		}
-		purgeDeletedKeys(state, now)
-		return struct{}{}, true
+		purgeDeletedKeys(state, referenced, now)
+		return struct{}{}, Changes{AllKeys: true}
 	})
 	return result, nil
 }
@@ -317,15 +327,8 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 // A deleted key is kept for exactly as long as it can still be read: its own
 // billing history. Once the log holds nothing about it, the record is finally
 // dropped, which bounds what an operator who rotates keys accumulates on disk.
-func purgeDeletedKeys(state *State, now time.Time) {
+func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Time) {
 	cutoff := now.Add(-LogRetention)
-	referenced := make(map[string]struct{})
-	for _, entry := range state.Log {
-		if entry.At.Before(cutoff) {
-			continue
-		}
-		referenced[entry.Scope] = struct{}{}
-	}
 	for scope, key := range state.Keys {
 		if key == nil || key.DeletedAt.IsZero() || key.DeletedAt.After(cutoff) {
 			continue

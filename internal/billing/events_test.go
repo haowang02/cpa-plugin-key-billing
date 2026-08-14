@@ -1,8 +1,7 @@
 package billing
 
 import (
-	"os"
-	"path/filepath"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,8 +9,8 @@ import (
 
 func TestEventsAreNewestFirstAndKeptByAge(t *testing.T) {
 	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
-	store := NewStore()
-	t.Cleanup(store.Close)
+	// The plugin log is held in memory and owes nothing to storage.
+	store := NewStore(nil)
 	store.now = func() time.Time { return now.Add(-EventRetention - time.Hour) }
 	store.Event(EventInfo, "过期事件")
 	store.now = func() time.Time { return now }
@@ -33,44 +32,28 @@ func TestEventsAreNewestFirstAndKeptByAge(t *testing.T) {
 	}
 }
 
-// A state file that cannot be written is invisible without the plugin log: the
+// A database that cannot be written is invisible without the plugin log: the
 // billing record keeps updating in memory while nothing reaches disk.
-func TestUnwritableStateFileIsReportedOnceAndOnRecovery(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state.json")
-	store := NewStore()
-	t.Cleanup(store.Close)
-	if errConfigure := store.Configure(Config{Enabled: true, StateFile: path}); errConfigure != nil {
-		t.Fatalf("Configure error = %v", errConfigure)
-	}
-	if errChmod := os.Chmod(dir, 0o500); errChmod != nil {
-		t.Fatalf("chmod: %v", errChmod)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+func TestUnwritableDatabaseIsReportedOnceAndOnRecovery(t *testing.T) {
+	store, repo := newStoreWithRepository(t)
+	repo.fail = errors.New("disk full")
 
 	for i := 0; i < 3; i++ {
 		store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{Requests: 1}} })
-		if errFlush := store.Flush(); errFlush == nil {
-			t.Skip("the filesystem allows writing into a read-only directory")
-		}
 	}
-	errors := 0
+	reported := 0
 	for _, event := range store.Events() {
-		if event.Level == EventError && strings.Contains(event.Message, "保存状态文件失败") {
-			errors++
+		if event.Level == EventError && strings.Contains(event.Message, "保存计费数据失败") {
+			reported++
 		}
 	}
-	if errors != 1 {
-		t.Fatalf("reported the same failure %d times, want once", errors)
+	if reported != 1 {
+		t.Fatalf("reported the same failure %d times, want once", reported)
 	}
 
-	if errChmod := os.Chmod(dir, 0o700); errChmod != nil {
-		t.Fatalf("chmod: %v", errChmod)
-	}
-	if errFlush := store.Flush(); errFlush != nil {
-		t.Fatalf("Flush error = %v", errFlush)
-	}
-	if store.Events()[0].Message != "状态文件恢复写入。" {
+	repo.fail = nil
+	store.Update(func(state *State) { state.Keys["scope-a"].Lifetime.Requests = 2 })
+	if store.Events()[0].Message != "计费数据库恢复写入。" {
 		t.Fatalf("events = %+v, want the recovery reported", store.Events()[0])
 	}
 }

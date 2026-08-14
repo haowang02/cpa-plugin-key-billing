@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"testing"
 
 	"cpa-key-billing/internal/billing"
+	"cpa-key-billing/internal/sqlite"
 )
 
 const (
@@ -191,7 +191,7 @@ func TestFlowBillsARetriedRequestOnceAgainstTheServingCredential(t *testing.T) {
 	if requests != 1 {
 		t.Fatalf("Requests = %d, want a single bill for the retried request", requests)
 	}
-	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 1 || entries[0].Source != "codex · live@example.com" {
+	if entries := logEntries(t, app); len(entries) != 1 || entries[0].Source != "codex · live@example.com" {
 		t.Fatalf("entries = %+v", entries)
 	}
 }
@@ -205,12 +205,12 @@ func TestFlowNamesACredentialLearnedAfterTheBill(t *testing.T) {
 	selectCredential(t, app, "auth-7")
 	billUsage(t, app, 1000, 0, 0, 500, 0)
 	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 1 || entries[0].Source != "" {
+	if entries := logEntries(t, app); len(entries) != 1 || entries[0].Source != "" {
 		t.Fatalf("entries = %+v, want an unnamed credential", entries)
 	}
 
 	publishUsage(t, app, "auth-7", "openai-compatible-deepseek", "apikey", "sk-upstream-key-0001")
-	if entries := app.store.Logs(billing.LogQuery{}).Entries; entries[0].Source != "deepseek · sk-ups…0001" {
+	if entries := logEntries(t, app); entries[0].Source != "deepseek · sk-ups…0001" {
 		t.Fatalf("entries = %+v", entries)
 	}
 }
@@ -222,7 +222,7 @@ func TestFlowRejectedRequestLeavesNoTrace(t *testing.T) {
 	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
-	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 0 {
+	if entries := logEntries(t, app); len(entries) != 0 {
 		t.Fatalf("entries = %+v, want none", entries)
 	}
 }
@@ -234,7 +234,7 @@ func TestFlowUnmeasuredRequestIsLoggedAtZeroCost(t *testing.T) {
 	if cost, _ := lifetimeCost(t, app); cost != 0 {
 		t.Fatalf("cost = %v, want nothing charged", cost)
 	}
-	entries := app.store.Logs(billing.LogQuery{}).Entries
+	entries := logEntries(t, app)
 	if len(entries) != 1 || entries[0].AccountingQuality != "" || entries[0].Cost.TotalUSD != 0 {
 		t.Fatalf("entries = %+v, want one unmeasured zero-cost row", entries)
 	}
@@ -244,7 +244,7 @@ func TestFlowRefusedRequestIsNotLogged(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	admit(t, app, "openai", "/v1/chat/completions")
 	complete(t, app, flowRequestID, RequestCompletionFailed)
-	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 0 {
+	if entries := logEntries(t, app); len(entries) != 0 {
 		t.Fatalf("entries = %+v, want an upstream refusal left out of the billing log", entries)
 	}
 }
@@ -256,7 +256,7 @@ func TestFlowFailureAfterOutputIsLogged(t *testing.T) {
 	admit(t, app, "openai", "/v1/chat/completions")
 	streamChunk(t, app, flowRequestID, 0, []byte(`{"id":"`+flowResponseID+`"}`))
 	complete(t, app, flowRequestID, RequestCompletionFailed)
-	entries := app.store.Logs(billing.LogQuery{}).Entries
+	entries := logEntries(t, app)
 	if len(entries) != 1 || entries[0].Outcome != billing.OutcomeFailed || entries[0].Cost.TotalUSD != 0 {
 		t.Fatalf("entries = %+v, want one visible zero-cost row", entries)
 	}
@@ -269,7 +269,7 @@ func TestFlowCanceledRequestBillsReportedUsageAndSaysSo(t *testing.T) {
 	complete(t, app, flowRequestID, RequestCompletionCanceled)
 	cost, _ := lifetimeCost(t, app)
 	assertCostClose(t, cost, 0.001+0.0005)
-	if entries := app.store.Logs(billing.LogQuery{}).Entries; len(entries) != 1 || entries[0].Outcome != billing.OutcomeCanceled {
+	if entries := logEntries(t, app); len(entries) != 1 || entries[0].Outcome != billing.OutcomeCanceled {
 		t.Fatalf("entries = %+v, want one canceled row", entries)
 	}
 }
@@ -281,7 +281,7 @@ func TestFlowCanceledRequestWithoutUsageIsStillLogged(t *testing.T) {
 	selectCredential(t, app, "auth-7")
 	complete(t, app, flowRequestID, RequestCompletionCanceled)
 
-	entries := app.store.Logs(billing.LogQuery{}).Entries
+	entries := logEntries(t, app)
 	if len(entries) != 1 {
 		t.Fatalf("entries = %+v, want the canceled request logged", entries)
 	}
@@ -309,7 +309,7 @@ func TestFlowUnclassifiedUsageIsVisibleButCostsZero(t *testing.T) {
 	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 1 {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
-	entries := app.store.Logs(billing.LogQuery{}).Entries
+	entries := logEntries(t, app)
 	if len(entries) != 1 || entries[0].AccountingQuality != billing.TokenAccountingUnclassified {
 		t.Fatalf("entries = %+v, want the unclassified usage marked on the row", entries)
 	}
@@ -322,28 +322,38 @@ func TestFlowTerminalEventPersistsTheBillWithoutPlaintextKeys(t *testing.T) {
 	selectCredential(t, app, "auth-3")
 	billUsage(t, app, 1000, 0, 0, 500, 0)
 	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	if errFlush := app.store.Flush(); errFlush != nil {
-		t.Fatalf("Flush error = %v", errFlush)
+	// Shutting down releases the database, which is what folds the write-ahead
+	// log back into the file the assertions below read.
+	app.Shutdown()
+
+	database, errOpen := sqlite.Open(statePath)
+	if errOpen != nil {
+		t.Fatalf("reopen persisted state: %v", errOpen)
 	}
+	defer database.Close()
+	snapshot, errLoad := database.Load()
+	if errLoad != nil {
+		t.Fatalf("load persisted state: %v", errLoad)
+	}
+	if key := snapshot.State.Keys[flowScope()]; key == nil || key.Lifetime.CostUSD <= 0 {
+		t.Fatalf("persisted key = %+v", key)
+	}
+	if credential := snapshot.State.Credentials["auth-3"]; credential.Name() != "codex · sk-ups…0001" {
+		t.Fatalf("persisted credential = %+v", credential)
+	}
+	if snapshot.LogEntries != 1 {
+		t.Fatalf("persisted %d log entries, want 1", snapshot.LogEntries)
+	}
+
 	raw, errRead := os.ReadFile(statePath)
 	if errRead != nil {
 		t.Fatalf("read persisted state: %v", errRead)
 	}
-	var persisted billing.State
-	if errUnmarshal := json.Unmarshal(raw, &persisted); errUnmarshal != nil {
-		t.Fatalf("decode state: %v", errUnmarshal)
-	}
-	if key := persisted.Keys[flowScope()]; key == nil || key.Lifetime.CostUSD <= 0 {
-		t.Fatalf("persisted key = %+v", key)
-	}
 	if bytes.Contains(raw, []byte(testAPIKey)) {
-		t.Fatalf("state contains plaintext API key: %s", raw)
+		t.Fatal("the database contains the plaintext downstream API key")
 	}
 	if bytes.Contains(raw, []byte("sk-upstream-key-0001")) {
-		t.Fatalf("state contains the plaintext upstream key: %s", raw)
-	}
-	if credential := persisted.Credentials["auth-3"]; credential.Name() != "codex · sk-ups…0001" {
-		t.Fatalf("persisted credential = %+v", credential)
+		t.Fatal("the database contains the plaintext upstream key")
 	}
 }
 

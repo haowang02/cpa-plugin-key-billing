@@ -444,7 +444,7 @@ plugins:
   configs:
     cpa-key-billing:
       enabled: true
-      state_file: "$runtime_dir/state.json"
+      state_file: "$runtime_dir/state.db"
 openai-compatibility:
   - name: "deepseek-direct-e2e"
     base-url: "$openai_base_url"

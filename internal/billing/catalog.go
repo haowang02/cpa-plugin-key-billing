@@ -487,3 +487,41 @@ func lookupCatalog(loaded *catalog, upstreamModel, billingModel string) (PriceRu
 	}
 	return PriceRule{}, false
 }
+
+// writeFileAtomic writes through a sibling temp file and renames, so a crash or
+// a concurrent reader never observes a partial cache document.
+func writeFileAtomic(path string, raw []byte) error {
+	dir := filepath.Dir(path)
+	if errMkdir := os.MkdirAll(dir, 0o755); errMkdir != nil {
+		return fmt.Errorf("创建文件目录 %s：%w", dir, errMkdir)
+	}
+	tmp, errTemp := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if errTemp != nil {
+		return fmt.Errorf("在 %s 创建临时文件：%w", dir, errTemp)
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpName) }
+	if _, errWrite := tmp.Write(raw); errWrite != nil {
+		_ = tmp.Close()
+		cleanup()
+		return fmt.Errorf("写入临时文件 %s：%w", tmpName, errWrite)
+	}
+	if errSync := tmp.Sync(); errSync != nil {
+		_ = tmp.Close()
+		cleanup()
+		return fmt.Errorf("同步临时文件 %s：%w", tmpName, errSync)
+	}
+	if errClose := tmp.Close(); errClose != nil {
+		cleanup()
+		return fmt.Errorf("关闭临时文件 %s：%w", tmpName, errClose)
+	}
+	if errChmod := os.Chmod(tmpName, 0o600); errChmod != nil {
+		cleanup()
+		return fmt.Errorf("设置临时文件 %s 权限：%w", tmpName, errChmod)
+	}
+	if errRename := os.Rename(tmpName, path); errRename != nil {
+		cleanup()
+		return fmt.Errorf("替换文件 %s：%w", path, errRename)
+	}
+	return nil
+}

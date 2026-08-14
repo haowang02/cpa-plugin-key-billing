@@ -7,12 +7,8 @@ import (
 
 func newEnforceStore(t *testing.T, now time.Time) *Store {
 	t.Helper()
-	store := NewStore()
+	store := newStore(t)
 	store.now = func() time.Time { return now }
-	if errConfigure := store.Configure(testConfig(t)); errConfigure != nil {
-		t.Fatalf("Configure error = %v", errConfigure)
-	}
-	t.Cleanup(store.Close)
 	return store
 }
 

@@ -33,20 +33,24 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 	if at.IsZero() {
 		at = s.Now()
 	}
-	decision := updateResult(s, func(state *State) (Decision, bool) {
+	decision := updateResult(s, func(state *State) (Decision, Changes) {
 		key := state.Keys[scope]
 		if key == nil || key.PlanID == "" {
-			return allowed, false
+			return allowed, Changes{}
 		}
+		touched := Changes{Keys: []string{scope}}
 		plan, ok := state.FindPlan(key.PlanID)
 		if !ok {
 			// The bound plan was deleted; treat the key as unlimited and drop
 			// the stale window instead of blocking it forever.
 			key.PlanID = ""
 			key.Cycle = Cycle{}
-			return allowed, true
+			return allowed, touched
 		}
-		changed := activateCycle(key, plan, at)
+		var changed Changes
+		if activateCycle(key, plan, at) {
+			changed = touched
+		}
 		current := Decision{
 			Allowed:      true,
 			PlanID:       plan.ID,

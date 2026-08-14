@@ -2,23 +2,21 @@ package billing
 
 import "time"
 
-// Advance StateVersion for releases that change the on-disk shape.
-const StateVersion = 6
-
+// State is the working set the store keeps in memory. It holds everything the
+// request path has to consult without touching the disk, and deliberately not
+// the billing log: that grows with traffic and is read one page at a time.
 type State struct {
-	Version int                  `json:"version"`
-	Prices  []PriceRule          `json:"prices"`
-	Plans   []Plan               `json:"plans"`
-	Keys    map[string]*KeyState `json:"keys"`
+	Prices []PriceRule
+	Plans  []Plan
+	Keys   map[string]*KeyState
 	// Credentials names the upstream credentials seen so far, keyed by the
 	// host's runtime auth index. The log stores that index and reads the name
 	// from here, so a credential renamed upstream renames its history too.
-	Credentials map[string]Credential `json:"credentials,omitempty"`
-	Log         []LogEntry            `json:"log,omitempty"`
+	Credentials map[string]Credential
 }
 
 func NewState() *State {
-	return &State{Version: StateVersion, Keys: make(map[string]*KeyState)}
+	return &State{Keys: make(map[string]*KeyState), Credentials: make(map[string]Credential)}
 }
 
 // All prices are USD per 1,000,000 tokens.
@@ -130,24 +128,4 @@ func (t *Totals) Add(other Totals) {
 	t.ReasoningTokens += other.ReasoningTokens
 	t.CacheReadTokens += other.CacheReadTokens
 	t.CacheCreationTokens += other.CacheCreationTokens
-}
-
-func (s *State) normalize() {
-	if s.Keys == nil {
-		s.Keys = make(map[string]*KeyState)
-	}
-	for scope, key := range s.Keys {
-		if key == nil {
-			delete(s.Keys, scope)
-			continue
-		}
-		if key.ByModel == nil {
-			key.ByModel = make(map[string]*Totals)
-		}
-		for model, totals := range key.ByModel {
-			if totals == nil {
-				delete(key.ByModel, model)
-			}
-		}
-	}
 }

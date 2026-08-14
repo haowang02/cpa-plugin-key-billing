@@ -1,9 +1,6 @@
 package billing
 
-import (
-	"strings"
-	"time"
-)
+import "time"
 
 // LogEntry never stores the plaintext API key.
 type LogEntry struct {
@@ -29,20 +26,6 @@ type LogEntry struct {
 
 const LogRetention = 30 * 24 * time.Hour
 
-// Entries stay oldest-first to keep the persisted representation append-only.
-// Appending is also when the window is trimmed: the log only ever grows here,
-// so this is the one place stale entries can be dropped from the document.
-func appendLog(state *State, entry LogEntry, now time.Time) {
-	cutoff := now.Add(-LogRetention)
-	kept := state.Log[:0]
-	for _, existing := range state.Log {
-		if !existing.At.Before(cutoff) {
-			kept = append(kept, existing)
-		}
-	}
-	state.Log = append(kept, entry)
-}
-
 // Display identity is looked up rather than copied into every entry, so Key
 // synchronization, remark changes and newly learned credentials update
 // historical rows too. Deleting a key in CPA therefore does not take its history
@@ -58,9 +41,9 @@ type LogRow struct {
 // normally carries no outcome at all — but a filter still needs a name for it.
 const OutcomeSucceeded = "succeeded"
 
-// LogQuery selects one page of the log. Searching and filtering happen here
-// rather than in the browser so that a window holding weeks of traffic never
-// has to travel over the wire in full.
+// LogQuery selects one page of the log. Searching and filtering happen in the
+// database rather than in the browser so that a window holding weeks of traffic
+// never has to travel over the wire in full.
 type LogQuery struct {
 	// Search matches any one of the identity fields, case-insensitively.
 	Search string
@@ -90,32 +73,19 @@ type LogOutcomeCounts struct {
 	Canceled  int `json:"canceled"`
 }
 
-func (c *LogOutcomeCounts) add(outcome RequestOutcome) {
-	c.All++
+// Total is the count for one status filter, which is a projection of the counts
+// the same search already produced rather than a second query.
+func (c LogOutcomeCounts) Total(outcome string) int {
 	switch outcome {
-	case OutcomeFailed:
-		c.Failed++
-	case OutcomeCanceled:
-		c.Canceled++
-	case "":
-		c.Succeeded++
+	case OutcomeSucceeded:
+		return c.Succeeded
+	case string(OutcomeFailed):
+		return c.Failed
+	case string(OutcomeCanceled):
+		return c.Canceled
+	default:
+		return c.All
 	}
-}
-
-// Any single field the table can show, including the ones resolved at read time.
-func (r LogRow) matches(search string) bool {
-	if search == "" {
-		return true
-	}
-	for _, field := range []string{
-		r.Label, r.Preview, r.Scope, r.UpstreamModel, r.BillingModel,
-		r.Endpoint, r.Source, r.RequestID,
-	} {
-		if strings.Contains(strings.ToLower(field), search) {
-			return true
-		}
-	}
-	return false
 }
 
 // An unknown filter is rejected by the caller rather than matching nothing, so
@@ -128,67 +98,21 @@ func ValidLogOutcome(filter string) bool {
 	return false
 }
 
-func matchesOutcome(outcome RequestOutcome, filter string) bool {
-	switch filter {
-	case "":
-		return true
-	case OutcomeSucceeded:
-		return outcome == ""
-	default:
-		return string(outcome) == filter
+// Entries that fell out of the retention window are left out rather than
+// returned: they are dropped on the next append, and until then they are no
+// longer part of the log.
+func (s *Store) Logs(query LogQuery) (LogView, error) {
+	repo := s.repository()
+	if repo == nil {
+		return LogView{Entries: []LogRow{}}, nil
 	}
+	return repo.Logs(query, s.Now().Add(-LogRetention))
 }
 
-// Entries that fell out of the retention window are skipped rather than
-// returned: they are dropped from the document on the next append, and until
-// then they are no longer part of the log.
-//
-// Results are newest first, so an offset counts back from the newest entry.
-func (s *Store) Logs(query LogQuery) LogView {
-	view := LogView{Entries: []LogRow{}}
-	search := strings.ToLower(strings.TrimSpace(query.Search))
-	cutoff := s.Now().Add(-LogRetention)
-	s.Read(func(state *State) {
-		for i := len(state.Log) - 1; i >= 0; i-- {
-			entry := state.Log[i]
-			if entry.At.Before(cutoff) {
-				continue
-			}
-			// The display identity is searchable, so it is resolved before the
-			// row is known to be wanted.
-			row := LogRow{LogEntry: entry}
-			if key := state.Keys[entry.Scope]; key != nil {
-				row.Preview = key.Preview
-				row.Label = key.Label
-			}
-			row.Source = state.Credentials[entry.AuthIndex].Name()
-			if !row.matches(search) {
-				continue
-			}
-			view.Outcomes.add(entry.Outcome)
-			if !matchesOutcome(entry.Outcome, query.Outcome) {
-				continue
-			}
-			view.Total++
-			if view.Total <= query.Offset {
-				continue
-			}
-			if query.Limit > 0 && len(view.Entries) >= query.Limit {
-				continue
-			}
-			view.Entries = append(view.Entries, row)
-		}
-	})
-	return view
-}
-
-func (s *Store) ClearLogs() int {
-	return updateResult(s, func(state *State) (int, bool) {
-		count := len(state.Log)
-		if count == 0 {
-			return 0, false
-		}
-		state.Log = nil
-		return count, true
-	})
+func (s *Store) ClearLogs() (int, error) {
+	repo := s.repository()
+	if repo == nil {
+		return 0, nil
+	}
+	return repo.ClearLogs()
 }

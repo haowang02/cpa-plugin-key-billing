@@ -67,7 +67,7 @@ func (s *Store) RecordUsage(event UsageEvent) {
 		return
 	}
 
-	s.Update(func(state *State) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.ensureKey(scope)
 
 		upstreamModel := modelWithoutSuffix(record.UpstreamModel)
@@ -111,11 +111,15 @@ func (s *Store) RecordUsage(event UsageEvent) {
 			ReasoningTokens:   record.Breakdown.Output.ReasoningTokens,
 		}
 		chargeCycle(key, event, cost.TotalUSD)
-		appendLog(state, entry, at)
 		// A completion may arrive after its period ended. Close it now, but do
 		// not start the next period until another request is admitted.
 		if plan, hasPlan := state.FindPlan(key.PlanID); hasPlan {
 			settleExpiredCycle(key, plan, at)
+		}
+		return struct{}{}, Changes{
+			Keys:      []string{scope},
+			Log:       []LogEntry{entry},
+			LogCutoff: at.Add(-LogRetention),
 		}
 	})
 }

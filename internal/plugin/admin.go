@@ -139,7 +139,11 @@ func (a *App) updatePlan(req ManagementRequest) ManagementResponse {
 }
 
 func (a *App) clearLogs() ManagementResponse {
-	return JSONResponse(http.StatusOK, map[string]any{"cleared": a.store.ClearLogs()})
+	cleared, errClear := a.store.ClearLogs()
+	if errClear != nil {
+		return errorResponse(errClear)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"cleared": cleared})
 }
 
 func (a *App) deletePlan(req ManagementRequest) ManagementResponse {
@@ -246,7 +250,11 @@ func (a *App) listLogs(req ManagementRequest) ManagementResponse {
 	if errLimit := countParam(req.Query, "limit", &query.Limit); errLimit != nil {
 		return errorResponse(errLimit)
 	}
-	return JSONResponse(http.StatusOK, a.store.Logs(query))
+	view, errLogs := a.store.Logs(query)
+	if errLogs != nil {
+		return errorResponse(errLogs)
+	}
+	return JSONResponse(http.StatusOK, view)
 }
 
 // An absent parameter leaves the target at whatever the query already means.

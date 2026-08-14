@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DefaultStateFile = "plugins/cpa-key-billing-state.json"
+const DefaultStateFile = "plugins/cpa-key-billing-state.db"
 
 type Config struct {
 	Enabled   bool   `yaml:"enabled"`

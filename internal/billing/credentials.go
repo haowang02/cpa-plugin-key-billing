@@ -50,14 +50,14 @@ func (s *Store) LearnCredential(authIndex, provider, authType, account string) {
 	if learned == (Credential{}) {
 		return
 	}
-	updateResult(s, func(state *State) (struct{}, bool) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		if state.Credentials[authIndex] == learned {
-			return struct{}{}, false
+			return struct{}{}, Changes{}
 		}
 		if state.Credentials == nil {
 			state.Credentials = make(map[string]Credential)
 		}
 		state.Credentials[authIndex] = learned
-		return struct{}{}, true
+		return struct{}{}, Changes{Credentials: true}
 	})
 }

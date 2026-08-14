@@ -6,13 +6,14 @@ import (
 )
 
 func newAccountStore(t *testing.T, now time.Time) *Store {
+	store, _ := newAccountStoreWithRepository(t, now)
+	return store
+}
+
+func newAccountStoreWithRepository(t *testing.T, now time.Time) (*Store, *memoryRepository) {
 	t.Helper()
-	store := NewStore()
+	store, repo := newStoreWithRepository(t)
 	store.now = func() time.Time { return now }
-	if err := store.Configure(testConfig(t)); err != nil {
-		t.Fatalf("Configure error = %v", err)
-	}
-	t.Cleanup(store.Close)
 	store.Update(func(state *State) {
 		state.Prices = []PriceRule{{
 			Pattern:         "gpt-5.5",
@@ -22,7 +23,7 @@ func newAccountStore(t *testing.T, now time.Time) *Store {
 			CacheWritePer1M: floatPtr(1.25),
 		}}
 	})
-	return store
+	return store, repo
 }
 
 func subsetEvent(scope string, at time.Time) UsageEvent {
@@ -81,12 +82,12 @@ func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 		if len(key.ByModel) != 1 || key.ByModel["claude/gpt-latest"] == nil {
 			t.Fatalf("ByModel = %+v", key.ByModel)
 		}
-		if len(state.Log) != 1 || state.Log[0].UpstreamModel != "gpt-5.5" ||
-			state.Log[0].BillingModel != "claude/gpt-latest" {
-			t.Fatalf("Log = %+v", state.Log)
-		}
 		assertClose(t, "CostUSD", key.Lifetime.CostUSD, 0.0015+0.0012+0.0003+0.002)
 	})
+	entries := mustLogs(t, store, LogQuery{}).Entries
+	if len(entries) != 1 || entries[0].UpstreamModel != "gpt-5.5" || entries[0].BillingModel != "claude/gpt-latest" {
+		t.Fatalf("log = %+v", entries)
+	}
 }
 
 func TestRecordUsageIgnoresANonGenerationRecord(t *testing.T) {
@@ -96,10 +97,13 @@ func TestRecordUsageIgnoresANonGenerationRecord(t *testing.T) {
 	event.Record.Generate = false
 	store.RecordUsage(event)
 	store.Read(func(state *State) {
-		if state.Keys["scope-a"] != nil || len(state.Log) != 0 {
-			t.Fatalf("non-generation record was billed: %+v", state)
+		if state.Keys["scope-a"] != nil {
+			t.Fatalf("non-generation record was billed: %+v", state.Keys)
 		}
 	})
+	if entries := mustLogs(t, store, LogQuery{}).Entries; len(entries) != 0 {
+		t.Fatalf("non-generation record reached the log: %+v", entries)
+	}
 }
 
 func TestConcurrentLateCompletionDoesNotChargeNewCycle(t *testing.T) {

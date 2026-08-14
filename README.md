@@ -73,11 +73,13 @@ plugins:
   configs:
     cpa-key-billing:
       enabled: true
-      state_file: "plugins/cpa-key-billing-state.json"
+      state_file: "plugins/cpa-key-billing-state.db"
 ```
 
 - `enabled`：启用计费和订阅额度控制
-- `state_file`：计费状态文件路径
+- `state_file`：计费数据库文件路径
+
+插件使用 SQLite 持久化计费数据。从旧版本升级时无需修改配置：仍指向 `.json` 的 `state_file` 会自动解析为同目录下的同名 `.db`，并在首次启动时导入原有数据，导入后原 JSON 文件不再使用。
 
 重启 CLIProxyAPI 后，在管理中心打开「API Key 计费」。确认模型定价后，创建订阅计划并绑定需要限制的 API Key。
 
@@ -91,7 +93,6 @@ plugins:
 
 ## 后续计划
 
-- [ ] 使用 SQLite 持久化计费状态，提升数据管理与查询的可靠性。
 - [ ] 增加用量与费用分析能力，帮助了解 API Key 的使用情况和消费趋势。
 
 ## 致谢

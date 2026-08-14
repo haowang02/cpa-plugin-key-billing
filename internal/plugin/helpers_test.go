@@ -36,6 +36,15 @@ func billOneRequest(t *testing.T, app *App, apiKey string, outputTokens int64) {
 	complete(t, app, requestID, RequestCompletionSucceeded)
 }
 
+func logEntries(t *testing.T, app *App) []billing.LogRow {
+	t.Helper()
+	view, errLogs := app.store.Logs(billing.LogQuery{})
+	if errLogs != nil {
+		t.Fatalf("Logs error = %v", errLogs)
+	}
+	return view.Entries
+}
+
 func decodeResult(t *testing.T, raw []byte, v any) {
 	t.Helper()
 	var envelope Envelope
@@ -61,13 +70,20 @@ func mustMarshal(t *testing.T, v any) []byte {
 	return raw
 }
 
+// testConfigYAML keeps every app under test on its own database: the default
+// path is relative to the working directory, which is the source tree here.
+func testConfigYAML(t *testing.T, enabled bool) []byte {
+	t.Helper()
+	return []byte("enabled: " + strconv.FormatBool(enabled) +
+		"\nstate_file: \"" + filepath.Join(t.TempDir(), "state.db") + "\"\n")
+}
+
 func newConfiguredApp(t *testing.T) *App {
 	t.Helper()
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
-	configYAML := "enabled: true\nstate_file: \"" + filepath.Join(t.TempDir(), "state.json") + "\"\n"
 	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
-		ConfigYAML: []byte(configYAML),
+		ConfigYAML: testConfigYAML(t, true),
 	}))
 	if errHandle != nil {
 		t.Fatalf("plugin.register error = %v", errHandle)
@@ -85,7 +101,7 @@ func newAppWithPriceAndState(t *testing.T, enabled bool) (*App, string) {
 	t.Helper()
 	app := NewApp()
 	t.Cleanup(app.Shutdown)
-	statePath := filepath.Join(t.TempDir(), "state.json")
+	statePath := filepath.Join(t.TempDir(), "state.db")
 	configYAML := "enabled: " + strconv.FormatBool(enabled) + "\nstate_file: \"" + statePath + "\"\n"
 	if _, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
 		ConfigYAML: []byte(configYAML),
