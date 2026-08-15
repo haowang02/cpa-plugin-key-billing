@@ -616,7 +616,7 @@ EOF
   assert_canceled_request "$port" "$runtime_dir"
 
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$runtime_dir/events.json"
-  if ! jq -e '[.events[] | select(.level == "info" and (.message | contains("已加载状态文件")))] | length == 1' \
+  if ! jq -e '[.events[] | select(.level == "info" and (.message | contains("已加载计费数据库")))] | length == 1' \
     "$runtime_dir/events.json" >/dev/null; then
     echo "插件日志缺少启动记录：$(jq -c '.events' "$runtime_dir/events.json")" >&2
     return 1
