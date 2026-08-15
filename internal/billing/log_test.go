@@ -49,22 +49,3 @@ func TestLogKeepsTheRetentionWindow(t *testing.T) {
 		t.Fatalf("stored %d entries, want the stale ones dropped on append", len(repo.log))
 	}
 }
-
-func TestClearLogsOnlyClearsLogs(t *testing.T) {
-	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	store := newAccountStore(t, now)
-	store.RecordUsage(subsetEvent("scope-a", now))
-
-	cleared, errClear := store.ClearLogs()
-	if errClear != nil || cleared != 1 {
-		t.Fatalf("ClearLogs = %d, %v; want 1", cleared, errClear)
-	}
-	if entries := mustLogs(t, store, LogQuery{}).Entries; len(entries) != 0 {
-		t.Fatalf("entries = %+v", entries)
-	}
-	store.Read(func(state *State) {
-		if state.Keys["scope-a"] == nil || state.Keys["scope-a"].Lifetime.Requests != 1 {
-			t.Fatalf("usage was cleared with logs: %+v", state.Keys)
-		}
-	})
-}

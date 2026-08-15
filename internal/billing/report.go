@@ -7,15 +7,12 @@ import (
 	"time"
 )
 
-// What the plugin log says about downstream traffic. The billing log answers
-// what a key spent, and only for requests that produced something to bill; a
-// request an upstream refused outright leaves nothing there at all. These
-// entries answer the other question — what went wrong, for whom — and are the
-// only record of the requests that never became a charge.
+// What the plugin log says about downstream traffic. The billing log covers
+// only requests that produced something to bill, so these entries are the sole
+// record of the ones that never became a charge.
 
-// reportFailedRequest names one request that ended in failure. Every failure is
-// reported, including the ones that were billable, so that reading the plugin
-// log never means wondering which failures it left out.
+// Every failure is reported, the billable ones included, so that reading the
+// log never means wondering which ones it left out.
 func (s *Store) reportFailedRequest(requestID string, entry PendingRequest, record *UsageRecord, reason string) {
 	var name, credential string
 	s.Read(func(state *State) {

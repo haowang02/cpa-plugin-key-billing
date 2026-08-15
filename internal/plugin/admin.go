@@ -215,17 +215,13 @@ func (a *App) labelKey(req ManagementRequest) ManagementResponse {
 // plaintext is hashed into caller scopes and dropped; it is never persisted.
 func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 	var body struct {
-		Keys []string `json:"keys"`
-		// APIKeys mirrors the field name of CPA's GET /v0/management/api-keys
-		// so the UI can forward that response verbatim.
-		APIKeys    []string `json:"api-keys"`
+		Keys       []string `json:"keys"`
 		AllowEmpty bool     `json:"allow_empty"`
 	}
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	keys := append(body.Keys, body.APIKeys...)
-	result, errSync := a.store.SyncKeys(keys, body.AllowEmpty)
+	result, errSync := a.store.SyncKeys(body.Keys, body.AllowEmpty)
 	if errSync != nil {
 		return errorResponse(errSync)
 	}

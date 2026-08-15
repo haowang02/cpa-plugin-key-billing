@@ -12,12 +12,10 @@ import (
 // the newest would hide exactly the onset an operator is looking for.
 const EventRetention = 30 * 24 * time.Hour
 
-// MaxRequestEvents bounds the entries downstream traffic can put in the log.
-// Operational events stay bounded by age alone for the reason above, but a
-// request that did not succeed is not an occasional event: an upstream that is
-// failing produces one per attempt, and the newest are the ones being
-// diagnosed. So these age out like the rest and, past this many, the oldest of
-// them make room — never an operational entry.
+// MaxRequestEvents bounds the entries downstream traffic can put in the log. A
+// failing upstream produces one per attempt, so unlike an operational event
+// these cannot be left to age out alone; past this many the oldest of them make
+// room, and never an operational entry.
 const MaxRequestEvents = 500
 
 type EventLevel string
@@ -56,8 +54,6 @@ func (l *eventLog) add(event Event) {
 	}
 }
 
-// capRequestsLocked drops the oldest request entries until they are back within
-// their bound, leaving every operational entry where it is.
 func (l *eventLog) capRequestsLocked() {
 	surplus := -MaxRequestEvents
 	for _, entry := range l.entries {

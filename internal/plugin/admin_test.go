@@ -216,16 +216,14 @@ func TestDuplicatePlanReportsConflict(t *testing.T) {
 	}
 }
 
-// TestSyncAcceptsTheCPAKeyListVerbatim matters because the admin UI reads
-// GET /v0/management/api-keys on the same origin and forwards that response
-// straight through; requiring it to be reshaped first would be a needless
-// source of bugs.
-func TestSyncAcceptsTheCPAKeyListVerbatim(t *testing.T) {
+// The plaintext keys the panel pushes are hashed into caller scopes and
+// dropped; what comes back must name them by mask alone.
+func TestSyncKeysStoresOnlyMaskedKeys(t *testing.T) {
 	app := newConfiguredApp(t)
 
 	var result billing.SyncResult
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{
-		"api-keys": []string{"sk-alpha-000000001", "sk-beta-0000000002"},
+		"keys": []string{"sk-alpha-000000001", "sk-beta-0000000002"},
 	}, http.StatusOK, &result)
 	if result.Added != 2 {
 		t.Fatalf("result = %+v", result)
