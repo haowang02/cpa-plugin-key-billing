@@ -35,12 +35,17 @@ func appendLog(tx *sql.Tx, changes billing.Changes) error {
 			return fmt.Errorf("写入计费日志：%w", errInsert)
 		}
 	}
-	if changes.LogCutoff.IsZero() {
+	return pruneLog(tx.Exec, changes.LogCutoff)
+}
+
+// Appending is the moment the log grows, and opening it is the moment a log
+// that stopped growing is looked at again; between them nothing else can notice
+// that an entry aged out. A zero cutoff prunes nothing.
+func pruneLog(exec func(string, ...any) (sql.Result, error), cutoff time.Time) error {
+	if cutoff.IsZero() {
 		return nil
 	}
-	// Appending is the only moment the log grows, so it is also the only moment
-	// entries that aged out have to go.
-	if _, errPrune := tx.Exec("DELETE FROM billing_log WHERE at < ?", nanos(changes.LogCutoff)); errPrune != nil {
+	if _, errPrune := exec("DELETE FROM billing_log WHERE at < ?", nanos(cutoff)); errPrune != nil {
 		return fmt.Errorf("清理过期计费日志：%w", errPrune)
 	}
 	return nil
@@ -57,16 +62,18 @@ const logSource = `
 
 // Every field the table can show is searchable, one at a time: a term is matched
 // against a single column rather than against them joined together, so it can
-// never straddle two of them.
+// never straddle two of them. Folding is ulower() rather than SQLite's built-in
+// lower(), which leaves everything outside ASCII alone — labels and remarks are
+// free operator text and are not written in ASCII everywhere.
 const logSearch = ` AND (
-	instr(lower(coalesce(k.label, '')), lower(?)) > 0 OR
-	instr(lower(coalesce(k.preview, '')), lower(?)) > 0 OR
-	instr(lower(l.scope), lower(?)) > 0 OR
-	instr(lower(l.upstream_model), lower(?)) > 0 OR
-	instr(lower(l.billing_model), lower(?)) > 0 OR
-	instr(lower(l.endpoint), lower(?)) > 0 OR
-	instr(lower(coalesce(c.name, '')), lower(?)) > 0 OR
-	instr(lower(l.request_id), lower(?)) > 0)`
+	instr(ulower(coalesce(k.label, '')), ulower(?)) > 0 OR
+	instr(ulower(coalesce(k.preview, '')), ulower(?)) > 0 OR
+	instr(ulower(l.scope), ulower(?)) > 0 OR
+	instr(ulower(l.upstream_model), ulower(?)) > 0 OR
+	instr(ulower(l.billing_model), ulower(?)) > 0 OR
+	instr(ulower(l.endpoint), ulower(?)) > 0 OR
+	instr(ulower(coalesce(c.name, '')), ulower(?)) > 0 OR
+	instr(ulower(l.request_id), ulower(?)) > 0)`
 
 // Logs answers one page. The counts are taken before the status filter applies,
 // so choosing one status does not collapse the others to zero.
@@ -74,11 +81,15 @@ func (d *DB) Logs(query billing.LogQuery, since time.Time) (billing.LogView, err
 	view := billing.LogView{Entries: []billing.LogRow{}}
 	where, args := logFilter(query, since)
 
+	// The buckets bind the stored outcomes rather than restating them, so that
+	// renaming one cannot leave a bucket counting nothing.
+	succeededOutcome, _ := billing.StoredOutcome(billing.OutcomeSucceeded)
+	countArgs := append([]any{succeededOutcome, string(billing.OutcomeFailed), string(billing.OutcomeCanceled)}, args...)
 	counts := d.db.QueryRow(`
 		SELECT count(*),
-			sum(CASE WHEN l.outcome = '' THEN 1 ELSE 0 END),
-			sum(CASE WHEN l.outcome = 'failed' THEN 1 ELSE 0 END),
-			sum(CASE WHEN l.outcome = 'canceled' THEN 1 ELSE 0 END)`+where, args...)
+			sum(CASE WHEN l.outcome = ? THEN 1 ELSE 0 END),
+			sum(CASE WHEN l.outcome = ? THEN 1 ELSE 0 END),
+			sum(CASE WHEN l.outcome = ? THEN 1 ELSE 0 END)`+where, countArgs...)
 	var succeeded, failed, canceled sql.NullInt64
 	if errCount := counts.Scan(&view.Outcomes.All, &succeeded, &failed, &canceled); errCount != nil {
 		return billing.LogView{}, fmt.Errorf("统计计费日志：%w", errCount)
@@ -88,14 +99,12 @@ func (d *DB) Logs(query billing.LogQuery, since time.Time) (billing.LogView, err
 	view.Outcomes.Canceled = int(canceled.Int64)
 	view.Total = view.Outcomes.Total(query.Outcome)
 
+	// The page and the total it belongs to are two readings of the same filter,
+	// so both take it from billing rather than each deciding what it means.
 	page := where
-	switch query.Outcome {
-	case "":
-	case billing.OutcomeSucceeded:
-		page += " AND l.outcome = ''"
-	default:
+	if stored, filtered := billing.StoredOutcome(query.Outcome); filtered {
 		page += " AND l.outcome = ?"
-		args = append(args, query.Outcome)
+		args = append(args, stored)
 	}
 	// Entries are read back in the order they were committed rather than by
 	// their timestamp: a request is stamped when it started, so completion order

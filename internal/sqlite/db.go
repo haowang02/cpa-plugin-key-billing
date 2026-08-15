@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	// The driver is cgo SQLite. The plugin is built as a c-shared library, so
 	// cgo is available anyway, and a C implementation starts no goroutines of
 	// its own — which a Go runtime living inside CLIProxyAPI's process cannot
 	// afford. See the note on billing.Store.
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 
 	"cpa-key-billing/internal/billing"
 )
@@ -22,6 +23,19 @@ import (
 // schemaVersion is kept in PRAGMA user_version. A database written by a newer
 // plugin is refused rather than misread.
 const schemaVersion = 1
+
+// driverName is this package's own registration of the SQLite driver. It exists
+// for ulower(): the built-in lower() folds ASCII only, so a key labelled in any
+// other alphabet would not match a search typed in the other case.
+const driverName = "sqlite3_cpa_billing"
+
+func init() {
+	sql.Register(driverName, &sqlite3.SQLiteDriver{
+		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
+			return conn.RegisterFunc("ulower", strings.ToLower, true)
+		},
+	})
+}
 
 type DB struct {
 	db   *sql.DB
@@ -35,11 +49,14 @@ func Open(path string) (*DB, error) {
 	if errMkdir := os.MkdirAll(dir, 0o755); errMkdir != nil {
 		return nil, fmt.Errorf("创建计费数据库目录 %s：%w", dir, errMkdir)
 	}
+	if errSecure := secureFiles(path); errSecure != nil {
+		return nil, errSecure
+	}
 	// A single connection: this process is the only writer, and serializing on
 	// it is what keeps SQLITE_BUSY out of the request path. WAL with NORMAL
 	// synchronization commits without an fsync per request, which is what makes
 	// writing through on every completed request affordable.
-	handle, errOpen := sql.Open("sqlite3",
+	handle, errOpen := sql.Open(driverName,
 		path+"?_busy_timeout=5000&_foreign_keys=on&_journal_mode=WAL&_synchronous=NORMAL&_txlock=immediate")
 	if errOpen != nil {
 		return nil, fmt.Errorf("打开计费数据库 %s：%w", path, errOpen)
@@ -67,19 +84,36 @@ func (d *DB) init() error {
 	if _, errSchema := d.db.Exec(schema); errSchema != nil {
 		return fmt.Errorf("初始化计费数据库 %s：%w", d.path, errSchema)
 	}
-	if _, errVersion := d.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); errVersion != nil {
-		return fmt.Errorf("初始化计费数据库 %s：%w", d.path, errVersion)
-	}
-	// Billing history names masked keys and operator remarks. SQLite gives the
-	// write-ahead log and shared-memory files the mode of the database itself.
-	if errChmod := os.Chmod(d.path, 0o600); errChmod != nil {
-		return fmt.Errorf("设置计费数据库 %s 权限：%w", d.path, errChmod)
-	}
-	// Only a database this call created is seeded from the JSON document.
+	// Only a database this call created is seeded from the JSON document, and
+	// the version that says so is stamped by the seed itself. Stamping it here
+	// would declare a database that failed to import ready, and the document
+	// beside it would never be read again.
 	if version > 0 {
 		return nil
 	}
-	return d.importJSONState()
+	return d.seed()
+}
+
+// Billing history names masked keys, operator remarks and upstream credentials.
+// SQLite gives the write-ahead log and shared-memory files the mode of the
+// database, so the database has to carry the restricted one before the driver
+// opens it — a mode set afterwards leaves the sidecars this process writes
+// through readable by anyone. A database from an earlier version, and any
+// sidecar a crash left behind, is narrowed here too.
+func secureFiles(path string) error {
+	file, errCreate := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if errCreate != nil {
+		return fmt.Errorf("创建计费数据库 %s：%w", path, errCreate)
+	}
+	if errClose := file.Close(); errClose != nil {
+		return fmt.Errorf("创建计费数据库 %s：%w", path, errClose)
+	}
+	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+		if errChmod := os.Chmod(name, 0o600); errChmod != nil && !os.IsNotExist(errChmod) {
+			return fmt.Errorf("设置计费数据库 %s 权限：%w", name, errChmod)
+		}
+	}
+	return nil
 }
 
 func (d *DB) Close() error {

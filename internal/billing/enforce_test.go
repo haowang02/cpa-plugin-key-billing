@@ -34,7 +34,7 @@ func TestAuthorizeFailsOpen(t *testing.T) {
 
 	t.Run("key without a plan", func(t *testing.T) {
 		store := newEnforceStore(t, now)
-		store.Update(func(state *State) { state.Keys["s"] = &KeyState{} })
+		store.ReplaceAll(func(state *State) { state.Keys["s"] = &KeyState{} })
 		if !store.Authorize("s", now).Allowed {
 			t.Fatal("an unsubscribed key was blocked, it should be unlimited")
 		}
@@ -42,7 +42,7 @@ func TestAuthorizeFailsOpen(t *testing.T) {
 
 	t.Run("invalid plan with a zero amount", func(t *testing.T) {
 		store := newEnforceStore(t, now)
-		store.Update(func(state *State) {
+		store.ReplaceAll(func(state *State) {
 			state.Plans = []Plan{{ID: "p", AmountUSD: 0, Period: Period{Kind: PeriodDaily}}}
 			state.Keys["s"] = &KeyState{PlanID: "p", Cycle: Cycle{SpentUSD: 999}}
 		})
@@ -55,7 +55,7 @@ func TestAuthorizeFailsOpen(t *testing.T) {
 func TestAuthorizeBlocksWhenCycleBudgetIsSpent(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "daily-5", Name: "Daily 5", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
 		state.Keys["s"] = &KeyState{
 			PlanID: "daily-5",
@@ -78,11 +78,11 @@ func TestAuthorizeBlocksWhenCycleBudgetIsSpent(t *testing.T) {
 	if !decision.ResetAt.Equal(time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("ResetAt = %s", decision.ResetAt)
 	}
-	store.Update(func(state *State) { state.Keys["s"].Cycle.SpentUSD = 4.999999 })
+	store.ReplaceAll(func(state *State) { state.Keys["s"].Cycle.SpentUSD = 4.999999 })
 	if !store.Authorize("s", now).Allowed {
 		t.Fatal("a key just under its limit was blocked")
 	}
-	store.Update(func(state *State) { state.Keys["s"].Cycle.SpentUSD = 7 })
+	store.ReplaceAll(func(state *State) { state.Keys["s"].Cycle.SpentUSD = 7 })
 	if store.Authorize("s", now).Allowed {
 		t.Fatal("an over-spent key was allowed")
 	}
@@ -91,7 +91,7 @@ func TestAuthorizeBlocksWhenCycleBudgetIsSpent(t *testing.T) {
 func TestAuthorizeNeverResetPlanHasNoAutomaticReset(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "once", Name: "One-time", AmountUSD: 5, Period: Period{Kind: PeriodNever}}}
 		state.Keys["s"] = &KeyState{PlanID: "once", Cycle: Cycle{
 			PlanID: "once", StartAt: now.Add(-365 * 24 * time.Hour), SpentUSD: 5,
@@ -115,7 +115,7 @@ func TestAuthorizeNeverResetPlanHasNoAutomaticReset(t *testing.T) {
 // billed request.
 func TestAuthorizeRollsIdleCycle(t *testing.T) {
 	store := newEnforceStore(t, time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "p", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
 		state.Keys["s"] = &KeyState{
 			PlanID: "p",
@@ -143,7 +143,7 @@ func TestAuthorizeRollsIdleCycle(t *testing.T) {
 func TestAuthorizeUnbindsDeletedPlan(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Keys["s"] = &KeyState{
 			PlanID: "gone",
 			Cycle:  Cycle{PlanID: "gone", StartAt: now, EndAt: now.Add(time.Hour), SpentUSD: 99},
@@ -168,7 +168,7 @@ func TestAuthorizeAndRecordUsageAgreeOnTheCycle(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, now)
 	const limitUSD = 0.004
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "p", AmountUSD: limitUSD, Period: Period{Kind: PeriodDaily}}}
 		state.Keys["scope-a"] = &KeyState{PlanID: "p"}
 	})

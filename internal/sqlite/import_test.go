@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -80,5 +81,97 @@ func TestOpenRefusesAnUnsupportedDocumentVersion(t *testing.T) {
 	writeJSONState(t, filepath.Join(dir, "state.json"), map[string]any{"version": jsonStateVersion + 1})
 	if _, errOpen := Open(filepath.Join(dir, "state.db")); errOpen == nil {
 		t.Fatal("Open accepted a document from an unknown format version")
+	}
+}
+
+// A document an interrupted writer left with a second object in it holds more
+// than the first one says. Seeding from that first object would drop the rest
+// silently, and a database is seeded exactly once.
+func TestOpenRefusesADocumentWithTrailingContent(t *testing.T) {
+	dir := t.TempDir()
+	raw := fmt.Sprintf(`{"version":%d}{"version":%d}`, jsonStateVersion, jsonStateVersion)
+	if errWrite := os.WriteFile(filepath.Join(dir, "state.json"), []byte(raw), 0o600); errWrite != nil {
+		t.Fatalf("write: %v", errWrite)
+	}
+	if _, errOpen := Open(filepath.Join(dir, "state.db")); errOpen == nil {
+		t.Fatal("Open accepted a document with content after the first object")
+	}
+}
+
+// A seed that failed must not leave behind a database claiming to be current:
+// the document beside it would never be read again, and the deployment would
+// come up empty while its real record sat untouched.
+func TestOpenSeedsAgainAfterASeedThatFailed(t *testing.T) {
+	dir := t.TempDir()
+	document := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, "state.db")
+
+	writeJSONState(t, document, map[string]any{"version": jsonStateVersion + 1})
+	if _, errOpen := Open(path); errOpen == nil {
+		t.Fatal("Open accepted a document from an unknown format version")
+	}
+
+	writeJSONState(t, document, map[string]any{
+		"version": jsonStateVersion,
+		"keys":    map[string]*billing.KeyState{"scope-a": {Label: "Alice", InConfig: true}},
+	})
+	if keys := mustLoad(t, openDatabase(t, path)).State.Keys; keys["scope-a"] == nil {
+		t.Fatalf("keys = %+v, want the repaired document read after the failed seed", keys)
+	}
+}
+
+// The version is stamped inside the seeding transaction, so an import that
+// fails halfway takes it with it rather than declaring a half-empty database
+// current.
+func TestOpenSeedsAgainAfterAnImportThatFailedHalfway(t *testing.T) {
+	dir := t.TempDir()
+	document := filepath.Join(dir, "state.json")
+	path := filepath.Join(dir, "state.db")
+
+	// Two plans under one id: the keys land, and then the second plan is refused
+	// and takes the whole transaction with it.
+	weekly := billing.Plan{ID: "weekly", Name: "Weekly", AmountUSD: 10, Period: billing.Period{Kind: billing.PeriodWeekly}}
+	writeJSONState(t, document, map[string]any{
+		"version": jsonStateVersion,
+		"plans":   []billing.Plan{weekly, weekly},
+		"keys":    map[string]*billing.KeyState{"scope-a": {Label: "Alice", InConfig: true}},
+	})
+	if _, errOpen := Open(path); errOpen == nil {
+		t.Fatal("Open accepted a document it could not import whole")
+	}
+
+	writeJSONState(t, document, map[string]any{
+		"version": jsonStateVersion,
+		"plans":   []billing.Plan{weekly},
+		"keys":    map[string]*billing.KeyState{"scope-a": {Label: "Alice", InConfig: true}},
+	})
+	snapshot := mustLoad(t, openDatabase(t, path))
+	if len(snapshot.State.Plans) != 1 || snapshot.State.Keys["scope-a"] == nil {
+		t.Fatalf("state = %+v, want the repaired document imported whole", snapshot.State)
+	}
+}
+
+// A database that came up without a document is seeded all the same. One that
+// appears later belongs to another deployment or to a restored backup, and
+// importing it would overwrite what this one has billed since.
+func TestOpenIgnoresADocumentPlacedBesideASeededDatabase(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.db")
+
+	state := billing.NewState()
+	state.Keys["scope-a"] = &billing.KeyState{Label: "Alice", Lifetime: billing.Totals{CostUSD: 7}}
+	database := openDatabase(t, path)
+	mustSave(t, database, state, billing.Changes{AllKeys: true})
+	if errClose := database.Close(); errClose != nil {
+		t.Fatalf("Close error = %v", errClose)
+	}
+
+	writeJSONState(t, filepath.Join(dir, "state.json"), map[string]any{
+		"version": jsonStateVersion,
+		"keys":    map[string]*billing.KeyState{"scope-b": {Label: "Bob"}},
+	})
+	keys := mustLoad(t, openDatabase(t, path)).State.Keys
+	if keys["scope-a"] == nil || keys["scope-b"] != nil {
+		t.Fatalf("keys = %+v, want the live record kept and the stray document left alone", keys)
 	}
 }

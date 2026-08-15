@@ -20,11 +20,22 @@ type memoryRepository struct {
 	saves []Changes
 	// fail, when set, is returned by every save.
 	fail error
+	// closeFail, when set, is returned by Close.
+	closeFail error
 }
 
-func (r *memoryRepository) Load() (Snapshot, error) {
+func (r *memoryRepository) Load(logCutoff time.Time) (Snapshot, error) {
 	if r.state == nil {
 		r.state = NewState()
+	}
+	if !logCutoff.IsZero() {
+		kept := r.log[:0]
+		for _, entry := range r.log {
+			if !entry.At.Before(logCutoff) {
+				kept = append(kept, entry)
+			}
+		}
+		r.log = kept
 	}
 	return Snapshot{State: r.state, LogEntries: len(r.log)}, nil
 }
@@ -84,7 +95,13 @@ func (r *memoryRepository) LoggedScopes(since time.Time) (map[string]struct{}, e
 	return scopes, nil
 }
 
-func (r *memoryRepository) Close() error { return nil }
+func (r *memoryRepository) Close() error { return r.closeFail }
+
+// statelessRepository answers no error and no working set, which the Repository
+// contract forbids and a future backend could still do.
+type statelessRepository struct{ memoryRepository }
+
+func (r *statelessRepository) Load(time.Time) (Snapshot, error) { return Snapshot{}, nil }
 
 func newStore(t *testing.T) *Store {
 	store, _ := newStoreWithRepository(t)

@@ -179,10 +179,30 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 		result.Removed = len(existing) - kept
 		// Keep the proxy's own ordering: it is what the operator sees elsewhere.
 		// Globs go last, which is also where ResolvePrice consults them.
-		state.Prices = append(rows, globs...)
+		next := append(rows, globs...)
+		// The panel synchronizes on every session start. A list that already
+		// matches what is stored is not worth rewriting the price table for.
+		if samePrices(state.Prices, next) {
+			return struct{}{}, Changes{}
+		}
+		state.Prices = next
 		return struct{}{}, Changes{Prices: true}
 	})
 	return result, nil
+}
+
+// A kept rule is the stored value itself, pointer fields and all, so identity is
+// what tells a rebuilt list that changed nothing from one that did.
+func samePrices(current, next []PriceRule) bool {
+	if len(current) != len(next) {
+		return false
+	}
+	for index, rule := range current {
+		if rule != next[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (r PriceRule) Validate() error {

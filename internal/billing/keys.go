@@ -282,21 +282,27 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 
 	now := s.Now()
 	// The log decides which retired records may finally go, and it is read
-	// before the mutation takes the lock the repository is reached under.
-	var referenced map[string]struct{}
-	if repo := s.repository(); repo != nil {
-		var errScopes error
-		if referenced, errScopes = repo.LoggedScopes(now.Add(-LogRetention)); errScopes != nil {
-			return SyncResult{}, errScopes
-		}
+	// before the mutation, which takes the same lock exclusively.
+	referenced, errScopes := withRepository(s, func(repo Repository) (map[string]struct{}, error) {
+		return repo.LoggedScopes(now.Add(-LogRetention))
+	})
+	if errScopes != nil {
+		return SyncResult{}, errScopes
 	}
 
 	var result SyncResult
 	updateResult(s, func(state *State) (struct{}, Changes) {
+		changed := false
 		for scope, preview := range scopes {
+			if state.Keys[scope] == nil {
+				changed = true
+			}
 			key := state.ensureKey(scope)
 			// The live key list is authoritative for its masked preview.
-			key.Preview = preview
+			if key.Preview != preview {
+				key.Preview = preview
+				changed = true
+			}
 			if key.InConfig {
 				result.Matched++
 			} else {
@@ -305,8 +311,12 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 			if !key.DeletedAt.IsZero() {
 				key.DeletedAt = time.Time{}
 				key.Cycle = Cycle{}
+				changed = true
 			}
-			key.InConfig = true
+			if !key.InConfig {
+				key.InConfig = true
+				changed = true
+			}
 		}
 		for scope, key := range state.Keys {
 			if _, listed := scopes[scope]; listed || key == nil {
@@ -316,9 +326,18 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 				key.InConfig = false
 				key.DeletedAt = now
 				result.Removed++
+				changed = true
 			}
 		}
-		purgeDeletedKeys(state, referenced, now)
+		if purgeDeletedKeys(state, referenced, now) > 0 {
+			changed = true
+		}
+		// The panel synchronizes on every session start, and a sync that moved
+		// nothing is the common case. Rewriting every key and its per-model rows
+		// to record that would be the largest write the plugin makes.
+		if !changed {
+			return struct{}{}, Changes{}
+		}
 		return struct{}{}, Changes{AllKeys: true}
 	})
 	return result, nil
@@ -327,8 +346,10 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 // A deleted key is kept for exactly as long as it can still be read: its own
 // billing history. Once the log holds nothing about it, the record is finally
 // dropped, which bounds what an operator who rotates keys accumulates on disk.
-func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Time) {
+// The count says whether the sync that called this has anything to write.
+func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Time) int {
 	cutoff := now.Add(-LogRetention)
+	purged := 0
 	for scope, key := range state.Keys {
 		if key == nil || key.DeletedAt.IsZero() || key.DeletedAt.After(cutoff) {
 			continue
@@ -337,7 +358,9 @@ func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Tim
 			continue
 		}
 		delete(state.Keys, scope)
+		purged++
 	}
+	return purged
 }
 
 type StatsView struct {

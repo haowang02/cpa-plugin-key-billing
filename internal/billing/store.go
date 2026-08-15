@@ -92,10 +92,17 @@ func (s *Store) Configure(cfg Config) error {
 	if errOpen != nil {
 		return errOpen
 	}
-	snapshot, errLoad := repo.Load()
+	snapshot, errLoad := repo.Load(s.Now().Add(-LogRetention))
 	if errLoad != nil {
-		_ = repo.Close()
+		s.closeRepository(repo)
 		return errLoad
+	}
+	// A repository that answers no error owes a working set. Accepting a nil one
+	// would defer the failure to the first host call, which reports it as a
+	// panic rather than as the configuration error it is.
+	if snapshot.State == nil {
+		s.closeRepository(repo)
+		return fmt.Errorf("读取计费数据库 %s：未返回计费状态", path)
 	}
 
 	s.mu.Lock()
@@ -106,7 +113,7 @@ func (s *Store) Configure(cfg Config) error {
 	s.path = path
 	s.mu.Unlock()
 	if previous != nil {
-		_ = previous.Close()
+		s.closeRepository(previous)
 	}
 
 	s.Event(EventInfo, "已加载计费数据库 %s：%d 个 API Key、%d 个订阅计划、%d 条计费日志。%s。",
@@ -125,7 +132,17 @@ func (s *Store) Close() {
 	s.path = ""
 	s.mu.Unlock()
 	if repo != nil {
-		_ = repo.Close()
+		s.closeRepository(repo)
+	}
+}
+
+// Closing is where the database checkpoints its write-ahead log back into
+// itself, so a failure there is the operator's warning that the tail of the
+// record may exist only beside it. On a reconfigure the report lands in a plugin
+// log that is still being read; at shutdown it is the last thing written.
+func (s *Store) closeRepository(repo Repository) {
+	if errClose := repo.Close(); errClose != nil {
+		s.Event(EventError, "关闭计费数据库失败：%v", errClose)
 	}
 }
 
@@ -151,10 +168,11 @@ func (s *Store) BillingModel(upstreamModel, routeModel string) string {
 	return model
 }
 
-// Update mutates the working set and persists all of it. Operations that know
-// what they touched report it instead, so that billing one request rewrites one
-// key rather than every record the plugin holds.
-func (s *Store) Update(fn func(*State)) {
+// ReplaceAll mutates the working set and rewrites every record the plugin
+// holds. Nothing in the plugin calls it: an operation that knows what it
+// touched reports that instead, so that billing one request writes one key
+// rather than the whole record. Tests seed a store with it.
+func (s *Store) ReplaceAll(fn func(*State)) {
 	updateResult(s, func(state *State) (struct{}, Changes) {
 		fn(state)
 		return struct{}{}, Changes{AllKeys: true, Plans: true, Prices: true, Credentials: true}
@@ -164,7 +182,10 @@ func (s *Store) Update(fn func(*State)) {
 // updateResult applies one mutation and writes the rows it reports touching.
 // The save happens under the same lock as the mutation: a repository that
 // refuses the write leaves the change live in memory, where the next mutation
-// of the same rows carries it to disk again.
+// of the same rows carries it to disk again. Holding the lock across the write
+// also holds up the request path for as long as the write takes — the database
+// serves a single connection, so a save already waits behind any query in
+// flight, and _busy_timeout bounds what a writer outside this process can add.
 func updateResult[T any](s *Store, fn func(*State) (T, Changes)) T {
 	s.mu.Lock()
 	value, changes := fn(s.state)
@@ -210,10 +231,21 @@ func (s *Store) recordWriteError(err error) {
 	}
 }
 
-func (s *Store) repository() Repository {
+// withRepository runs fn against the active repository, holding the read lock
+// for the whole call so that a reconfigure cannot close the database out from
+// under a query in flight: Configure swaps the repository under the write lock
+// and only closes the old one afterwards, which a reader holding the lock has
+// already finished with. Costing the write path anything is unlikely — the
+// database serves a single connection, so a save waits behind the query either
+// way. A store the host has not configured yet has nothing to read.
+func withRepository[T any](s *Store, fn func(Repository) (T, error)) (T, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.repo
+	if s.repo == nil {
+		var zero T
+		return zero, nil
+	}
+	return fn(s.repo)
 }
 
 type Status struct {

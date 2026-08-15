@@ -110,7 +110,7 @@ func newAppWithPriceAndState(t *testing.T, enabled bool) (*App, string) {
 	}
 	cacheRead := 0.1
 	cacheWrite := 1.25
-	app.store.Update(func(state *billing.State) {
+	app.store.ReplaceAll(func(state *billing.State) {
 		state.Prices = []billing.PriceRule{{
 			Pattern:         "gpt-5.5",
 			InputPer1M:      1,

@@ -14,7 +14,7 @@ func newAccountStoreWithRepository(t *testing.T, now time.Time) (*Store, *memory
 	t.Helper()
 	store, repo := newStoreWithRepository(t)
 	store.now = func() time.Time { return now }
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Prices = []PriceRule{{
 			Pattern:         "gpt-5.5",
 			InputPer1M:      1,
@@ -68,7 +68,7 @@ func TestRecordUsageCreatesAndAccumulatesAKey(t *testing.T) {
 func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, now)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Prices = append(state.Prices, PriceRule{
 			Pattern: "claude/gpt-latest", InputPer1M: 3, OutputPer1M: 4,
 		})
@@ -109,7 +109,7 @@ func TestRecordUsageIgnoresANonGenerationRecord(t *testing.T) {
 func TestConcurrentLateCompletionDoesNotChargeNewCycle(t *testing.T) {
 	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, start)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
 		state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
 	})

@@ -8,7 +8,7 @@ import (
 func TestBindingAndResetLeaveCycleInactive(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}}
 		state.Keys["a"] = &KeyState{}
 	})
@@ -39,7 +39,7 @@ func TestResetAllCyclesSparesPlansThatNeverReset(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
 	spent := Cycle{PlanID: "weekly", StartAt: now, EndAt: now.Add(time.Hour), SpentUSD: 3}
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{
 			{ID: "weekly", AmountUSD: 10, Period: Period{Kind: PeriodWeekly}},
 			{ID: "once", AmountUSD: 10, Period: Period{Kind: PeriodNever}},
@@ -65,7 +65,7 @@ func TestResetAllCyclesSparesPlansThatNeverReset(t *testing.T) {
 func TestKeyDirectorySettlesExpiredCycleWithoutRestartingIt(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}}
 		state.Keys["a"] = &KeyState{PlanID: "p", Cycle: Cycle{
 			PlanID: "p", StartAt: now.Add(-48 * time.Hour), EndAt: now.Add(-24 * time.Hour), SpentUSD: 2,
@@ -87,7 +87,7 @@ func TestKeyDirectorySettlesExpiredCycleWithoutRestartingIt(t *testing.T) {
 func TestPlanBindingTransactions(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Keys["a"] = &KeyState{}
 		state.Keys["b"] = &KeyState{}
 		state.Keys["owned"] = &KeyState{PlanID: "other"}
@@ -130,7 +130,7 @@ func newSyncStore(t *testing.T, clock *time.Time) *Store {
 	t.Helper()
 	store := newAccountStore(t, *clock)
 	store.now = func() time.Time { return *clock }
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "p", Name: "Weekly", AmountUSD: 10, Period: Period{Kind: PeriodWeekly}}}
 	})
 	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext, deletedKeyPlaintext}, false); errSync != nil {

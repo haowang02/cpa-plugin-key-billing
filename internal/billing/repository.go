@@ -6,7 +6,11 @@ import "time"
 // knows that a database exists, and nothing below it decides what billing
 // means; the two meet on the domain types alone.
 type Repository interface {
-	Load() (Snapshot, error)
+	// Load reads the working set and drops the log entries older than
+	// logCutoff, which is the other moment retention is enforced: a deployment
+	// that has stopped receiving traffic never appends. It must answer a
+	// non-nil State whenever it answers no error.
+	Load(logCutoff time.Time) (Snapshot, error)
 
 	// Save applies one mutation in a single transaction: it writes the rows
 	// named by changes, reading their current values out of state, and appends
@@ -56,6 +60,9 @@ type Changes struct {
 	LogCutoff time.Time
 }
 
+// A mutation that only prunes the log is still a mutation: LogCutoff counts
+// here so that a save carrying nothing but a cutoff reaches the repository.
 func (c Changes) empty() bool {
-	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && !c.Prices && !c.Credentials && len(c.Log) == 0
+	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && !c.Prices && !c.Credentials &&
+		len(c.Log) == 0 && c.LogCutoff.IsZero()
 }

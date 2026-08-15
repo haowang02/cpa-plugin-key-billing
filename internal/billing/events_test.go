@@ -39,7 +39,7 @@ func TestUnwritableDatabaseIsReportedOnceAndOnRecovery(t *testing.T) {
 	repo.fail = errors.New("disk full")
 
 	for i := 0; i < 3; i++ {
-		store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{Requests: 1}} })
+		store.ReplaceAll(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{Requests: 1}} })
 	}
 	reported := 0
 	for _, event := range store.Events() {
@@ -52,7 +52,7 @@ func TestUnwritableDatabaseIsReportedOnceAndOnRecovery(t *testing.T) {
 	}
 
 	repo.fail = nil
-	store.Update(func(state *State) { state.Keys["scope-a"].Lifetime.Requests = 2 })
+	store.ReplaceAll(func(state *State) { state.Keys["scope-a"].Lifetime.Requests = 2 })
 	if store.Events()[0].Message != "计费数据库恢复写入。" {
 		t.Fatalf("events = %+v, want the recovery reported", store.Events()[0])
 	}

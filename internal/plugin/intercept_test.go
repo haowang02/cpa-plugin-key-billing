@@ -16,7 +16,7 @@ func exhaustedApp(t *testing.T, resetAfter time.Duration) *App {
 	t.Helper()
 	app := newAppWithPrice(t, true)
 	now := app.store.Now()
-	app.store.Update(func(state *billing.State) {
+	app.store.ReplaceAll(func(state *billing.State) {
 		state.Plans = []billing.Plan{{
 			ID: "daily-5", Name: "Daily 5", AmountUSD: 5,
 			Period: billing.Period{Kind: billing.PeriodDaily},
@@ -61,7 +61,7 @@ func TestInterceptTerminatesAnExhaustedKey(t *testing.T) {
 
 func TestInterceptNeverResetPlanHasNoRetryHint(t *testing.T) {
 	app := exhaustedApp(t, 30*time.Minute)
-	app.store.Update(func(state *billing.State) {
+	app.store.ReplaceAll(func(state *billing.State) {
 		state.Plans[0].Period = billing.Period{Kind: billing.PeriodNever}
 		state.Keys[billing.CallerScope(testAPIKey)].Cycle.EndAt = time.Time{}
 	})

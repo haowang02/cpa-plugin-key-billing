@@ -31,9 +31,11 @@ func mustSave(t *testing.T, database *DB, state *billing.State, changes billing.
 	}
 }
 
+// A zero cutoff reads the log whole, which is what a test asking what was
+// stored wants; retention itself is exercised where it is enforced.
 func mustLoad(t *testing.T, database *DB) billing.Snapshot {
 	t.Helper()
-	snapshot, errLoad := database.Load()
+	snapshot, errLoad := database.Load(time.Time{})
 	if errLoad != nil {
 		t.Fatalf("Load error = %v", errLoad)
 	}

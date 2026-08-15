@@ -136,6 +136,39 @@ func TestLogKeepsTheRetentionWindow(t *testing.T) {
 	}
 }
 
+// Appending is not the only moment the window has to be trimmed: a deployment
+// whose traffic stopped never appends again, and its aged entries would sit on
+// disk for as long as the database lives.
+func TestLoadDropsEntriesPastRetention(t *testing.T) {
+	database, _ := loggedDatabase(t)
+
+	snapshot, errLoad := database.Load(logStart.Add(3 * time.Minute))
+	if errLoad != nil {
+		t.Fatalf("Load error = %v", errLoad)
+	}
+	// The count is what startup reports, so it has to be the number the log will
+	// actually return rather than the number of rows that survived until now.
+	if snapshot.LogEntries != 3 {
+		t.Fatalf("LogEntries = %d, want the three entries inside the window", snapshot.LogEntries)
+	}
+	if view := mustQuery(t, database, billing.LogQuery{}); view.Total != 3 {
+		t.Fatalf("total = %d, want the aged entries gone from the database", view.Total)
+	}
+}
+
+// SQLite's own lower() folds ASCII and leaves every other alphabet alone. Labels
+// and remarks are free operator text, so a search has to fold the way the rest
+// of the plugin does.
+func TestLogSearchFoldsBeyondASCII(t *testing.T) {
+	database, state := loggedDatabase(t)
+	state.Keys["scope-a"].Label = "ÉQUIPE PARIS"
+	mustSave(t, database, state, billing.Changes{Keys: []string{"scope-a"}})
+
+	if view := mustQuery(t, database, billing.LogQuery{Search: "équipe"}); view.Total != 4 {
+		t.Fatalf("total = %d, want the key matched by its label in the other case", view.Total)
+	}
+}
+
 func TestClearLogsAndLoggedScopes(t *testing.T) {
 	database, _ := loggedDatabase(t)
 

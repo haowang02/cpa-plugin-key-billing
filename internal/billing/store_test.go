@@ -3,6 +3,7 @@ package billing
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,7 +69,7 @@ func TestConfigureKeepsTheLiveDocumentWhenTheNewPathFails(t *testing.T) {
 	if errConfigure := store.Configure(cfg); errConfigure != nil {
 		t.Fatalf("Configure error = %v", errConfigure)
 	}
-	store.Update(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{CostUSD: 7}} })
+	store.ReplaceAll(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{CostUSD: 7}} })
 
 	broken := cfg
 	broken.StateFile = filepath.Join(t.TempDir(), "broken.db")
@@ -76,7 +77,7 @@ func TestConfigureKeepsTheLiveDocumentWhenTheNewPathFails(t *testing.T) {
 		t.Fatal("Configure accepted an unusable path, want an error")
 	}
 
-	store.Update(func(state *State) { state.Keys["scope-a"].Lifetime.CostUSD = 9 })
+	store.ReplaceAll(func(state *State) { state.Keys["scope-a"].Lifetime.CostUSD = 9 })
 	if repo.state.Keys["scope-a"].Lifetime.CostUSD != 9 {
 		t.Fatalf("the rejected reconfigure stranded the original document: %+v", repo.state.Keys)
 	}
@@ -105,7 +106,7 @@ func TestConfigureResolvesAJSONStateFileToItsDatabase(t *testing.T) {
 // operations that reshape the key set must write all of it.
 func TestMutationsWriteOnlyWhatTheyTouched(t *testing.T) {
 	store, repo := newStoreWithRepository(t)
-	store.Update(func(state *State) {
+	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
 		state.Keys["scope-a"] = &KeyState{}
 		state.Keys["scope-b"] = &KeyState{}
@@ -126,5 +127,58 @@ func TestMutationsWriteOnlyWhatTheyTouched(t *testing.T) {
 	}
 	if len(repo.saves) != 1 || !repo.saves[0].AllKeys {
 		t.Fatalf("saves = %+v, want the whole key set rewritten", repo.saves)
+	}
+}
+
+// The panel synchronizes keys and models on every session start, and moving
+// nothing is the ordinary outcome. Recording that would be the largest write the
+// plugin makes: every key, every per-model row and the whole price table.
+func TestSyncsWriteNothingWhenNothingMoved(t *testing.T) {
+	store, repo := newStoreWithRepository(t)
+	if _, errKeys := store.SyncKeys([]string{"sk-live-000000001"}, false); errKeys != nil {
+		t.Fatalf("SyncKeys error = %v", errKeys)
+	}
+	if _, errModels := store.SyncModels([]string{"gpt-5.5"}); errModels != nil {
+		t.Fatalf("SyncModels error = %v", errModels)
+	}
+
+	repo.saves = nil
+	if _, errKeys := store.SyncKeys([]string{"sk-live-000000001"}, false); errKeys != nil {
+		t.Fatalf("SyncKeys error = %v", errKeys)
+	}
+	if _, errModels := store.SyncModels([]string{"gpt-5.5"}); errModels != nil {
+		t.Fatalf("SyncModels error = %v", errModels)
+	}
+	if len(repo.saves) != 0 {
+		t.Fatalf("saves = %+v, want a sync that moved nothing to write nothing", repo.saves)
+	}
+}
+
+// A repository that answers no error owes a working set. Taking a nil one would
+// defer the failure to the first request, which reports it as a panic rather
+// than as the configuration error it is.
+func TestConfigureRefusesARepositoryWithoutAWorkingSet(t *testing.T) {
+	store := NewStore(func(string) (Repository, error) { return &statelessRepository{}, nil })
+	t.Cleanup(store.Close)
+
+	if errConfigure := store.Configure(testConfig(t)); errConfigure == nil {
+		t.Fatal("Configure accepted a repository that answered no working set")
+	}
+}
+
+// Closing is where the write-ahead log is folded back into the database, so a
+// failure there is the operator's warning that the tail of the record may exist
+// only beside it.
+func TestCloseReportsARepositoryThatFailsToClose(t *testing.T) {
+	repo := &memoryRepository{state: NewState(), closeFail: errors.New("磁盘已满")}
+	store := NewStore(func(string) (Repository, error) { return repo, nil })
+	if errConfigure := store.Configure(testConfig(t)); errConfigure != nil {
+		t.Fatalf("Configure error = %v", errConfigure)
+	}
+
+	store.Close()
+	events := store.Events()
+	if len(events) == 0 || events[0].Level != EventError || !strings.Contains(events[0].Message, "磁盘已满") {
+		t.Fatalf("events = %+v, want the failing close reported", events)
 	}
 }

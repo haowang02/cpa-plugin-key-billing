@@ -3,11 +3,15 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"cpa-key-billing/internal/billing"
 )
 
-func (d *DB) Load() (billing.Snapshot, error) {
+func (d *DB) Load(logCutoff time.Time) (billing.Snapshot, error) {
+	if errPrune := pruneLog(d.db.Exec, logCutoff); errPrune != nil {
+		return billing.Snapshot{}, errPrune
+	}
 	state := billing.NewState()
 	if errKeys := d.loadKeys(state); errKeys != nil {
 		return billing.Snapshot{}, errKeys

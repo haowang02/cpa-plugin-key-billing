@@ -77,14 +77,35 @@ type LogOutcomeCounts struct {
 // the same search already produced rather than a second query.
 func (c LogOutcomeCounts) Total(outcome string) int {
 	switch outcome {
+	case "":
+		return c.All
 	case OutcomeSucceeded:
 		return c.Succeeded
 	case string(OutcomeFailed):
 		return c.Failed
 	case string(OutcomeCanceled):
 		return c.Canceled
+	}
+	// A filter with no bucket of its own counts nothing rather than everything:
+	// the page it belongs to would hold only its own entries, and a total taken
+	// from the whole window would page far past them. ValidLogOutcome refuses
+	// such a filter, so an outcome added there needs a bucket added here.
+	return 0
+}
+
+// StoredOutcome maps a status filter onto the value entries carry for it, and
+// reports whether it selects at all. The page predicate and the total that
+// belongs to it are two readings of the same filter, so they are taken from
+// here rather than each being switched on separately.
+func StoredOutcome(filter string) (string, bool) {
+	switch filter {
+	case "":
+		return "", false
+	case OutcomeSucceeded:
+		// A request that completed normally carries no outcome at all.
+		return "", true
 	default:
-		return c.All
+		return filter, true
 	}
 }
 
@@ -99,20 +120,20 @@ func ValidLogOutcome(filter string) bool {
 }
 
 // Entries that fell out of the retention window are left out rather than
-// returned: they are dropped on the next append, and until then they are no
-// longer part of the log.
+// returned: they are dropped on the next append and when the log is next
+// opened, and until then they are no longer part of the log.
 func (s *Store) Logs(query LogQuery) (LogView, error) {
-	repo := s.repository()
-	if repo == nil {
-		return LogView{Entries: []LogRow{}}, nil
+	view, errLogs := withRepository(s, func(repo Repository) (LogView, error) {
+		return repo.Logs(query, s.Now().Add(-LogRetention))
+	})
+	if view.Entries == nil {
+		view.Entries = []LogRow{}
 	}
-	return repo.Logs(query, s.Now().Add(-LogRetention))
+	return view, errLogs
 }
 
 func (s *Store) ClearLogs() (int, error) {
-	repo := s.repository()
-	if repo == nil {
-		return 0, nil
-	}
-	return repo.ClearLogs()
+	return withRepository(s, func(repo Repository) (int, error) {
+		return repo.ClearLogs()
+	})
 }

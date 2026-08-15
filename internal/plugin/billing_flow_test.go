@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"cpa-key-billing/internal/billing"
 	"cpa-key-billing/internal/sqlite"
@@ -331,7 +332,7 @@ func TestFlowTerminalEventPersistsTheBillWithoutPlaintextKeys(t *testing.T) {
 		t.Fatalf("reopen persisted state: %v", errOpen)
 	}
 	defer database.Close()
-	snapshot, errLoad := database.Load()
+	snapshot, errLoad := database.Load(time.Time{})
 	if errLoad != nil {
 		t.Fatalf("load persisted state: %v", errLoad)
 	}
@@ -359,7 +360,7 @@ func TestFlowTerminalEventPersistsTheBillWithoutPlaintextKeys(t *testing.T) {
 
 func TestFlowEnforcementUsesRecordedSpend(t *testing.T) {
 	app := newAppWithPrice(t, true)
-	app.store.Update(func(state *billing.State) {
+	app.store.ReplaceAll(func(state *billing.State) {
 		state.Plans = []billing.Plan{{ID: "p", Name: "Tiny", AmountUSD: 0.0015, Period: billing.Period{Kind: billing.PeriodDaily}}}
 		state.Keys[flowScope()] = &billing.KeyState{PlanID: "p"}
 	})
