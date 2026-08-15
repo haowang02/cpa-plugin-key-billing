@@ -107,14 +107,21 @@ func (s *Store) SetRequestCredential(requestID, authIndex string) {
 
 // It is the single commit point for every outcome — success, failure and
 // cancellation alike. A nil record means the request was never tracked, so
-// there is nothing to log about it beyond the counter.
-func (s *Store) FinishRequest(requestID string, record *UsageRecord, outcome RequestOutcome) {
+// there is nothing to log about it beyond the counter. reason is what the
+// client was told went wrong, when the plugin saw it.
+func (s *Store) FinishRequest(requestID string, record *UsageRecord, outcome RequestOutcome, reason string) {
 	entry, exists := s.pending.finish(requestID)
 	if !exists {
 		return
 	}
 	if entry.Scope == "" {
 		return
+	}
+	// The plugin log names a failure before billing decides whether there is
+	// anything to charge for it, because the failures with nothing to charge
+	// are the ones nothing else records.
+	if outcome == OutcomeFailed {
+		s.reportFailedRequest(requestID, entry, record, reason)
 	}
 	s.RecordUsage(UsageEvent{
 		Scope:        entry.Scope,

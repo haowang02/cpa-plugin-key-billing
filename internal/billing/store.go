@@ -34,6 +34,10 @@ type Store struct {
 	// terminal event. It is runtime-only and never persisted.
 	pending *pendingTable
 
+	// blocked remembers which keys have already had their exhausted quota
+	// reported, so retries against one do not repeat it.
+	blocked blockedKeys
+
 	errMu     sync.Mutex
 	lastError string
 

@@ -12,6 +12,14 @@ import (
 // the newest would hide exactly the onset an operator is looking for.
 const EventRetention = 30 * 24 * time.Hour
 
+// MaxRequestEvents bounds the entries downstream traffic can put in the log.
+// Operational events stay bounded by age alone for the reason above, but a
+// request that did not succeed is not an occasional event: an upstream that is
+// failing produces one per attempt, and the newest are the ones being
+// diagnosed. So these age out like the rest and, past this many, the oldest of
+// them make room — never an operational entry.
+const MaxRequestEvents = 500
+
 type EventLevel string
 
 const (
@@ -27,6 +35,10 @@ type Event struct {
 	At      time.Time  `json:"at"`
 	Level   EventLevel `json:"level"`
 	Message string     `json:"message"`
+	// perRequest marks an entry one downstream request produced. It decides
+	// what the count bound applies to and is of no interest to a reader, so it
+	// stays out of the panel's copy.
+	perRequest bool
 }
 
 type eventLog struct {
@@ -39,6 +51,32 @@ func (l *eventLog) add(event Event) {
 	defer l.mu.Unlock()
 	l.pruneLocked(event.At)
 	l.entries = append(l.entries, event)
+	if event.perRequest {
+		l.capRequestsLocked()
+	}
+}
+
+// capRequestsLocked drops the oldest request entries until they are back within
+// their bound, leaving every operational entry where it is.
+func (l *eventLog) capRequestsLocked() {
+	surplus := -MaxRequestEvents
+	for _, entry := range l.entries {
+		if entry.perRequest {
+			surplus++
+		}
+	}
+	if surplus <= 0 {
+		return
+	}
+	kept := l.entries[:0]
+	for _, entry := range l.entries {
+		if entry.perRequest && surplus > 0 {
+			surplus--
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	l.entries = kept
 }
 
 // snapshot returns the log newest first, which is the order it is read in. It
@@ -80,6 +118,18 @@ func (s *Store) Event(level EventLevel, format string, args ...any) {
 		return
 	}
 	s.events.add(Event{At: s.Now(), Level: level, Message: fmt.Sprintf(format, args...)})
+}
+
+// requestEvent records what became of one downstream request. These arrive with
+// the traffic rather than with an operator's actions, which is what bounds them
+// by count as well as by age.
+func (s *Store) requestEvent(level EventLevel, format string, args ...any) {
+	if s == nil {
+		return
+	}
+	s.events.add(Event{
+		At: s.Now(), Level: level, Message: fmt.Sprintf(format, args...), perRequest: true,
+	})
 }
 
 func (s *Store) Events() []Event {

@@ -42,14 +42,16 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 
 	// Derive Retry-After from the same instant used for the quota decision.
 	now := a.store.Now()
+	endpoint := metadataString(req.Metadata, MetadataRequestPath)
 	decision := a.store.Authorize(scope, now)
 	if !decision.Allowed {
+		a.store.ReportQuotaBlock(scope, endpoint, decision)
 		return OKEnvelope(quotaExhaustedResponse(req.SourceFormat, decision, now))
 	}
 
 	a.store.BeginRequest(req.RequestID, billing.PendingRequest{
 		Scope:        scope,
-		Endpoint:     metadataString(req.Metadata, MetadataRequestPath),
+		Endpoint:     endpoint,
 		CyclePlanID:  decision.PlanID,
 		CycleStartAt: decision.CycleStartAt,
 	})
@@ -246,8 +248,8 @@ func (a *App) handleRequestComplete(raw []byte) ([]byte, error) {
 		a.store.DiscardRequest(completion.RequestID)
 		a.usage.discard(completion.RequestID)
 	} else {
-		record := a.usage.finish(completion.RequestID, a.store.BillingModel)
-		a.store.FinishRequest(completion.RequestID, record, billingOutcome(completion.Outcome))
+		record, reason := a.usage.finish(completion.RequestID, a.store.BillingModel)
+		a.store.FinishRequest(completion.RequestID, record, billingOutcome(completion.Outcome), reason)
 	}
 	return OKEnvelope(struct{}{})
 }

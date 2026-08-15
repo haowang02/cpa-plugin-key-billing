@@ -31,6 +31,10 @@ type trackedRequest struct {
 	startedAt      time.Time
 	routes         map[routeKey]struct{}
 	usage          upstreamUsage
+	// failure is the last error the client was shown. It is read from the
+	// translated response because that is what the request actually ended as,
+	// and it is what the plugin log reports a failure by.
+	failure string
 }
 
 type routeKey struct {
@@ -183,6 +187,9 @@ func (t *usageTracker) bindResponse(requestID string, body []byte) {
 		return
 	}
 	request.responded = true
+	if failure := responseFailure(objects); failure != "" {
+		request.failure = failure
+	}
 	for _, object := range objects {
 		id := responseID(object)
 		if id == "" {
@@ -204,21 +211,23 @@ func (t *usageTracker) bindResponse(requestID string, body []byte) {
 	}
 }
 
-// finish returns what the request accumulated and forgets it. A nil result is a
-// request this tracker never saw.
+// finish returns what the request accumulated, along with the error the client
+// was last shown, and forgets it. A nil record is a request this tracker never
+// saw; the reason is empty for one that never carried an error, which is every
+// request that went well.
 //
 // A tracked request always yields a record, even one the provider never
 // reported usage for: a canceled or failed request has none, and it still has
 // to reach the billing log so it is visible rather than merely missing. Its
 // Breakdown is then the zero value, which prices at nothing. Responded is what
 // tells that apart from an upstream that refused the request outright.
-func (t *usageTracker) finish(requestID string, resolveModel func(string, string) string) *billing.UsageRecord {
+func (t *usageTracker) finish(requestID string, resolveModel func(string, string) string) (*billing.UsageRecord, string) {
 	requestID = strings.TrimSpace(requestID)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	request := t.requests[requestID]
 	if request == nil {
-		return nil
+		return nil, ""
 	}
 	defer t.removeRequestLocked(requestID)
 	record := &billing.UsageRecord{
@@ -231,7 +240,7 @@ func (t *usageTracker) finish(requestID string, resolveModel func(string, string
 	if request.usage.hasUsage() {
 		record.Breakdown = request.usage.breakdown()
 	}
-	return record
+	return record, request.failure
 }
 
 func (t *usageTracker) discard(requestID string) {
