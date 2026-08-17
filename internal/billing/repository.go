@@ -40,10 +40,10 @@ type Snapshot struct {
 }
 
 // Changes names the rows one mutation touched, so a save writes those and no
-// others. Plans, prices and credentials are replaced whole because an operator
-// changes them a few rows at a time and there are never many; keys are named
-// individually because usage accounting runs on every proxied request and must
-// touch a single row.
+// others. Plans, prices, model groups and credentials are replaced whole because
+// an operator changes them a few rows at a time and there are never many; keys
+// are named individually because usage accounting runs on every proxied request
+// and must touch a single row.
 type Changes struct {
 	// Keys lists the scopes to write. AllKeys instead replaces the entire key
 	// set, dropping the records the state no longer holds.
@@ -52,6 +52,7 @@ type Changes struct {
 
 	Plans       bool
 	Prices      bool
+	ModelGroups bool
 	Credentials bool
 
 	// Appending is the only moment the log grows, so it is also the only moment
@@ -63,6 +64,6 @@ type Changes struct {
 // A mutation that only prunes the log is still a mutation: LogCutoff counts
 // here so that a save carrying nothing but a cutoff reaches the repository.
 func (c Changes) empty() bool {
-	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && !c.Prices && !c.Credentials &&
+	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && !c.Prices && !c.ModelGroups && !c.Credentials &&
 		len(c.Log) == 0 && c.LogCutoff.IsZero()
 }

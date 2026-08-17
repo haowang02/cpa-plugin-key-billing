@@ -9,6 +9,9 @@ type State struct {
 	Prices []PriceRule
 	Plans  []Plan
 	Keys   map[string]*KeyState
+	// ModelGroups are the named model subsets a key can be granted at once. The
+	// all-models group is not among them: it is what an empty selection means.
+	ModelGroups []ModelGroup
 	// Credentials names the upstream credentials seen so far, keyed by the
 	// host's runtime auth index. The log stores that index and reads the name
 	// from here, so a credential renamed upstream renames its history too.
@@ -70,6 +73,15 @@ type Plan struct {
 	Period    Period  `json:"period"`
 }
 
+// ModelGroup is a named subset of the models the proxy serves. Membership is
+// stored by model name rather than resolved against the price table, so a model
+// that disappears from the proxy for a while keeps its place in the group.
+type ModelGroup struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Models []string `json:"models"`
+}
+
 // KeyState is identified by caller scope; plaintext keys are never stored.
 type KeyState struct {
 	Preview string `json:"preview,omitempty"`
@@ -85,12 +97,19 @@ type KeyState struct {
 	// A deleted key is marked rather than dropped because the record is what
 	// gives billing history its identity: the log stores a scope and reads the
 	// masked key and remark from here.
-	InConfig  bool               `json:"in_config,omitempty"`
-	DeletedAt time.Time          `json:"deleted_at,omitzero"`
-	PlanID    string             `json:"plan_id,omitempty"`
-	Cycle     Cycle              `json:"cycle"`
-	Lifetime  Totals             `json:"lifetime"`
-	ByModel   map[string]*Totals `json:"by_model,omitempty"`
+	InConfig  bool      `json:"in_config,omitempty"`
+	DeletedAt time.Time `json:"deleted_at,omitzero"`
+	PlanID    string    `json:"plan_id,omitempty"`
+	// ModelGroupIDs and Models together name what this key may call: the union
+	// of every bound group and every individually selected model. Both empty is
+	// the all-models grant every key starts with, which is also what makes a key
+	// nobody has configured — an upgraded record, or a principal first seen in
+	// traffic — unrestricted rather than locked out.
+	ModelGroupIDs []string           `json:"model_groups,omitempty"`
+	Models        []string           `json:"models,omitempty"`
+	Cycle         Cycle              `json:"cycle"`
+	Lifetime      Totals             `json:"lifetime"`
+	ByModel       map[string]*Totals `json:"by_model,omitempty"`
 }
 
 type Cycle struct {

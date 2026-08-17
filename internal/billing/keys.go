@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,12 @@ type KeyView struct {
 
 	PlanID   string `json:"plan_id,omitempty"`
 	PlanName string `json:"plan_name,omitempty"`
+	// Reported as stored rather than resolved into the models they add up to:
+	// the editor puts the same boxes back on the screen, and the panel already
+	// holds the groups to expand them with.
+	ModelGroupIDs []string `json:"model_groups"`
+	Models        []string `json:"models"`
+	AllModels     bool     `json:"all_models"`
 	// Keys without a plan are still fully accounted for.
 	Unlimited   bool      `json:"unlimited"`
 	Blocked     bool      `json:"blocked"`
@@ -76,16 +83,22 @@ func (s *Store) KeyDirectory() KeyDirectory {
 
 func keyView(scope string, key *KeyState, plans map[string]Plan) KeyView {
 	view := KeyView{
-		Scope:      scope,
-		Preview:    key.Preview,
-		Label:      key.Label,
-		InConfig:   key.InConfig,
-		DeletedAt:  key.DeletedAt,
-		PlanID:     key.PlanID,
-		Unlimited:  true,
-		SpentUSD:   key.Cycle.SpentUSD,
-		CycleEndAt: key.Cycle.EndAt,
-		Lifetime:   key.Lifetime,
+		Scope:     scope,
+		Preview:   key.Preview,
+		Label:     key.Label,
+		InConfig:  key.InConfig,
+		DeletedAt: key.DeletedAt,
+		PlanID:    key.PlanID,
+		// Copied rather than shared: a view outlives the lock it was built
+		// under, and the selection it names is a slice the store rewrites in
+		// place when an operator changes it.
+		ModelGroupIDs: slices.Clone(key.ModelGroupIDs),
+		Models:        slices.Clone(key.Models),
+		AllModels:     len(key.ModelGroupIDs) == 0 && len(key.Models) == 0,
+		Unlimited:     true,
+		SpentUSD:      key.Cycle.SpentUSD,
+		CycleEndAt:    key.Cycle.EndAt,
+		Lifetime:      key.Lifetime,
 	}
 	if plan, exists := plans[key.PlanID]; exists {
 		view.PlanName = plan.Name
@@ -413,18 +426,30 @@ func normalizeScope(scope string) string {
 }
 
 func normalizeScopes(scopes []string) []string {
-	normalized := make([]string, 0, len(scopes))
-	seen := make(map[string]struct{}, len(scopes))
+	lowered := make([]string, 0, len(scopes))
 	for _, scope := range scopes {
-		scope = normalizeScope(scope)
-		if scope == "" {
-			continue
-		}
-		if _, exists := seen[scope]; exists {
-			continue
-		}
-		seen[scope] = struct{}{}
-		normalized = append(normalized, scope)
+		lowered = append(lowered, normalizeScope(scope))
 	}
-	return normalized
+	return dedupe(lowered)
+}
+
+// dedupe drops blanks and repeats from an operator's list. Values are compared
+// case-insensitively but kept in the spelling they arrived in, because model
+// names and identifiers are read back on screen.
+func dedupe(values []string) []string {
+	var deduped []string
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		lowered := strings.ToLower(value)
+		if _, exists := seen[lowered]; exists {
+			continue
+		}
+		seen[lowered] = struct{}{}
+		deduped = append(deduped, value)
+	}
+	return deduped
 }

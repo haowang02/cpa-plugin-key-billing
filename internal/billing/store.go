@@ -38,6 +38,9 @@ type Store struct {
 	// reported, so retries against one do not repeat it.
 	blocked blockedKeys
 
+	// denied does the same for the models a key may not call.
+	denied deniedModels
+
 	errMu     sync.Mutex
 	lastError string
 
@@ -179,7 +182,7 @@ func (s *Store) BillingModel(upstreamModel, routeModel string) string {
 func (s *Store) ReplaceAll(fn func(*State)) {
 	updateResult(s, func(state *State) (struct{}, Changes) {
 		fn(state)
-		return struct{}{}, Changes{AllKeys: true, Plans: true, Prices: true, Credentials: true}
+		return struct{}{}, Changes{AllKeys: true, Plans: true, Prices: true, ModelGroups: true, Credentials: true}
 	})
 }
 

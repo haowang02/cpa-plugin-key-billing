@@ -415,18 +415,12 @@ func (s *Store) DeletePlan(id string) (int, error) {
 
 	var errApply error
 	unbound := updateResult(s, func(state *State) (int, Changes) {
-		index := -1
-		for i := range state.Plans {
-			if state.Plans[i].ID == id {
-				index = i
-				break
-			}
-		}
+		index := slices.IndexFunc(state.Plans, func(plan Plan) bool { return plan.ID == id })
 		if index < 0 {
 			errApply = notFoundf("订阅计划 %q 不存在", id)
 			return 0, Changes{}
 		}
-		state.Plans = append(state.Plans[:index], state.Plans[index+1:]...)
+		state.Plans = slices.Delete(state.Plans, index, index+1)
 
 		released := 0
 		for _, key := range state.Keys {
@@ -443,26 +437,28 @@ func (s *Store) DeletePlan(id string) (int, error) {
 }
 
 func (s *State) freePlanID(name string) string {
-	base := slugify(name)
-	if !strings.ContainsAny(base, "abcdefghijklmnopqrstuvwxyz") {
-		// A slug with no letters is not a readable identifier: "日额度 0.003"
-		// would otherwise become "0-003". A counter reads better.
-		base = ""
-	}
-	if base != "" {
-		if _, exists := s.FindPlan(base); !exists {
+	return freeID(name, "plan", func(id string) bool {
+		_, exists := s.FindPlan(id)
+		return exists
+	})
+}
+
+// freeID turns a display name into an identifier nothing else answers to.
+func freeID(name, prefix string, taken func(string) bool) string {
+	// A slug with no letters is not a readable identifier: "日额度 0.003" would
+	// otherwise become "0-003". The counter below reads better.
+	if base := slugify(name); strings.ContainsAny(base, "abcdefghijklmnopqrstuvwxyz") {
+		if !taken(base) {
 			return base
 		}
 		for i := 2; i < 1000; i++ {
-			candidate := fmt.Sprintf("%s-%d", base, i)
-			if _, exists := s.FindPlan(candidate); !exists {
+			if candidate := fmt.Sprintf("%s-%d", base, i); !taken(candidate) {
 				return candidate
 			}
 		}
 	}
 	for i := 1; ; i++ {
-		candidate := fmt.Sprintf("plan-%d", i)
-		if _, exists := s.FindPlan(candidate); !exists {
+		if candidate := fmt.Sprintf("%s-%d", prefix, i); !taken(candidate) {
 			return candidate
 		}
 	}
