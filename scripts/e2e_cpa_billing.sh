@@ -367,6 +367,95 @@ assert_latest_entry() {
   fi
 }
 
+# assert_model_access grants the downstream key a group that does not hold the
+# route this suite calls, and asserts the request is refused before it can reach
+# an upstream: 403 in the client's own error shape, nothing in the billing log,
+# and one line in the plugin log, which is the only record such a request leaves.
+assert_model_access() {
+  local port="$1"
+  local runtime_dir="$2"
+  local expected_count="$3"
+  local scope group body http_status response_file logs_file events_file
+
+  response_file="$runtime_dir/responses/model-blocked.json"
+  logs_file="$runtime_dir/model-access-logs.json"
+  events_file="$runtime_dir/model-access-events.json"
+
+  # Synchronize the Key list the way the panel does, so this holds whether or
+  # not traffic has already created the record.
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/sync" \
+    -H "Content-Type: application/json" \
+    --data '{"keys":["e2e-downstream-key"]}' \
+    >/dev/null
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$runtime_dir/overview.json"
+  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/overview.json")"
+  if ! jq -e --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)) | .all_models' \
+    "$runtime_dir/overview.json" >/dev/null; then
+    echo "API Key 的默认可用模型不是全部模型。" >&2
+    return 1
+  fi
+
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/model-groups" \
+    -H "Content-Type: application/json" \
+    --data "{\"name\":\"e2e-限定分组\",\"models\":[\"$responses_route\"]}" \
+    >"$runtime_dir/model-group.json"
+  group="$(jq -er '.model_group.id' "$runtime_dir/model-group.json")"
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/models" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" --arg group "$group" '{scope: $scope, groups: [$group], models: []}')" \
+    >/dev/null
+
+  # A thinking suffix is a request option rather than a model of its own, so it
+  # is no way around the refusal — and the refusal names the model without it,
+  # which is the name the billing log would have carried.
+  for requested in "chat/$chat_route" "chat/$chat_route(high)" "chat/$chat_route(max)"; do
+    http_status="$(curl -sS --max-time 30 \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer e2e-downstream-key" \
+      --data "$(request_body chat "$requested" false "Reply with exactly OK.")" \
+      --output "$response_file" \
+      --write-out '%{http_code}' \
+      "http://127.0.0.1:$port/v1/chat/completions")"
+    if [[ "$http_status" != "403" ]]; then
+      echo "无权使用的模型 ${requested} 返回 HTTP ${http_status}，预期 403。" >&2
+      return 1
+    fi
+    if ! jq -e --arg model "chat/$chat_route" '
+        .error.code == "model_not_allowed" and (.error.message | contains("\"" + $model + "\""))' "$response_file" >/dev/null; then
+      echo "模型拦截 ${requested} 的错误内容不正确：$(jq -c '.' "$response_file")" >&2
+      return 1
+    fi
+  done
+
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"
+  if [[ "$(jq -er '.entries | length' "$logs_file")" != "$expected_count" ]]; then
+    echo "被拦截的请求进入了计费日志。" >&2
+    return 1
+  fi
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$events_file"
+  if ! jq -e --arg model "chat/$chat_route" '
+      [.events[] | select(.level == "info" and (.message | startswith("模型拦截：")) and (.message | contains($model)))]
+      | length == 1' "$events_file" >/dev/null; then
+    echo "插件日志缺少模型拦截记录：$(jq -c '.events' "$events_file")" >&2
+    return 1
+  fi
+
+  # Back to every model, which is what selecting the all-models group means: the
+  # request that follows has to be billed exactly like any other.
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/models" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, groups: ["all"], models: []}')" \
+    >/dev/null
+  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/model-groups?id=$group" >/dev/null
+
+  body="$(request_body chat "chat/$chat_route" false "Reply with exactly OK.")"
+  api_call "$port" "模型拦截解除后：OpenAI Chat → OpenAI Chat 非流式" \
+    "/v1/chat/completions" "$body" chat "$runtime_dir/responses/model-restored.json"
+  assert_latest_entry "$port" "$((expected_count + 1))" chat chat \
+    "chat/$chat_route" "$model" "$runtime_dir/model-restored-logs.json" \
+    "$runtime_dir/responses/model-restored.json" false
+}
+
 # assert_canceled_request disconnects a client mid-generation, which is the one
 # outcome the plugin cannot observe from usage alone: the provider reports
 # nothing, so without the terminal event the request would vanish from the log.
@@ -613,6 +702,7 @@ EOF
     return 1
   fi
 
+  assert_model_access "$port" "$runtime_dir" "$expected_requests"
   assert_canceled_request "$port" "$runtime_dir"
 
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$runtime_dir/events.json"
@@ -625,7 +715,7 @@ EOF
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  echo "CLIProxyAPI v${version}：通过（23 个真实上游请求，另有 1 次客户端中途断开）。"
+  echo "CLIProxyAPI v${version}：通过（24 个真实上游请求，另有 1 次模型拦截和 1 次客户端中途断开）。"
 }
 
 version_index=0
