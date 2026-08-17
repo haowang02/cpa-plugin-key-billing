@@ -70,7 +70,11 @@ type overviewResponse struct {
 	Keys   []billing.KeyView  `json:"keys"`
 	Plans  []billing.Plan     `json:"plans"`
 	Prices []billing.PriceRow `json:"prices"`
-	Stats  billing.StatsView  `json:"stats"`
+	// The all-models group is not here: it holds no models, because it means
+	// every model there will ever be. The panel offers it as a checkbox of its
+	// own, and a key that selected it carries no groups at all.
+	ModelGroups []billing.ModelGroup `json:"model_groups"`
+	Stats       billing.StatsView    `json:"stats"`
 }
 
 func (a *App) overview() ManagementResponse {
@@ -79,11 +83,12 @@ func (a *App) overview() ManagementResponse {
 	}
 	directory := a.store.KeyDirectory()
 	return JSONResponse(http.StatusOK, overviewResponse{
-		Status: a.store.Status(),
-		Keys:   directory.Keys,
-		Plans:  a.store.Plans(),
-		Prices: a.store.PriceTable().Models,
-		Stats:  billing.StatsFrom(directory),
+		Status:      a.store.Status(),
+		Keys:        directory.Keys,
+		Plans:       a.store.Plans(),
+		Prices:      a.store.PriceTable().Models,
+		ModelGroups: a.store.ModelGroups(),
+		Stats:       billing.StatsFrom(directory),
 	})
 }
 
@@ -136,6 +141,59 @@ func (a *App) updatePlan(req ManagementRequest) ManagementResponse {
 		return errorResponse(errUpdate)
 	}
 	return JSONResponse(http.StatusOK, map[string]any{"plan": stored})
+}
+
+func (a *App) createModelGroup(req ManagementRequest) ManagementResponse {
+	var group billing.ModelGroup
+	if errDecode := decodeStrict(req.Body, &group); errDecode != nil {
+		return errorResponse(errDecode)
+	}
+	stored, errCreate := a.store.CreateModelGroup(group)
+	if errCreate != nil {
+		return errorResponse(errCreate)
+	}
+	return JSONResponse(http.StatusCreated, map[string]any{"model_group": stored})
+}
+
+func (a *App) updateModelGroup(req ManagementRequest) ManagementResponse {
+	var patch billing.ModelGroupPatch
+	if errDecode := decodeStrict(req.Body, &patch); errDecode != nil {
+		return errorResponse(errDecode)
+	}
+	if strings.TrimSpace(patch.ID) == "" {
+		patch.ID = req.Query.Get("id")
+	}
+	stored, errUpdate := a.store.UpdateModelGroup(patch)
+	if errUpdate != nil {
+		return errorResponse(errUpdate)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"model_group": stored})
+}
+
+func (a *App) deleteModelGroup(req ManagementRequest) ManagementResponse {
+	id := strings.TrimSpace(req.Query.Get("id"))
+	released, errDelete := a.store.DeleteModelGroup(id)
+	if errDelete != nil {
+		return errorResponse(errDelete)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"deleted": id, "released_keys": released})
+}
+
+// An empty selection is the all-models grant, so a body naming neither groups
+// nor models is a valid request rather than a missing one.
+func (a *App) setKeyModels(req ManagementRequest) ManagementResponse {
+	var body struct {
+		Scope  string   `json:"scope"`
+		Groups []string `json:"groups,omitempty"`
+		Models []string `json:"models,omitempty"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
+		return errorResponse(errDecode)
+	}
+	if errApply := a.store.SetKeyModels(body.Scope, body.Groups, body.Models); errApply != nil {
+		return errorResponse(errApply)
+	}
+	return JSONResponse(http.StatusOK, struct{}{})
 }
 
 func (a *App) clearLogs() ManagementResponse {

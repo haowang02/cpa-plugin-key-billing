@@ -15,6 +15,11 @@ import (
 // OpenAI-compatible clients recognize 429 with an insufficient_quota error.
 const QuotaExhaustedStatus = http.StatusTooManyRequests
 
+// A model the key may not call is a permission problem rather than a missing
+// one: answering 404 would tell the client the model does not exist, and the
+// next thing it does is fall back to another name.
+const ModelForbiddenStatus = http.StatusForbidden
+
 // maxRetryAfterSeconds caps the Retry-After hint. A monthly plan can be weeks
 // from resetting, and a client that sleeps literally for that long is worse off
 // than one that retries hourly and gets another 429.
@@ -43,6 +48,16 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	// Derive Retry-After from the same instant used for the quota decision.
 	now := a.store.Now()
 	endpoint := metadataString(req.Metadata, MetadataRequestPath)
+
+	// A model the key may not call is refused ahead of the quota check. The
+	// refusal is permanent rather than temporal, so reporting it as an exhausted
+	// budget would send the client back to retry; it also must not open a
+	// subscription period that the request was never admitted into.
+	if access := a.store.AuthorizeModel(scope, req.Model, req.RequestedModel); !access.Allowed {
+		a.store.ReportModelBlock(scope, endpoint, access)
+		return OKEnvelope(modelForbiddenResponse(req.SourceFormat, access))
+	}
+
 	decision := a.store.Authorize(scope, now)
 	if !decision.Allowed {
 		a.store.ReportQuotaBlock(scope, endpoint, decision)
@@ -142,7 +157,6 @@ func metadataString(metadata map[string]any, key string) string {
 
 // Use the client's API format so its SDK surfaces an error instead of a parse failure.
 func quotaExhaustedResponse(sourceFormat string, decision billing.Decision, now time.Time) RequestInterceptResponse {
-	message := quotaExhaustedMessage(decision)
 	headers := http.Header{
 		"Content-Type": []string{"application/json; charset=utf-8"},
 	}
@@ -153,7 +167,21 @@ func quotaExhaustedResponse(sourceFormat string, decision billing.Decision, now 
 		Terminate:       true,
 		StatusCode:      QuotaExhaustedStatus,
 		ResponseHeaders: headers,
-		ResponseBody:    quotaExhaustedBody(sourceFormat, message),
+		ResponseBody:    refusalBody(sourceFormat, quotaExhaustedError, quotaExhaustedMessage(decision)),
+	}
+}
+
+// A refused model carries no Retry-After: waiting changes nothing, and only an
+// operator can.
+func modelForbiddenResponse(sourceFormat string, decision billing.ModelDecision) RequestInterceptResponse {
+	message := "API Key 无权使用模型 " + strconv.Quote(decision.Model) + "。" + decision.Describe() + "。"
+	return RequestInterceptResponse{
+		Terminate:  true,
+		StatusCode: ModelForbiddenStatus,
+		ResponseHeaders: http.Header{
+			"Content-Type": []string{"application/json; charset=utf-8"},
+		},
+		ResponseBody: refusalBody(sourceFormat, modelForbiddenError, message),
 	}
 }
 
@@ -179,8 +207,37 @@ func quotaExhaustedMessage(decision billing.Decision) string {
 	return builder.String()
 }
 
+// refusal is one reason for turning a request away, spelled the way each client
+// family spells that kind of error. Both enforcement paths answer through it, so
+// a client SDK reads a refused model as a permission problem and an exhausted
+// budget as a rate limit rather than either as a parse failure.
+type refusal struct {
+	status        int
+	anthropicType string
+	geminiStatus  string
+	openaiType    string
+	openaiCode    string
+}
+
+var (
+	quotaExhaustedError = refusal{
+		status:        QuotaExhaustedStatus,
+		anthropicType: "rate_limit_error",
+		geminiStatus:  "RESOURCE_EXHAUSTED",
+		openaiType:    "insufficient_quota",
+		openaiCode:    "insufficient_quota",
+	}
+	modelForbiddenError = refusal{
+		status:        ModelForbiddenStatus,
+		anthropicType: "permission_error",
+		geminiStatus:  "PERMISSION_DENIED",
+		openaiType:    "invalid_request_error",
+		openaiCode:    "model_not_allowed",
+	}
+)
+
 // Substring matching keeps format variants such as "gemini-cli" working.
-func quotaExhaustedBody(sourceFormat, message string) []byte {
+func refusalBody(sourceFormat string, kind refusal, message string) []byte {
 	normalized := strings.ToLower(strings.TrimSpace(sourceFormat))
 	var payload any
 	switch {
@@ -188,24 +245,24 @@ func quotaExhaustedBody(sourceFormat, message string) []byte {
 		payload = map[string]any{
 			"type": "error",
 			"error": map[string]any{
-				"type":    "rate_limit_error",
+				"type":    kind.anthropicType,
 				"message": message,
 			},
 		}
 	case strings.Contains(normalized, "gemini") || strings.Contains(normalized, "antigravity"):
 		payload = map[string]any{
 			"error": map[string]any{
-				"code":    QuotaExhaustedStatus,
+				"code":    kind.status,
 				"message": message,
-				"status":  "RESOURCE_EXHAUSTED",
+				"status":  kind.geminiStatus,
 			},
 		}
 	default: // openai, openai-response, codex, interactions, and anything new.
 		payload = map[string]any{
 			"error": map[string]any{
 				"message": message,
-				"type":    "insufficient_quota",
-				"code":    "insufficient_quota",
+				"type":    kind.openaiType,
+				"code":    kind.openaiCode,
 			},
 		}
 	}

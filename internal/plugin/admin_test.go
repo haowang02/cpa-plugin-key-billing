@@ -329,6 +329,67 @@ func TestManagementRoutesWorkWhileDisabled(t *testing.T) {
 	}, http.StatusCreated, nil)
 }
 
+func TestModelGroupsRoundTripThroughTheManagementAPI(t *testing.T) {
+	app := newConfiguredApp(t)
+	const apiKey = "sk-models-first-00001"
+	scope := billing.CallerScope(apiKey)
+	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{apiKey}}, http.StatusOK, nil)
+
+	var created struct {
+		Group billing.ModelGroup `json:"model_group"`
+	}
+	callOK(t, app, http.MethodPost, routeModelGroups, nil, map[string]any{
+		"name": "Fast models", "models": []string{"gpt-4o", "chat/fast"},
+	}, http.StatusCreated, &created)
+	if created.Group.ID != "fast-models" || len(created.Group.Models) != 2 {
+		t.Fatalf("group = %+v", created.Group)
+	}
+
+	// A key starts on every model, and says so rather than leaving a client to
+	// infer it from two empty arrays.
+	if key := keysByScope(t, app)[scope]; !key.AllModels {
+		t.Fatalf("key = %+v, want it unrestricted to begin with", key)
+	}
+
+	callOK(t, app, http.MethodPost, routeKeysModels, nil, map[string]any{
+		"scope": scope, "groups": []string{"fast-models"}, "models": []string{"claude-sonnet-4-5"},
+	}, http.StatusOK, nil)
+	key := keysByScope(t, app)[scope]
+	if key.AllModels || len(key.ModelGroupIDs) != 1 || len(key.Models) != 1 {
+		t.Fatalf("key = %+v, want the selection recorded", key)
+	}
+
+	// The all-models group is exclusive wherever the request comes from, not
+	// just in the panel that draws the checkboxes.
+	callOK(t, app, http.MethodPost, routeKeysModels, nil, map[string]any{
+		"scope": scope, "groups": []string{billing.AllModelsGroupID, "fast-models"},
+		"models": []string{"claude-sonnet-4-5"},
+	}, http.StatusOK, nil)
+	if key = keysByScope(t, app)[scope]; !key.AllModels {
+		t.Fatalf("key = %+v, want the all-models group to clear the rest", key)
+	}
+
+	name := "Renamed"
+	callOK(t, app, http.MethodPatch, routeModelGroups, nil, map[string]any{
+		"id": "fast-models", "name": name,
+	}, http.StatusOK, nil)
+	groups := readOverview(t, app).ModelGroups
+	if len(groups) != 1 || groups[0].Name != name || len(groups[0].Models) != 2 {
+		t.Fatalf("groups = %+v, want only the name changed", groups)
+	}
+
+	var deleted struct {
+		Released int `json:"released_keys"`
+	}
+	callOK(t, app, http.MethodDelete, routeModelGroups, url.Values{"id": {"fast-models"}}, nil, http.StatusOK, &deleted)
+	if deleted.Released != 0 {
+		t.Fatalf("released = %d, want none: the key had already been returned to every model", deleted.Released)
+	}
+	if resp := callManagement(t, app, http.MethodDelete, routeModelGroups, url.Values{"id": {"fast-models"}}, nil); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("second delete status = %d, want 404", resp.StatusCode)
+	}
+}
+
 // The plugin log is where an operator sees what the plugin itself did, which is
 // otherwise invisible: a c-shared plugin has no console of its own.
 func TestPluginLogReportsStartupAndFailures(t *testing.T) {

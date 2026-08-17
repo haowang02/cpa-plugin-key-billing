@@ -28,6 +28,8 @@ const (
 	routePricesReset    = "/prices/reset"
 	routePricesSync     = "/prices/sync"
 	routePlans          = "/plans"
+	routeModelGroups    = "/model-groups"
+	routeKeysModels     = "/keys/models"
 	routeKeysBind       = "/keys/bind"
 	routeKeysUnbind     = "/keys/unbind"
 	routeKeysReset      = "/keys/reset"
@@ -58,6 +60,11 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPatch, Path: managementBase + routePlans, Description: "更新订阅计划。"},
 			{Method: http.MethodDelete, Path: managementBase + routePlans, Description: "删除订阅计划并解除相关 Key 的绑定。"},
 
+			{Method: http.MethodPost, Path: managementBase + routeModelGroups, Description: "新建模型分组。"},
+			{Method: http.MethodPatch, Path: managementBase + routeModelGroups, Description: "更新模型分组。"},
+			{Method: http.MethodDelete, Path: managementBase + routeModelGroups, Description: "删除模型分组并解除相关 Key 的绑定。"},
+
+			{Method: http.MethodPost, Path: managementBase + routeKeysModels, Description: "设置 API Key 可用的模型分组和模型。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysBind, Description: "将 API Key 绑定到订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysUnbind, Description: "解除 API Key 的订阅计划。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysReset, Description: "重置 API Key 的订阅额度。"},
@@ -127,6 +134,15 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 	case http.MethodDelete + " " + routePlans:
 		return a.deletePlan(req)
 
+	case http.MethodPost + " " + routeModelGroups:
+		return a.createModelGroup(req)
+	case http.MethodPatch + " " + routeModelGroups:
+		return a.updateModelGroup(req)
+	case http.MethodDelete + " " + routeModelGroups:
+		return a.deleteModelGroup(req)
+
+	case http.MethodPost + " " + routeKeysModels:
+		return a.setKeyModels(req)
 	case http.MethodPost + " " + routeKeysBind:
 		return a.bindKey(req)
 	case http.MethodPost + " " + routeKeysUnbind:

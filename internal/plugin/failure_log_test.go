@@ -16,7 +16,8 @@ func onlyRequestEvent(t *testing.T, app *App) billing.Event {
 	t.Helper()
 	var found []billing.Event
 	for _, event := range pluginLog(t, app) {
-		if strings.HasPrefix(event.Message, "请求失败：") || strings.HasPrefix(event.Message, "额度拦截：") {
+		if strings.HasPrefix(event.Message, "请求失败：") || strings.HasPrefix(event.Message, "额度拦截：") ||
+			strings.HasPrefix(event.Message, "模型拦截：") {
 			found = append(found, event)
 		}
 	}
