@@ -21,8 +21,11 @@ import (
 )
 
 // schemaVersion is kept in PRAGMA user_version. A database written by a newer
-// plugin is refused rather than misread.
-const schemaVersion = 1
+// plugin is refused rather than misread — including one an operator downgrading
+// meets, which is the point: version 2 holds the models each API Key may call,
+// and a version 1 plugin would serve that database while silently granting every
+// key every model.
+const schemaVersion = 2
 
 // driverName is this package's own registration of the SQLite driver. It exists
 // for ulower(): the built-in lower() folds ASCII only, so a key labelled in any
@@ -88,10 +91,23 @@ func (d *DB) init() error {
 	// the version that says so is stamped by the seed itself. Stamping it here
 	// would declare a database that failed to import ready, and the document
 	// beside it would never be read again.
-	if version > 0 {
-		return nil
+	if version == 0 {
+		return d.seed()
 	}
-	return d.seed()
+	if version < schemaVersion {
+		// Every version so far has only added tables, which the statements above
+		// created. Recording that is what stops a plugin from before them from
+		// opening this database and reading it as complete.
+		return d.stampVersion()
+	}
+	return nil
+}
+
+func (d *DB) stampVersion() error {
+	if _, errVersion := d.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); errVersion != nil {
+		return fmt.Errorf("标记计费数据库 %s 的格式版本：%w", d.path, errVersion)
+	}
+	return nil
 }
 
 // Billing history names masked keys, operator remarks and upstream credentials.

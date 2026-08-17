@@ -74,10 +74,18 @@ func TestStateSurvivesAReopen(t *testing.T) {
 		DeletedAt: start.Add(time.Hour), PlanID: "custom",
 		ByModel: map[string]*billing.Totals{},
 	}
+	state.ModelGroups = []billing.ModelGroup{
+		{ID: "fast", Name: "Fast", Models: []string{"gpt-5.5", "chat/fast"}},
+		{ID: "empty", Name: "Empty"},
+	}
+	state.Keys["scope-a"].ModelGroupIDs = []string{"fast", "empty"}
+	state.Keys["scope-a"].Models = []string{"claude-sonnet-4-5"}
 	state.Credentials["auth-1"] = billing.Credential{Provider: "codex", Account: "ops@example.com"}
 
 	database := openDatabase(t, path)
-	mustSave(t, database, state, billing.Changes{AllKeys: true, Plans: true, Prices: true, Credentials: true})
+	mustSave(t, database, state, billing.Changes{
+		AllKeys: true, Plans: true, Prices: true, ModelGroups: true, Credentials: true,
+	})
 	if errClose := database.Close(); errClose != nil {
 		t.Fatalf("Close error = %v", errClose)
 	}
@@ -88,6 +96,9 @@ func TestStateSurvivesAReopen(t *testing.T) {
 	}
 	if !reflect.DeepEqual(reloaded.Prices, state.Prices) {
 		t.Fatalf("prices = %+v, want %+v", reloaded.Prices, state.Prices)
+	}
+	if !reflect.DeepEqual(reloaded.ModelGroups, state.ModelGroups) {
+		t.Fatalf("model groups = %+v, want %+v", reloaded.ModelGroups, state.ModelGroups)
 	}
 	if !reflect.DeepEqual(reloaded.Credentials, state.Credentials) {
 		t.Fatalf("credentials = %+v, want %+v", reloaded.Credentials, state.Credentials)
@@ -155,6 +166,82 @@ func TestPerModelTotalsLeaveWithWhatTheyBelongedTo(t *testing.T) {
 	}
 	if orphans != 0 {
 		t.Fatalf("orphaned model totals = %d, want the retired key to have taken them", orphans)
+	}
+}
+
+// A key's grant is rewritten in full with the key, the way its per-model totals
+// are: a group it no longer holds has to leave the database with the selection.
+func TestKeyGrantIsRewrittenWithTheKey(t *testing.T) {
+	database := openTestDB(t)
+	state := billing.NewState()
+	state.ModelGroups = []billing.ModelGroup{{ID: "fast", Name: "Fast", Models: []string{"gpt-5.5"}}}
+	state.Keys["scope-a"] = &billing.KeyState{
+		ModelGroupIDs: []string{"fast"}, Models: []string{"claude", "gpt-5.5"},
+		ByModel: map[string]*billing.Totals{},
+	}
+	state.Keys["scope-b"] = &billing.KeyState{ModelGroupIDs: []string{"fast"}, ByModel: map[string]*billing.Totals{}}
+	mustSave(t, database, state, billing.Changes{AllKeys: true, ModelGroups: true})
+
+	state.Keys["scope-a"].ModelGroupIDs = nil
+	state.Keys["scope-a"].Models = []string{"claude"}
+	mustSave(t, database, state, billing.Changes{Keys: []string{"scope-a"}})
+	stored := mustLoad(t, database).State
+	if key := stored.Keys["scope-a"]; len(key.ModelGroupIDs) != 0 || len(key.Models) != 1 {
+		t.Fatalf("grant = %+v / %+v, want the narrowed selection", key.ModelGroupIDs, key.Models)
+	}
+	if key := stored.Keys["scope-b"]; len(key.ModelGroupIDs) != 1 {
+		t.Fatalf("grant = %+v, want the unnamed key untouched", key.ModelGroupIDs)
+	}
+
+	// Rewriting the group list must not take the keys' bindings with it, which
+	// is why those two tables reference the key rather than the group.
+	mustSave(t, database, state, billing.Changes{ModelGroups: true})
+	if stored = mustLoad(t, database).State; len(stored.Keys["scope-b"].ModelGroupIDs) != 1 {
+		t.Fatalf("grant = %+v, want it to survive a group rewrite", stored.Keys["scope-b"].ModelGroupIDs)
+	}
+
+	// A retired key takes its grant with it.
+	delete(state.Keys, "scope-b")
+	mustSave(t, database, state, billing.Changes{AllKeys: true})
+	var orphans int
+	if errCount := database.db.QueryRow(
+		"SELECT count(*) FROM key_model_groups WHERE scope NOT IN (SELECT scope FROM api_keys)").Scan(&orphans); errCount != nil {
+		t.Fatalf("count orphans: %v", errCount)
+	}
+	if orphans != 0 {
+		t.Fatalf("orphaned bindings = %d, want the retired key to have taken them", orphans)
+	}
+}
+
+// An older database gains the tables it lacks and is stamped with the version
+// that says so, which is what stops a plugin from before them from opening it
+// and reading a restricted key as unrestricted.
+func TestOpenUpgradesAnOlderSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	database := openDatabase(t, path)
+	if _, errVersion := database.db.Exec("PRAGMA user_version = 1"); errVersion != nil {
+		t.Fatalf("set user_version: %v", errVersion)
+	}
+	if _, errDrop := database.db.Exec("DROP TABLE model_groups"); errDrop != nil {
+		t.Fatalf("drop model_groups: %v", errDrop)
+	}
+	if errClose := database.Close(); errClose != nil {
+		t.Fatalf("Close error = %v", errClose)
+	}
+
+	reopened := openDatabase(t, path)
+	var version int
+	if errVersion := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); errVersion != nil {
+		t.Fatalf("read user_version: %v", errVersion)
+	}
+	if version != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", version, schemaVersion)
+	}
+	state := billing.NewState()
+	state.ModelGroups = []billing.ModelGroup{{ID: "fast", Name: "Fast", Models: []string{"gpt-5.5"}}}
+	mustSave(t, reopened, state, billing.Changes{ModelGroups: true})
+	if groups := mustLoad(t, reopened).State.ModelGroups; len(groups) != 1 {
+		t.Fatalf("groups = %+v, want the recreated table usable", groups)
 	}
 }
 

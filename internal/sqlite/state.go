@@ -22,6 +22,9 @@ func (d *DB) Load(logCutoff time.Time) (billing.Snapshot, error) {
 	if errPrices := d.loadPrices(state); errPrices != nil {
 		return billing.Snapshot{}, errPrices
 	}
+	if errGroups := d.loadModelGroups(state); errGroups != nil {
+		return billing.Snapshot{}, errGroups
+	}
 	if errCredentials := d.loadCredentials(state); errCredentials != nil {
 		return billing.Snapshot{}, errCredentials
 	}
@@ -56,6 +59,11 @@ func (d *DB) Save(state *billing.State, changes billing.Changes) error {
 		if changes.Prices {
 			if errPrices := replacePrices(tx, state); errPrices != nil {
 				return errPrices
+			}
+		}
+		if changes.ModelGroups {
+			if errGroups := replaceModelGroups(tx, state); errGroups != nil {
+				return errGroups
 			}
 		}
 		if changes.Credentials {
@@ -121,6 +129,33 @@ func saveKey(tx *sql.Tx, scope string, key *billing.KeyState) error {
 			return fmt.Errorf("保存 API Key %s 的模型用量：%w", scope, errModel)
 		}
 	}
+	return saveKeyModelAccess(tx, scope, key)
+}
+
+// The grant is rewritten in full, which is how a group or a model the key no
+// longer selects leaves the database with it.
+func saveKeyModelAccess(tx *sql.Tx, scope string, key *billing.KeyState) error {
+	for _, table := range []string{"key_model_groups", "key_allowed_models"} {
+		if _, errClear := tx.Exec("DELETE FROM "+table+" WHERE scope = ?", scope); errClear != nil {
+			return fmt.Errorf("保存 API Key %s 的可用模型：%w", scope, errClear)
+		}
+	}
+	for position, group := range key.ModelGroupIDs {
+		_, errGroup := tx.Exec(`
+			INSERT INTO key_model_groups (scope, position, group_id) VALUES (?, ?, ?)`,
+			scope, position, group)
+		if errGroup != nil {
+			return fmt.Errorf("保存 API Key %s 的模型分组：%w", scope, errGroup)
+		}
+	}
+	for position, model := range key.Models {
+		_, errModel := tx.Exec(`
+			INSERT INTO key_allowed_models (scope, position, model) VALUES (?, ?, ?)`,
+			scope, position, model)
+		if errModel != nil {
+			return fmt.Errorf("保存 API Key %s 的可用模型：%w", scope, errModel)
+		}
+	}
 	return nil
 }
 
@@ -169,7 +204,115 @@ func (d *DB) loadKeys(state *billing.State) error {
 	if errRows := rows.Err(); errRows != nil {
 		return fmt.Errorf("读取 API Key 列表：%w", errRows)
 	}
-	return d.loadKeyModels(state)
+	if errModels := d.loadKeyModels(state); errModels != nil {
+		return errModels
+	}
+	return d.loadKeyModelAccess(state)
+}
+
+func (d *DB) loadKeyModelAccess(state *billing.State) error {
+	groups, errGroups := d.loadKeyStrings("key_model_groups", "group_id")
+	if errGroups != nil {
+		return errGroups
+	}
+	models, errModels := d.loadKeyStrings("key_allowed_models", "model")
+	if errModels != nil {
+		return errModels
+	}
+	for scope, key := range state.Keys {
+		key.ModelGroupIDs = groups[scope]
+		key.Models = models[scope]
+	}
+	return nil
+}
+
+func (d *DB) loadKeyStrings(table, column string) (map[string][]string, error) {
+	rows, errQuery := d.db.Query("SELECT scope, " + column + " FROM " + table + " ORDER BY scope, position")
+	if errQuery != nil {
+		return nil, fmt.Errorf("读取 API Key 的可用模型：%w", errQuery)
+	}
+	defer rows.Close()
+	values := make(map[string][]string)
+	for rows.Next() {
+		var scope, value string
+		if errScan := rows.Scan(&scope, &value); errScan != nil {
+			return nil, fmt.Errorf("读取 API Key 的可用模型：%w", errScan)
+		}
+		values[scope] = append(values[scope], value)
+	}
+	if errRows := rows.Err(); errRows != nil {
+		return nil, fmt.Errorf("读取 API Key 的可用模型：%w", errRows)
+	}
+	return values, nil
+}
+
+func replaceModelGroups(tx *sql.Tx, state *billing.State) error {
+	for _, table := range []string{"model_groups", "model_group_models"} {
+		if _, errClear := tx.Exec("DELETE FROM " + table); errClear != nil {
+			return fmt.Errorf("保存模型分组：%w", errClear)
+		}
+	}
+	for position, group := range state.ModelGroups {
+		_, errGroup := tx.Exec(`
+			INSERT INTO model_groups (position, id, name) VALUES (?, ?, ?)`,
+			position, group.ID, group.Name)
+		if errGroup != nil {
+			return fmt.Errorf("保存模型分组 %s：%w", group.ID, errGroup)
+		}
+		for index, model := range group.Models {
+			_, errModel := tx.Exec(`
+				INSERT INTO model_group_models (group_id, position, model) VALUES (?, ?, ?)`,
+				group.ID, index, model)
+			if errModel != nil {
+				return fmt.Errorf("保存模型分组 %s 的模型：%w", group.ID, errModel)
+			}
+		}
+	}
+	return nil
+}
+
+func (d *DB) loadModelGroups(state *billing.State) error {
+	members, errMembers := d.loadModelGroupMembers()
+	if errMembers != nil {
+		return errMembers
+	}
+	rows, errQuery := d.db.Query("SELECT id, name FROM model_groups ORDER BY position")
+	if errQuery != nil {
+		return fmt.Errorf("读取模型分组：%w", errQuery)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var group billing.ModelGroup
+		if errScan := rows.Scan(&group.ID, &group.Name); errScan != nil {
+			return fmt.Errorf("读取模型分组：%w", errScan)
+		}
+		group.Models = members[group.ID]
+		state.ModelGroups = append(state.ModelGroups, group)
+	}
+	if errRows := rows.Err(); errRows != nil {
+		return fmt.Errorf("读取模型分组：%w", errRows)
+	}
+	return nil
+}
+
+func (d *DB) loadModelGroupMembers() (map[string][]string, error) {
+	rows, errQuery := d.db.Query("SELECT group_id, model FROM model_group_models ORDER BY group_id, position")
+	if errQuery != nil {
+		return nil, fmt.Errorf("读取模型分组的模型：%w", errQuery)
+	}
+	defer rows.Close()
+	members := make(map[string][]string)
+	for rows.Next() {
+		var group, model string
+		if errScan := rows.Scan(&group, &model); errScan != nil {
+			return nil, fmt.Errorf("读取模型分组的模型：%w", errScan)
+		}
+		members[group] = append(members[group], model)
+	}
+	if errRows := rows.Err(); errRows != nil {
+		return nil, fmt.Errorf("读取模型分组的模型：%w", errRows)
+	}
+	return members, nil
 }
 
 func (d *DB) loadKeyModels(state *billing.State) error {

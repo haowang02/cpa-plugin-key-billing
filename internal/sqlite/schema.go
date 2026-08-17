@@ -4,9 +4,9 @@ package sqlite
 // way to disk would make the stored totals disagree with the ones the plugin
 // enforces against. Instants are INTEGER Unix nanoseconds.
 //
-// Plans and prices carry an explicit position: both are ordered lists an
-// operator reads back, and prices are additionally consulted in order, globs
-// last.
+// Plans, prices and model groups carry an explicit position: all three are
+// ordered lists an operator reads back, and prices are additionally consulted in
+// order, globs last. Model membership keeps its position for the same reason.
 const schema = `
 CREATE TABLE IF NOT EXISTS api_keys (
 	scope                 TEXT    PRIMARY KEY,
@@ -39,6 +39,38 @@ CREATE TABLE IF NOT EXISTS key_models (
 	cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
 	cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (scope, billing_model)
+);
+
+-- The two tables a key's model grant lives in cascade with the key itself, the
+-- way its per-model usage does. Neither they nor model_group_models reference
+-- model_groups: that table is rewritten whole on every edit, so a cascade from
+-- it would take every key's grant with it. A binding whose group is gone is
+-- healed where the panel reads the key list instead.
+CREATE TABLE IF NOT EXISTS key_model_groups (
+	scope    TEXT    NOT NULL REFERENCES api_keys(scope) ON DELETE CASCADE,
+	position INTEGER NOT NULL,
+	group_id TEXT    NOT NULL,
+	PRIMARY KEY (scope, group_id)
+);
+
+CREATE TABLE IF NOT EXISTS key_allowed_models (
+	scope    TEXT    NOT NULL REFERENCES api_keys(scope) ON DELETE CASCADE,
+	position INTEGER NOT NULL,
+	model    TEXT    NOT NULL,
+	PRIMARY KEY (scope, model)
+);
+
+CREATE TABLE IF NOT EXISTS model_groups (
+	position INTEGER PRIMARY KEY,
+	id       TEXT    NOT NULL UNIQUE,
+	name     TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS model_group_models (
+	group_id TEXT    NOT NULL,
+	position INTEGER NOT NULL,
+	model    TEXT    NOT NULL,
+	PRIMARY KEY (group_id, model)
 );
 
 CREATE TABLE IF NOT EXISTS plans (
