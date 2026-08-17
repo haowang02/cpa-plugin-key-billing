@@ -97,9 +97,9 @@ tbody tr:hover{background:var(--bg-hover)}
 .tag.warn{background:var(--amber-10);color:var(--amber-text);border-color:var(--amber-30)}
 .tag.bad{background:var(--failure-badge-bg);color:var(--failure-badge-text);border-color:var(--failure-badge-border)}
 .tag.plain{background:var(--count-badge-bg);color:var(--count-badge-text)}
-.usage{display:flex;flex-direction:column;gap:5px;min-width:150px;max-width:210px}
+.usage{display:flex;flex-direction:column;gap:5px;min-width:118px;max-width:210px}
 .usage>span{font-size:12px;white-space:nowrap}
-.bar{height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden;min-width:80px}
+.bar{height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden;min-width:56px}
 .bar>i{display:block;height:100%;background:var(--primary-color)}
 .bar.full>i{background:var(--error-color)}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
@@ -148,6 +148,46 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .key-pill{display:inline-block;padding:2px 8px;border:1px solid transparent;border-radius:999px;
   max-width:100%;background:var(--count-badge-bg);color:var(--count-badge-text);font-size:12px;
   white-space:normal;overflow-wrap:anywhere}
+/* A group and a model are picked from one list and shown together, so they have
+   to be told apart at a glance rather than by reading the name: a model keeps
+   the monospace face the model lists use, a group the ordinary one. */
+.pill-model{background:none;border-color:var(--border-primary);color:var(--text-secondary);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+/* One line per key: the column is a summary of what the picker holds, and a cell
+   that grew a row per grant would set the height of the whole table. */
+.model-trigger{display:block;width:100%;min-width:104px;max-width:150px;padding:5px 8px;
+  text-align:left;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-trigger .mono{font-size:12px}
+.model-trigger .tag{margin-right:5px}
+.model-picker{position:fixed;z-index:1100;display:flex;flex-direction:column;gap:8px;
+  width:min(340px,calc(100vw - 24px));padding:12px;border:1px solid var(--border-color);border-radius:10px;
+  background:var(--floating-surface);box-shadow:var(--floating-shadow)}
+.model-picker input[type=search]{width:100%}
+.model-picker-list{max-height:min(320px,50vh);overflow:auto;overscroll-behavior:contain;
+  border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--bg-secondary);padding:5px}
+.model-picker-group{padding:8px 7px 3px;font-size:11px;color:var(--text-tertiary);
+  border-top:1px solid var(--border-color);margin-top:4px}
+.model-picker-list>.model-picker-group:first-child{border-top:none;margin-top:0}
+.model-picker-option{display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:6px;cursor:pointer}
+.model-picker-option.model>span{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+  font-size:12px}
+.model-picker-option:hover{background:var(--bg-hover)}
+.model-picker-option input{width:auto;flex:none}
+.model-picker-option>span{min-width:0;overflow-wrap:anywhere}
+.model-picker-option .count{margin-left:auto;color:var(--text-tertiary);font-size:11px;white-space:nowrap}
+.model-picker-option.disabled{cursor:not-allowed;opacity:.5}
+.model-picker-option.disabled:hover{background:transparent}
+.model-picker-hint{padding:0 2px;color:var(--text-tertiary);font-size:11px}
+.model-picker-actions{justify-content:flex-end}
+.group-model-picker{max-height:260px}
+/* Two pill lists in one row would otherwise push the actions past the card. */
+.group-models{max-width:320px}
+@media (max-width:640px){
+  /* Anchoring a popover to a cell inside a horizontally scrolling table stops
+     making sense once the table is wider than the screen, so it becomes a sheet. */
+  .model-picker{left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto}
+  .model-trigger{max-width:none}
+}
 .wide-search{width:360px;max-width:100%}
 .card-actions{min-width:0}
 .log-card{height:calc(100dvh - 247px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
@@ -313,6 +353,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   <div class="tabs">
     <button data-tab="keys" class="active">API Key</button>
     <button data-tab="plans">订阅计划</button>
+    <button data-tab="groups">模型分组</button>
     <button data-tab="prices">模型定价</button>
     <button data-tab="logs">计费日志</button>
     <button data-tab="events">插件日志</button>
@@ -362,6 +403,33 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
       <div style="margin-top:14px">
         <div class="small muted" style="margin-bottom:6px">绑定 API Key</div>
         <div id="plan-key-picker" class="key-picker"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-groups" class="hidden">
+    <div class="card">
+      <h2>模型分组</h2>
+      <div id="groups-body"></div>
+    </div>
+    <div class="card">
+      <h2 id="group-form-title">新建模型分组</h2>
+      <input id="group-id" type="hidden">
+      <div class="row" style="align-items:flex-end">
+        <label class="field">名称<input id="group-name" placeholder="基础模型"></label>
+        <button id="group-save" class="primary">保存</button>
+        <button id="group-cancel" class="hidden">取消编辑</button>
+      </div>
+      <div style="margin-top:14px">
+        <div class="row spread" style="margin-bottom:6px">
+          <span class="small muted">包含模型（<span id="group-model-count">0</span>）</span>
+          <span class="row" style="gap:4px">
+            <input id="group-model-search" type="search" placeholder="搜索模型" style="max-width:200px">
+            <button id="group-model-all" class="link">全选</button>
+            <button id="group-model-none" class="link">清空</button>
+          </span>
+        </div>
+        <div id="group-model-picker" class="key-picker group-model-picker"></div>
       </div>
     </div>
   </section>
@@ -477,6 +545,16 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 
 <div id="cost-tooltip" class="cost-tooltip" role="tooltip" aria-hidden="true"></div>
 
+<div id="model-picker" class="model-picker hidden" role="dialog" aria-label="选择可用模型">
+  <input id="model-picker-search" type="search" placeholder="搜索分组或模型" autocomplete="off">
+  <div id="model-picker-list" class="model-picker-list"></div>
+  <div id="model-picker-hint" class="model-picker-hint"></div>
+  <div class="row model-picker-actions">
+    <button id="model-picker-cancel">取消</button>
+    <button id="model-picker-save" class="primary">保存</button>
+  </div>
+</div>
+
 <script>
 "use strict";
 const PLUGIN_BASE = "/v0/management/plugins/cpa-key-billing";
@@ -519,7 +597,14 @@ function readPanelKey() {
 }
 
 let authKey = "";
-let state = { keys: [], plans: [], prices: [], status: null, stats: null, logs: null, events: null };
+let state = { keys: [], plans: [], prices: [], groups: [], status: null, stats: null, logs: null, events: null };
+
+// The plugin stores "every model" as an empty selection rather than as a group
+// holding every model, so this identifier only ever travels: the picker offers
+// it as a checkbox and the plugin normalizes a selection carrying it back to the
+// empty one. Both are the same grant, and it is what a new key starts with.
+const ALL_GROUP_ID = "all";
+const ALL_GROUP_NAME = "全部模型";
 let logPage = 1;
 let logPageSize = 50;
 let logRequest = 0;
@@ -719,16 +804,20 @@ async function reloadAll() {
   state.keys = (overview.keys || []).filter((view) => !view.deleted_at);
   state.plans = overview.plans || [];
   state.prices = overview.prices || [];
+  state.groups = overview.model_groups || [];
   state.stats = overview.stats;
   if (events) state.events = events.events || [];
   render();
 }
 
 function render() {
+  // Every row the picker is anchored to is about to be replaced.
+  closeModelPicker();
   renderHeader();
   renderKeys();
   renderModels();
   renderPlans();
+  renderGroups();
   renderPrices();
   renderLogs();
   renderEvents();
@@ -791,11 +880,9 @@ function renderKeys() {
           notes.length ? el("div", { class: "muted small mono" }, notes.join(" · ")) : null,
         ),
         el("td", {}, select),
+        el("td", {}, modelTrigger(view)),
         el("td", {}, usage),
-        el("td", { class: "small muted" }, view.unlimited ? "—" :
-          (state.plans.find((plan) => plan.id === view.plan_id)?.period?.kind === "never"
-            ? "不重置"
-            : (view.cycle_end_at ? when(view.cycle_end_at) : "未开始"))),
+        el("td", { class: "small muted" }, cycleNote(view)),
         el("td", { class: "num" }, int(view.lifetime?.requests)),
         el("td", { class: "num" }, usd(view.lifetime?.cost_usd)),
         el("td", {}, view.blocked
@@ -820,9 +907,212 @@ function renderKeys() {
     });
 
   $("keys-body").replaceChildren(table(
-    ["API Key", "订阅计划", "本期费用", "到期时间",
+    ["API Key", "订阅计划", "可用模型", "本期费用", "到期时间",
       { label: "累计请求", num: true }, { label: "累计费用", num: true }, "状态", "操作"],
     rows));
+}
+
+function cycleNote(view) {
+  if (view.unlimited) return "—";
+  if (state.plans.find((plan) => plan.id === view.plan_id)?.period?.kind === "never") return "不重置";
+  return view.cycle_end_at ? when(view.cycle_end_at) : "未开始";
+}
+
+function groupName(id) {
+  const group = state.groups.find((entry) => entry.id === id);
+  return group ? (group.name || group.id) : id;
+}
+
+// What a key may actually call: the union its groups and single models add up
+// to, which is the same reading the plugin enforces.
+function effectiveModels(view) {
+  const models = new Set(view.models || []);
+  for (const id of view.model_groups || []) {
+    const group = state.groups.find((entry) => entry.id === id);
+    for (const model of (group && group.models) || []) models.add(model);
+  }
+  return [...models];
+}
+
+// The trigger says what the key may call without opening anything: groups first
+// in the ordinary face, then single models in the monospace one the model lists
+// use. It stays on one line and ellipsizes, with the whole grant in the tooltip.
+function modelTrigger(view) {
+  const names = view.all_models
+    ? [{ text: ALL_GROUP_NAME, mono: false }]
+    : (view.model_groups || []).map((id) => ({ text: groupName(id), mono: false }))
+        .concat((view.models || []).map((model) => ({ text: model, mono: true })));
+  const parts = names.flatMap((entry, index) => [
+    index ? "、" : null,
+    el("span", { class: entry.mono ? "mono" : "" }, entry.text),
+  ]);
+  // A selection adding up to no models at all — only empty groups — grants every
+  // model rather than none, and the cell has to say so rather than list a
+  // selection that limits nothing. It leads, because it is the part that must not
+  // be what the line runs out of room for.
+  const unlimited = !view.all_models && !effectiveModels(view).length;
+  return el("button", {
+    class: "model-trigger",
+    title: names.map((entry) => entry.text).join("、"),
+    "aria-label": keyName(view) + " 的可用模型",
+    onclick: (event) => openModelPicker(view, event.currentTarget),
+  },
+  unlimited
+    ? el("span", { class: "tag warn", text: "未限制", title: "所选分组还没有模型，当前等同于「" + ALL_GROUP_NAME + "」" })
+    : null,
+  parts);
+}
+
+// The models the proxy currently serves. Glob rows are pricing rules rather
+// than models, so they are not something a key can be granted.
+function catalogModels() {
+  return state.prices
+    .map((row) => row.pattern)
+    .filter((pattern) => pattern && !/[*?]/.test(pattern))
+    .sort(compareModelId);
+}
+
+// A model that left the proxy keeps its place in a selection: a model list is
+// synchronized on every visit, and a provider that was briefly unreachable must
+// not quietly rewrite who may call what.
+function retiredModels(selected) {
+  const known = new Set(catalogModels().map((model) => model.toLowerCase()));
+  return [...selected].filter((model) => !known.has(model.toLowerCase())).sort(compareModelId);
+}
+
+function matchesTerm(text, term) {
+  return !term || String(text).toLowerCase().includes(term);
+}
+
+let modelPicker = { scope: "", all: true, groups: new Set(), models: new Set(), anchor: null };
+
+function openModelPicker(view, anchor) {
+  modelPicker = {
+    scope: view.scope,
+    all: !!view.all_models,
+    groups: new Set(view.model_groups || []),
+    models: new Set(view.models || []),
+    anchor,
+  };
+  $("model-picker-search").value = "";
+  $("model-picker").classList.remove("hidden");
+  renderModelPicker();
+  positionModelPicker();
+  $("model-picker-search").focus();
+}
+
+function closeModelPicker() {
+  modelPicker.scope = "";
+  modelPicker.anchor = null;
+  $("model-picker").classList.add("hidden");
+}
+
+// Mirrors the cost tooltip: the popover lives at the document level because the
+// cell it belongs to sits inside a table that scrolls horizontally, which would
+// otherwise clip it. Narrow screens pin it to the bottom instead, in CSS.
+function positionModelPicker() {
+  const node = $("model-picker");
+  if (!modelPicker.anchor || node.classList.contains("hidden")) return;
+  const anchorRect = modelPicker.anchor.getBoundingClientRect();
+  const rect = node.getBoundingClientRect();
+  const margin = 8;
+  let left = anchorRect.left;
+  if (left + rect.width > innerWidth - margin) left = innerWidth - rect.width - margin;
+  let top = anchorRect.bottom + 4;
+  if (top + rect.height > innerHeight - margin) {
+    const above = anchorRect.top - rect.height - 4;
+    top = above >= margin ? above : Math.max(margin, innerHeight - rect.height - margin);
+  }
+  node.style.left = Math.round(Math.max(margin, left)) + "px";
+  node.style.top = Math.round(top) + "px";
+}
+
+function pickerOption(checked, disabled, kind, label, note, onToggle) {
+  return el("label", { class: "model-picker-option " + kind + (disabled ? " disabled" : "") },
+    el("input", {
+      type: "checkbox", checked: checked || undefined, disabled: disabled || undefined,
+      onchange: (event) => onToggle(event.target.checked),
+    }),
+    el("span", {}, label),
+    note ? el("span", { class: "count" }, note) : null,
+  );
+}
+
+function renderModelPicker() {
+  const term = $("model-picker-search").value.trim().toLowerCase();
+  const list = $("model-picker-list");
+  const sections = [];
+
+  const groupOptions = [];
+  if (matchesTerm(ALL_GROUP_NAME, term)) {
+    groupOptions.push(pickerOption(modelPicker.all, false, "group", ALL_GROUP_NAME, "全部", (checked) => {
+      // Selecting every model is exclusive: the other boxes are kept in memory
+      // so that clearing this one puts the previous selection back, but while it
+      // is on they are neither shown as selected nor selectable.
+      modelPicker.all = checked;
+      renderModelPicker();
+    }));
+  }
+  for (const group of state.groups) {
+    if (!matchesTerm(group.name || group.id, term)) continue;
+    groupOptions.push(pickerOption(!modelPicker.all && modelPicker.groups.has(group.id), modelPicker.all, "group",
+      group.name || group.id, (group.models || []).length + " 个模型", (checked) => {
+        if (checked) modelPicker.groups.add(group.id);
+        else modelPicker.groups.delete(group.id);
+        renderModelPicker();
+      }));
+  }
+  if (groupOptions.length) {
+    sections.push(el("div", { class: "model-picker-group" }, "分组"), ...groupOptions);
+  }
+
+  const modelOptions = catalogModels()
+    .filter((model) => matchesTerm(model, term))
+    .map((model) => pickerOption(!modelPicker.all && modelPicker.models.has(model), modelPicker.all, "model", model, "", (checked) => {
+      if (checked) modelPicker.models.add(model);
+      else modelPicker.models.delete(model);
+      renderModelPicker();
+    }));
+  if (modelOptions.length) {
+    sections.push(el("div", { class: "model-picker-group" }, "模型"), ...modelOptions);
+  }
+
+  const retired = retiredModels(modelPicker.models).filter((model) => matchesTerm(model, term));
+  if (retired.length) {
+    sections.push(el("div", { class: "model-picker-group" }, "已下线"));
+    for (const model of retired) {
+      sections.push(pickerOption(!modelPicker.all, modelPicker.all, "model", model, "不在模型列表中", (checked) => {
+        if (checked) modelPicker.models.add(model);
+        else modelPicker.models.delete(model);
+        renderModelPicker();
+      }));
+    }
+  }
+
+  list.replaceChildren(...(sections.length ? sections : [el("div", { class: "empty", text: "没有匹配的分组或模型" })]));
+  const selected = modelPicker.groups.size + modelPicker.models.size;
+  // Saving nothing has no meaning to express: a key that may call every model
+  // says so by selecting the all-models group, which is what an empty selection
+  // is stored as. Asking for the choice is clearer than making it silently.
+  $("model-picker-save").disabled = !modelPicker.all && !selected;
+  $("model-picker-hint").textContent = modelPicker.all
+    ? "已选择「" + ALL_GROUP_NAME + "」，取消后可选择其他分组和模型"
+    : (selected ? "已选择 " + selected + " 项，可用模型为所有分组和模型的并集"
+      : "请至少选择一个分组或模型；不限制模型请选择「" + ALL_GROUP_NAME + "」");
+}
+
+function saveModelPicker() {
+  const scope = modelPicker.scope;
+  const unrestricted = modelPicker.all;
+  if (!scope || (!unrestricted && !modelPicker.groups.size && !modelPicker.models.size)) return;
+  const body = unrestricted
+    ? { scope, groups: [ALL_GROUP_ID], models: [] }
+    : { scope, groups: [...modelPicker.groups], models: [...modelPicker.models] };
+  guard(async () => {
+    await plugin("POST", "/keys/models", body);
+    notify(unrestricted ? "该 API Key 可以使用全部模型" : "可用模型已更新");
+    await reloadAll();
+  });
 }
 
 function renderModels() {
@@ -872,6 +1162,100 @@ function renderPlans() {
     ["名称", { label: "额度", num: true }, "周期", "已绑定 Key", "操作"],
     rows));
   renderPlanKeyPicker($("plan-id").value);
+}
+
+function keyPills(keys) {
+  return keys.length
+    ? el("div", { class: "key-pill-list" }, keys.map((key) =>
+        el("span", { class: "key-pill", text: keyPillText(key), title: key.scope })))
+    : el("span", { class: "muted", text: "—" });
+}
+
+function renderGroups() {
+  const allRow = el("tr", {},
+    el("td", {}, ALL_GROUP_NAME),
+    el("td", { class: "num" }, el("span", { class: "tag plain", text: "全部" })),
+    el("td", { class: "small muted" }, "系统内置，始终包含 CLIProxyAPI 当前提供的全部模型"),
+    el("td", {}, keyPills(state.keys.filter((key) => key.all_models))),
+    el("td", { class: "small muted" }, "—"),
+  );
+  const rows = [allRow, ...state.groups.map((group) => {
+    const models = group.models || [];
+    const boundKeys = state.keys.filter((key) => (key.model_groups || []).includes(group.id));
+    return el("tr", {},
+      el("td", {}, group.name || group.id),
+      el("td", { class: "num" }, models.length
+        ? String(models.length)
+        : el("span", { class: "tag warn", text: "空分组", title: "空分组不限制任何模型" })),
+      el("td", {}, models.length
+        ? el("div", { class: "key-pill-list group-models" },
+            models.slice(0, 4).map((model) => el("span", { class: "key-pill pill-model", text: model }))
+              .concat(models.length > 4 ? [el("span", { class: "muted small" }, "+" + (models.length - 4))] : []))
+        : el("span", { class: "muted", text: "—" })),
+      el("td", {}, keyPills(boundKeys)),
+      el("td", { class: "small" },
+        el("button", { class: "link", text: "编辑", onclick: () => editGroup(group) }),
+        el("button", { class: "link danger", text: "删除", onclick: () => guard(async () => {
+          if (!await confirmAction("删除模型分组「" + (group.name || group.id) + "」？",
+            boundKeys.length
+              ? "已绑定的 " + boundKeys.length + " 个 API Key 将移除该分组；因此不再有任何选择的 Key 会恢复为全部模型。"
+              : "")) return;
+          await plugin("DELETE", "/model-groups?id=" + encodeURIComponent(group.id));
+          notify("模型分组已删除"); resetGroupForm(); await reloadAll();
+        }) }),
+      ),
+    );
+  })];
+  $("groups-body").replaceChildren(table(
+    ["名称", { label: "模型数", num: true }, "包含模型", "已绑定 Key", "操作"], rows));
+  renderGroupModelPicker();
+}
+
+let groupModels = new Set();
+
+function renderGroupModelPicker() {
+  const node = $("group-model-picker");
+  const term = $("group-model-search").value.trim().toLowerCase();
+  const retired = new Set(retiredModels(groupModels));
+  const models = catalogModels().concat([...retired]);
+  $("group-model-count").textContent = String(groupModels.size);
+  const options = models.filter((model) => matchesTerm(model, term)).map((model) =>
+    el("label", {},
+      el("input", {
+        type: "checkbox", value: model, checked: groupModels.has(model) || undefined,
+        onchange: (event) => {
+          if (event.target.checked) groupModels.add(model);
+          else groupModels.delete(model);
+          $("group-model-count").textContent = String(groupModels.size);
+        },
+      }),
+      el("span", { class: "mono" }, model),
+      retired.has(model) ? el("span", { class: "muted small", text: "不在模型列表中" }) : null,
+    ));
+  node.replaceChildren(...(options.length
+    ? options
+    : [el("div", { class: "empty", text: state.prices.length ? "没有匹配的模型" : "暂无模型，请先在「模型定价」同步" })]));
+}
+
+function resetGroupForm() {
+  $("group-form-title").textContent = "新建模型分组";
+  $("group-id").value = "";
+  $("group-name").value = "";
+  $("group-model-search").value = "";
+  $("group-cancel").classList.add("hidden");
+  groupModels = new Set();
+  renderGroupModelPicker();
+}
+
+function editGroup(group) {
+  $("group-form-title").textContent = "编辑模型分组：" + (group.name || group.id);
+  $("group-id").value = group.id;
+  $("group-name").value = group.name || "";
+  $("group-model-search").value = "";
+  $("group-cancel").classList.remove("hidden");
+  groupModels = new Set(group.models || []);
+  renderGroupModelPicker();
+  $("group-name").scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 function priceSourceTag(source) {
@@ -1453,6 +1837,47 @@ $("plan-save").onclick = () => guard(async () => {
   await reloadAll();
 });
 
+$("model-picker-search").addEventListener("input", renderModelPicker);
+$("model-picker-cancel").onclick = closeModelPicker;
+$("model-picker-save").onclick = () => {
+  saveModelPicker();
+  closeModelPicker();
+};
+// The popover is anchored to a cell rather than owned by it, so it follows the
+// page and closes on anything that is not itself.
+addEventListener("scroll", positionModelPicker, { passive: true, capture: true });
+addEventListener("resize", positionModelPicker);
+addEventListener("pointerdown", (event) => {
+  if (!modelPicker.scope) return;
+  if ($("model-picker").contains(event.target) || (modelPicker.anchor && modelPicker.anchor.contains(event.target))) return;
+  closeModelPicker();
+}, true);
+addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && modelPicker.scope) closeModelPicker();
+});
+
+$("group-model-search").addEventListener("input", renderGroupModelPicker);
+$("group-model-all").onclick = () => {
+  for (const model of catalogModels()) groupModels.add(model);
+  renderGroupModelPicker();
+};
+$("group-model-none").onclick = () => {
+  groupModels = new Set();
+  renderGroupModelPicker();
+};
+$("group-cancel").onclick = resetGroupForm;
+$("group-save").onclick = () => guard(async () => {
+  const name = $("group-name").value.trim();
+  if (!name) throw new Error("分组名称不能为空");
+  const id = $("group-id").value;
+  const models = [...groupModels];
+  if (id) await plugin("PATCH", "/model-groups", { id, name, models });
+  else await plugin("POST", "/model-groups", { name, models });
+  notify(id ? "模型分组已保存" : "模型分组已创建");
+  resetGroupForm();
+  await reloadAll();
+});
+
 $("event-filter").addEventListener("input", renderEvents);
 $("event-level").addEventListener("change", renderEvents);
 $("events-clear").onclick = () => guard(async () => {
@@ -1554,6 +1979,7 @@ $("price-catalog-refresh").onclick = () => guard(async () => {
 });
 
 resetPlanForm();
+resetGroupForm();
 
 (async function boot() {
   const panelKey = readPanelKey();

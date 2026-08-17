@@ -34,11 +34,40 @@ PLANS = [
 ]
 
 
+MODEL_GROUPS = [
+    {
+        "id": "basic",
+        "name": "基础模型",
+        "models": ["gpt-5.5", "deepseek-v4-flash", "retired-model-v3"],
+    },
+    {
+        "id": "long-context",
+        "name": "长上下文",
+        "models": ["gpt-5.6-sol", "claude-sonnet-4-5"],
+    },
+    # An empty group grants nothing of its own, which the group tab marks.
+    {"id": "draft", "name": "待整理", "models": []},
+]
+
+
+# Three shapes the picker has to put back on the screen: every model, a group
+# alone, and groups mixed with individually selected models.
+def key_models(index):
+    if index % 4 == 1:
+        return ["basic"], []
+    if index % 4 == 2:
+        return ["basic", "long-context"], ["claude-sonnet-4-5"]
+    if index % 4 == 3:
+        return [], ["gpt-5.6-sol"]
+    return [], []
+
+
 def make_key(index):
     plan_id = "team-monthly" if index <= 14 else "one-time" if index == 15 else ""
     plan_name = "研发团队" if plan_id == "team-monthly" else "一次性额度" if plan_id else ""
     requests = 1200 + index * 37
     cost = round(7.5 + index * 0.83, 4)
+    groups, models = key_models(index)
     result = {
         "scope": f"{index:064x}",
         "preview": f"sk-demo…{index:04d}",
@@ -46,6 +75,9 @@ def make_key(index):
         "in_config": True,
         "plan_id": plan_id,
         "plan_name": plan_name,
+        "model_groups": groups,
+        "models": models,
+        "all_models": not groups and not models,
         "unlimited": not plan_id,
         "blocked": False,
         "limit_usd": 500 if plan_id == "team-monthly" else 50 if plan_id else 0,
@@ -330,6 +362,7 @@ def payload_for(path, query):
             "keys": KEYS,
             "plans": PLANS,
             "prices": PRICES,
+            "model_groups": MODEL_GROUPS,
             "stats": {
                 "keys": len(LIVE_KEYS),
                 "blocked_keys": 0,
@@ -419,7 +452,13 @@ class Handler(BaseHTTPRequestHandler):
             ("POST", f"{API_BASE}/prices/sync"),
         }:
             self.send_json(200, {"added": 0, "removed": 0, "matched": len(LIVE_KEYS), "priced": len(PRICES)})
+        elif route == ("DELETE", f"{API_BASE}/model-groups"):
+            self.send_json(200, {"deleted": parse_qs(parsed.query).get("id", [""])[0], "released_keys": 2})
+        elif route == ("POST", f"{API_BASE}/model-groups"):
+            self.send_json(201, {"model_group": MODEL_GROUPS[0]})
         elif route in {
+            ("PATCH", f"{API_BASE}/model-groups"),
+            ("POST", f"{API_BASE}/keys/models"),
             ("POST", f"{API_BASE}/keys/bind"),
             ("POST", f"{API_BASE}/keys/unbind"),
             ("POST", f"{API_BASE}/keys/reset"),
