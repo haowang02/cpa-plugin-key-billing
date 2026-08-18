@@ -133,13 +133,21 @@ func (s *Store) AuthorizeModel(scope, upstreamModel, routeModel string) ModelDec
 	return decision
 }
 
-// Describe names what the key may call instead, for the client and the plugin
-// log alike.
+// Sample names as many of the allowed models as one message can carry, and how
+// many it left unnamed. The client's refusal and the plugin log are worded in
+// different languages, so they share the bound rather than the sentence.
+func (d ModelDecision) Sample() ([]string, int) {
+	shown := min(len(d.Models), modelSampleSize)
+	return d.Models[:shown], len(d.Models) - shown
+}
+
+// Describe names what the key may call instead, for the plugin log.
 func (d ModelDecision) Describe() string {
+	shown, omitted := d.Sample()
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "该 API Key 可用 %d 个模型：", len(d.Models))
-	builder.WriteString(strings.Join(d.Models[:min(len(d.Models), modelSampleSize)], "、"))
-	if len(d.Models) > modelSampleSize {
+	builder.WriteString(strings.Join(shown, "、"))
+	if omitted > 0 {
 		builder.WriteString(" 等")
 	}
 	return builder.String()

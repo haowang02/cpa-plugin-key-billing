@@ -70,30 +70,40 @@ func TestInterceptNeverResetPlanHasNoRetryHint(t *testing.T) {
 	if !resp.Terminate || resp.ResponseHeaders.Get("Retry-After") != "" {
 		t.Fatalf("response = %+v, want a rejection without Retry-After", resp)
 	}
-	if strings.Contains(string(resp.ResponseBody), "重置") {
+	if strings.Contains(string(resp.ResponseBody), "resets") {
 		t.Fatalf("body = %s, should not promise an automatic reset", resp.ResponseBody)
 	}
 }
 
+// The type and code are the ones CLIProxyAPI derives from the status, so a
+// client branching on them cannot tell whether the proxy or the plugin refused.
+// Anthropic routes get the proxy's own envelope; every other format, Gemini
+// included, gets its OpenAI-shaped one.
 func TestInterceptUsesTheClientErrorShape(t *testing.T) {
 	app := exhaustedApp(t, 12*time.Hour)
 	for _, test := range []struct {
 		format string
-		marker string
+		want   map[string]string
 	}{
-		{"openai", "insufficient_quota"},
-		{"claude", "rate_limit_error"},
-		{"gemini", "RESOURCE_EXHAUSTED"},
-		{"unknown", "insufficient_quota"},
+		{"openai", map[string]string{"type": "rate_limit_error", "code": "rate_limit_exceeded"}},
+		{"claude", map[string]string{"type": "rate_limit_error"}},
+		{"gemini", map[string]string{"type": "rate_limit_error", "code": "rate_limit_exceeded"}},
 	} {
 		t.Run(test.format, func(t *testing.T) {
 			resp := callIntercept(t, app, test.format)
-			var payload any
-			if err := json.Unmarshal(resp.ResponseBody, &payload); err != nil {
-				t.Fatalf("invalid JSON error body: %v", err)
+			var payload struct {
+				Error map[string]any `json:"error"`
 			}
-			if !strings.Contains(string(resp.ResponseBody), test.marker) {
-				t.Fatalf("body %s does not contain %q", resp.ResponseBody, test.marker)
+			if err := json.Unmarshal(resp.ResponseBody, &payload); err != nil {
+				t.Fatalf("invalid JSON error body: %v (raw=%s)", err, resp.ResponseBody)
+			}
+			for field, want := range test.want {
+				if got, _ := payload.Error[field].(string); got != want {
+					t.Fatalf("error.%s = %q, want %q (body=%s)", field, got, want, resp.ResponseBody)
+				}
+			}
+			if message, _ := payload.Error["message"].(string); !strings.Contains(message, "quota exhausted") {
+				t.Fatalf("message = %q, want it to state the exhausted quota", message)
 			}
 		})
 	}

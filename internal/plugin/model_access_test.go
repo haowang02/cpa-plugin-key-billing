@@ -44,8 +44,9 @@ func interceptModel(t *testing.T, app *App, clientFormat, model string) RequestI
 	return response
 }
 
-// A refused model is answered in the client's own error shape, so its SDK
-// surfaces a permission problem rather than a parse failure.
+// A refused model is answered in the client's own error shape, with the type and
+// code CLIProxyAPI uses for a 403, so its SDK surfaces a permission problem
+// rather than a parse failure.
 func TestForbiddenModelIsRefusedInEveryClientFormat(t *testing.T) {
 	app := restrictApp(t, "chat/fast")
 
@@ -53,9 +54,9 @@ func TestForbiddenModelIsRefusedInEveryClientFormat(t *testing.T) {
 		format string
 		want   map[string]string
 	}{
-		{"openai", map[string]string{"type": "invalid_request_error", "code": "model_not_allowed"}},
+		{"openai", map[string]string{"type": "permission_error", "code": "insufficient_quota"}},
 		{"claude", map[string]string{"type": "permission_error"}},
-		{"gemini-cli", map[string]string{"status": "PERMISSION_DENIED"}},
+		{"gemini-cli", map[string]string{"type": "permission_error", "code": "insufficient_quota"}},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.format, func(t *testing.T) {

@@ -12,7 +12,8 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// OpenAI-compatible clients recognize 429 with an insufficient_quota error.
+// An exhausted budget is reported as a rate limit, which is the one refusal
+// every client SDK already knows how to wait out.
 const QuotaExhaustedStatus = http.StatusTooManyRequests
 
 // A model the key may not call is a permission problem rather than a missing
@@ -174,7 +175,7 @@ func quotaExhaustedResponse(sourceFormat string, decision billing.Decision, now 
 // A refused model carries no Retry-After: waiting changes nothing, and only an
 // operator can.
 func modelForbiddenResponse(sourceFormat string, decision billing.ModelDecision) RequestInterceptResponse {
-	message := "API Key 无权使用模型 " + strconv.Quote(decision.Model) + "。" + decision.Describe() + "。"
+	message := modelForbiddenMessage(decision)
 	return RequestInterceptResponse{
 		Terminate:  true,
 		StatusCode: ModelForbiddenStatus,
@@ -185,58 +186,75 @@ func modelForbiddenResponse(sourceFormat string, decision billing.ModelDecision)
 	}
 }
 
+// Refusals are worded in English, the language CLIProxyAPI writes its own errors
+// in; the plugin log stays in the panel's language, because an operator reads
+// that one and a client SDK reads these.
 func quotaExhaustedMessage(decision billing.Decision) string {
 	var builder strings.Builder
-	builder.WriteString("API Key 订阅额度已用尽：本期费用 $")
+	builder.WriteString("API key subscription quota exhausted: $")
 	builder.WriteString(formatUSD(decision.SpentUSD))
-	builder.WriteString("，额度为 $")
+	builder.WriteString(" spent of $")
 	builder.WriteString(formatUSD(decision.LimitUSD))
-	if name := strings.TrimSpace(decision.PlanName); name != "" {
-		builder.WriteString("，计划：")
-		builder.WriteString(name)
-	} else if id := strings.TrimSpace(decision.PlanID); id != "" {
-		builder.WriteString("，计划：")
-		builder.WriteString(id)
+	plan := strings.TrimSpace(decision.PlanName)
+	if plan == "" {
+		plan = strings.TrimSpace(decision.PlanID)
 	}
-	builder.WriteString("。")
+	if plan != "" {
+		builder.WriteString(" on plan ")
+		builder.WriteString(strconv.Quote(plan))
+	}
+	builder.WriteString(".")
 	if !decision.ResetAt.IsZero() {
-		builder.WriteString("额度将于 ")
+		builder.WriteString(" Quota resets at ")
 		builder.WriteString(decision.ResetAt.UTC().Format(time.RFC3339))
-		builder.WriteString(" 重置。")
+		builder.WriteString(".")
 	}
 	return builder.String()
 }
 
-// refusal is one reason for turning a request away, spelled the way each client
-// family spells that kind of error. Both enforcement paths answer through it, so
-// a client SDK reads a refused model as a permission problem and an exhausted
-// budget as a rate limit rather than either as a parse failure.
+// The refusal names what the key may call instead, so the client can correct the
+// request rather than probe for a model that works.
+func modelForbiddenMessage(decision billing.ModelDecision) string {
+	shown, omitted := decision.Sample()
+	message := "API key is not allowed to use model " + strconv.Quote(decision.Model) +
+		". Allowed models: " + strings.Join(shown, ", ")
+	if omitted > 0 {
+		message += fmt.Sprintf(" and %d more", omitted)
+	}
+	return message + "."
+}
+
+// refusal is one reason for turning a request away, spelled the way CLIProxyAPI
+// spells an error of that status. The proxy derives both fields from the status
+// alone, which is why an exhausted budget reads as a rate limit and a refused
+// model as a quota problem: a client branching on type and code must not have to
+// know which of the two wrote the body.
 type refusal struct {
-	status        int
 	anthropicType string
-	geminiStatus  string
 	openaiType    string
 	openaiCode    string
 }
 
 var (
 	quotaExhaustedError = refusal{
-		status:        QuotaExhaustedStatus,
 		anthropicType: "rate_limit_error",
-		geminiStatus:  "RESOURCE_EXHAUSTED",
-		openaiType:    "insufficient_quota",
-		openaiCode:    "insufficient_quota",
+		openaiType:    "rate_limit_error",
+		openaiCode:    "rate_limit_exceeded",
 	}
 	modelForbiddenError = refusal{
-		status:        ModelForbiddenStatus,
 		anthropicType: "permission_error",
-		geminiStatus:  "PERMISSION_DENIED",
-		openaiType:    "invalid_request_error",
-		openaiCode:    "model_not_allowed",
+		openaiType:    "permission_error",
+		openaiCode:    "insufficient_quota",
 	}
 )
 
-// Substring matching keeps format variants such as "gemini-cli" working.
+// Two shapes, because the proxy writes two: its Anthropic handler has an error
+// envelope of its own, and every other route — Gemini included, which answers in
+// the OpenAI shape rather than Google's — goes through one OpenAI-shaped builder.
+// Substring matching keeps format variants such as "claude-code" working.
+//
+// A websocket client sees none of this: the proxy closes the connection instead
+// of sending a terminated request's body, and only it can change that.
 func refusalBody(sourceFormat string, kind refusal, message string) []byte {
 	normalized := strings.ToLower(strings.TrimSpace(sourceFormat))
 	var payload any
@@ -249,15 +267,7 @@ func refusalBody(sourceFormat string, kind refusal, message string) []byte {
 				"message": message,
 			},
 		}
-	case strings.Contains(normalized, "gemini") || strings.Contains(normalized, "antigravity"):
-		payload = map[string]any{
-			"error": map[string]any{
-				"code":    kind.status,
-				"message": message,
-				"status":  kind.geminiStatus,
-			},
-		}
-	default: // openai, openai-response, codex, interactions, and anything new.
+	default: // openai, openai-response, codex, gemini, interactions, and anything new.
 		payload = map[string]any{
 			"error": map[string]any{
 				"message": message,

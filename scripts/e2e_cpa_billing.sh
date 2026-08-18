@@ -421,7 +421,8 @@ assert_model_access() {
       return 1
     fi
     if ! jq -e --arg model "chat/$chat_route" '
-        .error.code == "model_not_allowed" and (.error.message | contains("\"" + $model + "\""))' "$response_file" >/dev/null; then
+        .error.type == "permission_error" and .error.code == "insufficient_quota"
+        and (.error.message | contains("\"" + $model + "\""))' "$response_file" >/dev/null; then
       echo "模型拦截 ${requested} 的错误内容不正确：$(jq -c '.' "$response_file")" >&2
       return 1
     fi
