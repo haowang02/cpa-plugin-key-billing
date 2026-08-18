@@ -155,6 +155,11 @@ const (
 type RequestCompletion struct {
 	RequestID string                   `json:"RequestID"`
 	Outcome   RequestCompletionOutcome `json:"Outcome"`
+	// How the host itself saw the request end, and the only account of a failure
+	// that never reached the response hooks: an upstream closing the connection
+	// instead of answering leaves those hooks nothing to read.
+	StatusCode int    `json:"StatusCode"`
+	Error      string `json:"Error"`
 }
 
 // Only credential identity is read from the host's usage event.

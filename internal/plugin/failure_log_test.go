@@ -61,6 +61,68 @@ func TestFailedStreamIsReportedWithTheErrorTheClientSaw(t *testing.T) {
 	}
 }
 
+// A websocket upstream that refuses a request is closed rather than answered:
+// the proxy mirrors the close code downstream and no body ever passes the
+// response hooks. The terminal event carries the error the host saw, and that is
+// what the log has to name instead of reporting nothing.
+func TestFailureWithNoResponseIsReportedFromTheTerminalEvent(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	if _, errSync := app.store.SyncKeys([]string{testAPIKey}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	publishUsage(t, app, "auth-3", "codex", "apikey", "sk-upstream-key-0001")
+
+	admit(t, app, "openai-response", "/v1/responses")
+	selectCredential(t, app, "auth-3")
+	completeWithError(t, app, RequestCompletion{
+		RequestID:  flowRequestID,
+		Outcome:    RequestCompletionFailed,
+		StatusCode: 413,
+		Error:      `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
+	})
+
+	event := onlyRequestEvent(t, app)
+	if event.Level != billing.EventError {
+		t.Fatalf("level = %q, want an error", event.Level)
+	}
+	if strings.Contains(event.Message, "插件未观察到错误内容") {
+		t.Fatalf("message = %q, want the error the host reported", event.Message)
+	}
+	for _, want := range []string{
+		"/v1/responses", "HTTP 413", "upstream websocket message too big（invalid_request_error）",
+	} {
+		if !strings.Contains(event.Message, want) {
+			t.Fatalf("message = %q, want it to name %q", event.Message, want)
+		}
+	}
+}
+
+// The client's own error is the one the request ended as for whoever made it, so
+// the host's account of the same failure does not displace it.
+func TestObservedErrorIsPreferredOverTheTerminalEvent(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	if _, errSync := app.store.SyncKeys([]string{testAPIKey}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+
+	admit(t, app, "openai", "/v1/chat/completions")
+	respond(t, app, flowRequestID, []byte(`{"error":{"message":"bad request","type":"invalid_request_error"}}`))
+	completeWithError(t, app, RequestCompletion{
+		RequestID:  flowRequestID,
+		Outcome:    RequestCompletionFailed,
+		StatusCode: 500,
+		Error:      "context canceled",
+	})
+
+	message := onlyRequestEvent(t, app).Message
+	if !strings.Contains(message, "bad request（invalid_request_error）") {
+		t.Fatalf("message = %q, want the error the client was shown", message)
+	}
+	if strings.Contains(message, "context canceled") {
+		t.Fatalf("message = %q, want the host's account left out of it", message)
+	}
+}
+
 // The plaintext key is not in the plugin's hands by the time a request is
 // reported, and the log must not reconstruct one either.
 func TestFailureReportNamesNoPlaintextKey(t *testing.T) {

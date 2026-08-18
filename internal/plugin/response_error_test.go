@@ -60,6 +60,53 @@ func TestResponseFailureReadsEveryErrorShape(t *testing.T) {
 	}
 }
 
+// A failure the client was never shown is known only from the terminal event,
+// and the host states it there in whatever shape it had the error in.
+func TestCompletionFailureReadsWhatTheHostReported(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		statusCode int
+		errorText  string
+		want       string
+	}{{
+		// The upstream websocket refused the request and was closed rather than
+		// answered, so no body ever reached the response hooks.
+		name:       "upstream websocket error",
+		statusCode: 413,
+		errorText:  `{"error":{"message":"upstream websocket message too big","type":"invalid_request_error","code":"message_too_big"}}`,
+		want:       "HTTP 413：upstream websocket message too big（invalid_request_error）",
+	}, {
+		name:       "body behind a prefix of the proxy's own",
+		statusCode: 429,
+		errorText:  `codex: upstream returned 429: {"error":{"message":"Rate limit reached","code":"rate_limit_exceeded"}}`,
+		want:       "HTTP 429：Rate limit reached（rate_limit_exceeded）",
+	}, {
+		name:      "prose with no body behind it",
+		errorText: "upstream stream closed before a terminal event",
+		want:      "upstream stream closed before a terminal event",
+	}, {
+		// An upstream that answered with a status and nothing else still says more
+		// than silence does.
+		name:       "a status and nothing else",
+		statusCode: 502,
+		want:       "HTTP 502",
+	}, {
+		name:       "a status the message already states",
+		statusCode: 500,
+		errorText:  "HTTP 500 from upstream",
+		want:       "HTTP 500 from upstream",
+	}, {
+		name: "nothing at all",
+		want: "",
+	}} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := completionFailure(testCase.statusCode, testCase.errorText); got != testCase.want {
+				t.Fatalf("completionFailure = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
 // A stream reports its last error: an earlier frame may have described an
 // attempt the proxy went on to retry.
 func TestResponseFailureKeepsTheLastError(t *testing.T) {

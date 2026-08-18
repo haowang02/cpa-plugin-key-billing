@@ -2,6 +2,8 @@ package plugin
 
 import (
 	"encoding/json"
+	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -51,6 +53,48 @@ func objectFailure(object map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// completionFailure describes a failure by what the host reported the request
+// ended as. The response hooks only ever see a body that reached the client, so
+// a request that ended without one — an upstream that closed the connection, a
+// transport error the proxy raised on its own — has this as its sole account.
+func completionFailure(statusCode int, errorText string) string {
+	message := hostErrorMessage(errorText)
+	status := ""
+	// The host reports no status for a canceled request, and 200 for one that
+	// failed after the upstream had already answered.
+	if statusCode >= http.StatusBadRequest && statusCode <= 599 {
+		status = "HTTP " + strconv.Itoa(statusCode)
+	}
+	switch {
+	case message == "":
+		return status
+	case status == "" || strings.Contains(message, status):
+		return truncateReason(message)
+	default:
+		return truncateReason(status + "：" + message)
+	}
+}
+
+// The host states an error as the upstream's body, that body behind a prefix of
+// the proxy's own, or plain prose when there was no body at all. The first two
+// are read the way a response is, so a failure reads the same whether the client
+// was shown it or not.
+func hostErrorMessage(errorText string) string {
+	errorText = strings.TrimSpace(errorText)
+	if errorText == "" {
+		return ""
+	}
+	if message := responseFailure(responseObjects([]byte(errorText))); message != "" {
+		return message
+	}
+	if start := strings.IndexByte(errorText, '{'); start > 0 {
+		if message := responseFailure(responseObjects([]byte(errorText[start:]))); message != "" {
+			return message
+		}
+	}
+	return errorText
 }
 
 // A code says which error this is, which the message usually does not. One the

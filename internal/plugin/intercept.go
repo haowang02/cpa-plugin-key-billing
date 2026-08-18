@@ -306,6 +306,13 @@ func (a *App) handleRequestComplete(raw []byte) ([]byte, error) {
 		a.usage.discard(completion.RequestID)
 	} else {
 		record, reason := a.usage.finish(completion.RequestID, a.store.BillingModel)
+		if reason == "" {
+			// What the client was shown comes first, because that is what the request
+			// ended as for whoever made it. The host's own account stands in when
+			// there was nothing to show: a websocket that was closed rather than
+			// answered leaves the response hooks with no body to read.
+			reason = completionFailure(completion.StatusCode, completion.Error)
+		}
 		a.store.FinishRequest(completion.RequestID, record, billingOutcome(completion.Outcome), reason)
 	}
 	return OKEnvelope(struct{}{})

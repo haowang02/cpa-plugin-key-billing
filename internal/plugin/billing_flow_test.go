@@ -115,9 +115,12 @@ func billUsage(t *testing.T, app *App, uncached, cacheRead, cacheWrite, output, 
 
 func complete(t *testing.T, app *App, requestID string, outcome RequestCompletionOutcome) {
 	t.Helper()
-	raw, errHandle := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{
-		RequestID: requestID, Outcome: outcome,
-	}))
+	completeWithError(t, app, RequestCompletion{RequestID: requestID, Outcome: outcome})
+}
+
+func completeWithError(t *testing.T, app *App, completion RequestCompletion) {
+	t.Helper()
+	raw, errHandle := app.HandleMethod(MethodRequestComplete, mustMarshal(t, completion))
 	if errHandle != nil {
 		t.Fatalf("request.complete error = %v", errHandle)
 	}
