@@ -24,8 +24,9 @@ import (
 // plugin is refused rather than misread — including one an operator downgrading
 // meets, which is the point: version 2 holds the models each API Key may call,
 // and a version 1 plugin would serve that database while silently granting every
-// key every model.
-const schemaVersion = 2
+// key every model. Version 3 holds the plugin log, which a version 2 plugin
+// would keep writing to memory while the persisted lines went unread.
+const schemaVersion = 3
 
 // driverName is this package's own registration of the SQLite driver. It exists
 // for ulower(): the built-in lower() folds ASCII only, so a key labelled in any
@@ -134,6 +135,23 @@ func secureFiles(path string) error {
 
 func (d *DB) Close() error {
 	return d.db.Close()
+}
+
+// execer is satisfied by both *sql.DB and *sql.Tx, so pruning runs either
+// inside the transaction that appended or on its own when a log is opened.
+type execer func(string, ...any) (sql.Result, error)
+
+// clear empties one log and reports how many entries went.
+func (d *DB) clear(statement, name string) (int, error) {
+	result, errDelete := d.db.Exec(statement)
+	if errDelete != nil {
+		return 0, fmt.Errorf("清空%s：%w", name, errDelete)
+	}
+	cleared, errCount := result.RowsAffected()
+	if errCount != nil {
+		return 0, fmt.Errorf("清空%s：%w", name, errCount)
+	}
+	return int(cleared), nil
 }
 
 func (d *DB) transact(fn func(*sql.Tx) error) error {

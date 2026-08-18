@@ -48,7 +48,7 @@ func (s *Store) reportFailedRequest(requestID string, entry PendingRequest, reco
 		// answering, or failed in a way the proxy reported on its own.
 		message.WriteString("插件未观察到错误内容。")
 	}
-	s.requestEvent(EventError, "%s", message.String())
+	s.Event(EventError, "%s", message.String())
 }
 
 // ReportQuotaBlock records that a key was turned away for an exhausted
@@ -86,7 +86,7 @@ func (s *Store) ReportQuotaBlock(scope, endpoint string, decision Decision) {
 	}
 	// Enforcement working as configured is not a fault of the plugin's, so this
 	// stays out of the level an operator reads to find one.
-	s.requestEvent(EventInfo, "%s", message.String())
+	s.Event(EventInfo, "%s", message.String())
 }
 
 // ReportModelBlock records that a key asked for a model it may not call. Like a
@@ -117,7 +117,7 @@ func (s *Store) ReportModelBlock(scope, endpoint string, decision ModelDecision)
 	message.WriteString("。")
 	// Enforcement working as configured is not a fault of the plugin's, so this
 	// stays out of the level an operator reads to find one.
-	s.requestEvent(EventInfo, "%s", message.String())
+	s.Event(EventInfo, "%s", message.String())
 }
 
 // blockedKeys remembers which subscription window a key was last reported

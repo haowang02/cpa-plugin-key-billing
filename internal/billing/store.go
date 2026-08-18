@@ -44,8 +44,6 @@ type Store struct {
 	errMu     sync.Mutex
 	lastError string
 
-	events eventLog
-
 	open OpenRepository
 
 	now func() time.Time
@@ -193,18 +191,27 @@ func (s *Store) ReplaceAll(fn func(*State)) {
 // also holds up the request path for as long as the write takes — the database
 // serves a single connection, so a save already waits behind any query in
 // flight, and _busy_timeout bounds what a writer outside this process can add.
+// A mutation that panics still releases the lock, because the plugin log the
+// panic is reported through is behind the same one.
 func updateResult[T any](s *Store, fn func(*State) (T, Changes)) T {
-	s.mu.Lock()
-	value, changes := fn(s.state)
-	// A store the host has not configured yet keeps its working set in memory
-	// and has nowhere to put it. That window closes at plugin.register, before
-	// any traffic reaches the plugin.
-	var errSave error
-	written := s.repo != nil && !changes.empty()
-	if written {
-		errSave = s.repo.Save(s.state, changes)
-	}
-	s.mu.Unlock()
+	var (
+		value   T
+		written bool
+		errSave error
+	)
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var changes Changes
+		value, changes = fn(s.state)
+		// A store the host has not configured yet keeps its working set in
+		// memory and has nowhere to put it. That window closes at
+		// plugin.register, before any traffic reaches the plugin.
+		written = s.repo != nil && !changes.empty()
+		if written {
+			errSave = s.repo.Save(s.state, changes)
+		}
+	}()
 
 	switch {
 	case errSave != nil:

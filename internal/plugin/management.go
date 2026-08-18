@@ -165,9 +165,9 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 	case http.MethodDelete + " " + routeLogs:
 		return a.clearLogs()
 	case http.MethodGet + " " + routeEvents:
-		return JSONResponse(http.StatusOK, map[string]any{"events": a.store.Events()})
+		return a.listEvents()
 	case http.MethodDelete + " " + routeEvents:
-		return JSONResponse(http.StatusOK, map[string]any{"cleared": a.store.ClearEvents()})
+		return a.clearEvents()
 	default:
 		return JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path)
 	}

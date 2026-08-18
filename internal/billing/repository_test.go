@@ -13,31 +13,70 @@ import (
 // It shares the state document with the store rather than copying it, so a
 // mutation is visible here as soon as it is saved.
 type memoryRepository struct {
-	state *State
-	log   []LogEntry
+	state  *State
+	log    []LogEntry
+	events []Event
 	// saves records the write set of every mutation, which is how a test asks
 	// what a store operation actually persisted.
 	saves []Changes
-	// fail, when set, is returned by every save.
+	// fail, when set, is returned by every save. The plugin log has a write
+	// path of its own, and keeps working, so a test can still read what the
+	// store reported about the failure.
 	fail error
 	// closeFail, when set, is returned by Close.
 	closeFail error
 }
 
-func (r *memoryRepository) Load(logCutoff time.Time) (Snapshot, error) {
+func (r *memoryRepository) Load(cutoff time.Time) (Snapshot, error) {
 	if r.state == nil {
 		r.state = NewState()
 	}
-	if !logCutoff.IsZero() {
+	if !cutoff.IsZero() {
 		kept := r.log[:0]
 		for _, entry := range r.log {
-			if !entry.At.Before(logCutoff) {
+			if !entry.At.Before(cutoff) {
 				kept = append(kept, entry)
 			}
 		}
 		r.log = kept
+		r.events = keptEvents(r.events, cutoff)
 	}
 	return Snapshot{State: r.state, LogEntries: len(r.log)}, nil
+}
+
+func (r *memoryRepository) AppendEvent(event Event, cutoff time.Time) error {
+	r.events = keptEvents(append(r.events, event), cutoff)
+	return nil
+}
+
+// Events answers newest first, the order the log is read in.
+func (r *memoryRepository) Events(since time.Time) ([]Event, error) {
+	events := []Event{}
+	for i := len(r.events) - 1; i >= 0; i-- {
+		if !r.events[i].At.Before(since) {
+			events = append(events, r.events[i])
+		}
+	}
+	return events, nil
+}
+
+func (r *memoryRepository) ClearEvents() (int, error) {
+	cleared := len(r.events)
+	r.events = nil
+	return cleared, nil
+}
+
+func keptEvents(events []Event, cutoff time.Time) []Event {
+	if cutoff.IsZero() {
+		return events
+	}
+	kept := events[:0]
+	for _, event := range events {
+		if !event.At.Before(cutoff) {
+			kept = append(kept, event)
+		}
+	}
+	return kept
 }
 
 func (r *memoryRepository) Save(_ *State, changes Changes) error {

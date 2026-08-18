@@ -38,10 +38,10 @@ func appendLog(tx *sql.Tx, changes billing.Changes) error {
 	return pruneLog(tx.Exec, changes.LogCutoff)
 }
 
-// Appending is the moment the log grows, and opening it is the moment a log
-// that stopped growing is looked at again; between them nothing else can notice
-// that an entry aged out. A zero cutoff prunes nothing.
-func pruneLog(exec func(string, ...any) (sql.Result, error), cutoff time.Time) error {
+// Appending is the moment a log grows, and opening it is the moment one that
+// stopped growing is looked at again; between them nothing else can notice that
+// an entry aged out. A zero cutoff prunes nothing.
+func pruneLog(exec execer, cutoff time.Time) error {
 	if cutoff.IsZero() {
 		return nil
 	}
@@ -182,15 +182,7 @@ func scanLogRow(rows *sql.Rows) (billing.LogRow, error) {
 }
 
 func (d *DB) ClearLogs() (int, error) {
-	result, errDelete := d.db.Exec("DELETE FROM billing_log")
-	if errDelete != nil {
-		return 0, fmt.Errorf("清空计费日志：%w", errDelete)
-	}
-	cleared, errCount := result.RowsAffected()
-	if errCount != nil {
-		return 0, fmt.Errorf("清空计费日志：%w", errCount)
-	}
-	return int(cleared), nil
+	return d.clear("DELETE FROM billing_log", "计费日志")
 }
 
 func (d *DB) LoggedScopes(since time.Time) (map[string]struct{}, error) {

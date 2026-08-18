@@ -9,7 +9,11 @@ import (
 
 func pluginLog(t *testing.T, app *App) []billing.Event {
 	t.Helper()
-	return app.store.Events()
+	events, errEvents := app.store.Events()
+	if errEvents != nil {
+		t.Fatalf("Events error = %v", errEvents)
+	}
+	return events
 }
 
 func onlyRequestEvent(t *testing.T, app *App) billing.Event {

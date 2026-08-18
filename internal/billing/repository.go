@@ -6,11 +6,11 @@ import "time"
 // knows that a database exists, and nothing below it decides what billing
 // means; the two meet on the domain types alone.
 type Repository interface {
-	// Load reads the working set and drops the log entries older than
-	// logCutoff, which is the other moment retention is enforced: a deployment
+	// Load reads the working set and drops the entries of both logs older than
+	// cutoff, which is the other moment retention is enforced: a deployment
 	// that has stopped receiving traffic never appends. It must answer a
 	// non-nil State whenever it answers no error.
-	Load(logCutoff time.Time) (Snapshot, error)
+	Load(cutoff time.Time) (Snapshot, error)
 
 	// Save applies one mutation in a single transaction: it writes the rows
 	// named by changes, reading their current values out of state, and appends
@@ -24,6 +24,15 @@ type Repository interface {
 	// LoggedScopes reports which keys the log still names. A deleted key's
 	// record is kept for exactly as long as this says something reads it.
 	LoggedScopes(since time.Time) (map[string]struct{}, error)
+
+	// AppendEvent adds one plugin log line and drops the lines past cutoff.
+	// Appending is the only moment that log grows, so it is also the only
+	// moment retention applies to it.
+	AppendEvent(event Event, cutoff time.Time) error
+	// Events answers the plugin log newest first. since is the retention
+	// cutoff.
+	Events(since time.Time) ([]Event, error)
+	ClearEvents() (int, error)
 
 	Close() error
 }

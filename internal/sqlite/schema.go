@@ -136,4 +136,13 @@ CREATE TABLE IF NOT EXISTS billing_log (
 
 CREATE INDEX IF NOT EXISTS billing_log_at ON billing_log(at);
 CREATE INDEX IF NOT EXISTS billing_log_scope ON billing_log(scope);
+
+CREATE TABLE IF NOT EXISTS plugin_log (
+	id      INTEGER PRIMARY KEY AUTOINCREMENT,
+	at      INTEGER NOT NULL,
+	level   TEXT    NOT NULL DEFAULT '',
+	message TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS plugin_log_at ON plugin_log(at);
 `

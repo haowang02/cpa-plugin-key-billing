@@ -8,8 +8,11 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-func (d *DB) Load(logCutoff time.Time) (billing.Snapshot, error) {
-	if errPrune := pruneLog(d.db.Exec, logCutoff); errPrune != nil {
+func (d *DB) Load(cutoff time.Time) (billing.Snapshot, error) {
+	if errPrune := pruneLog(d.db.Exec, cutoff); errPrune != nil {
+		return billing.Snapshot{}, errPrune
+	}
+	if errPrune := pruneEvents(d.db.Exec, cutoff); errPrune != nil {
 		return billing.Snapshot{}, errPrune
 	}
 	state := billing.NewState()

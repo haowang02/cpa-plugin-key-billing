@@ -204,6 +204,22 @@ func (a *App) clearLogs() ManagementResponse {
 	return JSONResponse(http.StatusOK, map[string]any{"cleared": cleared})
 }
 
+func (a *App) listEvents() ManagementResponse {
+	events, errEvents := a.store.Events()
+	if errEvents != nil {
+		return errorResponse(errEvents)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"events": events})
+}
+
+func (a *App) clearEvents() ManagementResponse {
+	cleared, errClear := a.store.ClearEvents()
+	if errClear != nil {
+		return errorResponse(errClear)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"cleared": cleared})
+}
+
 func (a *App) deletePlan(req ManagementRequest) ManagementResponse {
 	id := strings.TrimSpace(req.Query.Get("id"))
 	unbound, errDelete := a.store.DeletePlan(id)

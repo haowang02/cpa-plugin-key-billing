@@ -168,17 +168,32 @@ func TestConfigureRefusesARepositoryWithoutAWorkingSet(t *testing.T) {
 
 // Closing is where the write-ahead log is folded back into the database, so a
 // failure there is the operator's warning that the tail of the record may exist
-// only beside it.
-func TestCloseReportsARepositoryThatFailsToClose(t *testing.T) {
-	repo := &memoryRepository{state: NewState(), closeFail: errors.New("磁盘已满")}
-	store := NewStore(func(string) (Repository, error) { return repo, nil })
-	if errConfigure := store.Configure(testConfig(t)); errConfigure != nil {
-		t.Fatalf("Configure error = %v", errConfigure)
+// only beside it. A reconfigure has the incoming database to record that in.
+func TestReconfigureReportsADatabaseThatFailsToClose(t *testing.T) {
+	repos := []Repository{
+		&memoryRepository{state: NewState(), closeFail: errors.New("磁盘已满")},
+		&memoryRepository{state: NewState()},
+	}
+	store := NewStore(func(string) (Repository, error) {
+		repo := repos[0]
+		repos = repos[1:]
+		return repo, nil
+	})
+	t.Cleanup(store.Close)
+	for range 2 {
+		if errConfigure := store.Configure(testConfig(t)); errConfigure != nil {
+			t.Fatalf("Configure error = %v", errConfigure)
+		}
 	}
 
-	store.Close()
-	events := store.Events()
-	if len(events) == 0 || events[0].Level != EventError || !strings.Contains(events[0].Message, "磁盘已满") {
+	events := mustEvents(t, store)
+	reported := false
+	for _, event := range events {
+		if event.Level == EventError && strings.Contains(event.Message, "磁盘已满") {
+			reported = true
+		}
+	}
+	if !reported {
 		t.Fatalf("events = %+v, want the failing close reported", events)
 	}
 }

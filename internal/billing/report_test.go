@@ -1,7 +1,6 @@
 package billing
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +24,9 @@ func finish(store *Store, outcome RequestOutcome, record *UsageRecord, reason st
 	store.FinishRequest("req-1", record, outcome, reason)
 }
 
-func requestEvents(store *Store) []Event {
-	events := store.Events()
+func requestEvents(t *testing.T, store *Store) []Event {
+	t.Helper()
+	events := mustEvents(t, store)
 	kept := make([]Event, 0, len(events))
 	for _, event := range events {
 		if strings.HasPrefix(event.Message, "请求失败：") || strings.HasPrefix(event.Message, "额度拦截：") ||
@@ -46,7 +46,7 @@ func TestFailedRequestIsReportedWithItsDetails(t *testing.T) {
 		BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true, Responded: true,
 	}, "upstream stream closed before a terminal event（internal_server_error）")
 
-	events := requestEvents(store)
+	events := requestEvents(t, store)
 	if len(events) != 1 || events[0].Level != EventError {
 		t.Fatalf("events = %+v, want one error entry", events)
 	}
@@ -67,7 +67,7 @@ func TestFailedRequestWithNothingToBillIsStillReported(t *testing.T) {
 	store := failingStore(t)
 	finish(store, OutcomeFailed, &UsageRecord{Generate: true, Responded: false}, "")
 
-	events := requestEvents(store)
+	events := requestEvents(t, store)
 	if len(events) != 1 {
 		t.Fatalf("events = %+v, want the unbillable failure reported", events)
 	}
@@ -89,7 +89,7 @@ func TestSucceededAndCanceledRequestsAreNotReported(t *testing.T) {
 	finish(store, "", record, "")
 	finish(store, OutcomeCanceled, record, "")
 
-	if events := requestEvents(store); len(events) != 0 {
+	if events := requestEvents(t, store); len(events) != 0 {
 		t.Fatalf("events = %+v, want nothing reported for a request that did not fail", events)
 	}
 }
@@ -107,7 +107,7 @@ func TestQuotaBlockIsReportedOncePerCycle(t *testing.T) {
 	for range 3 {
 		store.ReportQuotaBlock("scope-a", "/v1/messages", blocked)
 	}
-	events := requestEvents(store)
+	events := requestEvents(t, store)
 	if len(events) != 1 || events[0].Level != EventInfo {
 		t.Fatalf("events = %+v, want the onset reported once, as information", events)
 	}
@@ -121,13 +121,13 @@ func TestQuotaBlockIsReportedOncePerCycle(t *testing.T) {
 	rolled := blocked
 	rolled.CycleStartAt = cycle.Add(7 * 24 * time.Hour)
 	store.ReportQuotaBlock("scope-a", "/v1/messages", rolled)
-	if events := requestEvents(store); len(events) != 2 {
+	if events := requestEvents(t, store); len(events) != 2 {
 		t.Fatalf("events = %+v, want the new window reported", events)
 	}
 
 	// A key that is not blocked has nothing to report.
 	store.ReportQuotaBlock("scope-a", "/v1/messages", Decision{Allowed: true})
-	if events := requestEvents(store); len(events) != 2 {
+	if events := requestEvents(t, store); len(events) != 2 {
 		t.Fatalf("events = %+v, want an allowed request left out", events)
 	}
 }
@@ -141,7 +141,7 @@ func TestModelBlockIsReportedOncePerModel(t *testing.T) {
 	for range 3 {
 		store.ReportModelBlock("scope-a", "/v1/messages", refused)
 	}
-	events := requestEvents(store)
+	events := requestEvents(t, store)
 	if len(events) != 1 || events[0].Level != EventInfo {
 		t.Fatalf("events = %+v, want the onset reported once, as information", events)
 	}
@@ -155,7 +155,7 @@ func TestModelBlockIsReportedOncePerModel(t *testing.T) {
 	other := refused
 	other.Model = "chat/other"
 	store.ReportModelBlock("scope-a", "/v1/messages", other)
-	if events := requestEvents(store); len(events) != 2 {
+	if events := requestEvents(t, store); len(events) != 2 {
 		t.Fatalf("events = %+v, want the second model reported", events)
 	}
 
@@ -168,36 +168,13 @@ func TestModelBlockIsReportedOncePerModel(t *testing.T) {
 		t.Fatalf("SetKeyModels error = %v", errSet)
 	}
 	store.ReportModelBlock("scope-a", "/v1/messages", refused)
-	if events := requestEvents(store); len(events) != 3 {
+	if events := requestEvents(t, store); len(events) != 3 {
 		t.Fatalf("events = %+v, want the refusal reported after the grant changed", events)
 	}
 
 	// An allowed request has nothing to report.
 	store.ReportModelBlock("scope-a", "/v1/messages", ModelDecision{Allowed: true})
-	if events := requestEvents(store); len(events) != 3 {
+	if events := requestEvents(t, store); len(events) != 3 {
 		t.Fatalf("events = %+v, want an allowed request left out", events)
-	}
-}
-
-// Request entries arrive with the traffic, so they are bounded by count as well
-// as by age. Operational entries are not: dropping the oldest of those would
-// hide the onset an operator is looking for.
-func TestRequestEventsAreBoundedWithoutCrowdingOutOperationalOnes(t *testing.T) {
-	store := NewStore(nil)
-	store.Event(EventError, "保存计费数据失败：disk full")
-	for i := range MaxRequestEvents + 20 {
-		store.requestEvent(EventError, "请求失败：第 %d 个", i)
-	}
-
-	events := store.Events()
-	if len(events) != MaxRequestEvents+1 {
-		t.Fatalf("len = %d, want %d request entries and the operational one", len(events), MaxRequestEvents)
-	}
-	if last := events[len(events)-1]; last.Message != "保存计费数据失败：disk full" {
-		t.Fatalf("oldest = %q, want the operational entry kept", last.Message)
-	}
-	// The newest are the ones being diagnosed, so the oldest requests went.
-	if newest := fmt.Sprintf("第 %d 个", MaxRequestEvents+19); !strings.HasSuffix(events[0].Message, newest) {
-		t.Fatalf("newest = %q, want it to end on %q", events[0].Message, newest)
 	}
 }

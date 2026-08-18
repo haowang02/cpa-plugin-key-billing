@@ -7,27 +7,37 @@ import (
 	"time"
 )
 
-func TestEventsAreNewestFirstAndKeptByAge(t *testing.T) {
+func mustEvents(t *testing.T, store *Store) []Event {
+	t.Helper()
+	events, errEvents := store.Events()
+	if errEvents != nil {
+		t.Fatalf("Events error = %v", errEvents)
+	}
+	return events
+}
+
+// The store stamps each line with its own clock and reads back the window that
+// clock says is current; the order and the storage of them belong to the
+// repository and are exercised against a real database.
+func TestEventsKeepTheRetentionWindow(t *testing.T) {
 	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
-	// The plugin log is held in memory and owes nothing to storage.
-	store := NewStore(nil)
-	store.now = func() time.Time { return now.Add(-EventRetention - time.Hour) }
+	store, _ := newStoreWithRepository(t)
+	// Configuring the store already reported the database it loaded.
+	if _, errClear := store.ClearEvents(); errClear != nil {
+		t.Fatalf("ClearEvents error = %v", errClear)
+	}
+	store.now = func() time.Time { return now.Add(-LogRetention - time.Hour) }
 	store.Event(EventInfo, "过期事件")
 	store.now = func() time.Time { return now }
-	for i := 0; i < 3; i++ {
-		store.Event(EventInfo, "事件 %d", i)
+	store.Event(EventInfo, "事件")
+
+	events := mustEvents(t, store)
+	if len(events) != 1 || events[0].Message != "事件" {
+		t.Fatalf("events = %+v, want only the one inside the window", events)
 	}
 
-	events := store.Events()
-	if len(events) != 3 {
-		t.Fatalf("len = %d, want every event inside the window kept", len(events))
-	}
-	if events[0].Message != "事件 2" || events[len(events)-1].Message != "事件 0" {
-		t.Fatalf("events = %q … %q, want the newest first", events[0].Message, events[len(events)-1].Message)
-	}
-
-	store.now = func() time.Time { return now.Add(EventRetention + time.Hour) }
-	if events := store.Events(); len(events) != 0 {
+	store.now = func() time.Time { return now.Add(LogRetention + time.Hour) }
+	if events := mustEvents(t, store); len(events) != 0 {
 		t.Fatalf("len = %d, want the window emptied by age alone", len(events))
 	}
 }
@@ -38,11 +48,11 @@ func TestUnwritableDatabaseIsReportedOnceAndOnRecovery(t *testing.T) {
 	store, repo := newStoreWithRepository(t)
 	repo.fail = errors.New("disk full")
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		store.ReplaceAll(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{Requests: 1}} })
 	}
 	reported := 0
-	for _, event := range store.Events() {
+	for _, event := range mustEvents(t, store) {
 		if event.Level == EventError && strings.Contains(event.Message, "保存计费数据失败") {
 			reported++
 		}
@@ -53,7 +63,7 @@ func TestUnwritableDatabaseIsReportedOnceAndOnRecovery(t *testing.T) {
 
 	repo.fail = nil
 	store.ReplaceAll(func(state *State) { state.Keys["scope-a"].Lifetime.Requests = 2 })
-	if store.Events()[0].Message != "计费数据库恢复写入。" {
-		t.Fatalf("events = %+v, want the recovery reported", store.Events()[0])
+	if events := mustEvents(t, store); events[0].Message != "计费数据库恢复写入。" {
+		t.Fatalf("events = %+v, want the recovery reported", events[0])
 	}
 }
