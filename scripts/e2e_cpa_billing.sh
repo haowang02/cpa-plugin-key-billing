@@ -262,6 +262,13 @@ extract_downstream_usage() {
   esac
 }
 
+# The output budget only exists to keep the suite cheap, and has to stay clear of
+# what the model spends on reasoning: a turn that hits the cap before producing
+# any content is a reasoning-only turn, which CLIProxyAPI's chat-completions →
+# Responses stream translator ends without a terminal event, failing the suite
+# over a defect that is not the plugin's.
+readonly max_output_tokens=128
+
 request_body() {
   local client="$1"
   local requested_model="$2"
@@ -269,24 +276,24 @@ request_body() {
   local prompt="$4"
   case "$client" in
     chat)
-      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" '
-        {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: 16, stream: $stream} +
+      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" --argjson budget "$max_output_tokens" '
+        {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $budget, stream: $stream} +
         (if $stream then {stream_options: {include_usage: true}} else {} end)
       '
       ;;
     responses)
-      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" '
+      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" --argjson budget "$max_output_tokens" '
         {
           model: $model,
           input: [{type: "message", role: "user", content: [{type: "input_text", text: $prompt}]}],
-          max_output_tokens: 16,
+          max_output_tokens: $budget,
           stream: $stream
         }
       '
       ;;
     anthropic)
-      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" '
-        {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: 16, stream: $stream}
+      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" --argjson budget "$max_output_tokens" '
+        {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $budget, stream: $stream}
       '
       ;;
   esac
