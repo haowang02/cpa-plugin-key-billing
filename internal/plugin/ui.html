@@ -309,7 +309,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .model-trigger{max-width:none}
 }
 .wide-search{width:360px;max-width:100%}
-.card-actions{min-width:0}
+.section-actions{min-width:0}
 .log-card{height:calc(100dvh - 247px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
 /* Tables size to their content, which for a log message means one very wide row
  * behind a horizontal scroll. The plugin log fixes its layout instead, so the
@@ -351,9 +351,9 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
      navbar outside the frame. Only the former needs an internal safe area. */
   :root:not([data-cpamp-plugin-host=true]) .wrap{padding-top:90px}
   .section-toolbar{align-items:flex-start}
-  .section-toolbar>.card-actions{flex:1 1 100%;width:100%}
-  .card-actions .wide-search,#price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
-  .card-actions #log-note{flex:1 0 100%}
+  .section-toolbar>.section-actions{flex:1 1 100%;width:100%}
+  .section-actions .wide-search,#price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
+  .section-actions #log-note{flex:1 0 100%}
   .log-card{height:calc(100dvh - 295px);min-height:320px}
 }
 @media (max-width:520px){
@@ -478,7 +478,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <div class="card">
       <div class="row spread section-toolbar" style="margin-bottom:12px">
         <h2 style="margin:0">API Key</h2>
-        <div class="row card-actions">
+        <div class="row section-actions">
           <input id="key-filter" placeholder="搜索 API Key、备注或计划" class="wide-search">
           <button id="keys-reset-all">全员重置</button>
         </div>
@@ -553,7 +553,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <div class="card">
       <div class="row spread section-toolbar" style="margin-bottom:12px">
         <h2 style="margin:0">模型定价</h2>
-        <div class="row card-actions">
+        <div class="row section-actions">
           <input id="price-filter" placeholder="搜索模型" style="max-width:220px">
           <button id="price-catalog-refresh">更新参考价</button>
           <button id="price-reset" class="danger">恢复参考价</button>
@@ -567,7 +567,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <div class="card log-card">
       <div class="row spread section-toolbar" style="margin-bottom:12px">
         <h2 style="margin:0">计费日志</h2>
-        <div class="row card-actions">
+        <div class="row section-actions">
           <span id="log-note" class="muted small"></span>
           <select id="log-status" aria-label="按状态筛选">
             <option value="">全部状态</option>
@@ -586,7 +586,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <div class="card log-card">
       <div class="row spread section-toolbar" style="margin-bottom:12px">
         <h2 style="margin:0">插件日志</h2>
-        <div class="row card-actions">
+        <div class="row section-actions">
           <span id="event-note" class="muted small"></span>
           <select id="event-level" aria-label="按级别筛选">
             <option value="">全部级别</option>
