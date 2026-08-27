@@ -342,10 +342,9 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .cost-tooltip-head{color:var(--text-tertiary);font-size:11px;border-bottom:1px solid var(--border-color)}
 .cost-tooltip-grid .num{text-align:right;white-space:nowrap}
 .cost-tooltip-total{display:flex;justify-content:space-between;gap:16px;margin-top:9px;padding-top:8px;border-top:1px solid var(--border-color);font-weight:600}
-.log-pagination{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:45px;padding-top:10px;margin-top:10px;border-top:1px solid var(--border-color)}
-.log-pagination select{width:auto;min-width:72px;padding:5px 8px}
-.log-pagination button{padding:5px 10px}
-.log-page-number{min-width:64px;text-align:center;font-variant-numeric:tabular-nums}
+.log-load-state{display:flex;min-height:42px;align-items:center;justify-content:center;padding:10px;
+  border-top:1px solid var(--border-color);color:var(--text-tertiary);font-size:12px}
+.log-load-state button{padding:5px 10px}
 @media (max-width:768px){
   .wrap{padding:14px 12px 40px}
   /* CPAMC overlays mobile controls on the iframe, while CPAMP keeps its 50px
@@ -356,7 +355,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .card-actions .wide-search,#price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
   .card-actions #log-note{flex:1 0 100%}
   .log-card{height:calc(100dvh - 295px);min-height:320px}
-  .log-pagination{justify-content:center;flex-wrap:wrap}
 }
 @media (max-width:520px){
   dialog{width:calc(100vw - 24px);max-width:none;padding:16px}
@@ -366,12 +364,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .price-reference-prices{text-align:left}
 }
 @media (max-width:360px){
-  .log-pagination{display:grid;grid-template-columns:1fr auto 1fr;gap:8px}
-  .log-pagination>.muted{grid-column:1;grid-row:1;justify-self:end}
-  .log-pagination>select{grid-column:2;grid-row:1}
-  #log-prev{grid-column:1;grid-row:2;justify-self:end}
-  #log-page-number{grid-column:2;grid-row:2}
-  #log-next{grid-column:3;grid-row:2;justify-self:start}
   .cost-tooltip{width:calc(100vw - 16px);padding:10px;font-size:11px}
   .cost-tooltip-summary{gap:3px 8px}
   .cost-tooltip-grid{grid-template-columns:minmax(62px,1fr) auto auto;gap:4px 6px;font-size:11px}
@@ -587,19 +579,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
         </div>
       </div>
       <div id="logs-body" class="log-table-region"></div>
-      <div id="log-pagination" class="log-pagination hidden">
-        <span class="muted small">大小</span>
-        <select id="log-page-size" aria-label="每页日志条数">
-          <option value="20">20</option>
-          <option value="50" selected>50</option>
-          <option value="100">100</option>
-          <option value="500">500</option>
-          <option value="1000">1000</option>
-        </select>
-        <button id="log-prev">上一页</button>
-        <span id="log-page-number" class="log-page-number">1/1</span>
-        <button id="log-next">下一页</button>
-      </div>
     </div>
   </section>
 
@@ -729,10 +708,15 @@ const ALL_GROUP_ID = "all";
 const ALL_GROUP_NAME = "全部模型";
 const CONCURRENCY_OPTIONS = [0, 1, 2, 3, 5, 10, 20, 50];
 const CUSTOM_CONCURRENCY = "__custom__";
-let logPage = 1;
-let logPageSize = 50;
+const LOG_BATCH_SIZE = 50;
+const LOG_LOAD_MORE_THRESHOLD_PX = 320;
 let logRequest = 0;
 let logSearchTimer = 0;
+let logLoading = false;
+let logLoadingMore = false;
+let logHasMore = false;
+let logAutoLoadMore = true;
+let logLoadError = "";
 
 // CLIProxyAPI HTML-escapes every string in a plugin management response, so a
 // label saved as "A & B" comes back as "A &amp; B". Left alone it would gain
@@ -930,7 +914,7 @@ async function reloadAll() {
   //
   // The two logs stay out of it. They are the payloads that grow with traffic
   // rather than with configuration, so each is fetched only while its own tab
-  // is open, and the billing log only a page at a time.
+  // is open, and the billing log arrives incrementally in bounded batches.
   const [overview, events] = await Promise.all([
     plugin("GET", "/overview"),
     document.querySelector('[data-tab="events"].active') ? plugin("GET", "/events") : Promise.resolve(null),
@@ -1573,21 +1557,21 @@ function hideCostTooltip() {
 // The option labels carry the counts, so the plain text lives here.
 const LOG_STATUS_LABELS = { "": "全部状态", normal: "正常", failed: "失败" };
 
-// The browser only holds one page, so the counts are the server's: they cover
-// the whole search and ignore the status choice itself, which is what lets each
-// option say how many entries picking it would show.
+// The browser only holds the batches loaded so far, so the counts are the
+// server's: they cover the whole search and ignore the status choice itself,
+// which is what lets each option say how many entries picking it would show.
 function labelLogStatuses(counts) {
   for (const option of $("log-status").options) {
     option.textContent = LOG_STATUS_LABELS[option.value] + "（" + int((counts || {})[option.value || "all"]) + "）";
   }
 }
 
-// Searching, filtering and paging all happen in the plugin, so each of them is
-// a request for a new page rather than a re-render of a log the browser holds.
-function logPath() {
+// Searching and filtering happen in the plugin. Scrolling keeps the active
+// filter stable and asks for the next bounded batch by its current row offset.
+function logPath(offset) {
   const params = new URLSearchParams({
-    offset: String((logPage - 1) * logPageSize),
-    limit: String(logPageSize),
+    offset: String(offset),
+    limit: String(LOG_BATCH_SIZE),
   });
   const search = $("log-filter").value.trim();
   if (search) params.set("q", search);
@@ -1596,49 +1580,84 @@ function logPath() {
   return "/logs?" + params.toString();
 }
 
-const logPageCount = (total) => Math.max(1, Math.ceil((total || 0) / logPageSize));
-
-async function loadLogs(clamped) {
-  const ticket = ++logRequest;
-  const view = await plugin("GET", logPath());
-  // Typing fires a request per keystroke and they need not return in order, so
-  // a superseded response is dropped rather than rendered.
-  if (ticket !== logRequest) return;
-  // The true total only arrives here, so this is where a page past the end of
-  // the log — cleared or aged out between two requests — is corrected.
-  const totalPages = logPageCount(view.total);
-  if (logPage > totalPages && !clamped) {
-    logPage = totalPages;
-    await loadLogs(true);
-    return;
-  }
-  state.logs = view;
-  renderLogs();
+function shouldLoadMoreLogs(scroller) {
+  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= LOG_LOAD_MORE_THRESHOLD_PX;
 }
 
-function turnLogPage(page) {
-  logPage = page;
-  guard(async () => {
-    await loadLogs();
+function maybeLoadMoreLogs() {
+  const scroller = $("logs-body");
+  if (!logAutoLoadMore || !logHasMore || logLoading || logLoadingMore || !shouldLoadMoreLogs(scroller)) return;
+  guard(() => loadLogs(true));
+}
+
+async function loadLogs(append) {
+  append = append === true;
+  if (append && (!logHasMore || logLoading || logLoadingMore)) return;
+  const existing = append && state.logs ? (state.logs.entries || []) : [];
+  const offset = existing.length;
+  const ticket = ++logRequest;
+  if (append) {
+    logLoadingMore = true;
+  } else {
+    logLoading = true;
+    logLoadingMore = false;
+    logHasMore = false;
+    logAutoLoadMore = true;
+    logLoadError = "";
+    state.logs = null;
     $("logs-body").scrollTop = 0;
-  });
+  }
+  renderLogs();
+  try {
+    const page = await plugin("GET", logPath(offset));
+    // Search and status changes can overtake an older request. Only the newest
+    // filter generation is allowed to replace or append table rows.
+    if (ticket !== logRequest) return;
+    const incoming = page.entries || [];
+    const entries = existing.concat(incoming);
+    state.logs = { ...page, entries };
+    logHasMore = incoming.length > 0 && entries.length < Number(page.total || 0);
+    logAutoLoadMore = true;
+    logLoadError = "";
+  } catch (err) {
+    if (ticket === logRequest) {
+      logLoadError = err.message || String(err);
+      if (append) logAutoLoadMore = false;
+    }
+    throw err;
+  } finally {
+    if (ticket === logRequest) {
+      logLoading = false;
+      logLoadingMore = false;
+      renderLogs();
+    }
+  }
 }
 
 function renderLogs() {
   hideCostTooltip();
   const view = state.logs;
   const note = $("log-note");
-  const pagination = $("log-pagination");
   if (!view) {
     note.textContent = "";
-    pagination.classList.add("hidden");
-    $("logs-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
+    if (logLoading) {
+      $("logs-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
+    } else if (logLoadError) {
+      $("logs-body").replaceChildren(el("div", { class: "empty" },
+        el("div", { text: "计费日志加载失败" }),
+        el("button", { style: "margin-top:10px", onclick: () => guard(() => loadLogs(false)) }, "重试")));
+    } else {
+      $("logs-body").replaceChildren(el("div", { class: "empty", text: "暂无数据" }));
+    }
     return;
   }
   labelLogStatuses(view.status_counts);
-  note.textContent = int(view.total) + " 条";
-  const totalPages = logPageCount(view.total);
-  const rows = (view.entries || [])
+  const entries = view.entries || [];
+  note.textContent = "已加载 " + int(entries.length) + " / " + int(view.total) + " 条";
+  const scroller = $("logs-body");
+  const previousScrollTop = scroller.scrollTop;
+  const previousScrollLeft = scroller.scrollLeft;
+  const rows = entries
     .map((entry) => {
       const cost = entry.cost || {};
       const keyDisplay = logKeyName(entry);
@@ -1725,16 +1744,21 @@ function renderLogs() {
       );
     });
 
-  $("logs-body").replaceChildren(table(
+  const content = [table(
     ["时间", "API Key", "模型", "执行器 / 来源", "推理 / 速度", "状态", { label: "TPS / 延迟", num: true },
       { label: "输入", num: true }, { label: "缓存读取", num: true },
       { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
-    rows));
-  pagination.classList.remove("hidden");
-  $("log-page-size").value = String(logPageSize);
-  $("log-page-number").textContent = logPage + "/" + totalPages;
-  $("log-prev").disabled = logPage <= 1;
-  $("log-next").disabled = logPage >= totalPages;
+    rows)];
+  if (logLoadingMore) {
+    content.push(el("div", { class: "log-load-state", role: "status", text: "正在加载更多…" }));
+  } else if (!logAutoLoadMore && logHasMore) {
+    content.push(el("div", { class: "log-load-state" },
+      el("button", { onclick: () => guard(() => loadLogs(true)) }, "重试加载")));
+  }
+  scroller.replaceChildren(...content);
+  scroller.scrollTop = previousScrollTop;
+  scroller.scrollLeft = previousScrollLeft;
+  requestAnimationFrame(maybeLoadMoreLogs);
 }
 
 const eventLevels = {
@@ -2082,20 +2106,14 @@ $("log-filter").addEventListener("input", () => {
   clearTimeout(logSearchTimer);
   logSearchTimer = setTimeout(() => {
     logSearchTimer = 0;
-    logPage = 1;
-    guard(loadLogs);
+    guard(() => loadLogs(false));
   }, 180);
 });
-$("log-status").addEventListener("change", () => { logPage = 1; guard(loadLogs); });
-$("logs-body").addEventListener("scroll", hideCostTooltip, { passive: true });
-$("log-page-size").addEventListener("change", (event) => {
-  logPageSize = Number(event.target.value) || 50;
-  turnLogPage(1);
-});
-$("log-prev").onclick = () => {
-  if (logPage > 1) turnLogPage(logPage - 1);
-};
-$("log-next").onclick = () => turnLogPage(logPage + 1);
+$("log-status").addEventListener("change", () => guard(() => loadLogs(false)));
+$("logs-body").addEventListener("scroll", () => {
+  hideCostTooltip();
+  maybeLoadMoreLogs();
+}, { passive: true });
 $("keys-reset-all").onclick = () => guard(async () => {
   if (!await confirmAction("重置所有周期性额度？",
     "绑定周期性计划的 API Key 会结束当前周期，下一次请求开启新周期；不重置的计划和累计用量不受影响。")) return;
