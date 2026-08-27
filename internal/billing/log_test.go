@@ -16,6 +16,7 @@ func TestLogRecordsTheComputedBill(t *testing.T) {
 	}
 	entry := view.Entries[0]
 	if entry.Scope != "scope-a" || entry.ExecutorType != "CodexExecutor" ||
+		entry.ReasoningEffort != "high" || entry.ServiceTier != "auto" ||
 		entry.UpstreamModel != "gpt-5.5" || entry.BillingModel != "gpt-5.5" ||
 		entry.PriceSource != PriceSourceOverride || entry.Failed || entry.AccountingQuality != TokenAccountingComplete {
 		t.Fatalf("entry = %+v", entry)

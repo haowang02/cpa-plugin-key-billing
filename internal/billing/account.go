@@ -6,20 +6,22 @@ import (
 )
 
 type UsageEvent struct {
-	Scope         string
-	AuthIndex     string
-	Provider      string
-	ExecutorType  string
-	AuthType      string
-	Account       string
-	UpstreamModel string
-	RouteModel    string
-	RequestedAt   time.Time
-	Latency       time.Duration
-	TTFT          time.Duration
-	Failed        bool
-	Breakdown     TokenBreakdown
-	At            time.Time
+	Scope           string
+	AuthIndex       string
+	Provider        string
+	ExecutorType    string
+	AuthType        string
+	Account         string
+	ReasoningEffort string
+	ServiceTier     string
+	UpstreamModel   string
+	RouteModel      string
+	RequestedAt     time.Time
+	Latency         time.Duration
+	TTFT            time.Duration
+	Failed          bool
+	Breakdown       TokenBreakdown
+	At              time.Time
 }
 
 func (s *Store) RecordUsage(event UsageEvent) {
@@ -63,6 +65,8 @@ func (s *Store) RecordUsage(event UsageEvent) {
 			Scope:             scope,
 			AuthIndex:         event.AuthIndex,
 			ExecutorType:      event.ExecutorType,
+			ReasoningEffort:   event.ReasoningEffort,
+			ServiceTier:       event.ServiceTier,
 			UpstreamModel:     upstreamModel,
 			BillingModel:      billingModel,
 			Failed:            event.Failed,

@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS usage_log (
 	scope                       TEXT    NOT NULL,
 	auth_index                  TEXT    NOT NULL DEFAULT '',
 	executor_type               TEXT    NOT NULL DEFAULT '',
+	reasoning_effort            TEXT    NOT NULL DEFAULT '',
+	service_tier                TEXT    NOT NULL DEFAULT '',
 	upstream_model              TEXT    NOT NULL DEFAULT '',
 	billing_model               TEXT    NOT NULL DEFAULT '',
 	failed                      INTEGER NOT NULL DEFAULT 0,

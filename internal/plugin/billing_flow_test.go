@@ -100,6 +100,7 @@ func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "codex", ExecutorType: "CodexExecutor", Model: flowModel, Alias: "route/gpt-5.5",
 		APIKey: testAPIKey, AuthIndex: "auth-7", AuthType: "oauth", Source: "billing@example.com",
+		ReasoningEffort: "high", ServiceTier: "priority",
 		Generate: true, RequestedAt: app.store.Now(), Latency: 1500 * time.Millisecond, TTFT: 250 * time.Millisecond,
 		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
@@ -110,6 +111,7 @@ func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 	}
 	entry := entries[0]
 	if entry.AuthIndex != "auth-7" || entry.ExecutorType != "CodexExecutor" ||
+		entry.ReasoningEffort != "high" || entry.ServiceTier != "priority" ||
 		entry.UpstreamModel != flowModel || entry.BillingModel != "route/gpt-5.5" || entry.Failed ||
 		entry.Source != "codex · billing@example.com" || entry.AccountingQuality != billing.TokenAccountingComplete ||
 		entry.LatencyMS != 1500 || entry.TTFTMS != 250 {

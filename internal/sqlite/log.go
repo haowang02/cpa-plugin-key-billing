@@ -13,15 +13,17 @@ func appendLog(tx *sql.Tx, changes billing.Changes) error {
 	for _, entry := range changes.Log {
 		_, errInsert := tx.Exec(`
 			INSERT INTO usage_log (
-				at, scope, auth_index, executor_type, upstream_model, billing_model, failed, latency_ms, ttft_ms,
+				at, scope, auth_index, executor_type, reasoning_effort, service_tier,
+				upstream_model, billing_model, failed, latency_ms, ttft_ms,
 				accounting_quality, price_source, reasoning_tokens,
 				total_usd, uncached_input_usd, cache_read_usd, cache_write_usd, output_usd,
 				uncached_input_tokens, cache_read_tokens, cache_write_tokens, billed_output_tokens,
 				tiered, long_context, threshold_input_tokens,
 				applied_input_per_1m, applied_output_per_1m,
 				applied_cache_read_per_1m, applied_cache_write_per_1m
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			nanos(entry.At), entry.Scope, entry.AuthIndex, entry.ExecutorType, entry.UpstreamModel, entry.BillingModel, entry.Failed,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			nanos(entry.At), entry.Scope, entry.AuthIndex, entry.ExecutorType, entry.ReasoningEffort, entry.ServiceTier,
+			entry.UpstreamModel, entry.BillingModel, entry.Failed,
 			entry.LatencyMS, entry.TTFTMS,
 			string(entry.AccountingQuality), string(entry.PriceSource), entry.ReasoningTokens,
 			entry.Cost.TotalUSD, entry.Cost.UncachedInputUSD, entry.Cost.CacheReadUSD,
@@ -59,6 +61,8 @@ const logSearch = ` AND (
 	instr(ulower(coalesce(k.preview, '')), ulower(?)) > 0 OR
 	instr(ulower(l.scope), ulower(?)) > 0 OR
 	instr(ulower(l.executor_type), ulower(?)) > 0 OR
+	instr(ulower(l.reasoning_effort), ulower(?)) > 0 OR
+	instr(ulower(l.service_tier), ulower(?)) > 0 OR
 	instr(ulower(l.upstream_model), ulower(?)) > 0 OR
 	instr(ulower(l.billing_model), ulower(?)) > 0 OR
 	instr(ulower(coalesce(c.name, '')), ulower(?)) > 0)`
@@ -94,7 +98,8 @@ func (d *DB) Logs(query billing.LogQuery, since time.Time) (billing.LogView, err
 	pageArgs := append(append([]any(nil), args...), limit, query.Offset)
 
 	rows, errQuery := d.db.Query(`
-		SELECT l.at, l.scope, l.auth_index, l.executor_type, l.upstream_model, l.billing_model, l.failed, l.latency_ms, l.ttft_ms,
+		SELECT l.at, l.scope, l.auth_index, l.executor_type, l.reasoning_effort, l.service_tier,
+			l.upstream_model, l.billing_model, l.failed, l.latency_ms, l.ttft_ms,
 			l.accounting_quality, l.price_source, l.reasoning_tokens,
 			l.total_usd, l.uncached_input_usd, l.cache_read_usd, l.cache_write_usd, l.output_usd,
 			l.uncached_input_tokens, l.cache_read_tokens, l.cache_write_tokens, l.billed_output_tokens,
@@ -139,7 +144,8 @@ func scanLogRow(rows *sql.Rows) (billing.LogRow, error) {
 		at, failed           int64
 		quality, priceSource string
 	)
-	if errScan := rows.Scan(&at, &row.Scope, &row.AuthIndex, &row.ExecutorType, &row.UpstreamModel, &row.BillingModel, &failed,
+	if errScan := rows.Scan(&at, &row.Scope, &row.AuthIndex, &row.ExecutorType, &row.ReasoningEffort, &row.ServiceTier,
+		&row.UpstreamModel, &row.BillingModel, &failed,
 		&row.LatencyMS, &row.TTFTMS,
 		&quality, &priceSource, &row.ReasoningTokens,
 		&row.Cost.TotalUSD, &row.Cost.UncachedInputUSD, &row.Cost.CacheReadUSD,

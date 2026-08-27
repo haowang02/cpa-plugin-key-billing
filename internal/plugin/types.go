@@ -112,21 +112,23 @@ type RequestInterceptResponse struct {
 }
 
 type UsageRecord struct {
-	Provider     string        `json:"Provider"`
-	ExecutorType string        `json:"ExecutorType"`
-	Model        string        `json:"Model"`
-	Alias        string        `json:"Alias"`
-	APIKey       string        `json:"APIKey"`
-	AuthIndex    string        `json:"AuthIndex"`
-	AuthType     string        `json:"AuthType"`
-	Source       string        `json:"Source"`
-	Generate     bool          `json:"Generate"`
-	RequestedAt  time.Time     `json:"RequestedAt"`
-	Latency      time.Duration `json:"Latency"`
-	TTFT         time.Duration `json:"TTFT"`
-	Failed       bool          `json:"Failed"`
-	Failure      UsageFailure  `json:"Failure"`
-	Detail       UsageDetail   `json:"Detail"`
+	Provider        string        `json:"Provider"`
+	ExecutorType    string        `json:"ExecutorType"`
+	Model           string        `json:"Model"`
+	Alias           string        `json:"Alias"`
+	APIKey          string        `json:"APIKey"`
+	AuthIndex       string        `json:"AuthIndex"`
+	AuthType        string        `json:"AuthType"`
+	Source          string        `json:"Source"`
+	ReasoningEffort string        `json:"ReasoningEffort"`
+	ServiceTier     string        `json:"ServiceTier"`
+	Generate        bool          `json:"Generate"`
+	RequestedAt     time.Time     `json:"RequestedAt"`
+	Latency         time.Duration `json:"Latency"`
+	TTFT            time.Duration `json:"TTFT"`
+	Failed          bool          `json:"Failed"`
+	Failure         UsageFailure  `json:"Failure"`
+	Detail          UsageDetail   `json:"Detail"`
 }
 
 type UsageFailure struct {

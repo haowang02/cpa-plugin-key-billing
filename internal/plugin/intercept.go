@@ -119,20 +119,22 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 	}
 	_, _ = billing.EnsureBuiltinCatalog()
 	a.store.RecordUsage(billing.UsageEvent{
-		Scope:         scope,
-		AuthIndex:     record.AuthIndex,
-		Provider:      record.Provider,
-		ExecutorType:  record.ExecutorType,
-		AuthType:      record.AuthType,
-		Account:       record.Source,
-		UpstreamModel: record.Model,
-		RouteModel:    record.Alias,
-		RequestedAt:   record.RequestedAt,
-		Latency:       record.Latency,
-		TTFT:          record.TTFT,
-		Failed:        record.Failed,
-		Breakdown:     usageBreakdown(record),
-		At:            a.store.Now(),
+		Scope:           scope,
+		AuthIndex:       record.AuthIndex,
+		Provider:        record.Provider,
+		ExecutorType:    record.ExecutorType,
+		AuthType:        record.AuthType,
+		Account:         record.Source,
+		ReasoningEffort: record.ReasoningEffort,
+		ServiceTier:     record.ServiceTier,
+		UpstreamModel:   record.Model,
+		RouteModel:      record.Alias,
+		RequestedAt:     record.RequestedAt,
+		Latency:         record.Latency,
+		TTFT:            record.TTFT,
+		Failed:          record.Failed,
+		Breakdown:       usageBreakdown(record),
+		At:              a.store.Now(),
 	})
 	return OKEnvelope(struct{}{})
 }

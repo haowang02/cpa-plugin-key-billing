@@ -582,7 +582,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
             <option value="normal">正常</option>
             <option value="failed">失败</option>
           </select>
-          <input id="log-filter" placeholder="搜索 API Key、备注、模型、执行器或来源" class="wide-search">
+          <input id="log-filter" placeholder="搜索 API Key、备注、模型、执行器、推理、速度或来源" class="wide-search">
           <button id="logs-clear" class="danger">清空日志</button>
         </div>
       </div>
@@ -1663,6 +1663,7 @@ function renderLogs() {
 
       const billingModel = entry.billing_model || entry.upstream_model || "—";
       const upstreamModel = entry.upstream_model || "—";
+      const showUpstreamModel = entry.upstream_model && entry.upstream_model !== billingModel;
 
       return el("tr", {},
         el("td", { class: "small" }, when(entry.at)),
@@ -1674,11 +1675,15 @@ function renderLogs() {
         ),
         el("td", { class: "small" },
           el("div", { class: "log-cell-line mono" }, billingModel),
-          el("div", { class: "log-cell-line muted" }, "上游 " + upstreamModel),
+          showUpstreamModel ? el("div", { class: "log-cell-line muted" }, "上游 " + upstreamModel) : null,
         ),
         el("td", { class: "small" },
           el("div", { class: "log-cell-line mono" }, entry.executor_type || "执行器未知"),
           el("div", { class: "log-source muted", title: entry.source || null }, entry.source || "来源未知"),
+        ),
+        el("td", { class: "small" },
+          el("div", { class: "log-cell-line mono" }, entry.reasoning_effort || "—"),
+          el("div", { class: "log-cell-line muted" }, entry.service_tier || "—"),
         ),
         el("td", { class: "log-status" }, statusMarks),
         el("td", { class: "num" },
@@ -1721,7 +1726,7 @@ function renderLogs() {
     });
 
   $("logs-body").replaceChildren(table(
-    ["时间", "API Key", "模型", "执行器 / 来源", "状态", { label: "TPS / 延迟", num: true },
+    ["时间", "API Key", "模型", "执行器 / 来源", "推理 / 速度", "状态", { label: "TPS / 延迟", num: true },
       { label: "输入", num: true }, { label: "缓存读取", num: true },
       { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
     rows));
