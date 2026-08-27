@@ -9,6 +9,7 @@ type UsageEvent struct {
 	Scope         string
 	AuthIndex     string
 	Provider      string
+	ExecutorType  string
 	AuthType      string
 	Account       string
 	UpstreamModel string
@@ -61,6 +62,7 @@ func (s *Store) RecordUsage(event UsageEvent) {
 			At:                entryAt,
 			Scope:             scope,
 			AuthIndex:         event.AuthIndex,
+			ExecutorType:      event.ExecutorType,
 			UpstreamModel:     upstreamModel,
 			BillingModel:      billingModel,
 			Failed:            event.Failed,

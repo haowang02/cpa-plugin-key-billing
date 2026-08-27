@@ -418,6 +418,7 @@ def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, lo
 LOG_CASES = [
     {
         "source": "codex · haowang4455@gmail.com",
+        "executor_type": "CodexExecutor",
         "upstream_model": "gpt-5.6-sol",
         "billing_model": "team/gpt-5.6-sol",
         "reasoning_tokens": 2100,
@@ -425,6 +426,7 @@ LOG_CASES = [
     },
     {
         "source": "xai · 00f7ghqi90@haowang.im",
+        "executor_type": "XAIWebsocketsExecutor",
         "upstream_model": "gpt-5.6-sol",
         "billing_model": "gpt-5.6-sol",
         "reasoning_tokens": 8000,
@@ -434,6 +436,7 @@ LOG_CASES = [
         # A provider configured in config.yaml, named by the masked API key
         # that separates it from the other keys of that provider.
         "source": "deepseek · sk-ups…0001",
+        "executor_type": "OpenAICompatExecutor",
         "upstream_model": "deepseek-v4-flash",
         "billing_model": "deepseek-v4-flash",
         "reasoning_tokens": 0,
@@ -441,6 +444,7 @@ LOG_CASES = [
     },
     {
         "source": "claude · sk-ups…0001",
+        "executor_type": "ClaudeExecutor",
         "upstream_model": "claude-sonnet-4-5",
         "billing_model": "claude-sonnet-4-5",
         "reasoning_tokens": 0,
@@ -450,6 +454,7 @@ LOG_CASES = [
         # A credential no usage record has named yet, so its source falls back
         # to the placeholder.
         "source": "",
+        "executor_type": "CodexExecutor",
         "upstream_model": "gpt-5.5",
         "billing_model": "gpt-5.5",
         "reasoning_tokens": 400,
@@ -458,6 +463,7 @@ LOG_CASES = [
     {
         # A normal usage event whose provider supplied no token detail.
         "source": "codex · ops@example.com",
+        "executor_type": "CodexExecutor",
         "upstream_model": "gpt-5.5",
         "billing_model": "gpt-5.5",
         "reasoning_tokens": 0,
@@ -468,6 +474,7 @@ LOG_CASES = [
         # The host reported a total that could not be split into billable
         # buckets. Zero-valued cost fields must render as unknown, not measured.
         "source": "future-provider",
+        "executor_type": "FutureExecutor",
         "upstream_model": "future-model",
         "billing_model": "future-model",
         "reasoning_tokens": 120,
@@ -476,6 +483,7 @@ LOG_CASES = [
     },
     {
         "source": "codex · ops@example.com",
+        "executor_type": "CodexExecutor",
         "upstream_model": "gpt-5.5",
         "billing_model": "gpt-5.5",
         "reasoning_tokens": 0,
@@ -485,6 +493,7 @@ LOG_CASES = [
     {
         # An upstream error after the provider had already reported its usage.
         "source": "xai · ops@example.com",
+        "executor_type": "XAIExecutor",
         "upstream_model": "grok-4",
         "billing_model": "grok-4",
         "reasoning_tokens": 128,
@@ -506,6 +515,7 @@ def make_logs(count=120):
                 "preview": key["preview"],
                 "label": key["label"],
                 "source": case["source"],
+                "executor_type": case["executor_type"],
                 "upstream_model": case["upstream_model"],
                 "billing_model": case["billing_model"],
                 "failed": case.get("failed", False),
@@ -524,7 +534,7 @@ LOGS = make_logs()
 
 # The billing log is served one page at a time, and the counts beside the status
 # filter come with it, so the dummy has to answer the same query the plugin does.
-LOG_SEARCH_FIELDS = ("label", "preview", "scope", "upstream_model", "billing_model", "source")
+LOG_SEARCH_FIELDS = ("label", "preview", "scope", "executor_type", "upstream_model", "billing_model", "source")
 
 
 def log_view(query):

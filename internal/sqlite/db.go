@@ -21,7 +21,7 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 // driverName is this package's own registration of the SQLite driver. It exists
 // for ulower(): the built-in lower() folds ASCII only, so a key labelled in any
@@ -97,6 +97,9 @@ func (d *DB) init() error {
 		if errMigrate := migrateConcurrencyLimit(tx); errMigrate != nil {
 			return fmt.Errorf("迁移计费数据库 %s 的 API Key 并发上限：%w", d.path, errMigrate)
 		}
+		if errMigrate := migrateUsageLogExecutorType(tx); errMigrate != nil {
+			return fmt.Errorf("迁移计费数据库 %s 的日志执行器字段：%w", d.path, errMigrate)
+		}
 		if version < schemaVersion {
 			if _, errVersion := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); errVersion != nil {
 				return fmt.Errorf("标记计费数据库 %s 的格式版本：%w", d.path, errVersion)
@@ -104,6 +107,18 @@ func (d *DB) init() error {
 		}
 		return nil
 	})
+}
+
+func migrateUsageLogExecutorType(tx *sql.Tx) error {
+	columns, errColumns := tableColumns(tx, "usage_log")
+	if errColumns != nil {
+		return errColumns
+	}
+	if _, exists := columns["executor_type"]; exists {
+		return nil
+	}
+	_, errAlter := tx.Exec("ALTER TABLE usage_log ADD COLUMN executor_type TEXT NOT NULL DEFAULT ''")
+	return errAlter
 }
 
 func migrateConcurrencyLimit(tx *sql.Tx) error {

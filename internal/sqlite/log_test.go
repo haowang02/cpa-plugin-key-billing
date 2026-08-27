@@ -11,7 +11,8 @@ var logStart = time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 
 func logEntry(scope string, at time.Time, failed bool) billing.LogEntry {
 	return billing.LogEntry{
-		At: at, Scope: scope, AuthIndex: "auth-codex", UpstreamModel: "gpt-5.5", BillingModel: "gpt-5.5",
+		At: at, Scope: scope, AuthIndex: "auth-codex", ExecutorType: "CodexExecutor",
+		UpstreamModel: "gpt-5.5", BillingModel: "gpt-5.5",
 		Failed: failed, LatencyMS: 1500, TTFTMS: 250,
 		AccountingQuality: billing.TokenAccountingComplete, PriceSource: billing.PriceSourceOverride,
 		Cost: billing.Cost{TotalUSD: 0.5, UncachedInputTokens: 500, BilledOutputTokens: 500},
@@ -85,6 +86,9 @@ func TestLogFiltersCountWhatTheyHide(t *testing.T) {
 	if view := mustQuery(t, database, billing.LogQuery{Search: "ops@example.com"}); view.Total != 6 {
 		t.Fatalf("total = %d, want every event matched by its credential", view.Total)
 	}
+	if view := mustQuery(t, database, billing.LogQuery{Search: "codexexecutor"}); view.Total != 6 {
+		t.Fatalf("total = %d, want every event matched by its executor", view.Total)
+	}
 	if view := mustQuery(t, database, billing.LogQuery{Search: "bob", Status: billing.UsageStatusNormal}); view.Total != 0 ||
 		view.Statuses.All != 2 {
 		t.Fatalf("view = %+v, want no rows but the search still counted", view)
@@ -101,6 +105,7 @@ func TestLogRowsFollowTheKeyTheyName(t *testing.T) {
 		t.Fatalf("total = %d, want the renamed key's whole history", view.Total)
 	}
 	if entry := view.Entries[0]; entry.Label != "Alice Cooper" || entry.Preview != "sk-tes…0001" ||
+		entry.ExecutorType != "CodexExecutor" ||
 		entry.Source != "codex · ops@example.com" || entry.LatencyMS != 1500 || entry.TTFTMS != 250 {
 		t.Fatalf("entry = %+v", entry)
 	}

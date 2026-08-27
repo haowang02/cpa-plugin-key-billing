@@ -140,6 +140,44 @@ func TestOpenMigratesConcurrencyLimitWithoutLosingKeys(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesUsageLogExecutorTypeWithoutLosingEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	database := openDatabase(t, path)
+	state := billing.NewState()
+	state.Keys["scope-a"] = &billing.KeyState{Label: "Alice"}
+	mustSave(t, database, state, billing.Changes{
+		AllKeys: true,
+		Log: []billing.LogEntry{{
+			At: time.Now(), Scope: "scope-a", ExecutorType: "CodexExecutor",
+			UpstreamModel: "gpt-5.5", BillingModel: "gpt-5.5",
+		}},
+	})
+	if _, errDowngrade := database.db.Exec(`
+		ALTER TABLE usage_log DROP COLUMN executor_type;
+		PRAGMA user_version = 5`); errDowngrade != nil {
+		t.Fatalf("prepare version 5 database: %v", errDowngrade)
+	}
+	if errClose := database.Close(); errClose != nil {
+		t.Fatalf("Close error = %v", errClose)
+	}
+
+	reopened := openDatabase(t, path)
+	logs, errLogs := reopened.Logs(billing.LogQuery{Limit: 10}, time.Time{})
+	if errLogs != nil {
+		t.Fatalf("read migrated logs: %v", errLogs)
+	}
+	if len(logs.Entries) != 1 || logs.Entries[0].UpstreamModel != "gpt-5.5" || logs.Entries[0].ExecutorType != "" {
+		t.Fatalf("migrated logs = %+v", logs.Entries)
+	}
+	var version int
+	if errVersion := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); errVersion != nil {
+		t.Fatalf("read user_version: %v", errVersion)
+	}
+	if version != schemaVersion {
+		t.Fatalf("version = %d, want %d", version, schemaVersion)
+	}
+}
+
 // Billing one request must write that request's key, not the whole record.
 func TestSaveWritesOnlyTheNamedKeys(t *testing.T) {
 	database := openTestDB(t)

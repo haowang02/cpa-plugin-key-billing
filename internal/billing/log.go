@@ -7,6 +7,7 @@ type LogEntry struct {
 	At            time.Time `json:"at"`
 	Scope         string    `json:"scope"`
 	AuthIndex     string    `json:"auth_index,omitempty"`
+	ExecutorType  string    `json:"executor_type,omitempty"`
 	UpstreamModel string    `json:"upstream_model,omitempty"`
 	BillingModel  string    `json:"billing_model,omitempty"`
 	Failed        bool      `json:"failed"`

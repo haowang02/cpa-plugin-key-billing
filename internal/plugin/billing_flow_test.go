@@ -109,7 +109,8 @@ func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 		t.Fatalf("entries = %+v", entries)
 	}
 	entry := entries[0]
-	if entry.AuthIndex != "auth-7" || entry.UpstreamModel != flowModel || entry.BillingModel != "route/gpt-5.5" || entry.Failed ||
+	if entry.AuthIndex != "auth-7" || entry.ExecutorType != "CodexExecutor" ||
+		entry.UpstreamModel != flowModel || entry.BillingModel != "route/gpt-5.5" || entry.Failed ||
 		entry.Source != "codex · billing@example.com" || entry.AccountingQuality != billing.TokenAccountingComplete ||
 		entry.LatencyMS != 1500 || entry.TTFTMS != 250 {
 		t.Fatalf("entry = %+v", entry)

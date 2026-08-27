@@ -122,6 +122,7 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 		Scope:         scope,
 		AuthIndex:     record.AuthIndex,
 		Provider:      record.Provider,
+		ExecutorType:  record.ExecutorType,
 		AuthType:      record.AuthType,
 		Account:       record.Source,
 		UpstreamModel: record.Model,

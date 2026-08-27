@@ -455,9 +455,15 @@ assert_billing_entry() {
   local logs_file="$7"
   local response_file="$8"
   local stream="$9"
-  local expected_source expected_uncached expected_cache_write usage input output entry_file
+  local expected_source expected_executor expected_uncached expected_cache_write usage input output entry_file
   local billed_uncached billed_cache_read billed_cache_write billed_input billed_output
   expected_source="$(provider_source "$upstream")"
+  case "$upstream" in
+    chat) expected_executor="OpenAICompatExecutor" ;;
+    responses) expected_executor="CodexExecutor" ;;
+    anthropic) expected_executor="ClaudeExecutor" ;;
+    gemini) expected_executor="GeminiExecutor" ;;
+  esac
   entry_file="${logs_file%.json}-entry.json"
   if ! wait_for_log_count "$port" "$expected_count" "$logs_file"; then
     echo "用例：${client} → ${upstream}。" >&2
@@ -467,9 +473,11 @@ assert_billing_entry() {
   if ! jq -e \
     --arg upstream_models "$upstream_models" \
     --arg billing_model "$billing_model" \
+    --arg executor_type "$expected_executor" \
     --arg source "$expected_source" '
       (.upstream_model as $actual | ($upstream_models | split(",") | index($actual)) != null) and
       .billing_model == $billing_model and
+      .executor_type == $executor_type and
       .failed == false and
       .source == $source and
       .accounting_quality == "complete" and

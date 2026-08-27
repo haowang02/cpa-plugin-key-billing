@@ -28,7 +28,7 @@ func newAccountStoreWithRepository(t *testing.T, now time.Time) (*Store, *memory
 
 func subsetEvent(scope string, at time.Time) UsageEvent {
 	return UsageEvent{
-		Scope: scope, AuthIndex: "auth-codex", At: at,
+		Scope: scope, AuthIndex: "auth-codex", ExecutorType: "CodexExecutor", At: at,
 		UpstreamModel: "gpt-5.5", RouteModel: "gpt-5.5",
 		Breakdown: completeBreakdown(500, 400, 100, 500, 200),
 	}
