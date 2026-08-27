@@ -106,14 +106,22 @@ jobs:
           binary="dist/cpa-key-billing.${EXTENSION}"
           test -s "$binary"
           file "$binary"
-          archive="cpa-key-billing_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
-          tar -czf "$archive" -C dist "cpa-key-billing.${EXTENSION}"
+          version="${GITHUB_REF_NAME#v}"
+
+          legacy_archive="cpa-key-billing_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
+          tar -czf "$legacy_archive" -C dist "cpa-key-billing.${EXTENSION}"
+
+          store_archive="cpa-key-billing_${version}_${TARGET_OS}_${TARGET_ARCH}.zip"
+          zip -j "$store_archive" "$binary"
+          test "$(unzip -Z1 "$store_archive")" = "cpa-key-billing.${EXTENSION}"
 
       - name: Upload release package
         uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.target }}
-          path: cpa-key-billing_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
+          path: |
+            cpa-key-billing_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
+            cpa-key-billing_*_${{ matrix.os }}_${{ matrix.arch }}.zip
           if-no-files-found: error
           retention-days: 1
 
@@ -141,7 +149,7 @@ jobs:
       - name: Generate checksums
         working-directory: release-assets
         run: |
-          sha256sum cpa-key-billing_*.tar.gz | sort > checksums.txt
+          sha256sum cpa-key-billing_*.tar.gz cpa-key-billing_*.zip | sort > checksums.txt
 
       - name: Generate changelog
         run: |
@@ -165,5 +173,6 @@ jobs:
           body_path: release-assets/CHANGELOG.md
           files: |
             release-assets/*.tar.gz
+            release-assets/*.zip
             release-assets/checksums.txt
           fail_on_unmatched_files: true
