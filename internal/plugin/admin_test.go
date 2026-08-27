@@ -195,6 +195,7 @@ func TestManagementErrorsMapToStatusCodes(t *testing.T) {
 		{"bind to unknown plan", http.MethodPost, routeKeysBind, map[string]any{"scope": "abc", "plan_id": "ghost"}, http.StatusNotFound},
 		{"no scope", http.MethodPost, routeKeysUnbind, map[string]any{}, http.StatusBadRequest},
 		{"malformed body", http.MethodPost, routePlans, "{not json", http.StatusBadRequest},
+		{"trailing body", http.MethodPost, routePlans, `{"id":"x"}{"id":"y"}`, http.StatusBadRequest},
 		{"unknown field", http.MethodPost, routeKeysBind, map[string]any{"scope": "abc", "plan": "ghost"}, http.StatusBadRequest},
 	}
 	for _, testCase := range cases {
@@ -299,21 +300,35 @@ func TestLogQueryReachesTheStore(t *testing.T) {
 
 	var logs billing.LogView
 	callOK(t, app, http.MethodGet, routeLogs, url.Values{"offset": {"2"}, "limit": {"2"}}, nil, http.StatusOK, &logs)
-	if len(logs.Entries) != 1 || logs.Total != 3 || logs.Outcomes.Succeeded != 3 {
-		t.Fatalf("logs = %d entries, total %d, outcomes %+v", len(logs.Entries), logs.Total, logs.Outcomes)
+	if len(logs.Entries) != 1 || logs.Total != 3 || logs.Statuses.Normal != 3 {
+		t.Fatalf("logs = %d entries, total %d, statuses %+v", len(logs.Entries), logs.Total, logs.Statuses)
 	}
 	callOK(t, app, http.MethodGet, routeLogs,
-		url.Values{"q": {"gpt-5.5"}, "outcome": {"failed"}}, nil, http.StatusOK, &logs)
-	if logs.Total != 0 || logs.Outcomes.All != 3 {
+		url.Values{"q": {"gpt-5.5"}, "status": {"failed"}}, nil, http.StatusOK, &logs)
+	if logs.Total != 0 || logs.Statuses.All != 3 {
 		t.Fatalf("logs = %+v, want the search counted and no failures shown", logs)
 	}
 
 	for _, query := range []url.Values{
-		{"outcome": {"succeded"}}, {"offset": {"-1"}}, {"limit": {"one page"}},
+		{"status": {"unknown"}}, {"offset": {"-1"}}, {"limit": {"0"}},
+		{"limit": {"1001"}}, {"limit": {"one page"}},
 	} {
 		if resp := callManagement(t, app, http.MethodGet, routeLogs, query, nil); resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%v status = %d, want 400 (body=%s)", query, resp.StatusCode, resp.Body)
 		}
+	}
+}
+
+func TestLogQueryUsesABoundedDefaultPage(t *testing.T) {
+	app := newConfiguredApp(t)
+	for range defaultLogPageSize + 1 {
+		billOneRequest(t, app, testAPIKey, 1)
+	}
+
+	var logs billing.LogView
+	callOK(t, app, http.MethodGet, routeLogs, nil, nil, http.StatusOK, &logs)
+	if len(logs.Entries) != defaultLogPageSize || logs.Total != defaultLogPageSize+1 {
+		t.Fatalf("logs = %d entries of %d, want the default page of %d", len(logs.Entries), logs.Total, defaultLogPageSize)
 	}
 }
 

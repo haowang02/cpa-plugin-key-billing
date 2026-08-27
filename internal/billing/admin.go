@@ -2,6 +2,7 @@ package billing
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 )
@@ -22,7 +23,7 @@ type PriceTable struct {
 func (s *Store) PriceTable() PriceTable {
 	loaded := builtinCatalog()
 	table := PriceTable{Catalog: loaded.info, Models: []PriceRow{}}
-	s.Read(func(state *State) {
+	s.read(func(state *State) {
 		for _, rule := range state.Prices {
 			table.Models = append(table.Models, PriceRow{PriceRule: rule, Source: priceSourceOfCatalog(rule, loaded)})
 		}
@@ -198,30 +199,34 @@ func (r PriceRule) Validate() error {
 	if pattern == "" {
 		return invalidf("模型名称或匹配规则不能为空")
 	}
-	if r.InputPer1M < 0 || r.OutputPer1M < 0 {
-		return invalidf("模型 %q：Token 单价不能为负数", pattern)
+	if invalidPrice(r.InputPer1M) || invalidPrice(r.OutputPer1M) {
+		return invalidf("模型 %q：Token 单价必须是有限的非负数", pattern)
 	}
-	if r.CacheReadPer1M != nil && *r.CacheReadPer1M < 0 {
-		return invalidf("模型 %q：缓存读取单价不能为负数", pattern)
+	if r.CacheReadPer1M != nil && invalidPrice(*r.CacheReadPer1M) {
+		return invalidf("模型 %q：缓存读取单价必须是有限的非负数", pattern)
 	}
-	if r.CacheWritePer1M != nil && *r.CacheWritePer1M < 0 {
-		return invalidf("模型 %q：缓存写入单价不能为负数", pattern)
+	if r.CacheWritePer1M != nil && invalidPrice(*r.CacheWritePer1M) {
+		return invalidf("模型 %q：缓存写入单价必须是有限的非负数", pattern)
 	}
 	if tier := r.LongContext; tier != nil {
 		if tier.ThresholdInputTokens <= 0 {
 			return invalidf("模型 %q：长上下文阈值必须大于 0", pattern)
 		}
-		if tier.InputPer1M < 0 || tier.OutputPer1M < 0 {
-			return invalidf("模型 %q：长上下文 Token 单价不能为负数", pattern)
+		if invalidPrice(tier.InputPer1M) || invalidPrice(tier.OutputPer1M) {
+			return invalidf("模型 %q：长上下文 Token 单价必须是有限的非负数", pattern)
 		}
-		if tier.CacheReadPer1M != nil && *tier.CacheReadPer1M < 0 {
-			return invalidf("模型 %q：长上下文缓存读取单价不能为负数", pattern)
+		if tier.CacheReadPer1M != nil && invalidPrice(*tier.CacheReadPer1M) {
+			return invalidf("模型 %q：长上下文缓存读取单价必须是有限的非负数", pattern)
 		}
-		if tier.CacheWritePer1M != nil && *tier.CacheWritePer1M < 0 {
-			return invalidf("模型 %q：长上下文缓存写入单价不能为负数", pattern)
+		if tier.CacheWritePer1M != nil && invalidPrice(*tier.CacheWritePer1M) {
+			return invalidf("模型 %q：长上下文缓存写入单价必须是有限的非负数", pattern)
 		}
 	}
 	return nil
+}
+
+func invalidPrice(value float64) bool {
+	return value < 0 || math.IsNaN(value) || math.IsInf(value, 0)
 }
 
 func (s *Store) UpsertPrice(rule PriceRule) (PriceRule, error) {
@@ -267,7 +272,7 @@ func (s *Store) ResetPrices() int {
 
 func (s *Store) Plans() []Plan {
 	plans := []Plan{}
-	s.Read(func(state *State) { plans = append(plans, state.Plans...) })
+	s.read(func(state *State) { plans = append(plans, state.Plans...) })
 	return plans
 }
 

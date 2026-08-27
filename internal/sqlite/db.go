@@ -6,6 +6,7 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,13 +21,7 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// schemaVersion is kept in PRAGMA user_version. A database written by a newer
-// plugin is refused rather than misread — including one an operator downgrading
-// meets, which is the point: version 2 holds the models each API Key may call,
-// and a version 1 plugin would serve that database while silently granting every
-// key every model. Version 3 holds the plugin log, which a version 2 plugin
-// would keep writing to memory while the persisted lines went unread.
-const schemaVersion = 3
+const schemaVersion = 4
 
 // driverName is this package's own registration of the SQLite driver. It exists
 // for ulower(): the built-in lower() folds ASCII only, so a key labelled in any
@@ -60,8 +55,9 @@ func Open(path string) (*DB, error) {
 	// it is what keeps SQLITE_BUSY out of the request path. WAL with NORMAL
 	// synchronization commits without an fsync per request, which is what makes
 	// writing through on every completed request affordable.
-	handle, errOpen := sql.Open(driverName,
-		path+"?_busy_timeout=5000&_foreign_keys=on&_journal_mode=WAL&_synchronous=NORMAL&_txlock=immediate")
+	dsn := (&url.URL{Scheme: "file", Path: path, OmitHost: true}).String() +
+		"?_busy_timeout=5000&_foreign_keys=on&_journal_mode=WAL&_synchronous=NORMAL&_txlock=immediate"
+	handle, errOpen := sql.Open(driverName, dsn)
 	if errOpen != nil {
 		return nil, fmt.Errorf("打开计费数据库 %s：%w", path, errOpen)
 	}
@@ -85,38 +81,98 @@ func (d *DB) init() error {
 	if version > schemaVersion {
 		return fmt.Errorf("计费数据库 %s 的格式版本为 %d，当前插件需要版本 %d", d.path, version, schemaVersion)
 	}
-	if _, errSchema := d.db.Exec(schema); errSchema != nil {
-		return fmt.Errorf("初始化计费数据库 %s：%w", d.path, errSchema)
-	}
-	// Only a database this call created is seeded from the JSON document, and
-	// the version that says so is stamped by the seed itself. Stamping it here
-	// would declare a database that failed to import ready, and the document
-	// beside it would never be read again.
 	if version == 0 {
+		if _, errSchema := d.db.Exec(schema); errSchema != nil {
+			return fmt.Errorf("初始化计费数据库 %s：%w", d.path, errSchema)
+		}
 		return d.seed()
 	}
-	if version < schemaVersion {
-		// Every version so far has only added tables, which the statements above
-		// created. Recording that is what stops a plugin from before them from
-		// opening this database and reading it as complete.
-		return d.stampVersion()
+	return d.transact(func(tx *sql.Tx) error {
+		if _, errSchema := tx.Exec(schema); errSchema != nil {
+			return fmt.Errorf("初始化计费数据库 %s：%w", d.path, errSchema)
+		}
+		if errMigrate := migrateBillingLog(tx); errMigrate != nil {
+			return fmt.Errorf("迁移计费数据库 %s 的旧日志：%w", d.path, errMigrate)
+		}
+		if version < schemaVersion {
+			if _, errVersion := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); errVersion != nil {
+				return fmt.Errorf("标记计费数据库 %s 的格式版本：%w", d.path, errVersion)
+			}
+		}
+		return nil
+	})
+}
+
+func migrateBillingLog(tx *sql.Tx) error {
+	rows, errQuery := tx.Query("PRAGMA table_info(billing_log)")
+	if errQuery != nil {
+		return errQuery
+	}
+	columns := make(map[string]struct{})
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if errScan := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); errScan != nil {
+			_ = rows.Close()
+			return errScan
+		}
+		columns[name] = struct{}{}
+	}
+	if errRows := rows.Err(); errRows != nil {
+		_ = rows.Close()
+		return errRows
+	}
+	if errClose := rows.Close(); errClose != nil {
+		return errClose
+	}
+
+	required := []string{
+		"at", "scope", "auth_index", "upstream_model", "billing_model", "outcome",
+		"accounting_quality", "price_source", "reasoning_tokens", "total_usd",
+		"uncached_input_usd", "cache_read_usd", "cache_write_usd", "output_usd",
+		"uncached_input_tokens", "cache_read_tokens", "cache_write_tokens", "billed_output_tokens",
+		"tiered", "long_context", "threshold_input_tokens", "applied_input_per_1m",
+		"applied_output_per_1m", "applied_cache_read_per_1m", "applied_cache_write_per_1m",
+	}
+	if len(columns) == 0 {
+		return nil
+	}
+	for _, column := range required {
+		if _, exists := columns[column]; !exists {
+			return fmt.Errorf("旧 billing_log 缺少字段 %s", column)
+		}
+	}
+	if _, errInsert := tx.Exec(`
+			INSERT INTO usage_log (
+				at, scope, auth_index, upstream_model, billing_model, failed, latency_ms, ttft_ms,
+				accounting_quality, price_source, reasoning_tokens,
+				total_usd, uncached_input_usd, cache_read_usd, cache_write_usd, output_usd,
+				uncached_input_tokens, cache_read_tokens, cache_write_tokens, billed_output_tokens,
+				tiered, long_context, threshold_input_tokens,
+				applied_input_per_1m, applied_output_per_1m,
+				applied_cache_read_per_1m, applied_cache_write_per_1m
+			)
+			SELECT
+				at, scope, auth_index, upstream_model, billing_model,
+				CASE WHEN lower(trim(outcome)) IN ('failed', 'canceled') THEN 1 ELSE 0 END, 0, 0,
+				accounting_quality, price_source, reasoning_tokens,
+				total_usd, uncached_input_usd, cache_read_usd, cache_write_usd, output_usd,
+				uncached_input_tokens, cache_read_tokens, cache_write_tokens, billed_output_tokens,
+				tiered, long_context, threshold_input_tokens,
+				applied_input_per_1m, applied_output_per_1m,
+				applied_cache_read_per_1m, applied_cache_write_per_1m
+			FROM billing_log`); errInsert != nil {
+		return errInsert
+	}
+	if _, errDrop := tx.Exec("DROP INDEX IF EXISTS billing_log_at; DROP INDEX IF EXISTS billing_log_scope; DROP TABLE IF EXISTS billing_log"); errDrop != nil {
+		return errDrop
 	}
 	return nil
 }
 
-func (d *DB) stampVersion() error {
-	if _, errVersion := d.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); errVersion != nil {
-		return fmt.Errorf("标记计费数据库 %s 的格式版本：%w", d.path, errVersion)
-	}
-	return nil
-}
-
-// Billing history names masked keys, operator remarks and upstream credentials.
-// SQLite gives the write-ahead log and shared-memory files the mode of the
-// database, so the database has to carry the restricted one before the driver
-// opens it — a mode set afterwards leaves the sidecars this process writes
-// through readable by anyone. A database from an earlier version, and any
-// sidecar a crash left behind, is narrowed here too.
+// SQLite gives WAL and shared-memory files the mode of the database, so the
+// database must be restricted before the driver opens it.
 func secureFiles(path string) error {
 	file, errCreate := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if errCreate != nil {
@@ -137,8 +193,6 @@ func (d *DB) Close() error {
 	return d.db.Close()
 }
 
-// execer is satisfied by both *sql.DB and *sql.Tx, so pruning runs either
-// inside the transaction that appended or on its own when a log is opened.
 type execer func(string, ...any) (sql.Result, error)
 
 // clear empties one log and reports how many entries went.

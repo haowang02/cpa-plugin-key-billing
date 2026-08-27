@@ -24,7 +24,12 @@ func TestCredentialNameOfEveryUpstreamShape(t *testing.T) {
 		// A provider whose account repeats its own name is named once.
 		{"7c3f19ab5e04d268", "openai-compatible-local", "apikey", "", "local"},
 	} {
-		store.LearnCredential(learned.authIndex, learned.provider, learned.authType, learned.account)
+		event := subsetEvent("scope-a", now)
+		event.AuthIndex = learned.authIndex
+		event.Provider = learned.provider
+		event.AuthType = learned.authType
+		event.Account = learned.account
+		store.RecordUsage(event)
 		store.Read(func(state *State) {
 			if got := state.Credentials[learned.authIndex].Name(); got != learned.want {
 				t.Errorf("%s: Name() = %q, want %q", learned.authIndex, got, learned.want)
@@ -39,6 +44,36 @@ func TestCredentialNameOfEveryUpstreamShape(t *testing.T) {
 				t.Errorf("%s and %s share the name %q", authIndex, other, credential.Name())
 			}
 			names[credential.Name()] = authIndex
+		}
+	})
+}
+
+func TestCredentialLearningNeverPersistsAnUnclassifiedOrDownstreamSecret(t *testing.T) {
+	const downstreamKey = "sk-downstream-secret-0001"
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	store := newAccountStore(t, now)
+
+	for _, learned := range []struct {
+		authIndex string
+		authType  string
+		account   string
+	}{
+		{authIndex: "unknown-auth", account: "unknown-secret"},
+		{authIndex: "oauth-fallback", authType: "oauth", account: downstreamKey},
+	} {
+		event := subsetEvent(CallerScope(downstreamKey), now)
+		event.AuthIndex = learned.authIndex
+		event.Provider = "provider"
+		event.AuthType = learned.authType
+		event.Account = learned.account
+		store.RecordUsage(event)
+	}
+
+	store.Read(func(state *State) {
+		for _, authIndex := range []string{"unknown-auth", "oauth-fallback"} {
+			if credential := state.Credentials[authIndex]; credential.Account != "" || credential.Provider != "provider" {
+				t.Errorf("%s credential = %+v", authIndex, credential)
+			}
 		}
 	})
 }

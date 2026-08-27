@@ -2,25 +2,31 @@
 
 set -euo pipefail
 
+# Usage: e2e_cpa_billing.sh [目标 ...]
+#
+# Each argument names one CLIProxyAPI to test, and they are tested in turn:
+#
+#	不传参数            GitHub 上的最新发布版
+#	7.2.136             GitHub 上的该发布版
+#	../CLIProxyAPI      代码目录，现场构建
+#	../cli-proxy-api    可执行文件，直接使用
 readonly github_repo="router-for-me/CLIProxyAPI"
-readonly model="${DEEPSEEK_MODEL:-deepseek-v4-flash}"
-readonly pool_model="${DEEPSEEK_POOL_MODEL:-deepseek-v4-pro}"
-readonly chat_route="deepseek-chat-route"
-readonly responses_route="deepseek-responses-route"
-readonly anthropic_route="deepseek-anthropic-route"
-readonly fixed_route="deepseek-fixed"
-readonly pool_route="deepseek-pool"
-readonly openai_base_url="${DEEPSEEK_OPENAI_BASE_URL:-https://api.deepseek.com}"
-readonly anthropic_base_url="${DEEPSEEK_ANTHROPIC_BASE_URL:-https://api.deepseek.com/anthropic}"
-readonly requested_versions="${CPA_E2E_VERSIONS:-7.2.103 7.2.123 latest}"
+# The upstream is scripts/dummy_provider.py: it answers all four protocols this
+# suite routes to, so a run needs no network, no credentials, and returns the
+# same token counts every time.
+readonly upstream_api_key="dummy-upstream-key-e2e"
+readonly expected_input_tokens=128
+readonly expected_output_tokens=8
+readonly expected_cache_read_tokens=32
+readonly expected_cache_write_tokens=16
+readonly usage_settle_seconds=1
 readonly base_port="${CPA_E2E_BASE_PORT:-28317}"
-
-if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
-  echo "缺少 DEEPSEEK_API_KEY。" >&2
-  exit 1
+targets=("$@")
+if (( ${#targets[@]} == 0 )); then
+  targets=(latest)
 fi
 
-for command_name in curl jq tar go; do
+for command_name in curl jq tar go python3; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "缺少命令：$command_name" >&2
     exit 1
@@ -44,6 +50,8 @@ repo_dir="$(CDPATH= cd -- "$script_dir/.." && pwd)"
 cache_dir="${CPA_E2E_CACHE_DIR:-${TMPDIR:-/tmp}/cpa-key-billing-e2e-cache}"
 run_dir="$(mktemp -d "${TMPDIR:-/tmp}/cpa-key-billing-e2e.XXXXXX")"
 active_pid=""
+upstream_pid=""
+upstream_port=""
 
 cleanup() {
   local status=$?
@@ -51,6 +59,10 @@ cleanup() {
   if [[ -n "$active_pid" ]]; then
     kill "$active_pid" >/dev/null 2>&1 || true
     wait "$active_pid" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$upstream_pid" ]]; then
+    kill "$upstream_pid" >/dev/null 2>&1 || true
+    wait "$upstream_pid" >/dev/null 2>&1 || true
   fi
   find "$run_dir" -type f -name config.yaml -delete 2>/dev/null || true
   if [[ "${CPA_E2E_KEEP:-0}" == "1" ]]; then
@@ -62,9 +74,21 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+log_stage() {
+  printf '\n==> %s\n' "$*"
+}
+
+log_step() {
+  printf '  - %s\n' "$*"
+}
+
+log_ok() {
+  printf '  ✓ %s\n' "$*"
+}
+
 mkdir -p "$cache_dir" "$run_dir/plugin"
 plugin_path="$run_dir/plugin/cpa-key-billing.$plugin_extension"
-echo "构建插件……"
+log_stage "构建计费插件"
 (
   cd "$repo_dir"
   GOCACHE="$cache_dir/go-build" CGO_ENABLED=1 \
@@ -94,16 +118,6 @@ resolve_version() {
   printf '%s' "$latest_version"
 }
 
-resolved_versions=""
-for requested_version in $requested_versions; do
-  version="$(resolve_version "$requested_version")"
-  case " $resolved_versions " in
-    *" $version "*) ;;
-    *) resolved_versions="$resolved_versions $version" ;;
-  esac
-done
-resolved_versions="${resolved_versions# }"
-
 checksum_file() {
   local file="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -122,7 +136,7 @@ download_host() {
   local expected actual
 
   if [[ ! -s "$archive" ]]; then
-    echo "下载 CLIProxyAPI v${version}……" >&2
+    log_step "下载 CLIProxyAPI v${version}" >&2
     curl -fL --retry 3 --output "$archive.part" "$release_url/$asset"
     mv "$archive.part" "$archive"
   fi
@@ -139,22 +153,94 @@ download_host() {
   printf '%s' "$archive"
 }
 
+# resolve_host prepares one target and reports what it is through host_label and
+# host_binary. Anything that is not a directory or an executable is read as a
+# release version, "latest" included.
+host_label=""
+host_binary=""
+resolve_host() {
+  local target="$1"
+  local host_dir="$2"
+  local version archive
+
+  if [[ -d "$target" ]]; then
+    host_label="${target}（源码构建）"
+    host_binary="$host_dir/cli-proxy-api"
+    log_step "从源码构建 CLIProxyAPI：${target}"
+    (
+      cd "$target"
+      GOCACHE="$cache_dir/go-build" go build -o "$host_binary" ./cmd/server
+    )
+    return
+  fi
+  if [[ -f "$target" && -x "$target" ]]; then
+    host_label="$target"
+    host_binary="$target"
+    return
+  fi
+  version="$(resolve_version "$target")"
+  archive="$(download_host "$version")"
+  tar -xzf "$archive" -C "$host_dir"
+  host_label="v$version"
+  host_binary="$(find "$host_dir" -type f -name 'cli-proxy-api' -perm -111 | head -n 1)"
+}
+
+# The dummy upstream binds an ephemeral port and reports it on its first line
+# of output, so concurrent runs of this suite never contend for one.
+start_upstream() {
+  local log_file="$run_dir/upstream.log"
+  local attempts=0
+  python3 "$script_dir/dummy_provider.py" --port 0 >"$log_file" 2>&1 &
+  upstream_pid=$!
+  while (( attempts < 100 )); do
+    upstream_port="$(sed -n 's|^dummy provider: http://127.0.0.1:||p' "$log_file" | head -n 1)"
+    if [[ -n "$upstream_port" ]] &&
+      curl -fsS --max-time 1 "http://127.0.0.1:$upstream_port/health" >/dev/null 2>&1; then
+      return
+    fi
+    if ! kill -0 "$upstream_pid" >/dev/null 2>&1; then
+      echo "dummy provider 启动失败：" >&2
+      cat "$log_file" >&2 || true
+      return 1
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.1
+  done
+  echo "等待 dummy provider 启动超时。" >&2
+  return 1
+}
+
 wait_for_server() {
   local port="$1"
   local attempts=0
   while (( attempts < 120 )); do
-    if curl -fsS --max-time 1 "http://127.0.0.1:$port/healthz" >/dev/null 2>&1; then
-      return
-    fi
     if ! kill -0 "$active_pid" >/dev/null 2>&1; then
       echo "CLIProxyAPI 启动失败。" >&2
       return 1
+    fi
+    if curl -fsS --max-time 1 "http://127.0.0.1:$port/healthz" >/dev/null 2>&1; then
+      sleep 0.1
+      if kill -0 "$active_pid" >/dev/null 2>&1; then
+        return
+      fi
     fi
     attempts=$((attempts + 1))
     sleep 0.5
   done
   echo "等待 CLIProxyAPI 启动超时。" >&2
   return 1
+}
+
+port_available() {
+  python3 -c 'import socket, sys
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+finally:
+    s.close()' "$1"
 }
 
 management_call() {
@@ -169,6 +255,51 @@ management_call() {
     "http://127.0.0.1:$port$path"
 }
 
+protocol_label() {
+  case "$1" in
+    chat) printf 'OpenAI Chat' ;;
+    responses) printf 'OpenAI Responses' ;;
+    anthropic) printf 'Anthropic Messages' ;;
+    gemini) printf 'Gemini' ;;
+  esac
+}
+
+# Each client API authenticates the downstream key its own way.
+client_headers() {
+  printf '%s\n' "Content-Type: application/json"
+  case "$1" in
+    anthropic)
+      printf '%s\n' "x-api-key: e2e-downstream-key" "anthropic-version: 2023-06-01"
+      ;;
+    gemini)
+      printf '%s\n' "x-goog-api-key: e2e-downstream-key"
+      ;;
+    *)
+      printf '%s\n' "Authorization: Bearer e2e-downstream-key"
+      ;;
+  esac
+}
+
+# The Gemini API names the model and the streaming mode in the path instead of
+# the body, so an endpoint is only known once both are.
+client_endpoint() {
+  local client="$1"
+  local requested_model="$2"
+  local stream="$3"
+  case "$client" in
+    chat) printf '/v1/chat/completions' ;;
+    responses) printf '/v1/responses' ;;
+    anthropic) printf '/v1/messages' ;;
+    gemini)
+      if [[ "$stream" == "true" ]]; then
+        printf '/v1beta/models/%s:streamGenerateContent?alt=sse' "$requested_model"
+      else
+        printf '/v1beta/models/%s:generateContent' "$requested_model"
+      fi
+      ;;
+  esac
+}
+
 api_call() {
   local port="$1"
   local name="$2"
@@ -177,14 +308,12 @@ api_call() {
   local client_format="$5"
   local output="$6"
   local -a headers
-  local http_status error_message
+  local header_line http_status error_message
 
-  headers=(-H "Content-Type: application/json")
-  if [[ "$client_format" == "anthropic" ]]; then
-    headers+=(-H "x-api-key: e2e-downstream-key" -H "anthropic-version: 2023-06-01")
-  else
-    headers+=(-H "Authorization: Bearer e2e-downstream-key")
-  fi
+  headers=()
+  while IFS= read -r header_line; do
+    headers+=(-H "$header_line")
+  done < <(client_headers "$client_format")
   if ! http_status="$(curl -sS -N --max-time 300 \
     "${headers[@]}" \
     --data "$body" \
@@ -206,67 +335,46 @@ api_call() {
   fi
 }
 
+# extract_downstream_usage reports the input and output tokens the client was
+# told about, as [total input, total output]. A streaming answer is read down to
+# the last usage object its events carried, which is the one that settles the
+# turn — and the only one CLIProxyAPI itself bills from.
 extract_downstream_usage() {
   local client_format="$1"
   local stream="$2"
   local response_file="$3"
-  if [[ "$stream" == "false" ]]; then
-    case "$client_format" in
-      chat)
-        jq -er '[.usage.prompt_tokens, .usage.completion_tokens] | @tsv' "$response_file"
-        ;;
-      responses)
-        jq -er '[.usage.input_tokens, .usage.output_tokens] | @tsv' "$response_file"
-        ;;
-      anthropic)
-        jq -er '[
-          (.usage.input_tokens + (.usage.cache_read_input_tokens // 0) + (.usage.cache_creation_input_tokens // 0)),
-          .usage.output_tokens
-        ] | @tsv' "$response_file"
-        ;;
-    esac
-    return
+  local usage
+
+  if [[ "$stream" == "true" ]]; then
+    usage="$(jq -Rs '
+      [ split("\n")[] | sub("\r$"; "") | select(startswith("data:")) | sub("^data:[ ]?"; "") |
+        select(. != "[DONE]") | fromjson? |
+        (.usage? // .message.usage? // .response.usage? // .usageMetadata?) |
+        select(type == "object") ] | last
+    ' "$response_file")"
+  else
+    usage="$(jq '.usage // .usageMetadata' "$response_file")"
   fi
 
   case "$client_format" in
-    chat)
-      jq -Rser '
-        def events: split("\n")[] | sub("\r$"; "") | select(startswith("data:")) |
-          sub("^data:[ ]?"; "") | select(. != "[DONE]") | fromjson?;
-        [events | .usage? | select(type == "object")] | last as $usage |
-        [$usage.prompt_tokens, $usage.completion_tokens] | @tsv
-      ' "$response_file"
-      ;;
-    responses)
-      jq -Rser '
-        def events: split("\n")[] | sub("\r$"; "") | select(startswith("data:")) |
-          sub("^data:[ ]?"; "") | select(. != "[DONE]") | fromjson?;
-        [events | (.response.usage? // .usage?) | select(type == "object")] | last as $usage |
-        [$usage.input_tokens, $usage.output_tokens] | @tsv
-      ' "$response_file"
-      ;;
+    chat) jq -er '[.prompt_tokens, .completion_tokens] | @tsv' <<<"$usage" ;;
+    responses) jq -er '[.input_tokens, .output_tokens] | @tsv' <<<"$usage" ;;
+    # Anthropic keeps the cached buckets beside input_tokens; the others count
+    # them inside the prompt total. Reasoning is output wherever it is reported.
     anthropic)
-      jq -Rser '
-        def events: split("\n")[] | sub("\r$"; "") | select(startswith("data:")) |
-          sub("^data:[ ]?"; "") | select(. != "[DONE]") | fromjson?;
-        reduce ([events | (.usage? // .message.usage?) | select(type == "object")][]) as $usage
-          ({input: null, output: null, cache_read: 0, cache_write: 0};
-            if ($usage | has("input_tokens")) then .input = $usage.input_tokens else . end |
-            if ($usage | has("output_tokens")) then .output = $usage.output_tokens else . end |
-            if ($usage | has("cache_read_input_tokens")) then .cache_read = $usage.cache_read_input_tokens else . end |
-            if ($usage | has("cache_creation_input_tokens")) then .cache_write = $usage.cache_creation_input_tokens else . end
-          ) |
-        [(.input + .cache_read + .cache_write), .output] | @tsv
-      ' "$response_file"
+      jq -er '[
+        (.input_tokens + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0)),
+        .output_tokens
+      ] | @tsv' <<<"$usage"
+      ;;
+    gemini)
+      jq -er '[.promptTokenCount, (.candidatesTokenCount + (.thoughtsTokenCount // 0))] | @tsv' <<<"$usage"
       ;;
   esac
 }
 
-# The output budget only exists to keep the suite cheap, and has to stay clear of
-# what the model spends on reasoning: a turn that hits the cap before producing
-# any content is a reasoning-only turn, which CLIProxyAPI's chat-completions →
-# Responses stream translator ends without a terminal event, failing the suite
-# over a defect that is not the plugin's.
+# Every request carries an output budget the way a real client does. The dummy
+# upstream answers well under it, so nothing is ever truncated.
 readonly max_output_tokens=128
 
 request_body() {
@@ -274,32 +382,70 @@ request_body() {
   local requested_model="$2"
   local stream="$3"
   local prompt="$4"
+  local program
   case "$client" in
     chat)
-      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" --argjson budget "$max_output_tokens" '
-        {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $budget, stream: $stream} +
-        (if $stream then {stream_options: {include_usage: true}} else {} end)
-      '
+      program='{model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $budget, stream: $stream} +
+        (if $stream then {stream_options: {include_usage: true}} else {} end)'
       ;;
     responses)
-      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" --argjson budget "$max_output_tokens" '
-        {
-          model: $model,
-          input: [{type: "message", role: "user", content: [{type: "input_text", text: $prompt}]}],
-          max_output_tokens: $budget,
-          stream: $stream
-        }
-      '
+      program='{
+        model: $model,
+        input: [{type: "message", role: "user", content: [{type: "input_text", text: $prompt}]}],
+        max_output_tokens: $budget,
+        stream: $stream
+      }'
       ;;
     anthropic)
-      jq -nc --arg model "$requested_model" --arg prompt "$prompt" --argjson stream "$stream" --argjson budget "$max_output_tokens" '
-        {model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $budget, stream: $stream}
-      '
+      program='{model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $budget, stream: $stream}'
+      ;;
+    gemini)
+      # The model and the streaming mode belong to the URL here, so the body
+      # carries neither.
+      program='{contents: [{role: "user", parts: [{text: $prompt}]}], generationConfig: {maxOutputTokens: $budget}}'
       ;;
   esac
+  jq -nc --arg model "$requested_model" --arg prompt "$prompt" \
+    --argjson stream "$stream" --argjson budget "$max_output_tokens" "$program"
 }
 
-assert_latest_entry() {
+provider_source() {
+  local provider
+  case "$1" in
+    chat) provider="dummy-chat-e2e" ;;
+    responses) provider="codex" ;;
+    anthropic) provider="claude" ;;
+    gemini) provider="gemini" ;;
+  esac
+  printf '%s · %s…%s' "$provider" "${upstream_api_key:0:6}" "${upstream_api_key: -4}"
+}
+
+wait_for_log_count() {
+  local port="$1"
+  local expected_count="$2"
+  local logs_file="$3"
+  local attempt=0 actual_count=0
+
+  while (( attempt < 50 )); do
+    if ! management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"; then
+      echo "读取计费日志失败。" >&2
+      return 1
+    fi
+    actual_count="$(jq -er '.entries | length' "$logs_file")"
+    if [[ "$actual_count" == "$expected_count" ]]; then
+      return
+    fi
+    if (( actual_count > expected_count )); then
+      break
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  echo "计费日志数量为 ${actual_count}，预期 ${expected_count}。" >&2
+  return 1
+}
+
+assert_billing_entry() {
   local port="$1"
   local expected_count="$2"
   local client="$3"
@@ -309,67 +455,60 @@ assert_latest_entry() {
   local logs_file="$7"
   local response_file="$8"
   local stream="$9"
-  local expected_endpoint expected_source attempt actual_count usage input output billed_input billed_output
-
-  case "$client" in
-    chat) expected_endpoint="/v1/chat/completions" ;;
-    responses) expected_endpoint="/v1/responses" ;;
-    anthropic) expected_endpoint="/v1/messages" ;;
-  esac
-  # Every upstream here is a provider configured in config.yaml, so its source
-  # is the provider and the masked API key CLIProxyAPI reports for it. All three
-  # are the same key, which is what makes the provider the part that separates
-  # them.
-  case "$upstream" in
-    chat) expected_source="deepseek-chat-e2e" ;;
-    responses) expected_source="codex" ;;
-    anthropic) expected_source="claude" ;;
-  esac
-  expected_source+=" · ${DEEPSEEK_API_KEY:0:6}…${DEEPSEEK_API_KEY: -4}"
-
-  attempt=0
-  while (( attempt < 20 )); do
-    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"
-    actual_count="$(jq -er '.entries | length' "$logs_file")"
-    if [[ "$actual_count" == "$expected_count" ]]; then
-      break
-    fi
-    attempt=$((attempt + 1))
-    sleep 0.1
-  done
-  if [[ "$actual_count" != "$expected_count" ]]; then
-    echo "计费日志数量为 ${actual_count}，预期 ${expected_count}。" >&2
+  local expected_source expected_uncached expected_cache_write usage input output entry_file
+  local billed_uncached billed_cache_read billed_cache_write billed_input billed_output
+  expected_source="$(provider_source "$upstream")"
+  entry_file="${logs_file%.json}-entry.json"
+  if ! wait_for_log_count "$port" "$expected_count" "$logs_file"; then
+    echo "用例：${client} → ${upstream}。" >&2
     return 1
   fi
+  jq -e '.entries[0]' "$logs_file" >"$entry_file"
   if ! jq -e \
     --arg upstream_models "$upstream_models" \
     --arg billing_model "$billing_model" \
-    --arg endpoint "$expected_endpoint" \
     --arg source "$expected_source" '
-      .entries[0] |
       (.upstream_model as $actual | ($upstream_models | split(",") | index($actual)) != null) and
       .billing_model == $billing_model and
-      .endpoint == $endpoint and
+      .failed == false and
       .source == $source and
       .accounting_quality == "complete" and
       .price_source == "override" and
-      ((.cost.uncached_input_tokens + .cost.cache_read_tokens + .cost.cache_write_tokens) > 0) and
-      (.cost.billed_output_tokens > 0) and
       (.cost.total_usd > 0)
-    ' "$logs_file" >/dev/null; then
-    echo "最新计费日志的端点、来源、usage 或定价不正确。" >&2
+    ' "$entry_file" >/dev/null; then
+    echo "${client} → ${upstream} 的模型、来源、usage 或定价不正确。" >&2
     return 1
   fi
 
+  IFS=$'\t' read -r billed_uncached billed_cache_read billed_cache_write billed_output < <(
+    jq -er '.cost | [
+      .uncached_input_tokens, .cache_read_tokens, .cache_write_tokens, .billed_output_tokens
+    ] | @tsv' "$entry_file"
+  )
+  expected_cache_write="$expected_cache_write_tokens"
+  if [[ "$upstream" == "gemini" ]]; then
+    expected_cache_write=0
+  fi
+  expected_uncached=$((expected_input_tokens - expected_cache_read_tokens - expected_cache_write))
+  if [[ "$billed_uncached" != "$expected_uncached" ||
+    "$billed_cache_read" != "$expected_cache_read_tokens" ||
+    "$billed_cache_write" != "$expected_cache_write" ||
+    "$billed_output" != "$expected_output_tokens" ]]; then
+    echo "${client} → ${upstream} 的计费 usage 桶不符合上游响应。" >&2
+    return 1
+  fi
+  # Cross-protocol translators may merge cache buckets in the client-facing
+  # schema. Only a same-protocol response can be compared bucket-for-bucket via
+  # its aggregate totals; the upstream-specific assertion above is authoritative
+  # for every conversion.
   if [[ "$client" != "$upstream" ]]; then
     return
   fi
   usage="$(extract_downstream_usage "$client" "$stream" "$response_file")"
   IFS=$'\t' read -r input output <<<"$usage"
-  billed_input="$(jq -er '.entries[0].cost | .uncached_input_tokens + .cache_read_tokens + .cache_write_tokens' "$logs_file")"
-  billed_output="$(jq -er '.entries[0].cost.billed_output_tokens' "$logs_file")"
+  billed_input=$((billed_uncached + billed_cache_read + billed_cache_write))
   if [[ "$input" != "$billed_input" || "$output" != "$billed_output" ]]; then
-    echo "${client} 直通响应与计费日志不一致。" >&2
+    echo "${client} 直通响应与计费 usage 不一致。" >&2
     return 1
   fi
 }
@@ -404,7 +543,7 @@ assert_model_access() {
 
   management_call POST "$port" "/v0/management/plugins/cpa-key-billing/model-groups" \
     -H "Content-Type: application/json" \
-    --data "{\"name\":\"e2e-限定分组\",\"models\":[\"$responses_route\"]}" \
+    --data "{\"name\":\"e2e-限定分组\",\"models\":[\"codex/gpt-5.6-sol\"]}" \
     >"$runtime_dir/model-group.json"
   group="$(jq -er '.model_group.id' "$runtime_dir/model-group.json")"
   management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/models" \
@@ -415,7 +554,7 @@ assert_model_access() {
   # A thinking suffix is a request option rather than a model of its own, so it
   # is no way around the refusal — and the refusal names the model without it,
   # which is the name the billing log would have carried.
-  for requested in "chat/$chat_route" "chat/$chat_route(high)" "chat/$chat_route(max)"; do
+  for requested in "gpt-5.6-sol" "gpt-5.6-sol(high)" "gpt-5.6-sol(max)"; do
     http_status="$(curl -sS --max-time 30 \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer e2e-downstream-key" \
@@ -427,7 +566,7 @@ assert_model_access() {
       echo "无权使用的模型 ${requested} 返回 HTTP ${http_status}，预期 403。" >&2
       return 1
     fi
-    if ! jq -e --arg model "chat/$chat_route" '
+    if ! jq -e --arg model "gpt-5.6-sol" '
         .error.type == "permission_error" and .error.code == "insufficient_quota"
         and (.error.message | contains("\"" + $model + "\""))' "$response_file" >/dev/null; then
       echo "模型拦截 ${requested} 的错误内容不正确：$(jq -c '.' "$response_file")" >&2
@@ -441,7 +580,7 @@ assert_model_access() {
     return 1
   fi
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$events_file"
-  if ! jq -e --arg model "chat/$chat_route" '
+  if ! jq -e --arg model "gpt-5.6-sol" '
       [.events[] | select(.level == "info" and (.message | startswith("模型拦截：")) and (.message | contains($model)))]
       | length == 1' "$events_file" >/dev/null; then
     echo "插件日志缺少模型拦截记录：$(jq -c '.events' "$events_file")" >&2
@@ -456,139 +595,171 @@ assert_model_access() {
     >/dev/null
   management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/model-groups?id=$group" >/dev/null
 
-  body="$(request_body chat "chat/$chat_route" false "Reply with exactly OK.")"
+  body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
   api_call "$port" "模型拦截解除后：OpenAI Chat → OpenAI Chat 非流式" \
     "/v1/chat/completions" "$body" chat "$runtime_dir/responses/model-restored.json"
-  assert_latest_entry "$port" "$((expected_count + 1))" chat chat \
-    "chat/$chat_route" "$model" "$runtime_dir/model-restored-logs.json" \
+  assert_billing_entry "$port" "$((expected_count + 1))" chat chat \
+    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/model-restored-logs.json" \
     "$runtime_dir/responses/model-restored.json" false
 }
 
-# assert_canceled_request disconnects a client mid-generation, which is the one
-# outcome the plugin cannot observe from usage alone: the provider reports
-# nothing, so without the terminal event the request would vanish from the log.
-assert_canceled_request() {
+# assert_quota_exhausted binds the downstream key to a plan one request is enough
+# to spend, and asserts every client format is then refused before it can reach
+# an upstream: 429 in the client's own error shape with a Retry-After hint,
+# nothing in the billing log, and one line in the plugin log — an exhausted key
+# names itself once per cycle however often the client behind it retries.
+assert_quota_exhausted() {
   local port="$1"
   local runtime_dir="$2"
-  local body curl_pid attempt logs_file
-  logs_file="$runtime_dir/canceled-billing.json"
-  body="$(jq -nc --arg model "chat/$chat_route" '
-    {model: $model, max_tokens: 2048, stream: true,
-     messages: [{role: "user", content: "Count from 1 to 500, one number per line."}]}')"
+  local expected_count="$3"
+  local scope plan client endpoint body header_line http_status retry_after actual_count
+  local response_file headers_file logs_file events_file
+  local plan_name="e2e-额度计划"
+  local -a headers
 
-  curl -sS -N --max-time 30 \
+  response_file="$runtime_dir/responses/quota-blocked.json"
+  headers_file="$runtime_dir/quota-blocked-headers.txt"
+  logs_file="$runtime_dir/quota-logs.json"
+  events_file="$runtime_dir/quota-events.json"
+
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$runtime_dir/overview.json"
+  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/overview.json")"
+
+  # A budget below what one request costs. Nothing has been spent when the
+  # request below is admitted, which is what makes it the one that exhausts the
+  # plan rather than the one that is refused.
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/plans" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer e2e-downstream-key" \
-    --data "$body" \
-    --output "$runtime_dir/responses/canceled.sse" \
-    "http://127.0.0.1:$port/v1/chat/completions" >/dev/null 2>&1 &
-  curl_pid=$!
-  sleep 1
-  kill -9 "$curl_pid" >/dev/null 2>&1 || true
-  wait "$curl_pid" >/dev/null 2>&1 || true
+    --data "$(jq -nc --arg name "$plan_name" --arg scope "$scope" \
+      '{name: $name, amount_usd: 0.0001, period: {kind: "daily"}, scopes: [$scope]}')" \
+    >"$runtime_dir/plan.json"
+  plan="$(jq -er '.plan.id' "$runtime_dir/plan.json")"
 
-  attempt=0
-  while (( attempt < 50 )); do
-    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=1" >"$logs_file"
-    if jq -e '.entries[0].outcome == "canceled"' "$logs_file" >/dev/null 2>&1; then
-      return 0
+  # The dummy provider's fixed usage costs more than this plan allows.
+  body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
+  api_call "$port" "额度耗尽前：OpenAI Chat → OpenAI Chat 非流式" \
+    "/v1/chat/completions" "$body" chat "$runtime_dir/responses/quota-spend.json"
+  expected_count=$((expected_count + 1))
+  assert_billing_entry "$port" "$expected_count" chat chat \
+    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/quota-spend-logs.json" \
+    "$runtime_dir/responses/quota-spend.json" false
+
+  # The model stays one the key may call, so only the exhausted budget can be
+  # refusing these. Anthropic clients read an error envelope of their own; every
+  # other client, Gemini included, reads the OpenAI-shaped one.
+  for client in chat responses anthropic gemini; do
+    headers=()
+    while IFS= read -r header_line; do
+      headers+=(-H "$header_line")
+    done < <(client_headers "$client")
+    body="$(request_body "$client" "gpt-5.6-sol" false "Reply with exactly OK.")"
+    endpoint="$(client_endpoint "$client" "gpt-5.6-sol" false)"
+    http_status="$(curl -sS --max-time 30 \
+      "${headers[@]}" \
+      --data "$body" \
+      --dump-header "$headers_file" \
+      --output "$response_file" \
+      --write-out '%{http_code}' \
+      "http://127.0.0.1:$port$endpoint")"
+    if [[ "$http_status" != "429" ]]; then
+      echo "额度耗尽后 ${client} 返回 HTTP ${http_status}，预期 429。" >&2
+      return 1
     fi
-    attempt=$((attempt + 1))
-    sleep 0.2
+    if ! jq -e --arg client "$client" --arg plan "$plan_name" '
+        (if $client == "anthropic"
+         then .type == "error" and .error.type == "rate_limit_error"
+         else .error.type == "rate_limit_error" and .error.code == "rate_limit_exceeded"
+         end)
+        and (.error.message | startswith("API key subscription quota exhausted"))
+        and (.error.message | contains("on plan \"" + $plan + "\""))
+      ' "$response_file" >/dev/null; then
+      echo "额度拦截 ${client} 的错误内容不正确：$(jq -c '.' "$response_file")" >&2
+      return 1
+    fi
+    # A periodic plan resets, so the refusal tells the client how long to wait.
+    retry_after="$(awk 'tolower($1) == "retry-after:" {gsub(/\r/, "", $2); print $2}' "$headers_file" | tail -n 1)"
+    if [[ -z "$retry_after" ]] || (( retry_after <= 0 )); then
+      echo "额度拦截 ${client} 缺少 Retry-After 响应头：${retry_after:-无}" >&2
+      return 1
+    fi
   done
-  echo "断开的流式请求没有记入计费日志：$(jq -c '.entries[0]' "$logs_file")" >&2
-  return 1
+
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"
+  actual_count="$(jq -er '.entries | length' "$logs_file")"
+  if [[ "$actual_count" != "$expected_count" ]]; then
+    echo "被额度拦截的请求进入了计费日志：${actual_count}，预期 ${expected_count}。" >&2
+    return 1
+  fi
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$events_file"
+  if ! jq -e '[.events[] | select(.level == "info" and (.message | startswith("额度拦截：")))] | length == 1' \
+    "$events_file" >/dev/null; then
+    echo "插件日志的额度拦截记录数量不正确：$(jq -c '[.events[] | select(.message | startswith("额度拦截："))]' "$events_file")" >&2
+    return 1
+  fi
+
+  # Unbinding the plan makes the key unlimited again, which is what the panel
+  # does to release one, and the request that follows has to be billed as usual.
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/unbind" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{scope: $scope}')" \
+    >/dev/null
+  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/plans?id=$plan" >/dev/null
+
+  body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
+  api_call "$port" "额度拦截解除后：OpenAI Chat → OpenAI Chat 非流式" \
+    "/v1/chat/completions" "$body" chat "$runtime_dir/responses/quota-restored.json"
+  assert_billing_entry "$port" "$((expected_count + 1))" chat chat \
+    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/quota-restored-logs.json" \
+    "$runtime_dir/responses/quota-restored.json" false
 }
 
-run_version() {
-  local version="$1"
+run_target() {
+  local target="$1"
   local index="$2"
   local port=$((base_port + index))
-  local version_dir="$run_dir/$version"
-  local host_dir="$version_dir/host"
-  local runtime_dir="$version_dir/runtime"
-  local archive host_binary api_key_json plugins_file prompt
-  local client upstream stream prefix endpoint body mode extension response_file logs_file
-  local client_label upstream_label mode_label request_number route_model billing_model upstream_models
-  local request_index expected_requests actual_requests
-  local -a model_cases
+  local target_dir="$run_dir/target-$index"
+  local host_dir="$target_dir/host"
+  local runtime_dir="$target_dir/runtime"
+  local api_key_json plugins_file prompt
+  local client upstream stream endpoint body mode extension response_file logs_file
+  local client_label upstream_label mode_label request_number requested_model billing_model upstream_models model_id
+  local model_case case_name actual_upstream_model expected_source expected_uncached expected_cache_write
+  local request_index expected_requests actual_requests matrix_index matrix_failed matrix_logs_ok matches usage input output
+  local -a provider_cases model_cases matrix_pids matrix_labels matrix_clients matrix_upstreams matrix_streams
+  local -a matrix_models matrix_upstream_models matrix_responses matrix_errors matrix_request_ok matrix_ok matrix_reasons
   mkdir -p "$host_dir" "$runtime_dir/plugins" "$runtime_dir/auth" "$runtime_dir/responses"
 
-  archive="$(download_host "$version")"
-  tar -xzf "$archive" -C "$host_dir"
-  host_binary="$(find "$host_dir" -type f -name 'cli-proxy-api' -perm -111 | head -n 1)"
-  if [[ -z "$host_binary" ]]; then
-    echo "CLIProxyAPI v$version 发布包中缺少可执行文件。" >&2
+  log_stage "目标 $((index + 1))/${#targets[@]}：${target}"
+  resolve_host "$target" "$host_dir"
+  if [[ -z "$host_binary" || ! -x "$host_binary" ]]; then
+    echo "CLIProxyAPI ${host_label} 缺少可执行文件：$host_binary" >&2
     return 1
   fi
   cp "$plugin_path" "$runtime_dir/plugins/cpa-key-billing.$plugin_extension"
+  cp "$repo_dir/internal/billing/testdata/catalog.json" "$runtime_dir/catalog.json"
 
-  api_key_json="$(printf '%s' "$DEEPSEEK_API_KEY" | jq -Rs .)"
-  cat >"$runtime_dir/config.yaml" <<EOF
-host: "127.0.0.1"
-port: $port
-auth-dir: "$runtime_dir/auth"
-api-keys:
-  - "e2e-downstream-key"
-logging-to-file: false
-remote-management:
-  allow-remote: false
-  secret-key: "e2e-management-key"
-  disable-control-panel: true
-plugins:
-  enabled: true
-  dir: "$runtime_dir/plugins"
-  configs:
-    cpa-key-billing:
-      enabled: true
-      state_file: "$runtime_dir/state.db"
-openai-compatibility:
-  - name: "deepseek-direct-e2e"
-    base-url: "$openai_base_url"
-    api-key-entries:
-      - api-key: $api_key_json
-    models:
-      - name: "$model"
-        alias: "$model"
-  - name: "deepseek-chat-e2e"
-    prefix: "chat"
-    base-url: "$openai_base_url"
-    api-key-entries:
-      - api-key: $api_key_json
-    models:
-      - name: "$model"
-        alias: "$model"
-      - name: "$model"
-        alias: "$chat_route"
-      - name: "$model(high)"
-        alias: "$fixed_route"
-      - name: "$model"
-        alias: "$pool_route"
-      - name: "$pool_model"
-        alias: "$pool_route"
-codex-api-key:
-  - api-key: $api_key_json
-    prefix: "responses"
-    base-url: "$openai_base_url"
-    models:
-      - name: "$model"
-        alias: "$responses_route"
-        is-compat: true
-claude-api-key:
-  - api-key: $api_key_json
-    prefix: "anthropic"
-    base-url: "$anthropic_base_url"
-    models:
-      - name: "$model"
-        alias: "$anthropic_route"
-        is-compat: true
-    cloak:
-      mode: "never"
-EOF
+  # The models and providers live in scripts/e2e_config.yaml; only runtime paths,
+  # ports and the dummy credential are filled in here.
+  api_key_json="$(printf '%s' "$upstream_api_key" | jq -Rs .)"
+  sed \
+    -e "s|__PORT__|$port|g" \
+    -e "s|__RUNTIME_DIR__|$runtime_dir|g" \
+    -e "s|__UPSTREAM_ORIGIN__|http://127.0.0.1:$upstream_port|g" \
+    -e "s|__UPSTREAM_API_KEY__|$api_key_json|g" \
+    "$script_dir/e2e_config.yaml" >"$runtime_dir/config.yaml"
+  if grep -q '__[A-Z_]*__' "$runtime_dir/config.yaml"; then
+    echo "配置模板存在未替换的占位符：$(grep -o '__[A-Z_]*__' "$runtime_dir/config.yaml" | sort -u | tr '\n' ' ')" >&2
+    return 1
+  fi
   chmod 600 "$runtime_dir/config.yaml"
 
-  echo "测试 CLIProxyAPI v${version}（端口 ${port}）……"
-  "$host_binary" -config "$runtime_dir/config.yaml" -local-model >"$runtime_dir/host.log" 2>&1 &
+  if ! port_available "$port"; then
+    echo "测试端口已被占用：127.0.0.1:${port}。" >&2
+    return 1
+  fi
+  log_step "启动 ${host_label}，监听 127.0.0.1:${port}"
+  CPA_KEY_BILLING_CATALOG_CACHE="$runtime_dir/catalog.json" \
+    "$host_binary" -config "$runtime_dir/config.yaml" -local-model >"$runtime_dir/host.log" 2>&1 &
   active_pid=$!
   if ! wait_for_server "$port"; then
     tail -n 80 "$runtime_dir/host.log" >&2 || true
@@ -598,42 +769,39 @@ EOF
   plugins_file="$runtime_dir/plugins.json"
   management_call GET "$port" "/v0/management/plugins" >"$plugins_file"
   if ! jq -e '.plugins[] | select(.id == "cpa-key-billing" and .registered == true and .effective_enabled == true)' "$plugins_file" >/dev/null; then
-    echo "插件未在 CLIProxyAPI v$version 中注册。" >&2
+    echo "插件未在 CLIProxyAPI ${host_label} 中注册。" >&2
     tail -n 80 "$runtime_dir/host.log" >&2 || true
     return 1
   fi
+  log_step "插件已注册并启用"
 
+  # One wildcard makes every test model deterministic without registering five
+  # identical overrides or consulting the external reference catalog.
   management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/prices" \
     -H "Content-Type: application/json" \
-    --data "{\"pattern\":\"$model\",\"input_per_1m\":1,\"output_per_1m\":2,\"cache_read_per_1m\":0.1,\"cache_write_per_1m\":1.25}" \
+    --data '{"pattern":"*","input_per_1m":1,"output_per_1m":2,"cache_read_per_1m":0.1,"cache_write_per_1m":1.25}' \
     >"$runtime_dir/price.json"
-  for priced_model in \
-    "$chat_route" "chat/$chat_route" "chat/$model" \
-    "$responses_route" "responses/$responses_route" \
-    "$anthropic_route" "anthropic/$anthropic_route" \
-    "chat/$fixed_route" "chat/$pool_route"; do
-    management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/prices" \
-      -H "Content-Type: application/json" \
-      --data "{\"pattern\":\"$priced_model\",\"input_per_1m\":1,\"output_per_1m\":2,\"cache_read_per_1m\":0.1,\"cache_write_per_1m\":1.25}" \
-      >"$runtime_dir/price.json"
-  done
+  log_step "测试价格已配置"
 
   prompt="Reply with exactly OK."
   request_index=0
-  for client in chat responses anthropic; do
-    case "$client" in
-      chat) client_label="OpenAI Chat"; endpoint="/v1/chat/completions" ;;
-      responses) client_label="OpenAI Responses"; endpoint="/v1/responses" ;;
-      anthropic) client_label="Anthropic Messages"; endpoint="/v1/messages" ;;
-    esac
-    for upstream in chat responses anthropic; do
-      case "$upstream" in
-        chat) upstream_label="OpenAI Chat"; prefix="chat"; route_model="$prefix/$chat_route" ;;
-        responses) upstream_label="OpenAI Responses"; prefix="responses"; route_model="$prefix/$responses_route" ;;
-        anthropic) upstream_label="Anthropic Messages"; prefix="anthropic"; route_model="$prefix/$anthropic_route" ;;
-      esac
-      billing_model="$route_model"
-      upstream_models="$model"
+  # Exercise every client/upstream conversion in both modes. Billing must match
+  # the dummy upstream's fixed usage buckets; direct responses are checked too.
+  provider_cases=(chat responses anthropic gemini)
+  matrix_pids=()
+  matrix_labels=()
+  matrix_clients=()
+  matrix_upstreams=()
+  matrix_streams=()
+  matrix_models=()
+  matrix_upstream_models=()
+  matrix_responses=()
+  matrix_errors=()
+  log_step "并发执行 32 个协议转换与 usage 用例"
+  for client in chat responses anthropic gemini; do
+    client_label="$(protocol_label "$client")"
+    for upstream in "${provider_cases[@]}"; do
+      upstream_label="$(protocol_label "$upstream")"
       for stream in false true; do
         request_index=$((request_index + 1))
         if [[ "$stream" == "true" ]]; then
@@ -641,77 +809,214 @@ EOF
         else
           mode="nonstream"; mode_label="非流式"; extension="json"
         fi
-        body="$(request_body "$client" "$route_model" "$stream" "$prompt")"
+        model_id="e2e-${client}-to-${upstream}-${mode}"
+        requested_model="$model_id"
+        if [[ "$upstream" == "responses" ]]; then
+          requested_model="codex/$model_id"
+        fi
+        billing_model="$requested_model"
+        upstream_models="$model_id"
+        body="$(request_body "$client" "$requested_model" "$stream" "$prompt")"
+        endpoint="$(client_endpoint "$client" "$requested_model" "$stream")"
         printf -v request_number '%02d' "$request_index"
         response_file="$runtime_dir/responses/${request_number}-${client}-to-${upstream}-${mode}.${extension}"
-        logs_file="$runtime_dir/responses/${request_number}-billing.json"
+        matrix_labels+=("${client_label} → ${upstream_label} ${mode_label}")
+        matrix_clients+=("$client")
+        matrix_upstreams+=("$upstream")
+        matrix_streams+=("$stream")
+        matrix_models+=("$billing_model")
+        matrix_upstream_models+=("$upstream_models")
+        matrix_responses+=("$response_file")
+        matrix_errors+=("$runtime_dir/responses/${request_number}-request.log")
         api_call "$port" "${client_label} → ${upstream_label} ${mode_label}" \
-          "$endpoint" "$body" "$client" "$response_file"
-        assert_latest_entry "$port" "$request_index" "$client" "$upstream" \
-          "$billing_model" "$upstream_models" "$logs_file" "$response_file" "$stream"
+          "$endpoint" "$body" "$client" "$response_file" \
+          >"${matrix_errors[$((request_index - 1))]}" 2>&1 &
+        matrix_pids+=("$!")
       done
     done
   done
 
+  for ((matrix_index = 0; matrix_index < 32; matrix_index++)); do
+    if wait "${matrix_pids[$matrix_index]}"; then
+      matrix_request_ok[$matrix_index]=1
+    else
+      matrix_request_ok[$matrix_index]=0
+    fi
+  done
+  sleep "$usage_settle_seconds"
+
+  logs_file="$runtime_dir/matrix-billing.json"
+  matrix_logs_ok=1
+  if ! management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"; then
+    matrix_logs_ok=0
+  fi
+
+  matrix_failed=0
+  for ((matrix_index = 0; matrix_index < 32; matrix_index++)); do
+    matrix_ok[$matrix_index]=0
+    if [[ "${matrix_request_ok[$matrix_index]}" != "1" ]]; then
+      matrix_reasons[$matrix_index]="请求失败"
+      matrix_failed=$((matrix_failed + 1))
+      continue
+    fi
+    if (( matrix_logs_ok == 0 )); then
+      matrix_reasons[$matrix_index]="日志读取失败"
+      matrix_failed=$((matrix_failed + 1))
+      continue
+    fi
+
+    billing_model="${matrix_models[$matrix_index]}"
+    upstream="${matrix_upstreams[$matrix_index]}"
+    matches="$(jq -er --arg model "$billing_model" '[.entries[] | select(.billing_model == $model)] | length' "$logs_file")"
+    if [[ "$matches" == "0" ]]; then
+      matrix_reasons[$matrix_index]="漏记"
+      matrix_failed=$((matrix_failed + 1))
+      continue
+    fi
+    if [[ "$matches" != "1" ]]; then
+      matrix_reasons[$matrix_index]="重复 ${matches} 条"
+      matrix_failed=$((matrix_failed + 1))
+      continue
+    fi
+
+    expected_source="$(provider_source "$upstream")"
+    expected_cache_write="$expected_cache_write_tokens"
+    if [[ "$upstream" == "gemini" ]]; then
+      expected_cache_write=0
+    fi
+    expected_uncached=$((expected_input_tokens - expected_cache_read_tokens - expected_cache_write))
+    if ! jq -e \
+      --arg billing_model "$billing_model" \
+      --arg upstream_model "${matrix_upstream_models[$matrix_index]}" \
+      --arg source "$expected_source" '
+        first(.entries[] | select(.billing_model == $billing_model)) |
+        .upstream_model == $upstream_model and
+        .source == $source and
+        .failed == false and
+        .accounting_quality == "complete" and
+        .price_source == "override" and
+        (.latency_ms // 0) > 0 and
+        (.ttft_ms // 0) > 0 and
+        .ttft_ms <= .latency_ms
+      ' "$logs_file" >/dev/null; then
+      matrix_reasons[$matrix_index]="模型、来源或延迟不符"
+      matrix_failed=$((matrix_failed + 1))
+      continue
+    fi
+    if ! jq -e \
+      --arg billing_model "$billing_model" \
+      --argjson uncached "$expected_uncached" \
+      --argjson cache_read "$expected_cache_read_tokens" \
+      --argjson cache_write "$expected_cache_write" \
+      --argjson output "$expected_output_tokens" '
+        first(.entries[] | select(.billing_model == $billing_model)).cost |
+        .uncached_input_tokens == $uncached and
+        .cache_read_tokens == $cache_read and
+        .cache_write_tokens == $cache_write and
+        .billed_output_tokens == $output and
+        .total_usd > 0
+      ' "$logs_file" >/dev/null; then
+      matrix_reasons[$matrix_index]="usage 不符"
+      matrix_failed=$((matrix_failed + 1))
+      continue
+    fi
+
+    if [[ "${matrix_clients[$matrix_index]}" == "$upstream" ]]; then
+      if ! usage="$(extract_downstream_usage \
+        "${matrix_clients[$matrix_index]}" "${matrix_streams[$matrix_index]}" \
+        "${matrix_responses[$matrix_index]}" 2>/dev/null)"; then
+        matrix_reasons[$matrix_index]="响应 usage 缺失"
+        matrix_failed=$((matrix_failed + 1))
+        continue
+      fi
+      IFS=$'\t' read -r input output <<<"$usage"
+      if [[ "$input" != "$expected_input_tokens" || "$output" != "$expected_output_tokens" ]]; then
+        matrix_reasons[$matrix_index]="响应 usage 不符"
+        matrix_failed=$((matrix_failed + 1))
+        continue
+      fi
+    fi
+    matrix_ok[$matrix_index]=1
+    matrix_reasons[$matrix_index]=""
+  done
+
+  for ((matrix_index = 0; matrix_index < 32; matrix_index++)); do
+    if [[ "${matrix_ok[$matrix_index]}" == "1" ]]; then
+      printf '    [%02d/32] ✓ %s\n' "$((matrix_index + 1))" "${matrix_labels[$matrix_index]}"
+    else
+      printf '    [%02d/32] ✗ %s（%s）\n' \
+        "$((matrix_index + 1))" "${matrix_labels[$matrix_index]}" "${matrix_reasons[$matrix_index]}"
+    fi
+  done
+  if (( matrix_failed != 0 )); then
+    printf '  ✗ 协议转换：%d/32 通过，%d/32 失败\n' \
+      "$((32 - matrix_failed))" "$matrix_failed"
+    return 1
+  fi
+  log_ok "协议转换：32/32 通过"
+
+  # 名称|客户端|上游|流式|请求模型|计费模型|可能的上游模型
   model_cases=(
-    "推理强度|chat|chat|false|chat/$model(high)|chat/$model|$model"
-    "配置模型|responses|chat|false|$chat_route|$chat_route|$model"
-    "组合路由|anthropic|responses|true|responses/$responses_route(high)|responses/$responses_route|$model"
-    "固定后缀模型|chat|chat|false|chat/$fixed_route|chat/$fixed_route|$model"
-    "模型池|responses|chat|false|chat/$pool_route|chat/$pool_route|$model,$pool_model"
+    "推理后缀|chat|chat|false|gpt-5.6-sol(high)|gpt-5.6-sol|gpt-5.6-sol"
+    "前缀与推理后缀|anthropic|responses|true|codex/gpt-5.6-sol(high)|codex/gpt-5.6-sol|gpt-5.6-sol"
+    "模型池|gemini|chat|false|gpt-auto|gpt-auto|gpt-5.6-sol,gpt-5.5"
   )
+  log_step "模型路由：推理后缀、前缀与模型池"
   for model_case in "${model_cases[@]}"; do
-    IFS='|' read -r case_name client upstream stream route_model billing_model upstream_models <<<"$model_case"
-    case "$client" in
-      chat) client_label="OpenAI Chat"; endpoint="/v1/chat/completions" ;;
-      responses) client_label="OpenAI Responses"; endpoint="/v1/responses" ;;
-      anthropic) client_label="Anthropic Messages"; endpoint="/v1/messages" ;;
-    esac
-    case "$upstream" in
-      chat) upstream_label="OpenAI Chat" ;;
-      responses) upstream_label="OpenAI Responses" ;;
-      anthropic) upstream_label="Anthropic Messages" ;;
-    esac
+    IFS='|' read -r case_name client upstream stream requested_model billing_model upstream_models <<<"$model_case"
+    client_label="$(protocol_label "$client")"
+    upstream_label="$(protocol_label "$upstream")"
     request_index=$((request_index + 1))
     if [[ "$stream" == "true" ]]; then
       mode="stream"; mode_label="流式"; extension="sse"
     else
       mode="nonstream"; mode_label="非流式"; extension="json"
     fi
-    body="$(request_body "$client" "$route_model" "$stream" "$prompt")"
+    body="$(request_body "$client" "$requested_model" "$stream" "$prompt")"
+    endpoint="$(client_endpoint "$client" "$requested_model" "$stream")"
     printf -v request_number '%02d' "$request_index"
     response_file="$runtime_dir/responses/${request_number}-${case_name}-${mode}.${extension}"
     logs_file="$runtime_dir/responses/${request_number}-billing.json"
     api_call "$port" "${case_name}：${client_label} → ${upstream_label} ${mode_label}" \
       "$endpoint" "$body" "$client" "$response_file"
-    assert_latest_entry "$port" "$request_index" "$client" "$upstream" \
+    assert_billing_entry "$port" "$request_index" "$client" "$upstream" \
       "$billing_model" "$upstream_models" "$logs_file" "$response_file" "$stream"
+    actual_upstream_model="$(jq -er '.entries[0].upstream_model' "$logs_file")"
+    printf '    [%d/3] %s：请求 %s；计费 %s；上游 %s\n' \
+      "$((request_index - 32))" "$case_name" "$requested_model" "$billing_model" "$actual_upstream_model"
   done
 
   logs_file="$runtime_dir/logs.json"
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"
-  expected_requests=23
+  # Four client protocols against four upstream protocols in both modes, plus
+  # the three routing cases.
+  expected_requests=35
   actual_requests="$(jq -er '.entries | length' "$logs_file")"
   if [[ "$actual_requests" != "$expected_requests" ]]; then
-    echo "CLIProxyAPI v${version} 计费日志数量为 ${actual_requests}，预期 ${expected_requests}。" >&2
+    echo "CLIProxyAPI ${host_label} 计费日志数量为 ${actual_requests}，预期 ${expected_requests}。" >&2
     return 1
   fi
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/stats" >"$runtime_dir/stats.json"
-  if ! jq -e \
-    --arg chat "chat/$chat_route" \
-    --arg responses "responses/$responses_route" \
-    --arg anthropic "anthropic/$anthropic_route" '
+  # The matrix uses one billing model per request; the three routing cases use
+  # their stable normalized names.
+  if ! jq -e '
       .by_model as $models |
-      ([ $models[] | select(.billing_model == $chat) | .requests ] | add) == 6 and
-      ([ $models[] | select(.billing_model == $responses) | .requests ] | add) == 7 and
-      ([ $models[] | select(.billing_model == $anthropic) | .requests ] | add) == 6
+      [$models[] | select((.billing_model | startswith("e2e-")) or (.billing_model | startswith("codex/e2e-")))] as $matrix |
+      ($matrix | length) == 32 and
+      all($matrix[]; .requests == 1) and
+      ([ $models[] | select(.billing_model == "gpt-5.6-sol") | .requests ] | add) == 1 and
+      ([ $models[] | select(.billing_model == "codex/gpt-5.6-sol") | .requests ] | add) == 1 and
+      ([ $models[] | select(.billing_model == "gpt-auto") | .requests ] | add) == 1
     ' "$runtime_dir/stats.json" >/dev/null; then
     echo "复杂模型路由的用量统计不正确。" >&2
     return 1
   fi
+  log_step "聚合统计已验证：35 条基础计费记录"
 
+  log_step "模型权限：默认权限、3 次拦截与恢复"
   assert_model_access "$port" "$runtime_dir" "$expected_requests"
-  assert_canceled_request "$port" "$runtime_dir"
+  log_step "订阅额度：消费、4 种协议拦截与恢复"
+  assert_quota_exhausted "$port" "$runtime_dir" "$((expected_requests + 1))"
 
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$runtime_dir/events.json"
   if ! jq -e '[.events[] | select(.level == "info" and (.message | contains("已加载计费数据库")))] | length == 1' \
@@ -719,17 +1024,24 @@ EOF
     echo "插件日志缺少启动记录：$(jq -c '.events' "$runtime_dir/events.json")" >&2
     return 1
   fi
+  log_step "插件启动事件已验证"
 
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  echo "CLIProxyAPI v${version}：通过（24 个真实上游请求，另有 1 次模型拦截和 1 次客户端中途断开）。"
+  log_ok "${host_label}：38 个上游请求，3 次模型拦截，4 次额度拦截"
 }
 
-version_index=0
-for version in $resolved_versions; do
-  run_version "$version" "$version_index"
-  version_index=$((version_index + 1))
+log_stage "启动 dummy provider"
+start_upstream
+log_step "监听 127.0.0.1:${upstream_port}"
+
+target_index=0
+for target in "${targets[@]}"; do
+  run_target "$target" "$target_index"
+  target_index=$((target_index + 1))
 done
 
-echo "全部通过：$resolved_versions"
+if (( ${#targets[@]} > 1 )); then
+  log_ok "全部 ${#targets[@]} 个目标通过"
+fi

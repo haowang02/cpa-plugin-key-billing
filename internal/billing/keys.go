@@ -342,7 +342,10 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 				changed = true
 			}
 		}
-		if purgeDeletedKeys(state, referenced, now) > 0 {
+		purged := purgeDeletedKeys(state, referenced, now)
+		if len(purged) > 0 {
+			s.blocked.forget(purged...)
+			s.denied.forget(purged...)
 			changed = true
 		}
 		// The panel synchronizes on every session start, and a sync that moved
@@ -360,9 +363,9 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 // billing history. Once the log holds nothing about it, the record is finally
 // dropped, which bounds what an operator who rotates keys accumulates on disk.
 // The count says whether the sync that called this has anything to write.
-func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Time) int {
+func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Time) []string {
 	cutoff := now.Add(-LogRetention)
-	purged := 0
+	var purged []string
 	for scope, key := range state.Keys {
 		if key == nil || key.DeletedAt.IsZero() || key.DeletedAt.After(cutoff) {
 			continue
@@ -371,7 +374,7 @@ func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Tim
 			continue
 		}
 		delete(state.Keys, scope)
-		purged++
+		purged = append(purged, scope)
 	}
 	return purged
 }

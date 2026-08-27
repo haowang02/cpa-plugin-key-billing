@@ -2,10 +2,10 @@ package plugin
 
 import (
 	"bytes"
-	"fmt"
 	"math"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,13 +13,7 @@ import (
 	"cpa-key-billing/internal/sqlite"
 )
 
-const (
-	flowRequestID  = "req-flow-1"
-	flowResponseID = "resp-flow-1"
-	flowModel      = "gpt-5.5"
-)
-
-var flowRequestBody = []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hello"}]}`)
+const flowModel = "gpt-5.5"
 
 func flowScope() string { return billing.CallerScope(testAPIKey) }
 
@@ -32,71 +26,21 @@ func admit(t *testing.T, app *App, clientFormat, requestPath string) {
 	metadata := flowMetadata()
 	metadata[MetadataRequestPath] = requestPath
 	raw, errHandle := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{
-		RequestID: flowRequestID, SourceFormat: clientFormat, Model: flowModel, RequestedModel: flowModel,
-		Body: flowRequestBody, Metadata: metadata,
+		SourceFormat: clientFormat, Model: flowModel, RequestedModel: flowModel, Metadata: metadata,
 	}))
 	if errHandle != nil {
 		t.Fatalf("request.intercept_before error = %v", errHandle)
 	}
-	var resp RequestInterceptResponse
-	decodeResult(t, raw, &resp)
-	if resp.Terminate {
-		t.Fatalf("request was terminated: %s", resp.ResponseBody)
+	var response RequestInterceptResponse
+	decodeResult(t, raw, &response)
+	if response.Terminate {
+		t.Fatalf("request was terminated: %s", response.ResponseBody)
 	}
 }
 
-func selectCredential(t *testing.T, app *App, authIndex string) {
+func publishUsageRecord(t *testing.T, app *App, record UsageRecord) {
 	t.Helper()
-	metadata := flowMetadata()
-	metadata[MetadataSelectedAuthIndex] = authIndex
-	raw, errHandle := app.HandleMethod(MethodRequestInterceptAfter, mustMarshal(t, RequestInterceptRequest{
-		RequestID: flowRequestID, ToFormat: "openai", Model: flowModel, RequestedModel: flowModel,
-		Body: flowRequestBody, Metadata: metadata,
-	}))
-	if errHandle != nil {
-		t.Fatalf("request.intercept_after error = %v", errHandle)
-	}
-	decodeResult(t, raw, nil)
-}
-
-func observeUpstream(t *testing.T, app *App, upstreamFormat, model string, stream bool, requestBody, responseBody []byte) {
-	t.Helper()
-	raw, errHandle := app.HandleMethod(MethodResponseNormalizeBefore, mustMarshal(t, ResponseTransformRequest{
-		FromFormat: upstreamFormat, Model: model, Stream: stream, OriginalRequest: requestBody, Body: responseBody,
-	}))
-	if errHandle != nil {
-		t.Fatalf("response.normalize_before error = %v", errHandle)
-	}
-	decodeResult(t, raw, nil)
-}
-
-func respond(t *testing.T, app *App, requestID string, body []byte) {
-	t.Helper()
-	raw, errHandle := app.HandleMethod(MethodResponseInterceptAfter, mustMarshal(t, ResponseInterceptRequest{
-		RequestID: requestID, Body: body,
-	}))
-	if errHandle != nil {
-		t.Fatalf("response.intercept_after error = %v", errHandle)
-	}
-	decodeResult(t, raw, nil)
-}
-
-func streamChunk(t *testing.T, app *App, requestID string, index int, body []byte) {
-	t.Helper()
-	raw, errHandle := app.HandleMethod(MethodResponseStreamChunk, mustMarshal(t, ResponseInterceptRequest{
-		RequestID: requestID, ChunkIndex: index, Body: body,
-	}))
-	if errHandle != nil {
-		t.Fatalf("response.intercept_stream_chunk error = %v", errHandle)
-	}
-	decodeResult(t, raw, nil)
-}
-
-func publishUsage(t *testing.T, app *App, authIndex, provider, authType, source string) {
-	t.Helper()
-	raw, errHandle := app.HandleMethod(MethodUsageHandle, mustMarshal(t, UsageRecord{
-		Provider: provider, AuthIndex: authIndex, AuthType: authType, Source: source,
-	}))
+	raw, errHandle := app.HandleMethod(MethodUsageHandle, mustMarshal(t, record))
 	if errHandle != nil {
 		t.Fatalf("usage.handle error = %v", errHandle)
 	}
@@ -105,39 +49,33 @@ func publishUsage(t *testing.T, app *App, authIndex, provider, authType, source 
 
 func billUsage(t *testing.T, app *App, uncached, cacheRead, cacheWrite, output, reasoning int64) {
 	t.Helper()
-	usage := fmt.Sprintf(
-		`{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d,"prompt_tokens_details":{"cached_tokens":%d,"cache_creation_tokens":%d},"completion_tokens_details":{"reasoning_tokens":%d}}`,
-		uncached+cacheRead+cacheWrite, output, uncached+cacheRead+cacheWrite+output, cacheRead, cacheWrite, reasoning)
-	observeUpstream(t, app, "openai", flowModel, false, flowRequestBody,
-		[]byte(`{"id":"`+flowResponseID+`","usage":`+usage+`}`))
-	respond(t, app, flowRequestID, []byte(`{"id":"`+flowResponseID+`"}`))
-}
-
-func complete(t *testing.T, app *App, requestID string, outcome RequestCompletionOutcome) {
-	t.Helper()
-	completeWithError(t, app, RequestCompletion{RequestID: requestID, Outcome: outcome})
-}
-
-func completeWithError(t *testing.T, app *App, completion RequestCompletion) {
-	t.Helper()
-	raw, errHandle := app.HandleMethod(MethodRequestComplete, mustMarshal(t, completion))
-	if errHandle != nil {
-		t.Fatalf("request.complete error = %v", errHandle)
-	}
-	decodeResult(t, raw, nil)
+	publishUsageRecord(t, app, UsageRecord{
+		Provider:     "openai",
+		ExecutorType: "OpenAICompatExecutor",
+		Model:        flowModel,
+		Alias:        flowModel,
+		APIKey:       testAPIKey,
+		Generate:     true,
+		RequestedAt:  app.store.Now(),
+		Detail: UsageDetail{
+			InputTokens:         uncached + cacheRead + cacheWrite,
+			OutputTokens:        output,
+			ReasoningTokens:     reasoning,
+			CacheReadTokens:     cacheRead,
+			CacheCreationTokens: cacheWrite,
+			TotalTokens:         uncached + cacheRead + cacheWrite + output,
+		},
+	})
 }
 
 func lifetimeCost(t *testing.T, app *App) (float64, int64) {
 	t.Helper()
-	var cost float64
-	var requests int64
-	app.store.Read(func(state *billing.State) {
-		if key := state.Keys[flowScope()]; key != nil {
-			cost = key.Lifetime.CostUSD
-			requests = key.Lifetime.Requests
+	for _, key := range app.store.KeyDirectory().Keys {
+		if key.Scope == flowScope() {
+			return key.Lifetime.CostUSD, key.Lifetime.Requests
 		}
-	})
-	return cost, requests
+	}
+	return 0, 0
 }
 
 func assertCostClose(t *testing.T, got, want float64) {
@@ -147,14 +85,9 @@ func assertCostClose(t *testing.T, got, want float64) {
 	}
 }
 
-func TestFlowBillsUpstreamUsageAtTheTerminalEvent(t *testing.T) {
+func TestUsageHandleBillsWithoutResponseOrCompletionHooks(t *testing.T) {
 	app := newAppWithPrice(t, true)
-	admit(t, app, "claude", "/v1/messages")
 	billUsage(t, app, 500, 400, 100, 500, 200)
-	if cost, _ := lifetimeCost(t, app); cost != 0 {
-		t.Fatalf("cost before completion = %v", cost)
-	}
-	complete(t, app, flowRequestID, RequestCompletionSucceeded)
 	cost, requests := lifetimeCost(t, app)
 	assertCostClose(t, cost, 0.0005+0.00004+0.000125+0.001)
 	if requests != 1 {
@@ -162,172 +95,137 @@ func TestFlowBillsUpstreamUsageAtTheTerminalEvent(t *testing.T) {
 	}
 }
 
-func TestFlowRecordsEndpointSourceAndAccountingQuality(t *testing.T) {
+func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 	app := newAppWithPrice(t, true)
-	publishUsage(t, app, "auth-7", "codex", "oauth", "billing@example.com")
-	admit(t, app, "claude", "/v1/messages")
-	selectCredential(t, app, "auth-7")
-	billUsage(t, app, 500, 400, 100, 500, 200)
-	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	var view billing.LogView
-	callOK(t, app, http.MethodGet, routeLogs, nil, nil, http.StatusOK, &view)
-	if len(view.Entries) != 1 {
-		t.Fatalf("Entries = %+v", view.Entries)
-	}
-	entry := view.Entries[0]
-	if entry.RequestID != flowRequestID || entry.Endpoint != "/v1/messages" || entry.Source != "codex · billing@example.com" ||
-		entry.AccountingQuality != billing.TokenAccountingComplete {
-		t.Fatalf("entry = %+v", entry)
-	}
-}
-
-func TestFlowBillsARetriedRequestOnceAgainstTheServingCredential(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	publishUsage(t, app, "auth-exhausted", "codex", "oauth", "spent@example.com")
-	publishUsage(t, app, "auth-healthy", "codex", "oauth", "live@example.com")
-	admit(t, app, "claude", "/v1/messages")
-	selectCredential(t, app, "auth-exhausted")
-	selectCredential(t, app, "auth-healthy")
-	billUsage(t, app, 1000, 0, 0, 500, 0)
-	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	cost, requests := lifetimeCost(t, app)
-	assertCostClose(t, cost, 0.001+0.001)
-	if requests != 1 {
-		t.Fatalf("Requests = %d, want a single bill for the retried request", requests)
-	}
-	if entries := logEntries(t, app); len(entries) != 1 || entries[0].Source != "codex · live@example.com" {
-		t.Fatalf("entries = %+v", entries)
-	}
-}
-
-// Usage records arrive on the host's own schedule, so a credential can be
-// learned after the request it served was billed. The log resolves its name on
-// read, which is what lets that entry catch up.
-func TestFlowNamesACredentialLearnedAfterTheBill(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	admit(t, app, "claude", "/v1/messages")
-	selectCredential(t, app, "auth-7")
-	billUsage(t, app, 1000, 0, 0, 500, 0)
-	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	if entries := logEntries(t, app); len(entries) != 1 || entries[0].Source != "" {
-		t.Fatalf("entries = %+v, want an unnamed credential", entries)
-	}
-
-	publishUsage(t, app, "auth-7", "openai-compatible-deepseek", "apikey", "sk-upstream-key-0001")
-	if entries := logEntries(t, app); entries[0].Source != "deepseek · sk-ups…0001" {
-		t.Fatalf("entries = %+v", entries)
-	}
-}
-
-func TestFlowRejectedRequestLeavesNoTrace(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	admit(t, app, "openai", "/v1/chat/completions")
-	complete(t, app, flowRequestID, RequestCompletionRejected)
-	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
-		t.Fatalf("cost = %v, requests = %d", cost, requests)
-	}
-	if entries := logEntries(t, app); len(entries) != 0 {
-		t.Fatalf("entries = %+v, want none", entries)
-	}
-}
-
-func TestFlowUnmeasuredRequestIsLoggedAtZeroCost(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	admit(t, app, "openai", "/v1/chat/completions")
-	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	if cost, _ := lifetimeCost(t, app); cost != 0 {
-		t.Fatalf("cost = %v, want nothing charged", cost)
-	}
-	entries := logEntries(t, app)
-	if len(entries) != 1 || entries[0].AccountingQuality != "" || entries[0].Cost.TotalUSD != 0 {
-		t.Fatalf("entries = %+v, want one unmeasured zero-cost row", entries)
-	}
-}
-
-func TestFlowRefusedRequestIsNotLogged(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	admit(t, app, "openai", "/v1/chat/completions")
-	complete(t, app, flowRequestID, RequestCompletionFailed)
-	if entries := logEntries(t, app); len(entries) != 0 {
-		t.Fatalf("entries = %+v, want an upstream refusal left out of the billing log", entries)
-	}
-}
-
-// A stream that broke after output had flowed is a blind spot, not a refusal:
-// those tokens were generated whether or not usage ever arrived.
-func TestFlowFailureAfterOutputIsLogged(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	admit(t, app, "openai", "/v1/chat/completions")
-	streamChunk(t, app, flowRequestID, 0, []byte(`{"id":"`+flowResponseID+`"}`))
-	complete(t, app, flowRequestID, RequestCompletionFailed)
-	entries := logEntries(t, app)
-	if len(entries) != 1 || entries[0].Outcome != billing.OutcomeFailed || entries[0].Cost.TotalUSD != 0 {
-		t.Fatalf("entries = %+v, want one visible zero-cost row", entries)
-	}
-}
-
-func TestFlowCanceledRequestBillsReportedUsageAndSaysSo(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	admit(t, app, "openai", "/v1/chat/completions")
-	billUsage(t, app, 1000, 0, 0, 250, 0)
-	complete(t, app, flowRequestID, RequestCompletionCanceled)
-	cost, _ := lifetimeCost(t, app)
-	assertCostClose(t, cost, 0.001+0.0005)
-	if entries := logEntries(t, app); len(entries) != 1 || entries[0].Outcome != billing.OutcomeCanceled {
-		t.Fatalf("entries = %+v, want one canceled row", entries)
-	}
-}
-
-func TestFlowCanceledRequestWithoutUsageIsStillLogged(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	publishUsage(t, app, "auth-7", "codex", "oauth", "billing@example.com")
-	admit(t, app, "claude", "/v1/messages")
-	selectCredential(t, app, "auth-7")
-	complete(t, app, flowRequestID, RequestCompletionCanceled)
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "codex", ExecutorType: "CodexExecutor", Model: flowModel, Alias: "route/gpt-5.5",
+		APIKey: testAPIKey, AuthIndex: "auth-7", AuthType: "oauth", Source: "billing@example.com",
+		Generate: true, RequestedAt: app.store.Now(), Latency: 1500 * time.Millisecond, TTFT: 250 * time.Millisecond,
+		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
+	})
 
 	entries := logEntries(t, app)
 	if len(entries) != 1 {
-		t.Fatalf("entries = %+v, want the canceled request logged", entries)
+		t.Fatalf("entries = %+v", entries)
 	}
 	entry := entries[0]
-	if entry.Outcome != billing.OutcomeCanceled || entry.Cost.TotalUSD != 0 || entry.AccountingQuality != "" {
-		t.Fatalf("entry = %+v, want a canceled zero-cost row with no token detail", entry)
-	}
-	if entry.Endpoint != "/v1/messages" || entry.Source != "codex · billing@example.com" || entry.BillingModel != flowModel {
+	if entry.AuthIndex != "auth-7" || entry.UpstreamModel != flowModel || entry.BillingModel != "route/gpt-5.5" || entry.Failed ||
+		entry.Source != "codex · billing@example.com" || entry.AccountingQuality != billing.TokenAccountingComplete ||
+		entry.LatencyMS != 1500 || entry.TTFTMS != 250 {
 		t.Fatalf("entry = %+v", entry)
 	}
-	app.store.Read(func(state *billing.State) {
-		if key := state.Keys[flowScope()]; key.Lifetime.Requests != 1 || key.Lifetime.CostUSD != 0 {
-			t.Fatalf("lifetime = %+v", key.Lifetime)
-		}
-	})
 }
 
-func TestFlowUnclassifiedUsageIsVisibleButCostsZero(t *testing.T) {
+func TestUsageHandleReportsZeroUsageFailureAndBillsReportedFailureUsage(t *testing.T) {
 	app := newAppWithPrice(t, true)
-	admit(t, app, "openai", "/v1/chat/completions")
-	observeUpstream(t, app, "acme", flowModel, false, flowRequestBody,
-		[]byte(`{"id":"`+flowResponseID+`","usage":{"total_tokens":100}}`))
-	respond(t, app, flowRequestID, []byte(`{"id":"`+flowResponseID+`"}`))
-	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 1 {
+	if _, errSync := app.store.SyncKeys([]string{testAPIKey}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	if errLabel := app.store.SetLabel(flowScope(), "Alice"); errLabel != nil {
+		t.Fatalf("SetLabel error = %v", errLabel)
+	}
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "codex", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
+		AuthIndex: "auth-failed", AuthType: "oauth", Source: "billing@example.com",
+		Generate: true, Failed: true, Failure: UsageFailure{
+			StatusCode: 502,
+			Body:       `{"error":{"message":"service overloaded","type":"service_unavailable_error"}}`,
+		},
+	})
+	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
+		t.Fatalf("zero failure cost = %v, requests = %d", cost, requests)
+	}
+	events, errEvents := app.store.Events()
+	if errEvents != nil {
+		t.Fatalf("Events error = %v", errEvents)
+	}
+	failureMessage := ""
+	for _, event := range events {
+		if strings.HasPrefix(event.Message, "请求失败：") {
+			failureMessage = event.Message
+			if event.Level != billing.EventError {
+				t.Fatalf("failure event level = %q", event.Level)
+			}
+		}
+	}
+	for _, want := range []string{
+		"Alice · sk-tes…0001", "模型 " + flowModel, "codex · billing@example.com",
+		"HTTP 502：service overloaded（service_unavailable_error）",
+	} {
+		if !strings.Contains(failureMessage, want) {
+			t.Fatalf("failure message = %q, want %q", failureMessage, want)
+		}
+	}
+
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "openai", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
+		Generate: true, Failed: true, RequestedAt: app.store.Now(),
+		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
+	})
+	if cost, requests := lifetimeCost(t, app); cost <= 0 || requests != 1 {
+		t.Fatalf("reported failure cost = %v, requests = %d", cost, requests)
+	}
+	if entries := logEntries(t, app); len(entries) != 1 || !entries[0].Failed {
+		t.Fatalf("entries = %+v", entries)
+	}
+}
+
+func TestUsageHandleBillsTheSuccessfulRetryAttemptOnce(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "codex", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
+		AuthIndex: "auth-failed", AuthType: "oauth", Source: "failed@example.com",
+		Generate: true, Failed: true,
+	})
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "codex", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
+		AuthIndex: "auth-success", AuthType: "oauth", Source: "success@example.com",
+		Generate: true, RequestedAt: app.store.Now(),
+		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
+	})
+
+	if cost, requests := lifetimeCost(t, app); cost <= 0 || requests != 1 {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
-	entries := logEntries(t, app)
-	if len(entries) != 1 || entries[0].AccountingQuality != billing.TokenAccountingUnclassified {
-		t.Fatalf("entries = %+v, want the unclassified usage marked on the row", entries)
+	if entries := logEntries(t, app); len(entries) != 1 || entries[0].AuthIndex != "auth-success" ||
+		entries[0].Source != "codex · success@example.com" {
+		t.Fatalf("entries = %+v", entries)
 	}
 }
 
-func TestFlowTerminalEventPersistsTheBillWithoutPlaintextKeys(t *testing.T) {
+func TestUsageHandleSkipsCountOnlyAndBillsUnknownProviderTotals(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "openai", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
+		Generate: false, Detail: UsageDetail{InputTokens: 1000, TotalTokens: 1000},
+	})
+	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
+		t.Fatalf("count-only cost = %v, requests = %d", cost, requests)
+	}
+
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "future-provider", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
+		Generate: true, Detail: UsageDetail{InputTokens: 100, OutputTokens: 20, TotalTokens: 120},
+	})
+	cost, requests := lifetimeCost(t, app)
+	if requests != 1 {
+		t.Fatalf("unknown cost = %v, requests = %d", cost, requests)
+	}
+	assertCostClose(t, cost, 0.00014)
+	if entries := logEntries(t, app); len(entries) != 1 || entries[0].AccountingQuality != billing.TokenAccountingComplete {
+		t.Fatalf("entries = %+v", entries)
+	}
+}
+
+func TestUsageHandlePersistsBillWithoutPlaintextKeys(t *testing.T) {
 	app, statePath := newAppWithPriceAndState(t, true)
-	publishUsage(t, app, "auth-3", "codex", "apikey", "sk-upstream-key-0001")
-	admit(t, app, "openai", "/v1/chat/completions")
-	selectCredential(t, app, "auth-3")
-	billUsage(t, app, 1000, 0, 0, 500, 0)
-	complete(t, app, flowRequestID, RequestCompletionSucceeded)
-	// Shutting down releases the database, which is what folds the write-ahead
-	// log back into the file the assertions below read.
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "openai-compatible-deepseek", ExecutorType: "OpenAICompatExecutor",
+		Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
+		AuthIndex: "auth-3", AuthType: "apikey", Source: "sk-upstream-key-0001",
+		Generate: true, RequestedAt: app.store.Now(),
+		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
+	})
 	app.Shutdown()
 
 	database, errOpen := sqlite.Open(statePath)
@@ -342,11 +240,8 @@ func TestFlowTerminalEventPersistsTheBillWithoutPlaintextKeys(t *testing.T) {
 	if key := snapshot.State.Keys[flowScope()]; key == nil || key.Lifetime.CostUSD <= 0 {
 		t.Fatalf("persisted key = %+v", key)
 	}
-	if credential := snapshot.State.Credentials["auth-3"]; credential.Name() != "codex · sk-ups…0001" {
+	if credential := snapshot.State.Credentials["auth-3"]; credential.Name() != "deepseek · sk-ups…0001" {
 		t.Fatalf("persisted credential = %+v", credential)
-	}
-	if snapshot.LogEntries != 1 {
-		t.Fatalf("persisted %d log entries, want 1", snapshot.LogEntries)
 	}
 
 	raw, errRead := os.ReadFile(statePath)
@@ -354,24 +249,28 @@ func TestFlowTerminalEventPersistsTheBillWithoutPlaintextKeys(t *testing.T) {
 		t.Fatalf("read persisted state: %v", errRead)
 	}
 	if bytes.Contains(raw, []byte(testAPIKey)) {
-		t.Fatal("the database contains the plaintext downstream API key")
+		t.Fatal("database contains the plaintext downstream API key")
 	}
 	if bytes.Contains(raw, []byte("sk-upstream-key-0001")) {
-		t.Fatal("the database contains the plaintext upstream key")
+		t.Fatal("database contains the plaintext upstream API key")
 	}
 }
 
-func TestFlowEnforcementUsesRecordedSpend(t *testing.T) {
+func TestUsageHandleSpendDrivesQuotaEnforcement(t *testing.T) {
 	app := newAppWithPrice(t, true)
-	app.store.ReplaceAll(func(state *billing.State) {
-		state.Plans = []billing.Plan{{ID: "p", Name: "Tiny", AmountUSD: 0.0015, Period: billing.Period{Kind: billing.PeriodDaily}}}
-		state.Keys[flowScope()] = &billing.KeyState{PlanID: "p"}
-	})
+	if _, errSync := app.store.SyncKeys([]string{testAPIKey}, false); errSync != nil {
+		t.Fatalf("SyncKeys error = %v", errSync)
+	}
+	if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{
+		ID: "p", Name: "Tiny", AmountUSD: 0.0015, Period: billing.Period{Kind: billing.PeriodDaily},
+	}, []string{flowScope()}); errCreate != nil {
+		t.Fatalf("CreatePlanWithBindings error = %v", errCreate)
+	}
 	admit(t, app, "openai", "/v1/chat/completions")
 	billUsage(t, app, 1000, 0, 0, 500, 0)
-	complete(t, app, flowRequestID, RequestCompletionSucceeded)
+
 	raw, errHandle := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{
-		RequestID: "req-flow-2", SourceFormat: "openai", Metadata: flowMetadata(),
+		SourceFormat: "openai", Metadata: flowMetadata(),
 	}))
 	if errHandle != nil {
 		t.Fatalf("request.intercept_before error = %v", errHandle)

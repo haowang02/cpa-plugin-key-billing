@@ -32,7 +32,7 @@ func (d *DB) Load(cutoff time.Time) (billing.Snapshot, error) {
 		return billing.Snapshot{}, errCredentials
 	}
 	snapshot := billing.Snapshot{State: state}
-	if errCount := d.db.QueryRow("SELECT count(*) FROM billing_log").Scan(&snapshot.LogEntries); errCount != nil {
+	if errCount := d.db.QueryRow("SELECT count(*) FROM usage_log").Scan(&snapshot.LogEntries); errCount != nil {
 		return billing.Snapshot{}, fmt.Errorf("读取计费日志条数：%w", errCount)
 	}
 	return snapshot, nil

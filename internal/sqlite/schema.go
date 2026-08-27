@@ -103,16 +103,16 @@ CREATE TABLE IF NOT EXISTS credentials (
 	name       TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS billing_log (
+CREATE TABLE IF NOT EXISTS usage_log (
 	id                          INTEGER PRIMARY KEY AUTOINCREMENT,
 	at                          INTEGER NOT NULL,
 	scope                       TEXT    NOT NULL,
-	request_id                  TEXT    NOT NULL DEFAULT '',
-	endpoint                    TEXT    NOT NULL DEFAULT '',
 	auth_index                  TEXT    NOT NULL DEFAULT '',
 	upstream_model              TEXT    NOT NULL DEFAULT '',
 	billing_model               TEXT    NOT NULL DEFAULT '',
-	outcome                     TEXT    NOT NULL DEFAULT '',
+	failed                      INTEGER NOT NULL DEFAULT 0,
+	latency_ms                  INTEGER NOT NULL DEFAULT 0,
+	ttft_ms                     INTEGER NOT NULL DEFAULT 0,
 	accounting_quality          TEXT    NOT NULL DEFAULT '',
 	price_source                TEXT    NOT NULL DEFAULT '',
 	reasoning_tokens            INTEGER NOT NULL DEFAULT 0,
@@ -134,8 +134,8 @@ CREATE TABLE IF NOT EXISTS billing_log (
 	applied_cache_write_per_1m  REAL    NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS billing_log_at ON billing_log(at);
-CREATE INDEX IF NOT EXISTS billing_log_scope ON billing_log(scope);
+CREATE INDEX IF NOT EXISTS usage_log_at ON usage_log(at);
+CREATE INDEX IF NOT EXISTS usage_log_scope ON usage_log(scope);
 
 CREATE TABLE IF NOT EXISTS plugin_log (
 	id      INTEGER PRIMARY KEY AUTOINCREMENT,

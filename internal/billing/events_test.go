@@ -67,3 +67,55 @@ func TestUnwritableDatabaseIsReportedOnceAndOnRecovery(t *testing.T) {
 		t.Fatalf("events = %+v, want the recovery reported", events[0])
 	}
 }
+
+func TestRecoveredWriteIncludesLogsThatFailedEarlier(t *testing.T) {
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	store, repo := newAccountStoreWithRepository(t, now)
+	repo.fail = errors.New("disk full")
+	store.RecordUsage(subsetEvent("scope-a", now))
+	store.RecordUsage(subsetEvent("scope-a", now.Add(time.Minute)))
+	if len(repo.log) != 0 {
+		t.Fatalf("log entries = %d while writes fail", len(repo.log))
+	}
+
+	repo.fail = nil
+	if errLabel := store.SetLabel("scope-a", "Alice"); errLabel != nil {
+		t.Fatal(errLabel)
+	}
+	if len(repo.log) != 2 {
+		t.Fatalf("recovered log entries = %d, want 2", len(repo.log))
+	}
+}
+
+func TestFailedWritesBoundPendingLogs(t *testing.T) {
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	store, repo := newAccountStoreWithRepository(t, now)
+	repo.fail = errors.New("disk full")
+	for i := range maxPendingLogEntries + 25 {
+		store.RecordUsage(subsetEvent("scope-a", now.Add(time.Duration(i)*time.Second)))
+	}
+	if len(store.dirty.Log) != maxPendingLogEntries {
+		t.Fatalf("pending logs = %d, want %d", len(store.dirty.Log), maxPendingLogEntries)
+	}
+	if want := now.Add(25 * time.Second); !store.dirty.Log[0].At.Equal(want) {
+		t.Fatalf("oldest pending log = %v, want %v", store.dirty.Log[0].At, want)
+	}
+}
+
+func TestClearLogsDropsEntriesWaitingForRecovery(t *testing.T) {
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	store, repo := newAccountStoreWithRepository(t, now)
+	repo.fail = errors.New("disk full")
+	store.RecordUsage(subsetEvent("scope-a", now))
+
+	if _, errClear := store.ClearLogs(); errClear != nil {
+		t.Fatal(errClear)
+	}
+	repo.fail = nil
+	if errLabel := store.SetLabel("scope-a", "Alice"); errLabel != nil {
+		t.Fatal(errLabel)
+	}
+	if len(repo.log) != 0 {
+		t.Fatalf("cleared log recovered %d stale entries", len(repo.log))
+	}
+}

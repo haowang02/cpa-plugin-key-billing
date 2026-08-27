@@ -60,19 +60,30 @@ func cliproxy_plugin_init(host unsafe.Pointer, api *C.cliproxy_plugin_api) C.int
 
 //export cliproxyPluginCall
 func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t, response *C.cliproxy_buffer) C.int {
-	if response != nil {
-		response.ptr = nil
-		response.len = 0
+	if response == nil {
+		return 1
 	}
+	response.ptr = nil
+	response.len = 0
 	if method == nil {
 		writeResponse(response, plugin.ErrorEnvelope("invalid_method", "缺少插件方法", http.StatusBadRequest))
 		return 1
 	}
+	methodName := C.GoString(method)
 	var requestBytes []byte
-	if request != nil && requestLen > 0 {
-		requestBytes = C.GoBytes(unsafe.Pointer(request), C.int(requestLen))
+	if request == nil && requestLen > 0 {
+		writeResponse(response, plugin.ErrorEnvelope("invalid_request", "插件请求指针为空", http.StatusBadRequest))
+		return 1
 	}
-	raw, errHandle := app.HandleMethod(C.GoString(method), requestBytes)
+	if request != nil && requestLen > 0 {
+		length := C.int(requestLen)
+		if length < 0 || C.size_t(length) != requestLen {
+			writeResponse(response, plugin.ErrorEnvelope("invalid_request", "插件请求过大", http.StatusBadRequest))
+			return 1
+		}
+		requestBytes = C.GoBytes(unsafe.Pointer(request), length)
+	}
+	raw, errHandle := app.HandleMethod(methodName, requestBytes)
 	if errHandle != nil {
 		writeResponse(response, plugin.ErrorEnvelope("plugin_error", errHandle.Error(), http.StatusInternalServerError))
 		return 1

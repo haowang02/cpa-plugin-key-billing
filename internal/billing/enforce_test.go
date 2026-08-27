@@ -184,8 +184,6 @@ func TestAuthorizeAndRecordUsageAgreeOnTheCycle(t *testing.T) {
 			t.Fatalf("request %d was blocked below the limit", index)
 		}
 		event := subsetEvent("scope-a", now)
-		event.CyclePlanID = decision.PlanID
-		event.CycleStartAt = decision.CycleStartAt
 		store.RecordUsage(event)
 	}
 	if store.Authorize("scope-a", now).Allowed {

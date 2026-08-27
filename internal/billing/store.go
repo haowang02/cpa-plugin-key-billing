@@ -29,10 +29,7 @@ type Store struct {
 	cfg   Config
 	repo  Repository
 	path  string
-
-	// pending tracks in-flight requests between interception and their
-	// terminal event. It is runtime-only and never persisted.
-	pending *pendingTable
+	dirty Changes
 
 	// blocked remembers which keys have already had their exhausted quota
 	// reported, so retries against one do not repeat it.
@@ -44,18 +41,17 @@ type Store struct {
 	errMu     sync.Mutex
 	lastError string
 
-	open OpenRepository
+	open func(string) (Repository, error)
 
 	now func() time.Time
 }
 
-func NewStore(open OpenRepository) *Store {
+func NewStore(open func(string) (Repository, error)) *Store {
 	return &Store{
-		state:   NewState(),
-		cfg:     DefaultConfig(),
-		pending: &pendingTable{entries: make(map[string]PendingRequest)},
-		open:    open,
-		now:     time.Now,
+		state: NewState(),
+		cfg:   DefaultConfig(),
+		open:  open,
+		now:   time.Now,
 	}
 }
 
@@ -116,6 +112,7 @@ func (s *Store) Configure(cfg Config) error {
 	s.cfg = normalized
 	s.repo = repo
 	s.path = path
+	s.dirty = Changes{}
 	s.mu.Unlock()
 	if previous != nil {
 		s.closeRepository(previous)
@@ -135,6 +132,7 @@ func (s *Store) Close() {
 	repo := s.repo
 	s.repo = nil
 	s.path = ""
+	s.dirty = Changes{}
 	s.mu.Unlock()
 	if repo != nil {
 		s.closeRepository(repo)
@@ -159,35 +157,16 @@ func (s *Store) Enabled() bool {
 	return s.cfg.Enabled
 }
 
-func (s *Store) Read(fn func(*State)) {
+func (s *Store) read(fn func(*State)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	fn(s.state)
 }
 
-func (s *Store) BillingModel(upstreamModel, routeModel string) string {
-	model := ""
-	s.Read(func(state *State) {
-		model = state.ResolveBillingModel(upstreamModel, routeModel)
-	})
-	return model
-}
-
-// ReplaceAll mutates the working set and rewrites every record the plugin
-// holds. Nothing in the plugin calls it: an operation that knows what it
-// touched reports that instead, so that billing one request writes one key
-// rather than the whole record. Tests seed a store with it.
-func (s *Store) ReplaceAll(fn func(*State)) {
-	updateResult(s, func(state *State) (struct{}, Changes) {
-		fn(state)
-		return struct{}{}, Changes{AllKeys: true, Plans: true, Prices: true, ModelGroups: true, Credentials: true}
-	})
-}
-
 // updateResult applies one mutation and writes the rows it reports touching.
-// The save happens under the same lock as the mutation: a repository that
-// refuses the write leaves the change live in memory, where the next mutation
-// of the same rows carries it to disk again. Holding the lock across the write
+// The save happens under the same lock as the mutation. A failed change stays
+// live in memory and is merged into the next write, including append-only log
+// entries. Holding the lock across the write
 // also holds up the request path for as long as the write takes — the database
 // serves a single connection, so a save already waits behind any query in
 // flight, and _busy_timeout bounds what a writer outside this process can add.
@@ -202,14 +181,20 @@ func updateResult[T any](s *Store, fn func(*State) (T, Changes)) T {
 	func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		var changes Changes
-		value, changes = fn(s.state)
+		var current Changes
+		value, current = fn(s.state)
 		// A store the host has not configured yet keeps its working set in
 		// memory and has nowhere to put it. That window closes at
 		// plugin.register, before any traffic reaches the plugin.
+		changes := s.dirty.merge(current)
 		written = s.repo != nil && !changes.empty()
 		if written {
 			errSave = s.repo.Save(s.state, changes)
+			if errSave == nil {
+				s.dirty = Changes{}
+			} else {
+				s.dirty = changes
+			}
 		}
 	}()
 
@@ -270,8 +255,6 @@ func (s *Store) Status() Status {
 	return Status{Enabled: s.Enabled()}
 }
 
-// state_file names the database. A path ending in .json names the JSON document
-// a new database is seeded from, and resolves to the database beside it.
 func resolveStatePath(path string) (string, error) {
 	if path == "" {
 		path = DefaultStateFile

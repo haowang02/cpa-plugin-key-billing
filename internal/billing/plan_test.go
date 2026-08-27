@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -23,6 +24,7 @@ func TestPlanValidateLengthsAndNever(t *testing.T) {
 		{ID: "p", Period: Period{Kind: PeriodDaily}},
 		{ID: "p", AmountUSD: 1, Period: Period{Kind: PeriodCustom}},
 		{ID: "p", AmountUSD: 1, Period: Period{Kind: "yearly"}},
+		{ID: "p", AmountUSD: math.Inf(1), Period: Period{Kind: PeriodDaily}},
 	}
 	for _, plan := range invalid {
 		if plan.Validate() == nil {

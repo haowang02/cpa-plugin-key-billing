@@ -12,7 +12,7 @@ func (p Plan) Validate() error {
 	if strings.TrimSpace(p.ID) == "" {
 		return invalidf("订阅计划 ID 不能为空")
 	}
-	if !(p.AmountUSD > 0) {
+	if !(p.AmountUSD > 0) || math.IsInf(p.AmountUSD, 0) {
 		return invalidf("订阅计划 %s：额度必须大于 0", p.ID)
 	}
 	switch p.Period.Kind {

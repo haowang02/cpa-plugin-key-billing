@@ -5,16 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"cpa-key-billing/internal/billing"
 )
 
-// jsonStateVersion is the format of the JSON document the plugin reads a new
-// database from. Only this version was ever written, so a document claiming
-// another one is not a billing state.
 const jsonStateVersion = 6
 
 type jsonState struct {
@@ -23,17 +22,25 @@ type jsonState struct {
 	Plans       []billing.Plan                `json:"plans"`
 	Keys        map[string]*billing.KeyState  `json:"keys"`
 	Credentials map[string]billing.Credential `json:"credentials"`
-	Log         []billing.LogEntry            `json:"log"`
+	Log         []jsonLogEntry                `json:"log"`
 }
 
-// seed fills a database created for the first time from the JSON document
-// beside it. A deployment that has one keeps its billing history when it moves
-// to this database; afterwards the document is never read again.
-//
-// The schema version is stamped in the same transaction, so a database is only
-// ever declared current together with the record it was seeded from: an import
-// that fails, or a process killed halfway through one, leaves the version at 0
-// and the next start reads the document again.
+type jsonLogEntry struct {
+	At                time.Time                      `json:"at"`
+	Scope             string                         `json:"scope"`
+	RequestID         string                         `json:"request_id,omitempty"`
+	Endpoint          string                         `json:"endpoint,omitempty"`
+	AuthIndex         string                         `json:"auth_index,omitempty"`
+	UpstreamModel     string                         `json:"upstream_model,omitempty"`
+	BillingModel      string                         `json:"billing_model,omitempty"`
+	Outcome           string                         `json:"outcome,omitempty"`
+	Failed            bool                           `json:"failed,omitempty"`
+	AccountingQuality billing.TokenAccountingQuality `json:"accounting_quality,omitempty"`
+	PriceSource       billing.PriceSource            `json:"price_source,omitempty"`
+	Cost              billing.Cost                   `json:"cost"`
+	ReasoningTokens   int64                          `json:"reasoning_tokens,omitempty"`
+}
+
 func (d *DB) seed() error {
 	path := strings.TrimSuffix(d.path, filepath.Ext(d.path)) + ".json"
 	document, errRead := readJSONState(path)
@@ -53,8 +60,6 @@ func (d *DB) seed() error {
 	})
 }
 
-// readJSONState answers nil for a document that is not there, which is the
-// ordinary case of a deployment starting without a history to carry over.
 func readJSONState(path string) (*jsonState, error) {
 	raw, errRead := os.ReadFile(path)
 	if errRead != nil {
@@ -73,10 +78,7 @@ func readJSONState(path string) (*jsonState, error) {
 	if errDecode := decoder.Decode(&document); errDecode != nil {
 		return nil, fmt.Errorf("解析状态文件 %s：%w", path, errDecode)
 	}
-	// Anything after the first object means an interrupted writer left the
-	// document half-rewritten. Seeding from the first object alone would drop
-	// the rest silently, and a database is seeded exactly once.
-	if decoder.More() {
+	if errTrailing := decoder.Decode(&struct{}{}); errTrailing != io.EOF {
 		return nil, fmt.Errorf("解析状态文件 %s：文档包含多余内容", path)
 	}
 	if document.Version != jsonStateVersion {
@@ -86,9 +88,6 @@ func readJSONState(path string) (*jsonState, error) {
 	return &document, nil
 }
 
-// Entries older than the retention window are imported along with the rest and
-// dropped by the load that follows, which is also what makes the count reported
-// at startup the number the log will return.
 func importJSONState(tx *sql.Tx, document *jsonState) error {
 	state := billing.NewState()
 	state.Prices = document.Prices
@@ -118,5 +117,24 @@ func importJSONState(tx *sql.Tx, document *jsonState) error {
 	if errCredentials := replaceCredentials(tx, state); errCredentials != nil {
 		return errCredentials
 	}
-	return appendLog(tx, billing.Changes{Log: document.Log})
+	entries := make([]billing.LogEntry, 0, len(document.Log))
+	for _, entry := range document.Log {
+		entries = append(entries, entry.usageEntry())
+	}
+	return appendLog(tx, billing.Changes{Log: entries})
+}
+
+func (e jsonLogEntry) usageEntry() billing.LogEntry {
+	return billing.LogEntry{
+		At:                e.At,
+		Scope:             e.Scope,
+		AuthIndex:         e.AuthIndex,
+		UpstreamModel:     e.UpstreamModel,
+		BillingModel:      e.BillingModel,
+		Failed:            e.Failed || strings.EqualFold(e.Outcome, "failed") || strings.EqualFold(e.Outcome, "canceled"),
+		AccountingQuality: e.AccountingQuality,
+		PriceSource:       e.PriceSource,
+		Cost:              e.Cost,
+		ReasoningTokens:   e.ReasoningTokens,
+	}
 }

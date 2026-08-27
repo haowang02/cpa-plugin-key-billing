@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -12,10 +11,8 @@ import (
 
 func billOneRequest(t *testing.T, app *App, apiKey string, outputTokens int64) {
 	t.Helper()
-	const requestID, responseID = "req-bill-1", "resp-bill-1"
-	body := []byte(`{"model":"gpt-5.5","messages":[]}`)
 	raw, errHandle := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{
-		RequestID: requestID, SourceFormat: "openai", Model: "gpt-5.5", RequestedModel: "gpt-5.5", Body: body,
+		SourceFormat: "openai", Model: "gpt-5.5", RequestedModel: "gpt-5.5",
 		Metadata: map[string]any{
 			MetadataCallerScope: billing.CallerScope(apiKey),
 			MetadataRequestPath: "/v1/chat/completions",
@@ -29,11 +26,11 @@ func billOneRequest(t *testing.T, app *App, apiKey string, outputTokens int64) {
 	if admitted.Terminate {
 		t.Fatalf("request was terminated: %s", admitted.ResponseBody)
 	}
-	observeUpstream(t, app, "openai", "gpt-5.5", false, body, fmt.Appendf(nil,
-		`{"id":%q,"usage":{"prompt_tokens":0,"completion_tokens":%d,"total_tokens":%d}}`,
-		responseID, outputTokens, outputTokens))
-	respond(t, app, requestID, fmt.Appendf(nil, `{"id":%q}`, responseID))
-	complete(t, app, requestID, RequestCompletionSucceeded)
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "openai", ExecutorType: "OpenAICompatExecutor", Model: "gpt-5.5", Alias: "gpt-5.5",
+		APIKey: apiKey, Generate: true, RequestedAt: app.store.Now(),
+		Detail: UsageDetail{OutputTokens: outputTokens, TotalTokens: outputTokens},
+	})
 }
 
 func logEntries(t *testing.T, app *App) []billing.LogRow {
@@ -110,14 +107,14 @@ func newAppWithPriceAndState(t *testing.T, enabled bool) (*App, string) {
 	}
 	cacheRead := 0.1
 	cacheWrite := 1.25
-	app.store.ReplaceAll(func(state *billing.State) {
-		state.Prices = []billing.PriceRule{{
-			Pattern:         "gpt-5.5",
-			InputPer1M:      1,
-			OutputPer1M:     2,
-			CacheReadPer1M:  &cacheRead,
-			CacheWritePer1M: &cacheWrite,
-		}}
-	})
+	if _, errPrice := app.store.UpsertPrice(billing.PriceRule{
+		Pattern:         "gpt-5.5",
+		InputPer1M:      1,
+		OutputPer1M:     2,
+		CacheReadPer1M:  &cacheRead,
+		CacheWritePer1M: &cacheWrite,
+	}); errPrice != nil {
+		t.Fatalf("UpsertPrice error = %v", errPrice)
+	}
 	return app, statePath
 }

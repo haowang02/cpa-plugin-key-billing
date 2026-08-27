@@ -22,7 +22,7 @@ const modelSampleSize = 5
 
 func (s *Store) ModelGroups() []ModelGroup {
 	groups := []ModelGroup{}
-	s.Read(func(state *State) {
+	s.read(func(state *State) {
 		for _, group := range state.ModelGroups {
 			groups = append(groups, group.clone())
 		}
@@ -99,7 +99,7 @@ func (s *Store) AuthorizeModel(scope, upstreamModel, routeModel string) ModelDec
 		return allowed
 	}
 	decision := allowed
-	s.Read(func(state *State) {
+	s.read(func(state *State) {
 		key := state.Keys[scope]
 		if key == nil {
 			return

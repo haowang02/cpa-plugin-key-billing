@@ -306,6 +306,9 @@ func TestRetiredKeysAreDroppedOnceTheirLogExpired(t *testing.T) {
 	})
 
 	clock = now.Add(LogRetention + time.Hour)
+	if !store.blocked.onset(scope, now) || !store.denied.onset(scope, "blocked-model") {
+		t.Fatal("failed to seed request-report suppression state")
+	}
 	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
@@ -314,6 +317,9 @@ func TestRetiredKeysAreDroppedOnceTheirLogExpired(t *testing.T) {
 			t.Fatal("a retired key outlived every log entry that could name it")
 		}
 	})
+	if !store.blocked.onset(scope, now) || !store.denied.onset(scope, "blocked-model") {
+		t.Fatal("purged key retained request-report suppression state")
+	}
 }
 
 // A retired key is invisible in the plan editor, so its absence from a

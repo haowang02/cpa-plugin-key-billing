@@ -1,0 +1,113 @@
+# CLIProxyAPI configuration for scripts/e2e_cpa_billing.sh. The suite renders a
+# copy of this file into its run directory, replacing every double-underscored
+# placeholder with a runtime value, and never writes back here.
+#
+# The upstream of all four providers is scripts/dummy_provider.py.
+host: "127.0.0.1"
+port: __PORT__
+auth-dir: "__RUNTIME_DIR__/auth"
+api-keys:
+  - "e2e-downstream-key"
+logging-to-file: false
+remote-management:
+  allow-remote: false
+  secret-key: "e2e-management-key"
+  disable-control-panel: true
+plugins:
+  enabled: true
+  dir: "__RUNTIME_DIR__/plugins"
+  configs:
+    cpa-key-billing:
+      enabled: true
+      state_file: "__RUNTIME_DIR__/state.db"
+
+# One model served over two protocols: the chat-completions route publishes it
+# under its own name, and the Responses one under a codex/ prefix. That prefix is
+# the only thing telling the two apart, which is what a billing log has to get
+# right. force-model-prefix keeps the prefixed route from also answering to the
+# bare name, so each name has exactly one upstream.
+force-model-prefix: true
+
+# The OpenAI-shaped executors append their endpoint to a /v1 base URL, while the
+# Claude and Gemini ones build their whole path from the origin.
+openai-compatibility:
+  - name: "dummy-chat-e2e"
+    base-url: "__UPSTREAM_ORIGIN__/v1"
+    api-key-entries:
+      - api-key: __UPSTREAM_API_KEY__
+    models:
+      - name: "gpt-5.6-sol"
+      - name: "e2e-chat-to-chat-nonstream"
+      - name: "e2e-chat-to-chat-stream"
+      - name: "e2e-responses-to-chat-nonstream"
+      - name: "e2e-responses-to-chat-stream"
+      - name: "e2e-anthropic-to-chat-nonstream"
+      - name: "e2e-anthropic-to-chat-stream"
+      - name: "e2e-gemini-to-chat-nonstream"
+      - name: "e2e-gemini-to-chat-stream"
+      # One alias two upstream models share, which is the only way either of
+      # them is reachable under that name.
+      - name: "gpt-5.6-sol"
+        alias: "gpt-auto"
+      - name: "gpt-5.5"
+        alias: "gpt-auto"
+codex-api-key:
+  - api-key: __UPSTREAM_API_KEY__
+    prefix: "codex"
+    base-url: "__UPSTREAM_ORIGIN__/v1"
+    models:
+      - name: "gpt-5.6-sol"
+        is-compat: true
+      - name: "e2e-chat-to-responses-nonstream"
+        is-compat: true
+      - name: "e2e-chat-to-responses-stream"
+        is-compat: true
+      - name: "e2e-responses-to-responses-nonstream"
+        is-compat: true
+      - name: "e2e-responses-to-responses-stream"
+        is-compat: true
+      - name: "e2e-anthropic-to-responses-nonstream"
+        is-compat: true
+      - name: "e2e-anthropic-to-responses-stream"
+        is-compat: true
+      - name: "e2e-gemini-to-responses-nonstream"
+        is-compat: true
+      - name: "e2e-gemini-to-responses-stream"
+        is-compat: true
+claude-api-key:
+  - api-key: __UPSTREAM_API_KEY__
+    base-url: "__UPSTREAM_ORIGIN__"
+    models:
+      - name: "claude-opus-5"
+        is-compat: true
+      - name: "e2e-chat-to-anthropic-nonstream"
+        is-compat: true
+      - name: "e2e-chat-to-anthropic-stream"
+        is-compat: true
+      - name: "e2e-responses-to-anthropic-nonstream"
+        is-compat: true
+      - name: "e2e-responses-to-anthropic-stream"
+        is-compat: true
+      - name: "e2e-anthropic-to-anthropic-nonstream"
+        is-compat: true
+      - name: "e2e-anthropic-to-anthropic-stream"
+        is-compat: true
+      - name: "e2e-gemini-to-anthropic-nonstream"
+        is-compat: true
+      - name: "e2e-gemini-to-anthropic-stream"
+        is-compat: true
+    cloak:
+      mode: "never"
+gemini-api-key:
+  - api-key: __UPSTREAM_API_KEY__
+    base-url: "__UPSTREAM_ORIGIN__"
+    models:
+      - name: "gemini-3.7-flash"
+      - name: "e2e-chat-to-gemini-nonstream"
+      - name: "e2e-chat-to-gemini-stream"
+      - name: "e2e-responses-to-gemini-nonstream"
+      - name: "e2e-responses-to-gemini-stream"
+      - name: "e2e-anthropic-to-gemini-nonstream"
+      - name: "e2e-anthropic-to-gemini-stream"
+      - name: "e2e-gemini-to-gemini-nonstream"
+      - name: "e2e-gemini-to-gemini-stream"

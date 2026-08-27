@@ -11,19 +11,14 @@ import (
 
 type App struct {
 	store *billing.Store
-	usage *usageTracker
 }
 
 func NewApp() *App {
 	return &App{
 		store: billing.NewStore(openRepository),
-		usage: newUsageTracker(),
 	}
 }
 
-// openRepository is where the domain meets its storage. It is named here, in
-// the composition root, so that internal/billing depends on the repository it
-// declares rather than on a database driver.
 func openRepository(path string) (billing.Repository, error) {
 	return sqlite.Open(path)
 }
@@ -36,7 +31,9 @@ func (a *App) HandleMethod(method string, request []byte) (response []byte, err 
 		if recovered := recover(); recovered != nil {
 			response = nil
 			err = fmt.Errorf("插件处理 %s 时发生异常：%v", method, recovered)
-			a.store.Event(billing.EventError, "%v", err)
+			if a != nil && a.store != nil {
+				a.store.Event(billing.EventError, "%v", err)
+			}
 		}
 	}()
 	return a.handleMethod(method, request)
@@ -53,15 +50,9 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 	case MethodRequestInterceptBefore:
 		return a.interceptBeforeAuth(request)
 	case MethodRequestInterceptAfter:
-		return a.interceptAfterAuth(request)
-	case MethodRequestComplete:
-		return a.handleRequestComplete(request)
+		return OKEnvelope(RequestInterceptResponse{})
 	case MethodUsageHandle:
 		return a.handleUsage(request)
-	case MethodResponseNormalizeBefore:
-		return a.normalizeResponseBefore(request)
-	case MethodResponseInterceptAfter, MethodResponseStreamChunk:
-		return a.interceptResponse(request)
 	case MethodManagementRegister:
 		return OKEnvelope(managementRegistration())
 	case MethodManagementHandle:
@@ -89,7 +80,13 @@ func (a *App) configure(raw []byte) error {
 	if errDecode != nil {
 		return errDecode
 	}
-	return a.store.Configure(cfg)
+	if errConfigure := a.store.Configure(cfg); errConfigure != nil {
+		return errConfigure
+	}
+	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
+		a.store.Event(billing.EventError, "加载 models.dev 参考价目录失败：%v", errCatalog)
+	}
+	return nil
 }
 
 func registration() Registration {
@@ -114,13 +111,9 @@ func registration() Registration {
 			},
 		},
 		Capabilities: Capabilities{
-			RequestInterceptor:       true,
-			RequestLifecyclePlugin:   true,
-			ResponseBeforeTranslator: true,
-			ResponseInterceptor:      true,
-			StreamChunkInterceptor:   true,
-			UsagePlugin:              true,
-			ManagementAPI:            true,
+			RequestInterceptor: true,
+			UsagePlugin:        true,
+			ManagementAPI:      true,
 		},
 	}
 }

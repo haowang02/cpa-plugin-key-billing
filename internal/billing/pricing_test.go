@@ -16,6 +16,20 @@ func assertClose(t *testing.T, label string, got, want float64) {
 
 func floatPtr(v float64) *float64 { return &v }
 
+func TestPriceRuleRejectsNonFiniteRates(t *testing.T) {
+	infinite := math.Inf(1)
+	for _, rule := range []PriceRule{
+		{Pattern: "m", InputPer1M: math.NaN()},
+		{Pattern: "m", OutputPer1M: infinite},
+		{Pattern: "m", CacheReadPer1M: &infinite},
+		{Pattern: "m", LongContext: &LongContextPrice{ThresholdInputTokens: 1, InputPer1M: infinite}},
+	} {
+		if rule.Validate() == nil {
+			t.Fatalf("invalid price accepted: %+v", rule)
+		}
+	}
+}
+
 func completeBreakdown(uncached, cacheRead, cacheWrite, output, reasoning int64) TokenBreakdown {
 	return TokenBreakdown{
 		Quality:     TokenAccountingComplete,

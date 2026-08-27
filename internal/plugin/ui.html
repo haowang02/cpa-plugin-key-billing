@@ -16,6 +16,7 @@
   --success-badge-bg:#d1fae5; --success-badge-text:#065f46; --success-badge-border:#6ee7b7;
   --failure-badge-bg:#c6574624; --failure-badge-text:#8a3a30; --failure-badge-border:#c6574659;
   --count-badge-bg:#8b86802e; --count-badge-text:var(--primary-active);
+  --info-badge-bg:var(--count-badge-bg); --info-badge-text:var(--count-badge-text); --info-badge-border:transparent;
   --amber-color:#d97706; --amber-text:#92400e;
   --amber-10:color-mix(in srgb, var(--amber-color) 10%, transparent);
   --amber-30:color-mix(in srgb, var(--amber-color) 30%, transparent);
@@ -42,6 +43,39 @@
   --amber-30:color-mix(in srgb, var(--amber-color) 38%, transparent);
   --shadow:0 1px 3px 0 #0000004d;
 }
+:root[data-cpamp-plugin-host=true]{
+  /* CPAMP exposes its design tokens inside same-origin plugin frames. Keep the
+     plugin's component rules, but resolve their colors and geometry from the
+     host so generic bridge rules cannot leave controls half CPAMC, half CPAMP. */
+  --bg-secondary:var(--app-bg,#eff2f7);
+  --bg-primary:var(--app-surface,#fff); --bg-tertiary:var(--app-surface-muted,#f6faff);
+  --bg-hover:var(--app-accent-soft,var(--bg-tertiary));
+  --floating-surface:var(--app-surface-strong,var(--bg-primary)); --floating-shadow:var(--glass-shadow,none);
+  --text-primary:var(--app-text-primary,#2c3e50); --text-secondary:var(--app-text-regular,#5f6c7b);
+  --text-tertiary:var(--app-text-muted,#8b95a6);
+  --border-color:var(--app-border,#d8e5f2); --border-primary:var(--app-border-strong,var(--border-color));
+  --border-hover:color-mix(in srgb,var(--primary-color) 28%,var(--border-color));
+  --primary-color:var(--color-primary,#3b82f6); --primary-hover:var(--color-primary-light-3,#60a5fa);
+  --primary-active:var(--color-primary-dark-2,#2563eb); --primary-contrast:#fff;
+  --error-color:var(--color-danger,#ef4444);
+  --success-badge-bg:var(--data-badge-success-bg,#f0fdf4);
+  --success-badge-text:var(--data-badge-success-text,#16a34a);
+  --success-badge-border:var(--data-badge-success-border,#bbf7d0);
+  --failure-badge-bg:var(--data-badge-danger-bg,#fef2f2);
+  --failure-badge-text:var(--data-badge-danger-text,#dc2626);
+  --failure-badge-border:var(--data-badge-danger-border,#fecaca);
+  --count-badge-bg:var(--data-badge-neutral-bg,#f8fafc);
+  --count-badge-text:var(--data-badge-neutral-text,#475569);
+  --info-badge-bg:var(--data-badge-info-bg,#eff6ff);
+  --info-badge-text:var(--data-badge-info-text,#2563eb);
+  --info-badge-border:var(--data-badge-info-border,#bfdbfe);
+  --amber-color:var(--color-warning,#f59e0b); --amber-text:var(--data-badge-warning-text,#d97706);
+  --amber-10:var(--data-badge-warning-bg,#fffbeb); --amber-30:var(--data-badge-warning-border,#fde68a);
+  --primary-10:var(--primary-ring,color-mix(in srgb,var(--primary-color) 10%,transparent));
+  --table-header-bg:var(--app-surface-strong,var(--bg-primary));
+  --table-header-bg:rgb(from var(--bg-primary) r g b / 1);
+  --shadow:var(--glass-shadow,none); --radius-md:var(--app-radius-md,12px);
+}
 *{box-sizing:border-box}
 body{margin:0;background-color:var(--bg-secondary);color:var(--text-primary);
   font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen,Ubuntu,Cantarell,"Fira Sans","Droid Sans","Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
@@ -58,7 +92,8 @@ h2{font-size:15px;margin:0 0 12px}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
 .card{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-md);
   box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
-button{font:inherit;border:1px solid var(--border-primary);background:var(--bg-primary);color:var(--text-primary);
+button{appearance:none;min-height:0;font:inherit;font-weight:400;line-height:1.5;border:1px solid var(--border-primary);
+  background:var(--bg-primary);color:var(--text-primary);box-shadow:none;
   border-radius:var(--radius-md);padding:6px 12px;cursor:pointer;transition:background-color .15s,border-color .15s,color .15s}
 button:hover:not(:disabled){border-color:var(--border-hover);background:var(--bg-hover)}
 button:disabled{opacity:.5;cursor:not-allowed}
@@ -71,7 +106,7 @@ button.link:hover:not(:disabled){background:none;color:var(--text-primary);text-
 button.link.danger:hover:not(:disabled){color:var(--error-color)}
 input,select,textarea{font:inherit;color:var(--text-primary);background:var(--bg-secondary);
   border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:6px 9px}
-input:focus,select:focus{border-color:var(--primary-color);box-shadow:0 0 0 3px var(--primary-10);outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--primary-color);box-shadow:0 0 0 3px var(--primary-10);outline:none}
 input[type=number]{width:110px}
 label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-secondary)}
 .table-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;
@@ -86,17 +121,94 @@ tbody tr:hover{background:var(--bg-hover)}
    nothing: the header stays left-aligned and tall enough that the content below
    it clears the overlay. */
 .head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:52px;padding-right:200px;margin-bottom:16px}
-@media (max-width:640px){.head{padding-right:0;min-height:0;margin-bottom:12px}}
+@media (max-width:768px){.head{padding-right:0;min-height:0;margin-bottom:12px}}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--border-color)}
-.tabs button[data-tab]{border:none;border-bottom:2px solid transparent;border-radius:0;padding:8px 14px;
-  background:none;color:var(--text-secondary)}
+.tabs button[data-tab]{min-height:0;border:none;border-bottom:2px solid transparent;border-radius:0;padding:8px 14px;
+  background:none;color:var(--text-secondary);box-shadow:none;font-weight:600;line-height:1.5}
 .tabs button[data-tab]:hover{background:none;color:var(--text-primary)}
 .tabs button[data-tab].active{color:var(--text-primary);border-bottom-color:var(--primary-color)}
-.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;white-space:nowrap;border:1px solid transparent}
+.tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500;
+  line-height:1.5;white-space:nowrap;border:1px solid transparent}
 .tag.ok{background:var(--success-badge-bg);color:var(--success-badge-text);border-color:var(--success-badge-border)}
 .tag.warn{background:var(--amber-10);color:var(--amber-text);border-color:var(--amber-30)}
 .tag.bad{background:var(--failure-badge-bg);color:var(--failure-badge-text);border-color:var(--failure-badge-border)}
+.tag.info{background:var(--info-badge-bg);color:var(--info-badge-text);border-color:var(--info-badge-border)}
 .tag.plain{background:var(--count-badge-bg);color:var(--count-badge-text)}
+:root[data-cpamp-plugin-host=true] body{
+  background-color:var(--app-bg,#eff2f7);background-image:var(--app-bg-gradient,none);
+  background-attachment:fixed;
+  font-family:var(--cpamp-plugin-font-family,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)
+}
+:root[data-cpamp-plugin-host=true] input,
+:root[data-cpamp-plugin-host=true] select,
+:root[data-cpamp-plugin-host=true] textarea{
+  min-height:34px;border-color:var(--app-input-border,var(--border-primary));
+  background:var(--app-input-bg,var(--app-surface-strong,var(--bg-primary)));box-shadow:none
+}
+:root[data-cpamp-plugin-host=true] input:focus,
+:root[data-cpamp-plugin-host=true] select:focus,
+:root[data-cpamp-plugin-host=true] textarea:focus{
+  border-color:var(--app-input-border-focus,var(--primary-color));
+  background:var(--app-input-bg-focus,var(--app-surface-strong,var(--bg-primary)));
+  box-shadow:inset 0 0 0 1px var(--focus-inset)
+}
+:root[data-cpamp-plugin-host=true] .card{
+  border-color:var(--glass-border,var(--border-color));border-radius:var(--app-radius-lg,20px);
+  background:var(--glass-bg,var(--bg-primary));box-shadow:var(--glass-shadow,none)
+}
+:root[data-cpamp-plugin-host=true] .stat{border-radius:var(--app-radius-md,12px)}
+:root[data-cpamp-plugin-host=true] .key-picker,
+:root[data-cpamp-plugin-host=true] .model-picker-list{
+  background:var(--app-surface-strong,var(--bg-primary))
+}
+:root[data-cpamp-plugin-host=true] button:not(.link){
+  min-height:34px;padding:0 12px;border-color:var(--app-border,var(--border-color));
+  border-radius:var(--app-radius-md,12px);background:var(--app-surface-muted,var(--bg-tertiary));
+  font-weight:600;line-height:1.2
+}
+:root[data-cpamp-plugin-host=true] button:not(.link):hover:not(:disabled){
+  border-color:var(--border-hover);background:var(--app-accent-soft,var(--bg-hover));color:var(--primary-color)
+}
+:root[data-cpamp-plugin-host=true] button.primary{
+  border-color:var(--primary-solid,var(--primary-color));background:var(--primary-solid,var(--primary-color));
+  color:var(--primary-contrast)
+}
+:root[data-cpamp-plugin-host=true] button.primary:hover:not(:disabled){
+  border-color:var(--primary-solid-hover,var(--primary-hover));
+  background:var(--primary-solid-hover,var(--primary-hover));color:var(--primary-contrast)
+}
+:root[data-cpamp-plugin-host=true] button.danger:not(.link){
+  border-color:var(--data-badge-danger-border,var(--failure-badge-border));
+  background:var(--data-badge-danger-bg,var(--failure-badge-bg));
+  color:var(--data-badge-danger-text,var(--failure-badge-text))
+}
+:root[data-cpamp-plugin-host=true] button.link{
+  min-height:0;padding:2px 4px;border:0;border-radius:0;background:none;box-shadow:none;font-weight:500;line-height:1.5
+}
+:root[data-cpamp-plugin-host=true] .tabs{
+  width:max-content;max-width:100%;padding:4px;gap:4px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+  border:1px solid color-mix(in srgb,var(--border-color) 82%,transparent);border-radius:14px;
+  background:color-mix(in srgb,var(--surface-subtle,var(--bg-tertiary)) 78%,var(--bg-primary));
+  box-shadow:inset 0 1px 2px #0f17210d;scrollbar-width:none
+}
+:root[data-cpamp-plugin-host=true] .tabs::-webkit-scrollbar{display:none}
+:root[data-cpamp-plugin-host=true] .tabs button[data-tab]{
+  flex:0 0 auto;min-height:34px;padding:0 15px;border:0;border-radius:10px;background:transparent;
+  color:color-mix(in srgb,var(--text-secondary) 84%,var(--text-primary));font-size:13px;font-weight:700;line-height:1.2
+}
+:root[data-cpamp-plugin-host=true] .tabs button[data-tab]:hover{
+  border:0;background:color-mix(in srgb,var(--primary-color) 6%,var(--bg-primary));color:var(--primary-active)
+}
+:root[data-cpamp-plugin-host=true] .tabs button[data-tab].active,
+:root[data-cpamp-plugin-host=true] .tabs button[data-tab].active:hover{
+  border:0;background:color-mix(in srgb,var(--bg-primary) 88%,var(--primary-color));color:var(--primary-active);
+  box-shadow:0 1px 3px #0f17211a,inset 0 0 0 1px color-mix(in srgb,var(--primary-color) 16%,transparent);
+  font-weight:800
+}
+:root[data-cpamp-plugin-host=true] thead,
+:root[data-cpamp-plugin-host=true] thead th{
+  background:var(--table-header-bg)
+}
 .usage{display:flex;flex-direction:column;gap:5px;min-width:118px;max-width:210px}
 .usage>span{font-size:12px;white-space:nowrap}
 .bar{height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden;min-width:56px}
@@ -182,7 +294,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .group-model-picker{max-height:260px}
 /* Two pill lists in one row would otherwise push the actions past the card. */
 .group-models{max-width:320px}
-@media (max-width:640px){
+@media (max-width:768px){
   /* Anchoring a popover to a cell inside a horizontally scrolling table stops
      making sense once the table is wider than the screen, so it becomes a sheet. */
   .model-picker{left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto}
@@ -226,8 +338,11 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .log-pagination select{width:auto;min-width:72px;padding:5px 8px}
 .log-pagination button{padding:5px 10px}
 .log-page-number{min-width:64px;text-align:center;font-variant-numeric:tabular-nums}
-@media (max-width:640px){
+@media (max-width:768px){
   .wrap{padding:14px 12px 40px}
+  /* CPAMC overlays mobile controls on the iframe, while CPAMP keeps its 50px
+     navbar outside the frame. Only the former needs an internal safe area. */
+  :root:not([data-cpamp-plugin-host=true]) .wrap{padding-top:90px}
   .section-toolbar{align-items:flex-start}
   .section-toolbar>.card-actions{flex:1 1 100%;width:100%}
   .card-actions .wide-search,#price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
@@ -454,13 +569,12 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
         <h2 style="margin:0">计费日志</h2>
         <div class="row card-actions">
           <span id="log-note" class="muted small"></span>
-          <select id="log-outcome" aria-label="按状态筛选">
+          <select id="log-status" aria-label="按状态筛选">
             <option value="">全部状态</option>
-            <option value="succeeded">成功</option>
+            <option value="normal">正常</option>
             <option value="failed">失败</option>
-            <option value="canceled">中断</option>
           </select>
-          <input id="log-filter" placeholder="搜索 API Key、备注、模型、端点或来源" class="wide-search">
+          <input id="log-filter" placeholder="搜索 API Key、备注、模型或来源" class="wide-search">
           <button id="logs-clear" class="danger">清空日志</button>
         </div>
       </div>
@@ -679,6 +793,21 @@ function tokens(value) {
 }
 function exactTokens(value) {
   return Math.trunc(Number(value || 0)).toLocaleString("en-US");
+}
+function latency(value) {
+  const milliseconds = Number(value || 0);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "—";
+  if (milliseconds < 1000) return Math.round(milliseconds) + " ms";
+  return (milliseconds / 1000).toFixed(2) + " s";
+}
+function outputTPS(cost, latencyMS, ttftMS, measured) {
+  const totalLatency = Number(latencyMS || 0);
+  const firstTokenLatency = Number(ttftMS || 0);
+  const generationLatency = totalLatency - firstTokenLatency;
+  const outputTokens = Number(cost.billed_output_tokens || 0);
+  if (!measured || !Number.isFinite(generationLatency) || generationLatency <= 0 ||
+      !Number.isFinite(outputTokens) || outputTokens < 0) return "—";
+  return (outputTokens * 1000 / generationLatency).toFixed(1) + " t/s";
 }
 function cacheReadRate(cacheRead, totalInput) {
   const input = Number(totalInput || 0);
@@ -1390,14 +1519,14 @@ function hideCostTooltip() {
 }
 
 // The option labels carry the counts, so the plain text lives here.
-const LOG_OUTCOME_LABELS = { "": "全部状态", succeeded: "成功", failed: "失败", canceled: "中断" };
+const LOG_STATUS_LABELS = { "": "全部状态", normal: "正常", failed: "失败" };
 
 // The browser only holds one page, so the counts are the server's: they cover
 // the whole search and ignore the status choice itself, which is what lets each
 // option say how many entries picking it would show.
-function labelLogOutcomes(counts) {
-  for (const option of $("log-outcome").options) {
-    option.textContent = LOG_OUTCOME_LABELS[option.value] + "（" + int((counts || {})[option.value || "all"]) + "）";
+function labelLogStatuses(counts) {
+  for (const option of $("log-status").options) {
+    option.textContent = LOG_STATUS_LABELS[option.value] + "（" + int((counts || {})[option.value || "all"]) + "）";
   }
 }
 
@@ -1410,8 +1539,8 @@ function logPath() {
   });
   const search = $("log-filter").value.trim();
   if (search) params.set("q", search);
-  const outcome = $("log-outcome").value;
-  if (outcome) params.set("outcome", outcome);
+  const status = $("log-status").value;
+  if (status) params.set("status", status);
   return "/logs?" + params.toString();
 }
 
@@ -1454,7 +1583,7 @@ function renderLogs() {
     $("logs-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
     return;
   }
-  labelLogOutcomes(view.outcome_counts);
+  labelLogStatuses(view.status_counts);
   note.textContent = int(view.total) + " 条";
   const totalPages = logPageCount(view.total);
   const rows = (view.entries || [])
@@ -1462,28 +1591,23 @@ function renderLogs() {
       const cost = entry.cost || {};
       const keyDisplay = logKeyName(entry);
       const statusMarks = [];
-      if (entry.outcome === "canceled") statusMarks.push(el("span", { class: "tag warn",
-        text: "中断", title: "请求在完成前结束，通常是客户端断开或超时" }));
-      else if (entry.outcome) statusMarks.push(el("span", { class: "tag bad", text: "失败" }));
-      else statusMarks.push(el("span", { class: "tag ok", text: "成功" }));
-      if (!entry.accounting_quality) {
-        // A canceled or failed request rarely reports usage, so the outcome
-        // already says this; the note only adds something to a normal one.
-        if (!entry.outcome) statusMarks.push(el("span", { class: "tag warn", text: "无 Token 明细" }));
-      } else if (entry.accounting_quality !== "complete") {
+      if (entry.failed) statusMarks.push(el("span", { class: "tag bad", text: "失败" }));
+      if (entry.accounting_quality && entry.accounting_quality !== "complete") {
         statusMarks.push(el("span", { class: "tag warn",
           text: entry.accounting_quality === "inconsistent" ? "Token 明细异常" : "Token 未分类" }));
       }
-      if (entry.price_source === "none" && entry.accounting_quality) {
+      if (entry.price_source === "none" && entry.accounting_quality === "complete") {
         statusMarks.push(el("span", { class: "tag warn", text: "待定价" }));
       }
+      if (!statusMarks.length) statusMarks.push(el("span", { class: "tag ok", text: "正常" }));
 
       const input = (cost.uncached_input_tokens || 0) + (cost.cache_read_tokens || 0) + (cost.cache_write_tokens || 0);
       const output = cost.billed_output_tokens || 0;
       // Without an observed breakdown the counts are unknown, not zero, and a
       // column of zeroes would read as "this request used nothing".
-      const measured = !!entry.accounting_quality;
+      const measured = entry.accounting_quality === "complete";
       const tokens = (value) => measured ? exactTokens(value) : "—";
+      const hasTTFT = Number(entry.ttft_ms || 0) > 0;
 
       const billingModel = entry.billing_model || entry.upstream_model || "—";
       const modelDetail = entry.upstream_model && entry.upstream_model.toLowerCase() !== billingModel.toLowerCase()
@@ -1498,15 +1622,20 @@ function renderLogs() {
             ? el("div", { class: "muted small mono" }, entry.preview)
             : null,
         ),
-        el("td", { class: "mono small" },
-          el("div", { class: "log-cell-line" }, billingModel),
+        el("td", { class: "small" },
+          el("div", { class: "log-cell-line mono" }, billingModel),
           modelDetail ? el("div", { class: "log-cell-line muted" }, modelDetail) : null,
-        ),
-        el("td", {},
-          el("div", { class: "log-cell-line mono" }, entry.endpoint || "—"),
-          el("div", { class: "log-source muted small", title: entry.source || null }, entry.source || "未知"),
+          el("div", { class: "log-source muted", title: entry.source || null }, entry.source || "来源未知"),
         ),
         el("td", { class: "log-status" }, statusMarks),
+        el("td", { class: "num" },
+          el("div", {}, outputTPS(cost, entry.latency_ms, entry.ttft_ms, measured)),
+          el("div", {
+            class: "muted small", title: hasTTFT ? "首字延迟 · 总延迟" : "总延迟",
+          }, hasTTFT
+            ? latency(entry.ttft_ms) + " · " + latency(entry.latency_ms)
+            : latency(entry.latency_ms)),
+        ),
         el("td", { class: "num" }, tokens(input)),
         el("td", { class: "num" },
           el("div", {}, tokens(cost.cache_read_tokens)),
@@ -1515,19 +1644,21 @@ function renderLogs() {
         el("td", { class: "num" }, tokens(cost.cache_write_tokens)),
         el("td", { class: "num" },
           el("div", {}, tokens(output)),
-          entry.reasoning_tokens ? el("div", { class: "muted small" }, "推理 " + exactTokens(entry.reasoning_tokens)) : null,
+          measured && entry.reasoning_tokens ? el("div", { class: "muted small" }, "推理 " + exactTokens(entry.reasoning_tokens)) : null,
         ),
         el("td", { class: "num" },
           el("div", {},
-            el("span", {
-              class: "cost-value",
-              tabindex: "0",
-              "aria-label": "查看计价详情",
-              onmouseenter: (event) => showCostTooltip(event.currentTarget, cost, entry.reasoning_tokens),
-              onmouseleave: hideCostTooltip,
-              onfocus: (event) => showCostTooltip(event.currentTarget, cost, entry.reasoning_tokens),
-              onblur: hideCostTooltip,
-            }, usd(cost.total_usd)),
+            measured
+              ? el("span", {
+                  class: "cost-value",
+                  tabindex: "0",
+                  "aria-label": "查看计价详情",
+                  onmouseenter: (event) => showCostTooltip(event.currentTarget, cost, entry.reasoning_tokens),
+                  onmouseleave: hideCostTooltip,
+                  onfocus: (event) => showCostTooltip(event.currentTarget, cost, entry.reasoning_tokens),
+                  onblur: hideCostTooltip,
+                }, usd(cost.total_usd))
+              : usd(cost.total_usd),
           ),
           cost.tiered
             ? el("div", { class: "muted small" }, cost.long_context ? "长上下文" : "标准")
@@ -1537,7 +1668,8 @@ function renderLogs() {
     });
 
   $("logs-body").replaceChildren(table(
-    ["时间", "API Key", "模型", "端点/来源", "状态", { label: "输入", num: true }, { label: "缓存读取", num: true },
+    ["时间", "API Key", "模型 / 来源", "状态", { label: "TPS / 延迟", num: true },
+      { label: "输入", num: true }, { label: "缓存读取", num: true },
       { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
     rows));
   pagination.classList.remove("hidden");
@@ -1549,7 +1681,7 @@ function renderLogs() {
 
 const eventLevels = {
   error: { label: "错误", class: "tag bad" },
-  info: { label: "信息", class: "tag plain" },
+  info: { label: "信息", class: "tag info" },
 };
 
 function matchesEventLevel(event, level) {
@@ -1896,7 +2028,7 @@ $("log-filter").addEventListener("input", () => {
     guard(loadLogs);
   }, 180);
 });
-$("log-outcome").addEventListener("change", () => { logPage = 1; guard(loadLogs); });
+$("log-status").addEventListener("change", () => { logPage = 1; guard(loadLogs); });
 $("logs-body").addEventListener("scroll", hideCostTooltip, { passive: true });
 $("log-page-size").addEventListener("change", (event) => {
   logPageSize = Number(event.target.value) || 50;

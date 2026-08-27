@@ -83,9 +83,7 @@ func TestConfigureKeepsTheLiveDocumentWhenTheNewPathFails(t *testing.T) {
 	}
 }
 
-// A state_file naming the JSON document has to resolve to the database beside
-// it, which is the one the document seeds.
-func TestConfigureResolvesAJSONStateFileToItsDatabase(t *testing.T) {
+func TestConfigureResolvesJSONStatePathToDatabase(t *testing.T) {
 	var opened string
 	store := NewStore(func(path string) (Repository, error) {
 		opened = path

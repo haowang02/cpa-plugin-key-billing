@@ -33,31 +33,39 @@ func (c Credential) Name() string {
 	}
 }
 
-// LearnCredential records what an upstream credential is, from the usage record
-// CLIProxyAPI publishes for every request it serves.
-//
-// Usage is the only account the host gives of a provider configured in
-// config.yaml: its credential lookup describes auth files alone.
-func (s *Store) LearnCredential(authIndex, provider, authType, account string) {
+func learnCredential(state *State, scope, authIndex, provider, authType, account string) bool {
 	authIndex = strings.TrimSpace(authIndex)
 	if authIndex == "" {
-		return
+		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(authType), authKindAPIKey) {
-		account = PreviewKey(account)
-	}
-	learned := Credential{Provider: strings.TrimSpace(provider), Account: strings.TrimSpace(account)}
+	learned := usageCredential(scope, provider, authType, account)
 	if learned == (Credential{}) {
-		return
+		return false
 	}
-	updateResult(s, func(state *State) (struct{}, Changes) {
-		if state.Credentials[authIndex] == learned {
-			return struct{}{}, Changes{}
+	if state.Credentials[authIndex] == learned {
+		return false
+	}
+	if state.Credentials == nil {
+		state.Credentials = make(map[string]Credential)
+	}
+	state.Credentials[authIndex] = learned
+	return true
+}
+
+func usageCredential(scope, provider, authType, account string) Credential {
+	switch strings.ToLower(strings.TrimSpace(authType)) {
+	case authKindAPIKey:
+		account = PreviewKey(account)
+	case "oauth":
+		// Some credentials have no account identity, in which case the host's
+		// source fallback is the downstream API key. Never persist that plaintext.
+		if CallerScope(account) == normalizeScope(scope) {
+			account = ""
 		}
-		if state.Credentials == nil {
-			state.Credentials = make(map[string]Credential)
-		}
-		state.Credentials[authIndex] = learned
-		return struct{}{}, Changes{Credentials: true}
-	})
+	default:
+		// An unclassified source may be a secret. The provider remains useful on
+		// its own, so do not persist an account value whose kind is unknown.
+		account = ""
+	}
+	return Credential{Provider: strings.TrimSpace(provider), Account: strings.TrimSpace(account)}
 }

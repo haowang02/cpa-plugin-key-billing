@@ -27,11 +27,25 @@ func restrictApp(t *testing.T, models ...string) *App {
 	return app
 }
 
+func onlyModelBlockEvent(t *testing.T, app *App) billing.Event {
+	t.Helper()
+	events, errEvents := app.store.Events()
+	if errEvents != nil {
+		t.Fatalf("Events error = %v", errEvents)
+	}
+	for _, event := range events {
+		if strings.HasPrefix(event.Message, "模型拦截：") {
+			return event
+		}
+	}
+	t.Fatalf("events = %+v, want a model block", events)
+	return billing.Event{}
+}
+
 func interceptModel(t *testing.T, app *App, clientFormat, model string) RequestInterceptResponse {
 	t.Helper()
 	raw, errHandle := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{
-		RequestID: flowRequestID, SourceFormat: clientFormat, Model: model, RequestedModel: model,
-		Body: flowRequestBody, Metadata: map[string]any{
+		SourceFormat: clientFormat, Model: model, RequestedModel: model, Metadata: map[string]any{
 			MetadataCallerScope: flowScope(),
 			MetadataRequestPath: "/v1/chat/completions",
 		},
@@ -97,14 +111,10 @@ func TestForbiddenModelIsReportedAndNotBilled(t *testing.T) {
 	if response := interceptModel(t, app, "openai", flowModel); !response.Terminate {
 		t.Fatal("a model the key may not call was admitted")
 	}
-	// A terminated request still produces the host's completion event, and it
-	// must not resurrect the request the plugin never admitted.
-	complete(t, app, flowRequestID, RequestCompletionFailed)
-
 	if entries := logEntries(t, app); len(entries) != 0 {
 		t.Fatalf("billing log = %+v, want a refused request left out of it", entries)
 	}
-	event := onlyRequestEvent(t, app)
+	event := onlyModelBlockEvent(t, app)
 	if event.Level != billing.EventInfo {
 		t.Fatalf("level = %q, want information: enforcement working is not a fault", event.Level)
 	}
@@ -120,9 +130,11 @@ func TestForbiddenModelIsReportedAndNotBilled(t *testing.T) {
 // handed out its only budget to nothing at all.
 func TestForbiddenModelLeavesTheSubscriptionUntouched(t *testing.T) {
 	app := restrictApp(t, "chat/fast")
-	app.store.ReplaceAll(func(state *billing.State) {
-		state.Plans = []billing.Plan{{ID: "daily", Name: "Daily 1", AmountUSD: 1, Period: billing.Period{Kind: billing.PeriodDaily}}}
-	})
+	if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{
+		ID: "daily", Name: "Daily 1", AmountUSD: 1, Period: billing.Period{Kind: billing.PeriodDaily},
+	}, nil); errCreate != nil {
+		t.Fatalf("CreatePlanWithBindings error = %v", errCreate)
+	}
 	if errBind := app.store.BindKey(flowScope(), "daily"); errBind != nil {
 		t.Fatalf("BindKey error = %v", errBind)
 	}
@@ -130,11 +142,11 @@ func TestForbiddenModelLeavesTheSubscriptionUntouched(t *testing.T) {
 	if response := interceptModel(t, app, "openai", flowModel); !response.Terminate {
 		t.Fatal("a model the key may not call was admitted")
 	}
-	app.store.Read(func(state *billing.State) {
-		if cycle := state.Keys[flowScope()].Cycle; cycle != (billing.Cycle{}) {
-			t.Fatalf("cycle = %+v, want it left inactive", cycle)
+	for _, key := range app.store.KeyDirectory().Keys {
+		if key.Scope == flowScope() && (!key.CycleEndAt.IsZero() || key.SpentUSD != 0) {
+			t.Fatalf("key = %+v, want its cycle left inactive", key)
 		}
-	})
+	}
 }
 
 func TestGrantedModelIsBilledNormally(t *testing.T) {
@@ -144,9 +156,5 @@ func TestGrantedModelIsBilledNormally(t *testing.T) {
 	entries := logEntries(t, app)
 	if len(entries) != 1 || entries[0].BillingModel != flowModel {
 		t.Fatalf("billing log = %+v, want the granted model billed", entries)
-	}
-	if events := pluginLog(t, app); len(events) != 1 {
-		// Only the startup entry belongs here.
-		t.Fatalf("plugin log = %+v, want nothing reported about an admitted request", events)
 	}
 }

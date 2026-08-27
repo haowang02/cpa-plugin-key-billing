@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -78,7 +79,7 @@ type CatalogInfo struct {
 
 var runtimeCatalog struct {
 	sync.Mutex
-	loaded     *catalog
+	loaded     atomic.Pointer[catalog]
 	retryAfter time.Time
 	lastError  error
 }
@@ -118,42 +119,27 @@ func RefreshBuiltinCatalog() (CatalogInfo, error) {
 }
 
 func cachedBuiltinCatalog() *catalog {
-	runtimeCatalog.Lock()
-	defer runtimeCatalog.Unlock()
-	if runtimeCatalog.loaded != nil {
-		return runtimeCatalog.loaded
-	}
-	path := CatalogCachePath()
-	raw, errRead := os.ReadFile(path)
-	if errRead != nil {
-		return nil
-	}
-	parsed, errParse := parseSourceCatalog(raw, catalogFileTime(path))
-	if errParse != nil {
-		return nil
-	}
-	runtimeCatalog.loaded = parsed
-	return parsed
+	return runtimeCatalog.loaded.Load()
 }
 
 func loadBuiltinCatalog(force bool) (*catalog, error) {
 	runtimeCatalog.Lock()
 	defer runtimeCatalog.Unlock()
 	now := time.Now()
-	if !force && runtimeCatalog.loaded != nil {
+	if loaded := runtimeCatalog.loaded.Load(); !force && loaded != nil {
 		if _, errStat := os.Stat(CatalogCachePath()); errStat == nil {
-			return runtimeCatalog.loaded, nil
+			return loaded, nil
 		}
 		// The operating system or an operator removed the cache. Drop the
 		// in-memory copy too so this need triggers a fresh download.
-		runtimeCatalog.loaded = nil
+		runtimeCatalog.loaded.Store(nil)
 	}
 
 	path := CatalogCachePath()
 	if !force {
-		if raw, errRead := os.ReadFile(path); errRead == nil {
+		if raw, errRead := readCatalogCache(path); errRead == nil {
 			if parsed, errParse := parseSourceCatalog(raw, catalogFileTime(path)); errParse == nil {
-				runtimeCatalog.loaded = parsed
+				runtimeCatalog.loaded.Store(parsed)
 				runtimeCatalog.retryAfter = time.Time{}
 				runtimeCatalog.lastError = nil
 				return parsed, nil
@@ -182,7 +168,7 @@ func loadBuiltinCatalog(force bool) (*catalog, error) {
 		return nil, errWrite
 	}
 	parsed.info.FetchedAt = fetchedAt
-	runtimeCatalog.loaded = parsed
+	runtimeCatalog.loaded.Store(parsed)
 	runtimeCatalog.retryAfter = time.Time{}
 	runtimeCatalog.lastError = nil
 	return parsed, nil
@@ -261,6 +247,12 @@ func parseSourceCatalog(raw []byte, fetchedAt time.Time) (*catalog, error) {
 				continue
 			}
 			rule := priceRuleFromSource(fullID, model.Cost)
+			if errValidate := rule.Validate(); errValidate != nil {
+				if canonical {
+					blockedShortNames[shortName] = struct{}{}
+				}
+				continue
+			}
 			rules[fullID] = rule
 			shortNames[shortName] = append(shortNames[shortName], catalogShortNameCandidate{rule: rule, canonical: canonical})
 		}
@@ -461,7 +453,7 @@ func SearchCatalog(query string, limit int) []PriceRule {
 }
 
 func lookupBuiltin(upstreamModel, billingModel string) (PriceRule, bool) {
-	return lookupCatalog(builtinCatalog(), upstreamModel, billingModel)
+	return lookupCatalog(cachedBuiltinCatalog(), upstreamModel, billingModel)
 }
 
 func lookupCatalog(loaded *catalog, upstreamModel, billingModel string) (PriceRule, bool) {
@@ -486,6 +478,22 @@ func lookupCatalog(loaded *catalog, upstreamModel, billingModel string) (PriceRu
 		}
 	}
 	return PriceRule{}, false
+}
+
+func readCatalogCache(path string) ([]byte, error) {
+	file, errOpen := os.Open(path)
+	if errOpen != nil {
+		return nil, errOpen
+	}
+	defer file.Close()
+	raw, errRead := io.ReadAll(io.LimitReader(file, maxCatalogBytes+1))
+	if errRead != nil {
+		return nil, errRead
+	}
+	if len(raw) > maxCatalogBytes {
+		return nil, fmt.Errorf("models.dev 价格目录缓存超过 %d MiB 限制", maxCatalogBytes>>20)
+	}
+	return raw, nil
 }
 
 // writeFileAtomic writes through a sibling temp file and renames, so a crash or

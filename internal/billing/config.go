@@ -1,7 +1,9 @@
 package billing
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -14,6 +16,14 @@ type Config struct {
 	StateFile string `yaml:"state_file"`
 }
 
+// Priority and Store belong to the host and are ignored by this plugin.
+type configDocument struct {
+	Enabled   bool      `yaml:"enabled"`
+	StateFile string    `yaml:"state_file"`
+	Priority  int       `yaml:"priority"`
+	Store     yaml.Node `yaml:"store"`
+}
+
 func DefaultConfig() Config {
 	return Config{
 		Enabled:   false,
@@ -24,9 +34,17 @@ func DefaultConfig() Config {
 func DecodeConfig(raw []byte) (Config, error) {
 	cfg := DefaultConfig()
 	if len(strings.TrimSpace(string(raw))) > 0 {
-		if errUnmarshal := yaml.Unmarshal(raw, &cfg); errUnmarshal != nil {
-			return Config{}, fmt.Errorf("解析插件配置：%w", errUnmarshal)
+		document := configDocument{Enabled: cfg.Enabled, StateFile: cfg.StateFile}
+		decoder := yaml.NewDecoder(bytes.NewReader(raw))
+		decoder.KnownFields(true)
+		if errDecode := decoder.Decode(&document); errDecode != nil {
+			return Config{}, fmt.Errorf("解析插件配置：%w", errDecode)
 		}
+		if errTrailing := decoder.Decode(&struct{}{}); errTrailing != io.EOF {
+			return Config{}, fmt.Errorf("解析插件配置：只能包含一个 YAML 文档")
+		}
+		cfg.Enabled = document.Enabled
+		cfg.StateFile = document.StateFile
 	}
 	return cfg.normalized(), nil
 }

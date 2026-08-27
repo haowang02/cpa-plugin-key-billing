@@ -37,10 +37,6 @@ type Repository interface {
 	Close() error
 }
 
-// The store takes an opener rather than a repository so that a reconfigure can
-// move to another path without this package depending on a database driver.
-type OpenRepository func(path string) (Repository, error)
-
 // Snapshot is the working set the store keeps in memory, plus the size of the
 // log it deliberately leaves behind.
 type Snapshot struct {
@@ -70,9 +66,51 @@ type Changes struct {
 	LogCutoff time.Time
 }
 
+const maxPendingLogEntries = 1000
+
 // A mutation that only prunes the log is still a mutation: LogCutoff counts
 // here so that a save carrying nothing but a cutoff reaches the repository.
 func (c Changes) empty() bool {
 	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && !c.Prices && !c.ModelGroups && !c.Credentials &&
 		len(c.Log) == 0 && c.LogCutoff.IsZero()
+}
+
+func (c Changes) merge(next Changes) Changes {
+	if c.empty() {
+		return next.withBoundedLog()
+	}
+	if next.empty() {
+		return c.withBoundedLog()
+	}
+	merged := Changes{
+		AllKeys:     c.AllKeys || next.AllKeys,
+		Plans:       c.Plans || next.Plans,
+		Prices:      c.Prices || next.Prices,
+		ModelGroups: c.ModelGroups || next.ModelGroups,
+		Credentials: c.Credentials || next.Credentials,
+		Log:         append(append([]LogEntry(nil), c.Log...), next.Log...),
+		LogCutoff:   next.LogCutoff,
+	}
+	if merged.LogCutoff.Before(c.LogCutoff) {
+		merged.LogCutoff = c.LogCutoff
+	}
+	if merged.AllKeys {
+		return merged.withBoundedLog()
+	}
+	seen := make(map[string]struct{}, len(c.Keys)+len(next.Keys))
+	for _, scope := range append(append([]string(nil), c.Keys...), next.Keys...) {
+		if _, exists := seen[scope]; exists {
+			continue
+		}
+		seen[scope] = struct{}{}
+		merged.Keys = append(merged.Keys, scope)
+	}
+	return merged.withBoundedLog()
+}
+
+func (c Changes) withBoundedLog() Changes {
+	if len(c.Log) > maxPendingLogEntries {
+		c.Log = append([]LogEntry(nil), c.Log[len(c.Log)-maxPendingLogEntries:]...)
+	}
+	return c
 }

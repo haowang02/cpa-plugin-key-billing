@@ -53,3 +53,26 @@ func TestOpenNarrowsAnExistingDatabase(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAcceptsRelativePathWithDSNCharacters(t *testing.T) {
+	absolutePath := filepath.Join(t.TempDir(), "state?#.db")
+	workingDir, errWorkingDir := os.Getwd()
+	if errWorkingDir != nil {
+		t.Fatalf("get working directory: %v", errWorkingDir)
+	}
+	path, errRelative := filepath.Rel(workingDir, absolutePath)
+	if errRelative != nil {
+		t.Fatalf("make relative path: %v", errRelative)
+	}
+	database := openDatabase(t, path)
+	state := billing.NewState()
+	state.Keys["scope-a"] = &billing.KeyState{Label: "Alice", ByModel: map[string]*billing.Totals{}}
+	mustSave(t, database, state, billing.Changes{AllKeys: true})
+
+	if _, errStat := os.Stat(path); errStat != nil {
+		t.Fatalf("stat exact database path: %v", errStat)
+	}
+	if key := mustLoad(t, database).State.Keys["scope-a"]; key == nil || key.Label != "Alice" {
+		t.Fatalf("key = %+v", key)
+	}
+}

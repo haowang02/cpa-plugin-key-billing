@@ -11,17 +11,8 @@ func failingStore(t *testing.T) *Store {
 	store, _ := newStoreWithRepository(t)
 	store.ReplaceAll(func(state *State) {
 		state.Keys["scope-a"] = &KeyState{Preview: "sk-tes…0001", Label: "Alice"}
-		state.Credentials["auth-codex"] = Credential{Provider: "codex", Account: "ops@example.com"}
 	})
 	return store
-}
-
-func finish(store *Store, outcome RequestOutcome, record *UsageRecord, reason string) {
-	store.BeginRequest("req-1", PendingRequest{
-		Scope: "scope-a", Endpoint: "/v1/messages", AuthIndex: "auth-codex",
-	})
-	store.SetRequestCredential("req-1", "auth-codex")
-	store.FinishRequest("req-1", record, outcome, reason)
 }
 
 func requestEvents(t *testing.T, store *Store) []Event {
@@ -29,69 +20,11 @@ func requestEvents(t *testing.T, store *Store) []Event {
 	events := mustEvents(t, store)
 	kept := make([]Event, 0, len(events))
 	for _, event := range events {
-		if strings.HasPrefix(event.Message, "请求失败：") || strings.HasPrefix(event.Message, "额度拦截：") ||
-			strings.HasPrefix(event.Message, "模型拦截：") {
+		if strings.HasPrefix(event.Message, "额度拦截：") || strings.HasPrefix(event.Message, "模型拦截：") {
 			kept = append(kept, event)
 		}
 	}
 	return kept
-}
-
-// The plugin log has to name who the failed request belonged to, what it was
-// asking for, which credential served it and why it ended — an operator reading
-// it should not have to correlate anything by hand.
-func TestFailedRequestIsReportedWithItsDetails(t *testing.T) {
-	store := failingStore(t)
-	finish(store, OutcomeFailed, &UsageRecord{
-		BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true, Responded: true,
-	}, "upstream stream closed before a terminal event（internal_server_error）")
-
-	events := requestEvents(t, store)
-	if len(events) != 1 || events[0].Level != EventError {
-		t.Fatalf("events = %+v, want one error entry", events)
-	}
-	for _, want := range []string{
-		"请求失败：", "Alice · sk-tes…0001", "/v1/messages", "gpt-5.5",
-		"codex · ops@example.com", "req-1", "upstream stream closed before a terminal event",
-	} {
-		if !strings.Contains(events[0].Message, want) {
-			t.Fatalf("message = %q, want it to name %q", events[0].Message, want)
-		}
-	}
-}
-
-// An upstream that refuses a request outright produces no usage, so nothing
-// about it reaches the billing log. The plugin log is then the only record that
-// the request happened at all.
-func TestFailedRequestWithNothingToBillIsStillReported(t *testing.T) {
-	store := failingStore(t)
-	finish(store, OutcomeFailed, &UsageRecord{Generate: true, Responded: false}, "")
-
-	events := requestEvents(t, store)
-	if len(events) != 1 {
-		t.Fatalf("events = %+v, want the unbillable failure reported", events)
-	}
-	if !strings.Contains(events[0].Message, "插件未观察到错误内容") {
-		t.Fatalf("message = %q, want it to say no error content was seen", events[0].Message)
-	}
-	if entries := mustLogs(t, store, LogQuery{}).Entries; len(entries) != 0 {
-		t.Fatalf("billing log = %+v, want a request with nothing to bill left out of it", entries)
-	}
-}
-
-// A request that ended normally, and one the client walked away from, are not
-// failures. Cancellation is ordinary client behaviour and is already visible in
-// the billing log, where it carries the tokens it produced.
-func TestSucceededAndCanceledRequestsAreNotReported(t *testing.T) {
-	store := failingStore(t)
-	record := &UsageRecord{BillingModel: "gpt-5.5", Generate: true, Responded: true}
-
-	finish(store, "", record, "")
-	finish(store, OutcomeCanceled, record, "")
-
-	if events := requestEvents(t, store); len(events) != 0 {
-		t.Fatalf("events = %+v, want nothing reported for a request that did not fail", events)
-	}
 }
 
 // A client that retries a blocked key would otherwise write the same line into

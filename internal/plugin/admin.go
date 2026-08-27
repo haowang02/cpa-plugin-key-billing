@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"cpa-key-billing/internal/billing"
+)
+
+const (
+	defaultLogPageSize = 50
+	maxLogPageSize     = 1000
 )
 
 func (a *App) putPrices(req ManagementRequest) ManagementResponse {
@@ -308,17 +314,21 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 
 func (a *App) listLogs(req ManagementRequest) ManagementResponse {
 	query := billing.LogQuery{
-		Search:  req.Query.Get("q"),
-		Outcome: strings.TrimSpace(req.Query.Get("outcome")),
+		Search: req.Query.Get("q"),
+		Status: strings.TrimSpace(req.Query.Get("status")),
+		Limit:  defaultLogPageSize,
 	}
-	if !billing.ValidLogOutcome(query.Outcome) {
-		return JSONError(http.StatusBadRequest, "invalid", "outcome 无效："+query.Outcome)
+	if !billing.ValidLogStatus(query.Status) {
+		return JSONError(http.StatusBadRequest, "invalid", "status 无效："+query.Status)
 	}
 	if errOffset := countParam(req.Query, "offset", &query.Offset); errOffset != nil {
 		return errorResponse(errOffset)
 	}
 	if errLimit := countParam(req.Query, "limit", &query.Limit); errLimit != nil {
 		return errorResponse(errLimit)
+	}
+	if query.Limit < 1 || query.Limit > maxLogPageSize {
+		return errorResponse(&billing.Error{Kind: billing.KindInvalid, Msg: "limit 必须是 1 到 1000 之间的整数"})
 	}
 	view, errLogs := a.store.Logs(query)
 	if errLogs != nil {
@@ -346,6 +356,9 @@ func decodeStrict(body []byte, target any) error {
 	decoder.DisallowUnknownFields()
 	if errDecode := decoder.Decode(target); errDecode != nil {
 		return &billing.Error{Kind: billing.KindInvalid, Msg: fmt.Sprintf("请求内容无效：%v", errDecode)}
+	}
+	if errTrailing := decoder.Decode(&struct{}{}); errTrailing != io.EOF {
+		return &billing.Error{Kind: billing.KindInvalid, Msg: "请求内容无效：只能包含一个 JSON 值"}
 	}
 	return nil
 }

@@ -213,41 +213,7 @@ func TestKeyGrantIsRewrittenWithTheKey(t *testing.T) {
 	}
 }
 
-// An older database gains the tables it lacks and is stamped with the version
-// that says so, which is what stops a plugin from before them from opening it
-// and reading a restricted key as unrestricted.
-func TestOpenUpgradesAnOlderSchema(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.db")
-	database := openDatabase(t, path)
-	if _, errVersion := database.db.Exec("PRAGMA user_version = 1"); errVersion != nil {
-		t.Fatalf("set user_version: %v", errVersion)
-	}
-	if _, errDrop := database.db.Exec("DROP TABLE model_groups"); errDrop != nil {
-		t.Fatalf("drop model_groups: %v", errDrop)
-	}
-	if errClose := database.Close(); errClose != nil {
-		t.Fatalf("Close error = %v", errClose)
-	}
-
-	reopened := openDatabase(t, path)
-	var version int
-	if errVersion := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); errVersion != nil {
-		t.Fatalf("read user_version: %v", errVersion)
-	}
-	if version != schemaVersion {
-		t.Fatalf("user_version = %d, want %d", version, schemaVersion)
-	}
-	state := billing.NewState()
-	state.ModelGroups = []billing.ModelGroup{{ID: "fast", Name: "Fast", Models: []string{"gpt-5.5"}}}
-	mustSave(t, reopened, state, billing.Changes{ModelGroups: true})
-	if groups := mustLoad(t, reopened).State.ModelGroups; len(groups) != 1 {
-		t.Fatalf("groups = %+v, want the recreated table usable", groups)
-	}
-}
-
-// A database written by a newer plugin is refused rather than misread: opening
-// it would otherwise mean writing today's columns over tomorrow's rows.
-func TestOpenRejectsANewerSchema(t *testing.T) {
+func TestOpenRejectsMismatchedSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	database := openDatabase(t, path)
 	if _, errVersion := database.db.Exec("PRAGMA user_version = 99"); errVersion != nil {
@@ -257,6 +223,111 @@ func TestOpenRejectsANewerSchema(t *testing.T) {
 		t.Fatalf("Close error = %v", errClose)
 	}
 	if _, errOpen := Open(path); errOpen == nil {
-		t.Fatal("Open accepted a database from a newer plugin")
+		t.Fatal("Open accepted a database with a mismatched schema")
+	}
+}
+
+func TestOpenRepairsCurrentSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	database := openDatabase(t, path)
+	if _, errDrop := database.db.Exec("DROP TABLE model_groups"); errDrop != nil {
+		t.Fatalf("drop model_groups: %v", errDrop)
+	}
+	if errClose := database.Close(); errClose != nil {
+		t.Fatalf("Close error = %v", errClose)
+	}
+
+	reopened := openDatabase(t, path)
+	state := billing.NewState()
+	state.ModelGroups = []billing.ModelGroup{{ID: "fast", Name: "Fast", Models: []string{"gpt-5.5"}}}
+	mustSave(t, reopened, state, billing.Changes{ModelGroups: true})
+	if groups := mustLoad(t, reopened).State.ModelGroups; len(groups) != 1 || groups[0].ID != "fast" {
+		t.Fatalf("groups = %+v, want the recreated table usable", groups)
+	}
+}
+
+func TestOpenMigratesPreviousSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	database := openDatabase(t, path)
+	state := billing.NewState()
+	state.Keys["scope-a"] = &billing.KeyState{Label: "Alice", Lifetime: billing.Totals{CostUSD: 7}}
+	mustSave(t, database, state, billing.Changes{AllKeys: true})
+	if _, errTable := database.db.Exec(`
+		CREATE TABLE billing_log (
+			id INTEGER PRIMARY KEY, at INTEGER, scope TEXT, auth_index TEXT, upstream_model TEXT,
+			billing_model TEXT, outcome TEXT, accounting_quality TEXT, price_source TEXT,
+			reasoning_tokens INTEGER, total_usd REAL, uncached_input_usd REAL, cache_read_usd REAL,
+			cache_write_usd REAL, output_usd REAL, uncached_input_tokens INTEGER,
+			cache_read_tokens INTEGER, cache_write_tokens INTEGER, billed_output_tokens INTEGER,
+			tiered INTEGER, long_context INTEGER, threshold_input_tokens INTEGER,
+			applied_input_per_1m REAL, applied_output_per_1m REAL,
+			applied_cache_read_per_1m REAL, applied_cache_write_per_1m REAL
+		);
+		INSERT INTO billing_log VALUES (
+			1, 100, 'scope-a', 'auth-a', 'upstream', 'route', 'canceled', 'complete', 'override',
+			2, 0.5, 0.1, 0.2, 0.0, 0.2, 100, 20, 0, 50, 0, 0, 0, 1, 2, 1, 1
+		);
+		INSERT INTO billing_log VALUES (
+			2, 101, 'scope-a', '', '', '', 'canceled', '', '',
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+		)`); errTable != nil {
+		t.Fatalf("create legacy billing_log: %v", errTable)
+	}
+	if _, errVersion := database.db.Exec("PRAGMA user_version = 3"); errVersion != nil {
+		t.Fatalf("set user_version: %v", errVersion)
+	}
+	if errClose := database.Close(); errClose != nil {
+		t.Fatalf("Close error = %v", errClose)
+	}
+
+	reopened := openDatabase(t, path)
+	loaded := mustLoad(t, reopened)
+	if key := loaded.State.Keys["scope-a"]; key == nil || key.Label != "Alice" || key.Lifetime.CostUSD != 7 {
+		t.Fatalf("key = %+v", key)
+	}
+	logs, errLogs := reopened.Logs(billing.LogQuery{Limit: 10}, time.Time{})
+	if errLogs != nil {
+		t.Fatalf("read migrated logs: %v", errLogs)
+	}
+	if len(logs.Entries) != 2 || !logs.Entries[0].Failed || logs.Entries[0].Cost != (billing.Cost{}) ||
+		!logs.Entries[1].Failed || logs.Entries[1].Cost.TotalUSD != 0.5 ||
+		logs.Entries[1].ReasoningTokens != 2 || logs.Entries[1].LatencyMS != 0 || logs.Entries[1].TTFTMS != 0 {
+		t.Fatalf("migrated logs = %+v", logs.Entries)
+	}
+	var version, oldTables int
+	if errVersion := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); errVersion != nil {
+		t.Fatalf("read user_version: %v", errVersion)
+	}
+	if errCount := reopened.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'billing_log'").Scan(&oldTables); errCount != nil {
+		t.Fatalf("count billing_log: %v", errCount)
+	}
+	if version != schemaVersion || oldTables != 0 {
+		t.Fatalf("version = %d, billing_log tables = %d", version, oldTables)
+	}
+}
+
+func TestOpenRejectsAndPreservesAnIncompatibleLegacyLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	database := openDatabase(t, path)
+	if _, errTable := database.db.Exec(`
+		CREATE TABLE billing_log (id INTEGER PRIMARY KEY, at INTEGER, scope TEXT);
+		INSERT INTO billing_log VALUES (1, 100, 'scope-a');
+		PRAGMA user_version = 3`); errTable != nil {
+		t.Fatalf("create incompatible billing_log: %v", errTable)
+	}
+	reopened, errOpen := Open(path)
+	if errOpen == nil {
+		_ = reopened.Close()
+		t.Fatal("Open accepted an incompatible legacy log")
+	}
+	var rows, version int
+	if errCount := database.db.QueryRow("SELECT count(*) FROM billing_log").Scan(&rows); errCount != nil {
+		t.Fatalf("count preserved billing_log: %v", errCount)
+	}
+	if errVersion := database.db.QueryRow("PRAGMA user_version").Scan(&version); errVersion != nil {
+		t.Fatalf("read user_version: %v", errVersion)
+	}
+	if rows != 1 || version != 3 {
+		t.Fatalf("billing_log rows = %d, version = %d; want 1 row at version 3", rows, version)
 	}
 }

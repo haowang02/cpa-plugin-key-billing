@@ -158,6 +158,17 @@ func newStoreWithRepository(t *testing.T) (*Store, *memoryRepository) {
 	return store, repo
 }
 
+func (s *Store) ReplaceAll(fn func(*State)) {
+	updateResult(s, func(state *State) (struct{}, Changes) {
+		fn(state)
+		return struct{}{}, Changes{AllKeys: true, Plans: true, Prices: true, ModelGroups: true, Credentials: true}
+	})
+}
+
+func (s *Store) Read(fn func(*State)) {
+	s.read(fn)
+}
+
 func mustLogs(t *testing.T, store *Store, query LogQuery) LogView {
 	t.Helper()
 	view, errLogs := store.Logs(query)

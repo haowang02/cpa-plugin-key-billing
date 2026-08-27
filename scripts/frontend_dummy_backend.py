@@ -14,6 +14,217 @@ API_BASE = "/v0/management/plugins/cpa-key-billing"
 NOW = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
 
 
+HOST_SHELL = r"""<!doctype html>
+<html lang="zh-CN" data-host="__HOST_MODE__">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__HOST_LABEL__ · API Key 计费样式预览</title>
+<style>
+:root{
+  --bg-secondary:#faf9f5;--bg-primary:#f0eee8;--bg-tertiary:#e9e6df;--bg-hover:var(--bg-tertiary);
+  --text-primary:#2d2a26;--text-secondary:#6d6760;--text-tertiary:#a29c95;
+  --border-color:#e3e1db;--border-primary:#d5d2cb;--border-hover:#cecac4;
+  --primary-color:#8b8680;--primary-hover:#7f7a74;--primary-active:#726d67;--primary-contrast:#fff;
+  --success-badge-bg:#d1fae5;--success-badge-text:#065f46;--success-badge-border:#6ee7b7;
+  --failure-badge-bg:#c6574624;--failure-badge-text:#8a3a30;--failure-badge-border:#c6574659;
+  color-scheme:light;
+}
+:root[data-theme=white]{
+  --bg-secondary:#fff;--bg-primary:#fff;--bg-tertiary:#f6f6f6;
+  --border-color:#e5e5e5;--border-primary:#d9d9d9;--border-hover:#ccc;
+}
+:root[data-theme=dark]{
+  --bg-secondary:#151412;--bg-primary:#1d1b18;--bg-tertiary:#262320;--bg-hover:#2e2a26;
+  --text-primary:#f6f4f1;--text-secondary:#c9c3bb;--text-tertiary:#9c958d;
+  --border-color:#3a3530;--border-primary:#4a453f;--border-hover:#5a544d;
+  --primary-hover:#9a948e;--primary-active:#a6a099;
+  --success-badge-bg:#064e3b4d;--success-badge-text:#6ee7b7;--success-badge-border:#059669;
+  --failure-badge-bg:#c657463d;--failure-badge-text:#f1b0a6;--failure-badge-border:#c6574680;
+  color-scheme:dark;
+}
+html[data-host=cpamp]{
+  --app-bg:#eff2f7;--app-bg-gradient:linear-gradient(120deg,#f0f7ff 0%,#e7f2ff 50%,#edf7ff 100%);
+  --app-surface:rgba(255,255,255,.94);--app-surface-strong:#fff;--app-surface-muted:rgba(255,255,255,.68);
+  --app-border:rgba(15,23,42,.08);--app-border-strong:rgba(15,23,42,.12);
+  --app-text-primary:#2c3e50;--app-text-regular:#5f6c7b;--app-text-muted:#8b95a6;
+  --app-accent-soft:rgba(59,130,246,.12);--surface-subtle:#f6faff;
+  --app-radius-lg:20px;--app-radius-md:12px;--app-radius-sm:8px;
+  --glass-bg:#fff;--glass-border:rgba(255,255,255,.6);--glass-shadow:none;
+  --app-input-bg:rgba(255,255,255,.62);--app-input-bg-focus:#fff;
+  --app-input-border:var(--app-border-strong);--app-input-border-focus:#3b82f6;
+  --color-primary:#3b82f6;--color-primary-light-3:#60a5fa;--color-primary-dark-2:#2563eb;
+  --primary-color:var(--color-primary);--primary-hover:var(--color-primary-light-3);
+  --primary-active:var(--color-primary-dark-2);--primary-solid:#2563eb;--primary-solid-hover:#3b82f6;
+  --primary-ring:rgba(59,130,246,.22);--primary-contrast:#fff;
+  --color-warning:#f59e0b;--color-danger:#ef4444;
+  --data-badge-success-bg:#f0fdf4;--data-badge-success-text:#16a34a;--data-badge-success-border:#bbf7d0;
+  --data-badge-warning-bg:#fffbeb;--data-badge-warning-text:#d97706;--data-badge-warning-border:#fde68a;
+  --data-badge-danger-bg:#fef2f2;--data-badge-danger-text:#dc2626;--data-badge-danger-border:#fecaca;
+  --data-badge-info-bg:#eff6ff;--data-badge-info-text:#2563eb;--data-badge-info-border:#bfdbfe;
+  --data-badge-neutral-bg:#f8fafc;--data-badge-neutral-text:#475569;--data-badge-neutral-border:#cbd5e1;
+  --bg-secondary:var(--app-bg);--bg-primary:var(--app-surface);--bg-tertiary:var(--app-surface-muted);
+  --bg-hover:var(--app-accent-soft);--text-primary:var(--app-text-primary);
+  --text-secondary:var(--app-text-regular);--text-tertiary:var(--app-text-muted);
+  --border-color:var(--app-border);--border-primary:var(--app-border-strong);
+  --border-hover:rgba(59,130,246,.28);
+}
+html[data-host=cpamp][data-theme=dark]{
+  --app-bg:#0a0a0a;--app-bg-gradient:linear-gradient(120deg,#0b1324 0%,#0a1426 50%,#091521 100%);
+  --app-surface:rgba(24,28,40,.9);--app-surface-strong:#1b1f2a;--app-surface-muted:rgba(255,255,255,.08);
+  --app-border:rgba(255,255,255,.08);--app-border-strong:rgba(255,255,255,.12);
+  --app-text-primary:#e5e5e5;--app-text-regular:#a3a3a3;--app-text-muted:#7a7a7a;
+  --app-accent-soft:rgba(96,165,250,.18);--surface-subtle:rgba(255,255,255,.06);
+  --glass-bg:rgba(24,28,40,.72);--glass-border:rgba(255,255,255,.1);
+  --app-input-bg:#1b1f2a;--app-input-bg-focus:#1b1f2a;--app-input-border-focus:#60a5fa;
+  --color-primary:#60a5fa;--color-primary-light-3:#93c5fd;--color-primary-dark-2:#3b82f6;
+  --primary-solid:#60a5fa;--primary-solid-hover:#3b82f6;--primary-ring:rgba(96,165,250,.22);
+  --data-badge-success-bg:rgba(74,222,128,.14);--data-badge-success-text:#4ade80;--data-badge-success-border:rgba(74,222,128,.24);
+  --data-badge-warning-bg:rgba(251,191,36,.14);--data-badge-warning-text:#fbbf24;--data-badge-warning-border:rgba(251,191,36,.24);
+  --data-badge-danger-bg:rgba(248,113,113,.14);--data-badge-danger-text:#f87171;--data-badge-danger-border:rgba(248,113,113,.24);
+  --data-badge-info-bg:rgba(96,165,250,.14);--data-badge-info-text:#60a5fa;--data-badge-info-border:rgba(96,165,250,.24);
+  --data-badge-neutral-bg:rgba(148,163,184,.12);--data-badge-neutral-text:#94a3b8;--data-badge-neutral-border:rgba(148,163,184,.2);
+}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden}
+body{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg-secondary);color:var(--text-primary)}
+html[data-host=cpamp] body{background-color:var(--app-bg);background-image:var(--app-bg-gradient)}
+.sidebar{position:fixed;inset:0 auto 0 0;z-index:20;width:var(--sidebar-width);padding:14px 10px;
+  background:var(--bg-primary);border-right:1px solid var(--border-color)}
+.brand{display:flex;align-items:center;gap:10px;height:48px;padding:0 10px;font-size:17px;font-weight:750}
+.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:var(--primary-color);color:#fff}
+.nav-placeholder{display:grid;gap:8px;margin-top:30px}
+.nav-placeholder span{height:38px;padding:9px 12px;border-radius:9px;color:var(--text-secondary)}
+.nav-placeholder span.active{background:var(--bg-tertiary);color:var(--text-primary);font-weight:650}
+.navbar{position:fixed;z-index:30;display:flex;align-items:center;justify-content:space-between;height:var(--header-height);
+  color:var(--text-secondary)}
+.navbar-left{display:flex;align-items:center;gap:10px;min-width:0}
+.mobile-menu,.theme-controls button{appearance:none;display:grid;place-items:center;width:36px;height:36px;padding:0;
+  border:1px solid transparent;border-radius:10px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.theme-controls{display:flex;gap:3px;padding:5px;border:1px solid var(--border-color);border-radius:14px;background:var(--bg-primary)}
+.theme-controls button:hover,.theme-controls button.active{background:var(--bg-tertiary);color:var(--text-primary)}
+.content{position:fixed;overflow:hidden}
+#plugin-frame{display:block;width:100%;height:100%;border:0;background:var(--bg-secondary)}
+html[data-host=cpamc]{--sidebar-width:216px;--header-height:80px}
+html[data-host=cpamc] .navbar{inset:0 0 auto var(--sidebar-width);pointer-events:none}
+html[data-host=cpamc] .navbar-left{display:none}
+html[data-host=cpamc] .navbar-left>span{display:none}
+html[data-host=cpamc] .theme-controls{position:absolute;top:24px;right:24px;pointer-events:auto;box-shadow:0 18px 44px #0000002b}
+html[data-host=cpamc] .mobile-menu{display:none}
+html[data-host=cpamc] .content{inset:0 0 0 var(--sidebar-width)}
+html[data-host=cpamp]{--sidebar-width:210px;--header-height:50px}
+html[data-host=cpamp] .sidebar{background:color-mix(in srgb,var(--app-surface) 70%,transparent)}
+html[data-host=cpamp] .navbar{inset:0 0 auto var(--sidebar-width);padding:0 20px 0 8px;background:var(--app-surface);border-bottom:1px solid var(--app-border)}
+html[data-host=cpamp] .theme-controls{padding:2px;border:0;background:transparent}
+html[data-host=cpamp] .theme-white{display:none}
+html[data-host=cpamp] .content{inset:var(--header-height) 0 0 var(--sidebar-width)}
+html[data-host=cpamp] #plugin-frame{background:var(--bg-primary)}
+@media(max-width:768px){
+  .sidebar{display:none}
+  html[data-host] .navbar{left:0}
+  html[data-host] .content{left:0}
+  html[data-host=cpamc] .navbar-left{display:block;position:absolute;top:12px;left:12px;pointer-events:auto}
+  html[data-host=cpamc] .mobile-menu{display:grid;background:var(--bg-primary);border-color:var(--border-color);box-shadow:0 18px 44px #0000002b}
+  html[data-host=cpamc] .theme-controls{top:12px;right:12px}
+  html[data-host=cpamp] .navbar{padding-right:8px}
+}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="brand"><span class="brand-mark">◈</span><span>__HOST_LABEL__</span></div>
+  <div class="nav-placeholder"><span>仪表盘</span><span>AI 提供商</span><span>插件管理</span><span class="active">API Key 计费</span></div>
+</aside>
+<header class="navbar">
+  <div class="navbar-left"><button class="mobile-menu" title="菜单">☰</button><span>API Key 计费</span></div>
+  <div class="theme-controls" aria-label="预览主题">
+    <button type="button" data-action="refresh" title="刷新">↻</button>
+    <button type="button" data-theme-choice="light" title="浅色主题">◐</button>
+    <button type="button" class="theme-white" data-theme-choice="white" title="白色主题">○</button>
+    <button type="button" data-theme-choice="dark" title="深色主题">●</button>
+  </div>
+</header>
+<main class="content"><iframe id="plugin-frame" src="/ui" title="API Key 计费插件"></iframe></main>
+<script>
+"use strict";
+const HOST_MODE="__HOST_MODE__";
+const INITIAL_THEME="__INITIAL_THEME__";
+const root=document.documentElement;
+const frame=document.getElementById("plugin-frame");
+const systemDark=()=>!!matchMedia("(prefers-color-scheme:dark)").matches;
+let selectedTheme=INITIAL_THEME;
+
+function resolveTheme(choice){
+  if(choice==="auto")return systemDark()?"dark":"white";
+  if(HOST_MODE==="cpamp"&&choice==="light")return "white";
+  return choice;
+}
+
+function cpampBridgeCSS(theme){
+  const computed=getComputedStyle(root);
+  const declarations=[];
+  for(let index=0;index<computed.length;index++){
+    const name=computed.item(index);
+    if(!name.startsWith("--"))continue;
+    const value=computed.getPropertyValue(name).trim();
+    if(value)declarations.push("  "+name+":"+value+";");
+  }
+  const scope=":where(html[data-cpamp-plugin-host='true'])";
+  return scope+"{\n"+declarations.join("\n")+"\ncolor-scheme:"+(theme==="dark"?"dark":"light")+";min-height:100%;background:var(--bg-primary);color:var(--text-primary)}\n"+
+    scope+" :where(body){min-height:100vh;margin:0;background:var(--bg-primary);color:var(--text-primary);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}\n"+
+    scope+" :where(body,button,input,select,textarea){font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}\n"+
+    scope+" :where(input:not([type=checkbox]):not([type=radio]),select,textarea){min-height:34px;border:1px solid var(--app-input-border);border-radius:var(--app-radius-sm);background:var(--app-input-bg);color:var(--text-primary);box-shadow:none}\n"+
+    scope+" :where(button,[role=button]){min-height:34px;border:1px solid var(--border-color);border-radius:var(--app-radius-md);background:var(--app-surface-muted);color:var(--text-primary);font-weight:600;line-height:1.2}\n"+
+    scope+" :where(thead,th){background:color-mix(in srgb,var(--bg-tertiary) 72%,var(--bg-primary));color:var(--text-secondary)}\n"+
+    scope+" :where(.card,[class*=card],[class*=panel]){border-color:var(--border-color);background:var(--bg-primary);color:var(--text-primary)}";
+}
+
+function syncCPAMPFrame(theme){
+  if(HOST_MODE!=="cpamp")return;
+  let doc;
+  try{doc=frame.contentDocument}catch(_){return}
+  if(!doc||!doc.documentElement||!doc.head)return;
+  const childRoot=doc.documentElement;
+  childRoot.setAttribute("data-cpamp-plugin-host","true");
+  childRoot.setAttribute("data-theme",theme==="dark"?"dark":"white");
+  childRoot.classList.toggle("theme-dark",theme==="dark");
+  childRoot.classList.toggle("theme-light",theme!=="dark");
+  let style=doc.getElementById("cpamp-dummy-host-style");
+  if(!style){
+    style=doc.createElement("style");
+    style.id="cpamp-dummy-host-style";
+    const pluginStyle=doc.head.querySelector("style,link[rel~=stylesheet]");
+    doc.head.insertBefore(style,pluginStyle);
+  }
+  style.textContent=cpampBridgeCSS(theme);
+}
+
+function applyTheme(choice){
+  selectedTheme=choice;
+  const theme=resolveTheme(choice);
+  const activeChoice=choice==="auto"?(HOST_MODE==="cpamp"&&theme==="white"?"light":theme):choice;
+  if(theme==="light")root.removeAttribute("data-theme");else root.setAttribute("data-theme",theme);
+  document.querySelectorAll("[data-theme-choice]").forEach(button=>{
+    button.classList.toggle("active",button.dataset.themeChoice===activeChoice);
+  });
+  syncCPAMPFrame(theme);
+}
+
+document.querySelectorAll("[data-theme-choice]").forEach(button=>{
+  button.addEventListener("click",()=>applyTheme(button.dataset.themeChoice));
+});
+document.querySelector("[data-action=refresh]").addEventListener("click",()=>frame.contentWindow.location.reload());
+frame.addEventListener("load",()=>applyTheme(selectedTheme));
+matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>{
+  if(selectedTheme==="auto")applyTheme("auto");
+});
+applyTheme(INITIAL_THEME);
+</script>
+</body>
+</html>
+"""
+
+
 def iso(value):
     return value.isoformat().replace("+00:00", "Z")
 
@@ -204,7 +415,6 @@ def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, lo
 
 LOG_CASES = [
     {
-        "endpoint": "/v1/responses",
         "source": "codex · haowang4455@gmail.com",
         "upstream_model": "gpt-5.6-sol",
         "billing_model": "team/gpt-5.6-sol",
@@ -212,7 +422,6 @@ LOG_CASES = [
         "cost": make_cost(140000, 19857, 1032, 4852, (5, 0.5, 5, 30), True, False),
     },
     {
-        "endpoint": "/v1/messages",
         "source": "xai · 00f7ghqi90@haowang.im",
         "upstream_model": "gpt-5.6-sol",
         "billing_model": "gpt-5.6-sol",
@@ -222,7 +431,6 @@ LOG_CASES = [
     {
         # A provider configured in config.yaml, named by the masked API key
         # that separates it from the other keys of that provider.
-        "endpoint": "/v1/chat/completions",
         "source": "deepseek · sk-ups…0001",
         "upstream_model": "deepseek-v4-flash",
         "billing_model": "deepseek-v4-flash",
@@ -230,7 +438,6 @@ LOG_CASES = [
         "cost": make_cost(160889, 0, 0, 12001, (0.28, 0.28, 0.28, 0.42)),
     },
     {
-        "endpoint": "/v1beta/models/*action",
         "source": "claude · sk-ups…0001",
         "upstream_model": "claude-sonnet-4-5",
         "billing_model": "claude-sonnet-4-5",
@@ -238,9 +445,8 @@ LOG_CASES = [
         "cost": make_cost(38122, 9931, 2048, 7240, (3, 0.3, 3.75, 15)),
     },
     {
-        # An execution with no route, and a credential no usage record has
-        # named yet, so both fields fall back to their placeholders.
-        "endpoint": "",
+        # A credential no usage record has named yet, so its source falls back
+        # to the placeholder.
         "source": "",
         "upstream_model": "gpt-5.5",
         "billing_model": "gpt-5.5",
@@ -248,26 +454,40 @@ LOG_CASES = [
         "cost": make_cost(160889, 0, 0, 4096, (2.5, 2.5, 2.5, 15), True, False),
     },
     {
-        # A client that disconnected mid-generation. The provider never reported
-        # usage, so every token column is unknown rather than zero.
-        "endpoint": "/v1/messages",
+        # A normal usage event whose provider supplied no token detail.
         "source": "codex · ops@example.com",
         "upstream_model": "gpt-5.5",
         "billing_model": "gpt-5.5",
         "reasoning_tokens": 0,
         "cost": make_cost(0, 0, 0, 0, (0, 0, 0, 0)),
-        "outcome": "canceled",
         "accounting_quality": "",
     },
     {
+        # The host reported a total that could not be split into billable
+        # buckets. Zero-valued cost fields must render as unknown, not measured.
+        "source": "future-provider",
+        "upstream_model": "future-model",
+        "billing_model": "future-model",
+        "reasoning_tokens": 120,
+        "cost": make_cost(0, 0, 0, 0, (0, 0, 0, 0)),
+        "accounting_quality": "unclassified",
+    },
+    {
+        "source": "codex · ops@example.com",
+        "upstream_model": "gpt-5.5",
+        "billing_model": "gpt-5.5",
+        "reasoning_tokens": 0,
+        "cost": make_cost(0, 0, 0, 0, (0, 0, 0, 0)),
+        "accounting_quality": "inconsistent",
+    },
+    {
         # An upstream error after the provider had already reported its usage.
-        "endpoint": "/v1/responses",
         "source": "xai · ops@example.com",
         "upstream_model": "grok-4",
         "billing_model": "grok-4",
         "reasoning_tokens": 128,
         "cost": make_cost(4096, 0, 0, 256, (3, 0.75, 3, 15)),
-        "outcome": "failed",
+        "failed": True,
     },
 ]
 
@@ -283,12 +503,12 @@ def make_logs(count=120):
                 "scope": key["scope"],
                 "preview": key["preview"],
                 "label": key["label"],
-                "request_id": f"req-dummy-{index + 1:04d}",
-                "endpoint": case["endpoint"],
                 "source": case["source"],
                 "upstream_model": case["upstream_model"],
                 "billing_model": case["billing_model"],
-                "outcome": case.get("outcome", ""),
+                "failed": case.get("failed", False),
+                "latency_ms": 780 + (index % 5) * 610,
+                "ttft_ms": 120 + (index % 4) * 95,
                 "accounting_quality": case.get("accounting_quality", "complete"),
                 "price_source": "builtin" if index % 4 else "override",
                 "cost": case["cost"],
@@ -302,30 +522,28 @@ LOGS = make_logs()
 
 # The billing log is served one page at a time, and the counts beside the status
 # filter come with it, so the dummy has to answer the same query the plugin does.
-LOG_SEARCH_FIELDS = (
-    "label", "preview", "scope", "upstream_model", "billing_model", "endpoint", "source", "request_id",
-)
+LOG_SEARCH_FIELDS = ("label", "preview", "scope", "upstream_model", "billing_model", "source")
 
 
 def log_view(query):
     search = query.get("q", [""])[0].strip().lower()
-    outcome = query.get("outcome", [""])[0]
+    selected_status = query.get("status", [""])[0]
     offset = max(0, int(query.get("offset", ["0"])[0] or 0))
     limit = max(0, int(query.get("limit", ["0"])[0] or 0))
-    counts = {"all": 0, "succeeded": 0, "failed": 0, "canceled": 0}
+    counts = {"all": 0, "normal": 0, "failed": 0}
     matched = []
     for entry in LOGS:
         haystack = " ".join(str(entry.get(field, "")) for field in LOG_SEARCH_FIELDS).lower()
         if search and search not in haystack:
             continue
-        status = entry.get("outcome") or "succeeded"
+        status = "failed" if entry.get("failed") else "normal"
         counts["all"] += 1
         counts[status] = counts.get(status, 0) + 1
-        if outcome and status != outcome:
+        if selected_status and status != selected_status:
             continue
         matched.append(entry)
     page = matched[offset:offset + limit] if limit else matched[offset:]
-    return {"entries": page, "total": len(matched), "offset": offset, "outcome_counts": counts}
+    return {"entries": page, "total": len(matched), "offset": offset, "status_counts": counts}
 
 EVENTS = [
     {
@@ -390,6 +608,18 @@ def payload_for(path, query):
 
 
 class Handler(BaseHTTPRequestHandler):
+    host_mode = "standalone"
+    initial_theme = "auto"
+
+    def send_html(self, body):
+        encoded = body.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
     def send_json(self, status, payload):
         body = json.dumps(payload, ensure_ascii=False).encode()
         self.send_response(status)
@@ -400,18 +630,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+        if parsed.path == "/" and self.host_mode != "standalone":
+            label = "CPAMC" if self.host_mode == "cpamc" else "CPAMP"
+            body = (
+                HOST_SHELL.replace("__HOST_MODE__", self.host_mode)
+                .replace("__HOST_LABEL__", label)
+                .replace("__INITIAL_THEME__", self.initial_theme)
+            )
+            self.send_html(body)
+            return
         if parsed.path in ("/", "/ui"):
             body = UI_PATH.read_text().replace(
                 "</head>",
                 '<script>sessionStorage.setItem("cpa-key-billing:mgmt-key", "dummy");</script>\n</head>',
                 1,
-            ).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            )
+            self.send_html(body)
             return
         payload = payload_for(parsed.path, parse_qs(parsed.query))
         if payload is None:
@@ -479,9 +717,29 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description="Serve the billing UI with deterministic dummy data.")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--host",
+        choices=("standalone", "cpamc", "cpamp"),
+        default="standalone",
+        help="Wrap the plugin UI in a lightweight CPAMC or CPAMP host shell.",
+    )
+    parser.add_argument(
+        "--theme",
+        choices=("auto", "light", "white", "dark"),
+        default="auto",
+        help="Initial host theme; the preview shell can switch themes after startup.",
+    )
     args = parser.parse_args()
+    Handler.host_mode = args.host
+    Handler.initial_theme = args.theme
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    print(f"Frontend dummy backend: http://127.0.0.1:{server.server_port}/ui", flush=True)
+    entry_path = "/ui" if args.host == "standalone" else "/"
+    print(
+        f"Frontend dummy backend ({args.host}): http://127.0.0.1:{server.server_port}{entry_path}",
+        flush=True,
+    )
+    if args.host != "standalone":
+        print(f"Direct plugin document: http://127.0.0.1:{server.server_port}/ui", flush=True)
     print("Data is reset on every restart. Press Ctrl-C to stop.", flush=True)
     try:
         server.serve_forever()

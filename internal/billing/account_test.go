@@ -28,20 +28,15 @@ func newAccountStoreWithRepository(t *testing.T, now time.Time) (*Store, *memory
 
 func subsetEvent(scope string, at time.Time) UsageEvent {
 	return UsageEvent{
-		Scope: scope, RequestID: "req-1", Endpoint: "/v1/messages", AuthIndex: "auth-codex", At: at,
-		Record: &UsageRecord{
-			BillingModel: "gpt-5.5", UpstreamModel: "gpt-5.5", Generate: true,
-			Breakdown: completeBreakdown(500, 400, 100, 500, 200),
-		},
+		Scope: scope, AuthIndex: "auth-codex", At: at,
+		UpstreamModel: "gpt-5.5", RouteModel: "gpt-5.5",
+		Breakdown: completeBreakdown(500, 400, 100, 500, 200),
 	}
 }
 
 func admittedEvent(store *Store, scope string, at time.Time) UsageEvent {
-	decision := store.Authorize(scope, at)
-	event := subsetEvent(scope, at)
-	event.CyclePlanID = decision.PlanID
-	event.CycleStartAt = decision.CycleStartAt
-	return event
+	store.Authorize(scope, at)
+	return subsetEvent(scope, at)
 }
 
 const wantSubsetCost = 0.0005 + 0.00004 + 0.000125 + 0.001
@@ -74,7 +69,7 @@ func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 		})
 	})
 	event := subsetEvent("scope-a", now)
-	event.Record.BillingModel = "claude/gpt-latest"
+	event.RouteModel = "claude/gpt-latest"
 	store.RecordUsage(event)
 
 	store.Read(func(state *State) {
@@ -87,22 +82,6 @@ func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 	entries := mustLogs(t, store, LogQuery{}).Entries
 	if len(entries) != 1 || entries[0].UpstreamModel != "gpt-5.5" || entries[0].BillingModel != "claude/gpt-latest" {
 		t.Fatalf("log = %+v", entries)
-	}
-}
-
-func TestRecordUsageIgnoresANonGenerationRecord(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	store := newAccountStore(t, now)
-	event := subsetEvent("scope-a", now)
-	event.Record.Generate = false
-	store.RecordUsage(event)
-	store.Read(func(state *State) {
-		if state.Keys["scope-a"] != nil {
-			t.Fatalf("non-generation record was billed: %+v", state.Keys)
-		}
-	})
-	if entries := mustLogs(t, store, LogQuery{}).Entries; len(entries) != 0 {
-		t.Fatalf("non-generation record reached the log: %+v", entries)
 	}
 }
 
@@ -120,8 +99,7 @@ func TestConcurrentLateCompletionDoesNotChargeNewCycle(t *testing.T) {
 	}
 
 	event := subsetEvent("scope-a", start.Add(26*time.Hour))
-	event.CyclePlanID = firstCycle.PlanID
-	event.CycleStartAt = firstCycle.CycleStartAt
+	event.RequestedAt = start
 	store.RecordUsage(event)
 
 	store.Read(func(state *State) {
@@ -131,4 +109,68 @@ func TestConcurrentLateCompletionDoesNotChargeNewCycle(t *testing.T) {
 		}
 		assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, wantSubsetCost)
 	})
+}
+
+func TestFutureRequestedAtDoesNotClearCurrentCycle(t *testing.T) {
+	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	store := newAccountStore(t, start.Add(time.Hour))
+	store.ReplaceAll(func(state *State) {
+		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
+		state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
+	})
+	cycle := store.Authorize("scope-a", start)
+	store.ReplaceAll(func(state *State) {
+		state.Keys["scope-a"].Cycle.SpentUSD = 4
+	})
+
+	event := subsetEvent("scope-a", start.Add(time.Hour))
+	event.RequestedAt = start.Add(25 * time.Hour)
+	store.RecordUsage(event)
+
+	store.Read(func(state *State) {
+		key := state.Keys["scope-a"]
+		if !key.Cycle.StartAt.Equal(cycle.CycleStartAt) || key.Cycle.SpentUSD != 4 {
+			t.Fatalf("cycle changed by request timestamp: %+v", key.Cycle)
+		}
+		assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, wantSubsetCost)
+	})
+}
+
+func TestCompletionDoesNotOpenCycleAfterAdministrativeChange(t *testing.T) {
+	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name   string
+		change func(*Store) error
+		planID string
+	}{
+		{"reset", func(store *Store) error { return store.ResetCycle("scope-a") }, "daily"},
+		{"rebind", func(store *Store) error { return store.BindKey("scope-a", "weekly") }, "weekly"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newAccountStore(t, start)
+			store.ReplaceAll(func(state *State) {
+				state.Plans = []Plan{
+					{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}},
+					{ID: "weekly", AmountUSD: 5, Period: Period{Kind: PeriodWeekly}},
+				}
+				state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
+			})
+			store.Authorize("scope-a", start)
+			if errChange := test.change(store); errChange != nil {
+				t.Fatal(errChange)
+			}
+
+			event := subsetEvent("scope-a", start.Add(time.Hour))
+			event.RequestedAt = start
+			store.RecordUsage(event)
+
+			store.Read(func(state *State) {
+				key := state.Keys["scope-a"]
+				if key.PlanID != test.planID || key.Cycle != (Cycle{}) {
+					t.Fatalf("key = %+v, want plan %q with no active cycle", key, test.planID)
+				}
+				assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, wantSubsetCost)
+			})
+		})
+	}
 }

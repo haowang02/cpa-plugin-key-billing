@@ -3,8 +3,12 @@ package plugin
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"cpa-key-billing/internal/billing"
 )
 
 func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
@@ -23,8 +27,7 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 		t.Fatalf("SchemaVersion = %d, want %d", registration.SchemaVersion, SchemaVersion)
 	}
 	caps := registration.Capabilities
-	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.ResponseBeforeTranslator ||
-		!caps.ResponseInterceptor || !caps.StreamChunkInterceptor || !caps.UsagePlugin || !caps.ManagementAPI {
+	if !caps.RequestInterceptor || !caps.UsagePlugin || !caps.ManagementAPI {
 		t.Fatalf("capabilities = %+v, want every hook billing depends on", caps)
 	}
 	if registration.Metadata.Name != PluginName || registration.Metadata.Version != Version {
@@ -54,6 +57,43 @@ func TestUnknownMethodReturnsErrorEnvelopeNotAnError(t *testing.T) {
 	}
 	if envelope.OK || envelope.Error == nil || envelope.Error.Code != "unknown_method" {
 		t.Fatalf("envelope = %+v, want an unknown_method error", envelope)
+	}
+}
+
+func TestConfigureReportsCatalogPreloadFailure(t *testing.T) {
+	t.Cleanup(func() {
+		if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
+			t.Errorf("restore test catalog: %v", errCatalog)
+		}
+	})
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	t.Setenv("CPA_KEY_BILLING_CATALOG_CACHE", filepath.Join(t.TempDir(), "missing.json"))
+	t.Setenv("CPA_KEY_BILLING_CATALOG_URL", server.URL)
+
+	app := NewApp()
+	t.Cleanup(app.Shutdown)
+	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
+		ConfigYAML: testConfigYAML(t, true),
+	}))
+	if errHandle != nil {
+		t.Fatalf("plugin.register error = %v", errHandle)
+	}
+	decodeResult(t, raw, nil)
+	if requests != 1 {
+		t.Fatalf("catalog preload requests = %d, want 1", requests)
+	}
+	events, errEvents := app.store.Events()
+	if errEvents != nil {
+		t.Fatal(errEvents)
+	}
+	if len(events) == 0 || events[0].Level != billing.EventError ||
+		!strings.Contains(events[0].Message, "加载 models.dev 参考价目录失败") {
+		t.Fatalf("events = %+v, want the preload failure", events)
 	}
 }
 
@@ -90,6 +130,30 @@ func TestManagementRegistrationDeclaresOneMenuResource(t *testing.T) {
 		}
 		if strings.ContainsAny(route.Path, ":*") {
 			t.Fatalf("route %q uses a path parameter, which the host rejects", route.Path)
+		}
+	}
+}
+
+func TestManagementRejectsLookalikeRoutePrefixes(t *testing.T) {
+	app := NewApp()
+	for _, path := range []string{managementBase + "-other/status", resourceBase + "-other/ui"} {
+		raw, errHandle := app.handleManagement(mustMarshal(t, ManagementRequest{
+			Method: http.MethodGet,
+			Path:   path,
+		}))
+		if errHandle != nil {
+			t.Fatalf("handleManagement(%q): %v", path, errHandle)
+		}
+		var envelope Envelope
+		if errUnmarshal := json.Unmarshal(raw, &envelope); errUnmarshal != nil {
+			t.Fatal(errUnmarshal)
+		}
+		var response ManagementResponse
+		if errUnmarshal := json.Unmarshal(envelope.Result, &response); errUnmarshal != nil {
+			t.Fatal(errUnmarshal)
+		}
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("handleManagement(%q) status = %d", path, response.StatusCode)
 		}
 	}
 }

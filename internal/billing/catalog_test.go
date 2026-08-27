@@ -67,6 +67,81 @@ func TestCatalogLookupUsesUpstreamThenBillingModel(t *testing.T) {
 	}
 }
 
+func TestCatalogLookupDoesNotLoadOnTheRequestPath(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		http.Error(w, "request path must not download", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	t.Setenv(catalogCacheEnv, filepath.Join(t.TempDir(), "missing.json"))
+	t.Setenv(catalogSourceEnv, server.URL)
+	runtimeCatalog.Lock()
+	savedLoaded := runtimeCatalog.loaded.Load()
+	savedRetryAfter := runtimeCatalog.retryAfter
+	savedLastError := runtimeCatalog.lastError
+	runtimeCatalog.loaded.Store(nil)
+	runtimeCatalog.retryAfter = time.Time{}
+	runtimeCatalog.lastError = nil
+	runtimeCatalog.Unlock()
+	t.Cleanup(func() {
+		runtimeCatalog.Lock()
+		runtimeCatalog.loaded.Store(savedLoaded)
+		runtimeCatalog.retryAfter = savedRetryAfter
+		runtimeCatalog.lastError = savedLastError
+		runtimeCatalog.Unlock()
+	})
+
+	state := NewState()
+	if price := state.ResolvePrice("gpt-4o", "gpt-4o"); price.Source != PriceSourceNone {
+		t.Fatalf("price = %+v, want an unresolved cold-cache price", price)
+	}
+	if price := state.ResolvePrice("gpt-4o", "gpt-4o"); price.Source != PriceSourceNone {
+		t.Fatalf("second price = %+v, want an unresolved cold-cache price", price)
+	}
+	if requests != 0 {
+		t.Fatalf("request-path price lookup downloaded the catalog %d times", requests)
+	}
+}
+
+func TestCatalogEnsureHonorsDownloadCooldown(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	t.Setenv(catalogCacheEnv, filepath.Join(t.TempDir(), "missing.json"))
+	t.Setenv(catalogSourceEnv, server.URL)
+	runtimeCatalog.Lock()
+	savedLoaded := runtimeCatalog.loaded.Load()
+	savedRetryAfter := runtimeCatalog.retryAfter
+	savedLastError := runtimeCatalog.lastError
+	runtimeCatalog.loaded.Store(nil)
+	runtimeCatalog.retryAfter = time.Time{}
+	runtimeCatalog.lastError = nil
+	runtimeCatalog.Unlock()
+	t.Cleanup(func() {
+		runtimeCatalog.Lock()
+		runtimeCatalog.loaded.Store(savedLoaded)
+		runtimeCatalog.retryAfter = savedRetryAfter
+		runtimeCatalog.lastError = savedLastError
+		runtimeCatalog.Unlock()
+	})
+
+	if _, errEnsure := EnsureBuiltinCatalog(); errEnsure == nil {
+		t.Fatal("first ensure unexpectedly succeeded")
+	}
+	if _, errEnsure := EnsureBuiltinCatalog(); errEnsure == nil {
+		t.Fatal("cooldown ensure unexpectedly succeeded")
+	}
+	if requests != 1 {
+		t.Fatalf("downloads during cooldown = %d, want 1", requests)
+	}
+}
+
 func TestPriceOverridesBeatTheCatalog(t *testing.T) {
 	sample := builtinCatalog().rules[0]
 	state := NewState()
@@ -92,16 +167,16 @@ func TestCatalogDownloadsToSystemCacheAndRedownloadsWhenDeleted(t *testing.T) {
 	t.Setenv(catalogCacheEnv, filepath.Join(t.TempDir(), "catalog.json"))
 	t.Setenv(catalogSourceEnv, server.URL)
 	runtimeCatalog.Lock()
-	savedLoaded := runtimeCatalog.loaded
+	savedLoaded := runtimeCatalog.loaded.Load()
 	savedRetryAfter := runtimeCatalog.retryAfter
 	savedLastError := runtimeCatalog.lastError
-	runtimeCatalog.loaded = nil
+	runtimeCatalog.loaded.Store(nil)
 	runtimeCatalog.retryAfter = time.Time{}
 	runtimeCatalog.lastError = nil
 	runtimeCatalog.Unlock()
 	t.Cleanup(func() {
 		runtimeCatalog.Lock()
-		runtimeCatalog.loaded = savedLoaded
+		runtimeCatalog.loaded.Store(savedLoaded)
 		runtimeCatalog.retryAfter = savedRetryAfter
 		runtimeCatalog.lastError = savedLastError
 		runtimeCatalog.Unlock()
@@ -148,16 +223,16 @@ func TestRefreshPriceCatalogAdvancesBuiltinRowsAndPreservesCustomRows(t *testing
 	t.Setenv(catalogCacheEnv, cache)
 	t.Setenv(catalogSourceEnv, server.URL)
 	runtimeCatalog.Lock()
-	savedLoaded := runtimeCatalog.loaded
+	savedLoaded := runtimeCatalog.loaded.Load()
 	savedRetryAfter := runtimeCatalog.retryAfter
 	savedLastError := runtimeCatalog.lastError
-	runtimeCatalog.loaded = nil
+	runtimeCatalog.loaded.Store(nil)
 	runtimeCatalog.retryAfter = time.Time{}
 	runtimeCatalog.lastError = nil
 	runtimeCatalog.Unlock()
 	t.Cleanup(func() {
 		runtimeCatalog.Lock()
-		runtimeCatalog.loaded = savedLoaded
+		runtimeCatalog.loaded.Store(savedLoaded)
 		runtimeCatalog.retryAfter = savedRetryAfter
 		runtimeCatalog.lastError = savedLastError
 		runtimeCatalog.Unlock()

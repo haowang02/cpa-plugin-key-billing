@@ -7,27 +7,24 @@ import (
 	"time"
 )
 
-// What the plugin log says about downstream traffic. The billing log covers
-// only requests that produced something to bill, so these entries are the sole
-// record of the ones that never became a charge.
-
-// Every failure is reported, the billable ones included, so that reading the
-// log never means wondering which ones it left out.
-func (s *Store) reportFailedRequest(requestID string, entry PendingRequest, record *UsageRecord, reason string) {
+func (s *Store) ReportRequestFailure(scope, authIndex, provider, authType, account, model, reason string) {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return
+	}
 	var name, credential string
-	s.Read(func(state *State) {
-		name = state.describeKey(entry.Scope)
-		credential = state.Credentials[entry.AuthIndex].Name()
+	s.read(func(state *State) {
+		name = state.describeKey(scope)
+		credential = state.Credentials[strings.TrimSpace(authIndex)].Name()
 	})
+	if credential == "" {
+		credential = usageCredential(scope, provider, authType, account).Name()
+	}
 
 	var message strings.Builder
 	message.WriteString("请求失败：")
 	message.WriteString(name)
-	if endpoint := strings.TrimSpace(entry.Endpoint); endpoint != "" {
-		message.WriteString(" → ")
-		message.WriteString(endpoint)
-	}
-	if model := requestModel(record); model != "" {
+	if model = strings.TrimSpace(model); model != "" {
 		message.WriteString("，模型 ")
 		message.WriteString(model)
 	}
@@ -35,18 +32,12 @@ func (s *Store) reportFailedRequest(requestID string, entry PendingRequest, reco
 		message.WriteString("，凭据 ")
 		message.WriteString(credential)
 	}
-	if id := strings.TrimSpace(requestID); id != "" {
-		message.WriteString("，请求 ")
-		message.WriteString(id)
-	}
 	message.WriteString("。")
 	if reason = strings.TrimSpace(reason); reason != "" {
 		message.WriteString("原因：")
 		message.WriteString(reason)
 	} else {
-		// The response hooks never saw an error body: the upstream failed before
-		// answering, or failed in a way the proxy reported on its own.
-		message.WriteString("插件未观察到错误内容。")
+		message.WriteString("宿主未提供错误内容。")
 	}
 	s.Event(EventError, "%s", message.String())
 }
@@ -64,7 +55,7 @@ func (s *Store) ReportQuotaBlock(scope, endpoint string, decision Decision) {
 		return
 	}
 	name := ""
-	s.Read(func(state *State) { name = state.describeKey(scope) })
+	s.read(func(state *State) { name = state.describeKey(scope) })
 
 	var message strings.Builder
 	message.WriteString("额度拦截：")
@@ -101,7 +92,7 @@ func (s *Store) ReportModelBlock(scope, endpoint string, decision ModelDecision)
 		return
 	}
 	name := ""
-	s.Read(func(state *State) { name = state.describeKey(scope) })
+	s.read(func(state *State) { name = state.describeKey(scope) })
 
 	var message strings.Builder
 	message.WriteString("模型拦截：")
@@ -142,6 +133,14 @@ func (b *blockedKeys) onset(scope string, cycleStart time.Time) bool {
 	}
 	b.cycles[scope] = cycleStart
 	return true
+}
+
+func (b *blockedKeys) forget(scopes ...string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, scope := range scopes {
+		delete(b.cycles, scope)
+	}
 }
 
 // deniedModels remembers which model a key was last turned away for, so a
@@ -198,16 +197,6 @@ func (s *State) describeKey(scope string) string {
 		return scope[:12] + "…"
 	}
 	return scope
-}
-
-func requestModel(record *UsageRecord) string {
-	if record == nil {
-		return ""
-	}
-	if model := strings.TrimSpace(record.BillingModel); model != "" {
-		return model
-	}
-	return modelWithoutSuffix(record.UpstreamModel)
 }
 
 func planName(decision Decision) string {

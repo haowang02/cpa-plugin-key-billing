@@ -73,7 +73,7 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPost, Path: managementBase + routeKeysSync, Description: "同步 CLIProxyAPI 中的 API Key 列表。"},
 
 			{Method: http.MethodGet, Path: managementBase + routeStats, Description: "查看全局用量汇总。"},
-			{Method: http.MethodGet, Path: managementBase + routeLogs, Description: "分页查看逐请求计费记录。"},
+			{Method: http.MethodGet, Path: managementBase + routeLogs, Description: "分页查看用量计费记录。"},
 			{Method: http.MethodDelete, Path: managementBase + routeLogs, Description: "清空计费日志。"},
 			{Method: http.MethodGet, Path: managementBase + routeEvents, Description: "查看插件运行日志。"},
 			{Method: http.MethodDelete, Path: managementBase + routeEvents, Description: "清空插件运行日志。"},
@@ -100,13 +100,17 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 		path = req.Path
 	}
 
-	if req.Method == http.MethodGet && strings.HasPrefix(path, resourceBase) {
+	if req.Method == http.MethodGet && pathWithin(path, resourceBase) {
 		return OKEnvelope(a.serveResource(strings.TrimPrefix(path, resourceBase)))
 	}
-	if !strings.HasPrefix(path, managementBase) {
+	if !pathWithin(path, managementBase) {
 		return OKEnvelope(JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path))
 	}
 	return OKEnvelope(a.routeManagement(req, strings.TrimPrefix(path, managementBase)))
+}
+
+func pathWithin(path, base string) bool {
+	return path == base || strings.HasPrefix(path, base+"/")
 }
 
 func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementResponse {
