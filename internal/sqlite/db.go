@@ -21,7 +21,7 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 // driverName is this package's own registration of the SQLite driver. It exists
 // for ulower(): the built-in lower() folds ASCII only, so a key labelled in any
@@ -94,6 +94,9 @@ func (d *DB) init() error {
 		if errMigrate := migrateBillingLog(tx); errMigrate != nil {
 			return fmt.Errorf("迁移计费数据库 %s 的旧日志：%w", d.path, errMigrate)
 		}
+		if errMigrate := migrateConcurrencyLimit(tx); errMigrate != nil {
+			return fmt.Errorf("迁移计费数据库 %s 的 API Key 并发上限：%w", d.path, errMigrate)
+		}
 		if version < schemaVersion {
 			if _, errVersion := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); errVersion != nil {
 				return fmt.Errorf("标记计费数据库 %s 的格式版本：%w", d.path, errVersion)
@@ -103,28 +106,22 @@ func (d *DB) init() error {
 	})
 }
 
+func migrateConcurrencyLimit(tx *sql.Tx) error {
+	columns, errColumns := tableColumns(tx, "api_keys")
+	if errColumns != nil {
+		return errColumns
+	}
+	if _, exists := columns["concurrency_limit"]; exists {
+		return nil
+	}
+	_, errAlter := tx.Exec("ALTER TABLE api_keys ADD COLUMN concurrency_limit INTEGER NOT NULL DEFAULT 0")
+	return errAlter
+}
+
 func migrateBillingLog(tx *sql.Tx) error {
-	rows, errQuery := tx.Query("PRAGMA table_info(billing_log)")
-	if errQuery != nil {
-		return errQuery
-	}
-	columns := make(map[string]struct{})
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue any
-		if errScan := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); errScan != nil {
-			_ = rows.Close()
-			return errScan
-		}
-		columns[name] = struct{}{}
-	}
-	if errRows := rows.Err(); errRows != nil {
-		_ = rows.Close()
-		return errRows
-	}
-	if errClose := rows.Close(); errClose != nil {
-		return errClose
+	columns, errColumns := tableColumns(tx, "billing_log")
+	if errColumns != nil {
+		return errColumns
 	}
 
 	required := []string{
@@ -169,6 +166,32 @@ func migrateBillingLog(tx *sql.Tx) error {
 		return errDrop
 	}
 	return nil
+}
+
+func tableColumns(tx *sql.Tx, table string) (map[string]struct{}, error) {
+	rows, errQuery := tx.Query("PRAGMA table_info(" + table + ")")
+	if errQuery != nil {
+		return nil, errQuery
+	}
+	defer rows.Close()
+
+	columns := make(map[string]struct{})
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if errScan := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); errScan != nil {
+			return nil, errScan
+		}
+		columns[name] = struct{}{}
+	}
+	if errRows := rows.Err(); errRows != nil {
+		return nil, errRows
+	}
+	if errClose := rows.Close(); errClose != nil {
+		return nil, errClose
+	}
+	return columns, nil
 }
 
 // SQLite gives WAL and shared-memory files the mode of the database, so the

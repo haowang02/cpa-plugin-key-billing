@@ -31,6 +31,12 @@ type Store struct {
 	path  string
 	dirty Changes
 
+	// activeRequests and activeByScope are the process-local concurrency slots.
+	// Only the configured limit is persisted: active requests end with this host
+	// process and are correlated exactly by the host-provided request ID.
+	activeRequests map[string]string
+	activeByScope  map[string]int
+
 	// blocked remembers which keys have already had their exhausted quota
 	// reported, so retries against one do not repeat it.
 	blocked blockedKeys
@@ -48,10 +54,12 @@ type Store struct {
 
 func NewStore(open func(string) (Repository, error)) *Store {
 	return &Store{
-		state: NewState(),
-		cfg:   DefaultConfig(),
-		open:  open,
-		now:   time.Now,
+		state:          NewState(),
+		cfg:            DefaultConfig(),
+		activeRequests: make(map[string]string),
+		activeByScope:  make(map[string]int),
+		open:           open,
+		now:            time.Now,
 	}
 }
 
@@ -133,6 +141,8 @@ func (s *Store) Close() {
 	s.repo = nil
 	s.path = ""
 	s.dirty = Changes{}
+	s.activeRequests = make(map[string]string)
+	s.activeByScope = make(map[string]int)
 	s.mu.Unlock()
 	if repo != nil {
 		s.closeRepository(repo)
@@ -245,14 +255,6 @@ func withRepository[T any](s *Store, fn func(Repository) (T, error)) (T, error) 
 		return zero, nil
 	}
 	return fn(s.repo)
-}
-
-type Status struct {
-	Enabled bool `json:"enabled"`
-}
-
-func (s *Store) Status() Status {
-	return Status{Enabled: s.Enabled()}
 }
 
 func resolveStatePath(path string) (string, error) {

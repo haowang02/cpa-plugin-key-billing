@@ -142,7 +142,7 @@ func TestForbiddenModelLeavesTheSubscriptionUntouched(t *testing.T) {
 	if response := interceptModel(t, app, "openai", flowModel); !response.Terminate {
 		t.Fatal("a model the key may not call was admitted")
 	}
-	for _, key := range app.store.KeyDirectory().Keys {
+	for _, key := range app.store.KeyViews() {
 		if key.Scope == flowScope() && (!key.CycleEndAt.IsZero() || key.SpentUSD != 0) {
 			t.Fatalf("key = %+v, want its cycle left inactive", key)
 		}

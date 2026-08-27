@@ -20,25 +20,26 @@ const (
 var uiHTML []byte
 
 const (
-	routeOverview       = "/overview"
-	routeStatus         = "/status"
-	routePrices         = "/prices"
-	routePriceCatalog   = "/prices/catalog"
-	routeCatalogRefresh = "/prices/catalog/refresh"
-	routePricesReset    = "/prices/reset"
-	routePricesSync     = "/prices/sync"
-	routePlans          = "/plans"
-	routeModelGroups    = "/model-groups"
-	routeKeysModels     = "/keys/models"
-	routeKeysBind       = "/keys/bind"
-	routeKeysUnbind     = "/keys/unbind"
-	routeKeysReset      = "/keys/reset"
-	routeKeysResetAll   = "/keys/reset-all"
-	routeKeysLabel      = "/keys/label"
-	routeKeysSync       = "/keys/sync"
-	routeStats          = "/stats"
-	routeLogs           = "/logs"
-	routeEvents         = "/events"
+	routeOverview        = "/overview"
+	routeStatus          = "/status"
+	routePrices          = "/prices"
+	routePriceCatalog    = "/prices/catalog"
+	routeCatalogRefresh  = "/prices/catalog/refresh"
+	routePricesReset     = "/prices/reset"
+	routePricesSync      = "/prices/sync"
+	routePlans           = "/plans"
+	routeModelGroups     = "/model-groups"
+	routeKeysModels      = "/keys/models"
+	routeKeysBind        = "/keys/bind"
+	routeKeysUnbind      = "/keys/unbind"
+	routeKeysReset       = "/keys/reset"
+	routeKeysResetAll    = "/keys/reset-all"
+	routeKeysLabel       = "/keys/label"
+	routeKeysConcurrency = "/keys/concurrency"
+	routeKeysSync        = "/keys/sync"
+	routeStats           = "/stats"
+	routeLogs            = "/logs"
+	routeEvents          = "/events"
 )
 
 // Management routes are authenticated by CPA and must be exact paths: the host
@@ -70,6 +71,7 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodPost, Path: managementBase + routeKeysReset, Description: "重置 API Key 的订阅额度。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysResetAll, Description: "重置所有周期性计划 API Key 的订阅额度。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysLabel, Description: "设置 API Key 备注。"},
+			{Method: http.MethodPost, Path: managementBase + routeKeysConcurrency, Description: "设置 API Key 最大并发请求数。"},
 			{Method: http.MethodPost, Path: managementBase + routeKeysSync, Description: "同步 CLIProxyAPI 中的 API Key 列表。"},
 
 			{Method: http.MethodGet, Path: managementBase + routeStats, Description: "查看全局用量汇总。"},
@@ -82,6 +84,10 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Path: resourceBase + resourceUIPath, Menu: MenuLabel, Description: MenuDescription},
 		},
 	}
+}
+
+type pluginStatus struct {
+	Enabled bool `json:"enabled"`
 }
 
 // CPA routes authenticated Management calls and unauthenticated resource GETs
@@ -100,17 +106,20 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 		path = req.Path
 	}
 
-	if req.Method == http.MethodGet && pathWithin(path, resourceBase) {
-		return OKEnvelope(a.serveResource(strings.TrimPrefix(path, resourceBase)))
+	if req.Method == http.MethodGet && path == resourceBase+resourceUIPath {
+		return OKEnvelope(ManagementResponse{
+			StatusCode: http.StatusOK,
+			Headers: http.Header{
+				"Content-Type":  []string{"text/html; charset=utf-8"},
+				"Cache-Control": []string{"no-store"},
+			},
+			Body: uiHTML,
+		})
 	}
-	if !pathWithin(path, managementBase) {
+	if path != managementBase && !strings.HasPrefix(path, managementBase+"/") {
 		return OKEnvelope(JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path))
 	}
 	return OKEnvelope(a.routeManagement(req, strings.TrimPrefix(path, managementBase)))
-}
-
-func pathWithin(path, base string) bool {
-	return path == base || strings.HasPrefix(path, base+"/")
 }
 
 func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementResponse {
@@ -118,7 +127,7 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 	case http.MethodGet + " " + routeOverview:
 		return a.overview()
 	case http.MethodGet + " " + routeStatus:
-		return JSONResponse(http.StatusOK, a.store.Status())
+		return JSONResponse(http.StatusOK, pluginStatus{Enabled: a.store.Enabled()})
 
 	case http.MethodGet + " " + routePriceCatalog:
 		return a.searchPriceCatalog(req)
@@ -159,6 +168,8 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 		}{Reset: a.store.ResetAllCycles()})
 	case http.MethodPost + " " + routeKeysLabel:
 		return a.labelKey(req)
+	case http.MethodPost + " " + routeKeysConcurrency:
+		return a.setKeyConcurrency(req)
 	case http.MethodPost + " " + routeKeysSync:
 		return a.syncKeys(req)
 
@@ -174,22 +185,6 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 		return a.clearEvents()
 	default:
 		return JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path)
-	}
-}
-
-func (a *App) serveResource(suffix string) ManagementResponse {
-	switch suffix {
-	case "", "/", resourceUIPath:
-		return ManagementResponse{
-			StatusCode: http.StatusOK,
-			Headers: http.Header{
-				"Content-Type":  []string{"text/html; charset=utf-8"},
-				"Cache-Control": []string{"no-store"},
-			},
-			Body: uiHTML,
-		}
-	default:
-		return JSONError(http.StatusNotFound, "not_found", "页面资源不存在："+suffix)
 	}
 }
 

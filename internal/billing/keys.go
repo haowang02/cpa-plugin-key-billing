@@ -21,8 +21,10 @@ type KeyView struct {
 	// while the totals below still count them.
 	DeletedAt time.Time `json:"deleted_at,omitzero"`
 
-	PlanID   string `json:"plan_id,omitempty"`
-	PlanName string `json:"plan_name,omitempty"`
+	PlanID             string `json:"plan_id,omitempty"`
+	PlanName           string `json:"plan_name,omitempty"`
+	ConcurrencyLimit   int    `json:"concurrency_limit"`
+	CurrentConcurrency int    `json:"current_concurrency"`
 	// Reported as stored rather than resolved into the models they add up to:
 	// the editor puts the same boxes back on the screen, and the panel already
 	// holds the groups to expand them with.
@@ -41,17 +43,12 @@ type KeyView struct {
 	ByModel  []ModelTotals `json:"by_model,omitempty"`
 }
 
-type KeyDirectory struct {
-	Keys []KeyView `json:"keys"`
-}
-
 // Listing rolls expired windows first, so what an operator reads is exactly
 // what the next request would be judged against — a key whose budget reset an
 // hour ago must not still be displayed as blocked.
-func (s *Store) KeyDirectory() KeyDirectory {
+func (s *Store) KeyViews() []KeyView {
 	now := s.Now()
-	directory := KeyDirectory{Keys: []KeyView{}}
-	directory.Keys = updateResult(s, func(state *State) ([]KeyView, Changes) {
+	return updateResult(s, func(state *State) ([]KeyView, Changes) {
 		var settled []string
 		plans := make(map[string]Plan, len(state.Plans))
 		for _, plan := range state.Plans {
@@ -73,22 +70,23 @@ func (s *Store) KeyDirectory() KeyDirectory {
 					settled = append(settled, scope)
 				}
 			}
-			views = append(views, keyView(scope, key, plans))
+			views = append(views, keyView(scope, key, plans, s.activeByScope[scope]))
 		}
 		sortKeyViews(views)
 		return views, Changes{Keys: settled}
 	})
-	return directory
 }
 
-func keyView(scope string, key *KeyState, plans map[string]Plan) KeyView {
+func keyView(scope string, key *KeyState, plans map[string]Plan, currentConcurrency int) KeyView {
 	view := KeyView{
-		Scope:     scope,
-		Preview:   key.Preview,
-		Label:     key.Label,
-		InConfig:  key.InConfig,
-		DeletedAt: key.DeletedAt,
-		PlanID:    key.PlanID,
+		Scope:              scope,
+		Preview:            key.Preview,
+		Label:              key.Label,
+		InConfig:           key.InConfig,
+		DeletedAt:          key.DeletedAt,
+		PlanID:             key.PlanID,
+		ConcurrencyLimit:   key.ConcurrencyLimit,
+		CurrentConcurrency: currentConcurrency,
 		// Copied rather than shared: a view outlives the lock it was built
 		// under, and the selection it names is a slice the store rewrites in
 		// place when an operator changes it.
@@ -387,17 +385,17 @@ type StatsView struct {
 }
 
 func (s *Store) Stats() StatsView {
-	return StatsFrom(s.KeyDirectory())
+	return StatsFrom(s.KeyViews())
 }
 
 // Totals are derived from the listing rather than counted separately, so they
 // cannot disagree with the rows an operator is reading. Listing also settles
 // expired cycles, which is why a caller that needs both lists once and passes
 // the result here instead of asking for each.
-func StatsFrom(directory KeyDirectory) StatsView {
+func StatsFrom(views []KeyView) StatsView {
 	stats := StatsView{ByModel: []ModelTotals{}}
 	byModel := make(map[string]*Totals)
-	for _, view := range directory.Keys {
+	for _, view := range views {
 		// A deleted key still spent what it spent, and its billing log is still
 		// there to be read. It is no longer a key, so it is not counted as one.
 		stats.Lifetime.Add(view.Lifetime)

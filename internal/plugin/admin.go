@@ -72,7 +72,7 @@ func (a *App) syncModels(req ManagementRequest) ManagementResponse {
 // through the host. The two logs stay out of it because they grow with traffic
 // rather than with configuration, and each is scoped to its own tab and page.
 type overviewResponse struct {
-	Status billing.Status     `json:"status"`
+	Status pluginStatus       `json:"status"`
 	Keys   []billing.KeyView  `json:"keys"`
 	Plans  []billing.Plan     `json:"plans"`
 	Prices []billing.PriceRow `json:"prices"`
@@ -87,14 +87,14 @@ func (a *App) overview() ManagementResponse {
 	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
 		return errorResponse(errCatalog)
 	}
-	directory := a.store.KeyDirectory()
+	keys := a.store.KeyViews()
 	return JSONResponse(http.StatusOK, overviewResponse{
-		Status:      a.store.Status(),
-		Keys:        directory.Keys,
+		Status:      pluginStatus{Enabled: a.store.Enabled()},
+		Keys:        keys,
 		Plans:       a.store.Plans(),
-		Prices:      a.store.PriceTable().Models,
+		Prices:      a.store.PriceRows(),
 		ModelGroups: a.store.ModelGroups(),
-		Stats:       billing.StatsFrom(directory),
+		Stats:       billing.StatsFrom(keys),
 	})
 }
 
@@ -285,6 +285,20 @@ func (a *App) labelKey(req ManagementRequest) ManagementResponse {
 	}
 	if errLabel := a.store.SetLabel(body.Scope, body.Label); errLabel != nil {
 		return errorResponse(errLabel)
+	}
+	return JSONResponse(http.StatusOK, struct{}{})
+}
+
+func (a *App) setKeyConcurrency(req ManagementRequest) ManagementResponse {
+	var body struct {
+		Scope string `json:"scope"`
+		Limit int    `json:"concurrency_limit"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
+		return errorResponse(errDecode)
+	}
+	if errSet := a.store.SetConcurrencyLimit(body.Scope, body.Limit); errSet != nil {
+		return errorResponse(errSet)
 	}
 	return JSONResponse(http.StatusOK, struct{}{})
 }

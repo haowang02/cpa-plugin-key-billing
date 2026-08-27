@@ -12,23 +12,15 @@ type PriceRow struct {
 	Source PriceSource `json:"source"`
 }
 
-// It holds one row per model the proxy currently serves, not a sparse set of
-// overrides: an operator asking "what does this cost" should not have to know
-// whether the answer comes from a rule they wrote or from the runtime catalog.
-type PriceTable struct {
-	Catalog CatalogInfo `json:"catalog"`
-	Models  []PriceRow  `json:"models"`
-}
-
-func (s *Store) PriceTable() PriceTable {
+func (s *Store) PriceRows() []PriceRow {
 	loaded := builtinCatalog()
-	table := PriceTable{Catalog: loaded.info, Models: []PriceRow{}}
+	rows := []PriceRow{}
 	s.read(func(state *State) {
 		for _, rule := range state.Prices {
-			table.Models = append(table.Models, PriceRow{PriceRule: rule, Source: priceSourceOfCatalog(rule, loaded)})
+			rows = append(rows, PriceRow{PriceRule: rule, Source: priceSourceOfCatalog(rule, loaded)})
 		}
 	})
-	return table
+	return rows
 }
 
 type CatalogRefreshResult struct {

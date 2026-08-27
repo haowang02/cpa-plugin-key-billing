@@ -38,6 +38,8 @@ TOKENS = ("OK", " from", " the", " dummy", " provider", " for", " CLIProxyAPI", 
 TTFT_SECONDS = 0.2
 TOKEN_INTERVAL_SECONDS = 1 / 200
 JITTER_RATIO = 0.1
+HOLD_PROMPT = "E2E HOLD CONCURRENCY SLOT"
+HOLD_SECONDS = 2.0
 
 PATHS = {
     "/v1/chat/completions": "chat",
@@ -132,6 +134,10 @@ class DummyProviderHandler(BaseHTTPRequestHandler):
         else:
             model = str(body.get("model") or "dummy")
             stream = bool(body.get("stream"))
+
+        # Keep the E2E request in flight long enough to challenge its slot.
+        if HOLD_PROMPT in json.dumps(body, ensure_ascii=False):
+            self.pause(HOLD_SECONDS)
 
         turn = Turn(model)
         if not stream:

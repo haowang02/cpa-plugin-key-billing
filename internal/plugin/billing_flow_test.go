@@ -70,7 +70,7 @@ func billUsage(t *testing.T, app *App, uncached, cacheRead, cacheWrite, output, 
 
 func lifetimeCost(t *testing.T, app *App) (float64, int64) {
 	t.Helper()
-	for _, key := range app.store.KeyDirectory().Keys {
+	for _, key := range app.store.KeyViews() {
 		if key.Scope == flowScope() {
 			return key.Lifetime.CostUSD, key.Lifetime.Requests
 		}

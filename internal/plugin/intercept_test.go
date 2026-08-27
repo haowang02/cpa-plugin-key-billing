@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,7 +50,7 @@ func callIntercept(t *testing.T, app *App, sourceFormat string) RequestIntercept
 func TestInterceptTerminatesAnExhaustedKey(t *testing.T) {
 	app := exhaustedApp(t, 30*time.Minute)
 	resp := callIntercept(t, app, "openai")
-	if !resp.Terminate || resp.StatusCode != QuotaExhaustedStatus {
+	if !resp.Terminate || resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("response = %+v, want quota rejection", resp)
 	}
 	retryAfter, err := strconv.Atoi(resp.ResponseHeaders.Get("Retry-After"))

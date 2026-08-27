@@ -51,6 +51,8 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 		return a.interceptBeforeAuth(request)
 	case MethodRequestInterceptAfter:
 		return OKEnvelope(RequestInterceptResponse{})
+	case MethodRequestComplete:
+		return a.completeRequest(request)
 	case MethodUsageHandle:
 		return a.handleUsage(request)
 	case MethodManagementRegister:
@@ -101,7 +103,7 @@ func registration() Registration {
 				{
 					Name:        "enabled",
 					Type:        "boolean",
-					Description: "启用 API Key 计费和订阅额度控制。",
+					Description: "启用 API Key 计费、并发限制和订阅额度控制。",
 				},
 				{
 					Name:        "state_file",
@@ -111,9 +113,10 @@ func registration() Registration {
 			},
 		},
 		Capabilities: Capabilities{
-			RequestInterceptor: true,
-			UsagePlugin:        true,
-			ManagementAPI:      true,
+			RequestInterceptor:     true,
+			RequestLifecyclePlugin: true,
+			UsagePlugin:            true,
+			ManagementAPI:          true,
 		},
 	}
 }

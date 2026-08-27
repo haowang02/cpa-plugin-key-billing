@@ -80,14 +80,15 @@ func (d *DB) Save(state *billing.State, changes billing.Changes) error {
 
 const insertKey = `
 INSERT INTO api_keys (
-	scope, preview, label, in_config, deleted_at, plan_id,
+	scope, preview, label, in_config, deleted_at, plan_id, concurrency_limit,
 	cycle_plan_id, cycle_start_at, cycle_end_at, cycle_spent_usd,
 	cost_usd, requests, uncached_input_tokens, output_tokens,
 	reasoning_tokens, cache_read_tokens, cache_creation_tokens
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(scope) DO UPDATE SET
 	preview = excluded.preview, label = excluded.label, in_config = excluded.in_config,
 	deleted_at = excluded.deleted_at, plan_id = excluded.plan_id,
+	concurrency_limit = excluded.concurrency_limit,
 	cycle_plan_id = excluded.cycle_plan_id, cycle_start_at = excluded.cycle_start_at,
 	cycle_end_at = excluded.cycle_end_at, cycle_spent_usd = excluded.cycle_spent_usd,
 	cost_usd = excluded.cost_usd, requests = excluded.requests,
@@ -104,7 +105,7 @@ func saveKey(tx *sql.Tx, scope string, key *billing.KeyState) error {
 		return nil
 	}
 	_, errKey := tx.Exec(insertKey,
-		scope, key.Preview, key.Label, key.InConfig, nanos(key.DeletedAt), key.PlanID,
+		scope, key.Preview, key.Label, key.InConfig, nanos(key.DeletedAt), key.PlanID, key.ConcurrencyLimit,
 		key.Cycle.PlanID, nanos(key.Cycle.StartAt), nanos(key.Cycle.EndAt), key.Cycle.SpentUSD,
 		key.Lifetime.CostUSD, key.Lifetime.Requests, key.Lifetime.UncachedInputTokens,
 		key.Lifetime.OutputTokens, key.Lifetime.ReasoningTokens, key.Lifetime.CacheReadTokens,
@@ -176,7 +177,7 @@ func replaceKeys(tx *sql.Tx, state *billing.State) error {
 
 func (d *DB) loadKeys(state *billing.State) error {
 	rows, errQuery := d.db.Query(`
-		SELECT scope, preview, label, in_config, deleted_at, plan_id,
+		SELECT scope, preview, label, in_config, deleted_at, plan_id, concurrency_limit,
 			cycle_plan_id, cycle_start_at, cycle_end_at, cycle_spent_usd,
 			cost_usd, requests, uncached_input_tokens, output_tokens,
 			reasoning_tokens, cache_read_tokens, cache_creation_tokens
@@ -191,7 +192,7 @@ func (d *DB) loadKeys(state *billing.State) error {
 			key                             billing.KeyState
 			deletedAt, cycleStart, cycleEnd int64
 		)
-		if errScan := rows.Scan(&scope, &key.Preview, &key.Label, &key.InConfig, &deletedAt, &key.PlanID,
+		if errScan := rows.Scan(&scope, &key.Preview, &key.Label, &key.InConfig, &deletedAt, &key.PlanID, &key.ConcurrencyLimit,
 			&key.Cycle.PlanID, &cycleStart, &cycleEnd, &key.Cycle.SpentUSD,
 			&key.Lifetime.CostUSD, &key.Lifetime.Requests, &key.Lifetime.UncachedInputTokens,
 			&key.Lifetime.OutputTokens, &key.Lifetime.ReasoningTokens, &key.Lifetime.CacheReadTokens,

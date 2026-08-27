@@ -603,6 +603,121 @@ assert_model_access() {
     "$runtime_dir/responses/model-restored.json" false
 }
 
+# Hold one SSE request open, verify a second request is refused, then verify the
+# slot is released when the first request completes.
+assert_concurrency_limit() {
+  local port="$1"
+  local runtime_dir="$2"
+  local expected_count="$3"
+  local scope body endpoint hold_pid attempt current http_status retry_after actual_count
+  local overview_file response_file blocked_file headers_file logs_file request_log
+
+  overview_file="$runtime_dir/concurrency-overview.json"
+  response_file="$runtime_dir/responses/concurrency-held.sse"
+  blocked_file="$runtime_dir/responses/concurrency-blocked.json"
+  headers_file="$runtime_dir/concurrency-blocked-headers.txt"
+  logs_file="$runtime_dir/concurrency-logs.json"
+  request_log="$runtime_dir/responses/concurrency-held.log"
+
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/sync" \
+    -H "Content-Type: application/json" \
+    --data '{"keys":["e2e-downstream-key"]}' \
+    >/dev/null
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$overview_file"
+  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$overview_file")"
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/concurrency" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, concurrency_limit: 1}')" \
+    >/dev/null
+
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$overview_file"
+  if ! jq -e --arg scope "$scope" '
+      first(.keys[] | select(.scope == $scope)) |
+      .concurrency_limit == 1 and .current_concurrency == 0
+    ' "$overview_file" >/dev/null; then
+    echo "API Key 并发数保存结果不正确。" >&2
+    return 1
+  fi
+
+  body="$(request_body responses "gpt-5.6-sol" true "E2E HOLD CONCURRENCY SLOT")"
+  endpoint="$(client_endpoint responses "gpt-5.6-sol" true)"
+  api_call "$port" "并发限制：保持 SSE 请求" "$endpoint" "$body" responses "$response_file" \
+    >"$request_log" 2>&1 &
+  hold_pid=$!
+
+  current=0
+  for ((attempt = 0; attempt < 100; attempt++)); do
+    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$overview_file"
+    current="$(jq -er --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)).current_concurrency' "$overview_file")"
+    if [[ "$current" == "1" ]]; then
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ "$current" != "1" ]]; then
+    echo "SSE 请求未占用 API Key 并发槽位。" >&2
+    wait "$hold_pid" || cat "$request_log" >&2
+    return 1
+  fi
+
+  body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
+  http_status="$(curl -sS --max-time 30 \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer e2e-downstream-key" \
+    --data "$body" \
+    --dump-header "$headers_file" \
+    --output "$blocked_file" \
+    --write-out '%{http_code}' \
+    "http://127.0.0.1:$port/v1/chat/completions")"
+  if [[ "$http_status" != "429" ]] || ! jq -e '
+      .error.type == "rate_limit_error" and
+      .error.code == "rate_limit_exceeded" and
+      (.error.message | startswith("API key concurrency limit reached"))
+    ' "$blocked_file" >/dev/null; then
+    echo "并发饱和请求的响应不正确（HTTP ${http_status}）：$(jq -c '.' "$blocked_file")" >&2
+    wait "$hold_pid" || true
+    return 1
+  fi
+  retry_after="$(awk 'tolower($1) == "retry-after:" {gsub(/\r/, "", $2); print $2}' "$headers_file" | tail -n 1)"
+  if [[ "$retry_after" != "1" ]]; then
+    echo "并发饱和请求缺少 Retry-After: 1。" >&2
+    wait "$hold_pid" || true
+    return 1
+  fi
+
+  if ! wait "$hold_pid"; then
+    cat "$request_log" >&2
+    return 1
+  fi
+  current=1
+  for ((attempt = 0; attempt < 100; attempt++)); do
+    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$overview_file"
+    current="$(jq -er --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)).current_concurrency' "$overview_file")"
+    if [[ "$current" == "0" ]]; then
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ "$current" != "0" ]]; then
+    echo "SSE 请求完成后 API Key 并发槽位未释放。" >&2
+    return 1
+  fi
+
+  if ! wait_for_log_count "$port" "$((expected_count + 1))" "$logs_file"; then
+    return 1
+  fi
+  actual_count="$(jq -er '.entries | length' "$logs_file")"
+  if [[ "$actual_count" != "$((expected_count + 1))" ]]; then
+    echo "并发拦截请求进入了计费日志。" >&2
+    return 1
+  fi
+
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/concurrency" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, concurrency_limit: 0}')" \
+    >/dev/null
+}
+
 # assert_quota_exhausted binds the downstream key to a plan one request is enough
 # to spend, and asserts every client format is then refused before it can reach
 # an upstream: 429 in the client's own error shape with a Retry-After hint,
@@ -1013,6 +1128,9 @@ run_target() {
   fi
   log_step "聚合统计已验证：35 条基础计费记录"
 
+  log_step "并发限制：SSE 占槽、HTTP 拦截与完成释放"
+  assert_concurrency_limit "$port" "$runtime_dir" "$expected_requests"
+  expected_requests=$((expected_requests + 1))
   log_step "模型权限：默认权限、3 次拦截与恢复"
   assert_model_access "$port" "$runtime_dir" "$expected_requests"
   log_step "订阅额度：消费、4 种协议拦截与恢复"
@@ -1029,7 +1147,7 @@ run_target() {
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  log_ok "${host_label}：38 个上游请求，3 次模型拦截，4 次额度拦截"
+  log_ok "${host_label}：39 个上游请求，1 次并发拦截，3 次模型拦截，4 次额度拦截"
 }
 
 log_stage "启动 dummy provider"

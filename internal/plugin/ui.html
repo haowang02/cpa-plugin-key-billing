@@ -108,6 +108,11 @@ input,select,textarea{font:inherit;color:var(--text-primary);background:var(--bg
   border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:6px 9px}
 input:focus,select:focus,textarea:focus{border-color:var(--primary-color);box-shadow:0 0 0 3px var(--primary-10);outline:none}
 input[type=number]{width:110px}
+.native-select{position:relative;display:inline-flex;align-items:center;color:var(--text-secondary)}
+.native-select::after{content:"";position:absolute;right:13px;top:50%;width:8px;height:8px;
+  border-right:2px solid currentColor;border-bottom:2px solid currentColor;
+  transform:translateY(-70%) rotate(45deg);pointer-events:none}
+.native-select>select{-webkit-appearance:none;appearance:none;padding-right:34px;color:var(--text-primary)}
 label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-secondary)}
 .table-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;
   -webkit-overflow-scrolling:touch}
@@ -214,6 +219,9 @@ tbody tr:hover{background:var(--bg-hover)}
 .bar{height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden;min-width:56px}
 .bar>i{display:block;height:100%;background:var(--primary-color)}
 .bar.full>i{background:var(--error-color)}
+.concurrency-editor{display:flex;align-items:center;gap:7px;min-width:172px}
+.concurrency-editor .native-select,.concurrency-editor select{width:112px;min-width:112px}
+.concurrency-editor .small{white-space:nowrap}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
 .stat{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-md);
   box-shadow:var(--shadow);padding:12px 14px}
@@ -719,6 +727,8 @@ let state = { keys: [], plans: [], prices: [], groups: [], status: null, stats: 
 // empty one. Both are the same grant, and it is what a new key starts with.
 const ALL_GROUP_ID = "all";
 const ALL_GROUP_NAME = "全部模型";
+const CONCURRENCY_OPTIONS = [0, 1, 2, 3, 5, 10, 20, 50];
+const CUSTOM_CONCURRENCY = "__custom__";
 let logPage = 1;
 let logPageSize = 50;
 let logRequest = 0;
@@ -973,6 +983,18 @@ function keyPillText(view) {
   return view.label && view.label !== identity ? view.label + " · " + identity : identity;
 }
 
+async function saveConcurrency(view, raw) {
+  const text = String(raw ?? "").trim();
+  if (!/^\d+$/.test(text)) throw new Error("并发数必须是 0 到 10000 之间的整数");
+  const limit = Number(text);
+  if (!Number.isSafeInteger(limit) || limit < 0 || limit > 10000) {
+    throw new Error("并发数必须是 0 到 10000 之间的整数");
+  }
+  await plugin("POST", "/keys/concurrency", { scope: view.scope, concurrency_limit: limit });
+  notify(limit ? "并发数已更新为 " + limit : "已取消并发限制");
+  await reloadAll();
+}
+
 function renderKeys() {
   const filter = $("key-filter").value.trim().toLowerCase();
   const rows = state.keys
@@ -999,6 +1021,35 @@ function renderKeys() {
             el("span", { class: "mono" }, usd(view.spent_usd) + " / " + usd(view.limit_usd)),
             el("div", { class: "bar" + (view.blocked ? " full" : "") }, el("i", { style: "width:" + percent + "%" })));
 
+      const currentConcurrencyLimit = Number(view.concurrency_limit || 0);
+      const concurrencyValues = CONCURRENCY_OPTIONS.includes(currentConcurrencyLimit)
+        ? CONCURRENCY_OPTIONS
+        : [...CONCURRENCY_OPTIONS, currentConcurrencyLimit].sort((a, b) => a - b);
+      const concurrencySelect = el("select", {
+        "aria-label": name + " 的最大并发请求数",
+        title: "最大并发请求数；0 表示不限制",
+        onchange: (event) => guard(async () => {
+          if (event.target.value === CUSTOM_CONCURRENCY) {
+            const raw = await ask("设置并发数", "请输入 0 到 10000 的整数，0 表示不限制。", String(currentConcurrencyLimit));
+            if (raw === null) {
+              event.target.value = String(currentConcurrencyLimit);
+              return;
+            }
+            await saveConcurrency(view, raw);
+            return;
+          }
+          await saveConcurrency(view, event.target.value);
+        }),
+      },
+      concurrencyValues.map((limit) => el("option", {
+        value: String(limit), selected: limit === currentConcurrencyLimit,
+        text: limit === 0 ? "不限制" : String(limit),
+      })),
+      el("option", { value: CUSTOM_CONCURRENCY, text: "手动输入…" }));
+      const concurrency = el("div", { class: "concurrency-editor" },
+        el("span", { class: "native-select" }, concurrencySelect),
+        el("span", { class: "small muted", text: "当前 " + int(view.current_concurrency) }));
+
       const notes = [];
       if (view.preview && view.preview !== name) notes.push(view.preview);
       if (!view.in_config) notes.push("不在 CLIProxyAPI Key 列表中");
@@ -1008,8 +1059,9 @@ function renderKeys() {
           el("div", {}, name),
           notes.length ? el("div", { class: "muted small mono" }, notes.join(" · ")) : null,
         ),
-        el("td", {}, select),
+        el("td", {}, el("span", { class: "native-select" }, select)),
         el("td", {}, modelTrigger(view)),
+        el("td", {}, concurrency),
         el("td", {}, usage),
         el("td", { class: "small muted" }, cycleNote(view)),
         el("td", { class: "num" }, int(view.lifetime?.requests)),
@@ -1036,7 +1088,7 @@ function renderKeys() {
     });
 
   $("keys-body").replaceChildren(table(
-    ["API Key", "订阅计划", "可用模型", "本期费用", "到期时间",
+    ["API Key", "订阅计划", "可用模型", "并发数", "本期费用", "到期时间",
       { label: "累计请求", num: true }, { label: "累计费用", num: true }, "状态", "操作"],
     rows));
 }
@@ -2113,7 +2165,7 @@ $("price-catalog-refresh").onclick = () => guard(async () => {
 resetPlanForm();
 resetGroupForm();
 
-(async function boot() {
+(async function () {
   const panelKey = readPanelKey();
   let fallback = "";
   try { fallback = sessionStorage.getItem(FALLBACK_KEY) || ""; } catch (_) {}

@@ -97,9 +97,10 @@ type KeyState struct {
 	// A deleted key is marked rather than dropped because the record is what
 	// gives billing history its identity: the log stores a scope and reads the
 	// masked key and remark from here.
-	InConfig  bool      `json:"in_config,omitempty"`
-	DeletedAt time.Time `json:"deleted_at,omitzero"`
-	PlanID    string    `json:"plan_id,omitempty"`
+	InConfig         bool      `json:"in_config,omitempty"`
+	DeletedAt        time.Time `json:"deleted_at,omitzero"`
+	PlanID           string    `json:"plan_id,omitempty"`
+	ConcurrencyLimit int       `json:"concurrency_limit,omitempty"`
 	// ModelGroupIDs and Models together name what this key may call: the union
 	// of every bound group and every individually selected model. Both empty is
 	// the all-models grant every key starts with, which is also what makes a key

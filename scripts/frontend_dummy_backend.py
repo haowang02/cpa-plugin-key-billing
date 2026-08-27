@@ -286,6 +286,8 @@ def make_key(index):
         "in_config": True,
         "plan_id": plan_id,
         "plan_name": plan_name,
+        "concurrency_limit": [0, 1, 2, 5, 10][index % 5],
+        "current_concurrency": index % 3,
         "model_groups": groups,
         "models": models,
         "all_models": not groups and not models,
@@ -672,8 +674,9 @@ class Handler(BaseHTTPRequestHandler):
     def handle_mutation(self):
         parsed = urlparse(self.path)
         length = int(self.headers.get("Content-Length", "0"))
+        request_body = b""
         if length:
-            self.rfile.read(length)
+            request_body = self.rfile.read(length)
         route = self.command, parsed.path
         if route == ("DELETE", f"{API_BASE}/logs"):
             self.send_json(200, {"cleared": len(LOGS)})
@@ -685,6 +688,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"restored": len(PRICES)})
         elif route == ("POST", f"{API_BASE}/keys/reset-all"):
             self.send_json(200, {"reset": 14})
+        elif route == ("POST", f"{API_BASE}/keys/concurrency"):
+            body = json.loads(request_body or b"{}")
+            for key in KEYS:
+                if key["scope"] == body.get("scope"):
+                    key["concurrency_limit"] = body.get("concurrency_limit", 0)
+                    break
+            self.send_json(200, {"ok": True})
         elif route in {
             ("POST", f"{API_BASE}/keys/sync"),
             ("POST", f"{API_BASE}/prices/sync"),

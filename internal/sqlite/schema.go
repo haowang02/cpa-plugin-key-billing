@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 	in_config             INTEGER NOT NULL DEFAULT 0,
 	deleted_at            INTEGER NOT NULL DEFAULT 0,
 	plan_id               TEXT    NOT NULL DEFAULT '',
+	concurrency_limit      INTEGER NOT NULL DEFAULT 0,
 	cycle_plan_id         TEXT    NOT NULL DEFAULT '',
 	cycle_start_at        INTEGER NOT NULL DEFAULT 0,
 	cycle_end_at          INTEGER NOT NULL DEFAULT 0,

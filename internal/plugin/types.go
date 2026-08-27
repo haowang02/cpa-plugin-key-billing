@@ -21,7 +21,7 @@ const (
 	Version    = "0.6.0"
 
 	MenuLabel       = "API Key 计费"
-	MenuDescription = "管理下游 API Key 的计费、订阅额度和用量"
+	MenuDescription = "管理下游 API Key 的计费、并发限制、订阅额度和用量"
 
 	GitHubRepository = "https://github.com/haowang02/cpa-plugin-key-billing"
 )
@@ -32,6 +32,7 @@ const (
 
 	MethodRequestInterceptBefore = "request.intercept_before"
 	MethodRequestInterceptAfter  = "request.intercept_after"
+	MethodRequestComplete        = "request.complete"
 
 	MethodUsageHandle = "usage.handle"
 
@@ -44,6 +45,7 @@ const (
 	// in hex. It is the only downstream-key identifier available at interception
 	// time, and it covers keys presented via query string as well as headers.
 	MetadataCallerScope = "caller_scope"
+	MetadataGenerate    = "generate"
 	MetadataSource      = "source"
 	MetadataRequestPath = "request_path"
 	// SourcePluginHostModelCallback is the MetadataSource value for nested
@@ -88,12 +90,14 @@ type ConfigField struct {
 }
 
 type Capabilities struct {
-	RequestInterceptor bool `json:"request_interceptor"`
-	UsagePlugin        bool `json:"usage_plugin"`
-	ManagementAPI      bool `json:"management_api"`
+	RequestInterceptor     bool `json:"request_interceptor"`
+	RequestLifecyclePlugin bool `json:"request_lifecycle_plugin"`
+	UsagePlugin            bool `json:"usage_plugin"`
+	ManagementAPI          bool `json:"management_api"`
 }
 
 type RequestInterceptRequest struct {
+	RequestID      string         `json:"RequestID"`
 	SourceFormat   string         `json:"SourceFormat"`
 	Model          string         `json:"Model"`
 	RequestedModel string         `json:"RequestedModel"`

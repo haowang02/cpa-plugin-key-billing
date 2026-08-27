@@ -63,7 +63,7 @@ func TestStateSurvivesAReopen(t *testing.T) {
 		}},
 	}
 	state.Keys["scope-a"] = &billing.KeyState{
-		Preview: "sk-tes…0001", Label: "Alice", InConfig: true, PlanID: "weekly",
+		Preview: "sk-tes…0001", Label: "Alice", InConfig: true, PlanID: "weekly", ConcurrencyLimit: 7,
 		Cycle:    billing.Cycle{PlanID: "weekly", StartAt: start, EndAt: start.Add(7 * 24 * time.Hour), SpentUSD: 1.5},
 		Lifetime: billing.Totals{CostUSD: 1.5, Requests: 3, UncachedInputTokens: 100, OutputTokens: 40},
 		ByModel: map[string]*billing.Totals{
@@ -108,6 +108,35 @@ func TestStateSurvivesAReopen(t *testing.T) {
 	}
 	if cycle := reloaded.Keys["scope-b"].Cycle; cycle != (billing.Cycle{}) {
 		t.Fatalf("cycle = %+v, want the zero cycle to survive as itself", cycle)
+	}
+}
+
+func TestOpenMigratesConcurrencyLimitWithoutLosingKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	database := openDatabase(t, path)
+	state := billing.NewState()
+	state.Keys["scope-a"] = &billing.KeyState{Label: "Alice", InConfig: true, ConcurrencyLimit: 9}
+	mustSave(t, database, state, billing.Changes{AllKeys: true})
+	if _, errDowngrade := database.db.Exec(`
+		ALTER TABLE api_keys DROP COLUMN concurrency_limit;
+		PRAGMA user_version = 4`); errDowngrade != nil {
+		t.Fatalf("prepare version 4 database: %v", errDowngrade)
+	}
+	if errClose := database.Close(); errClose != nil {
+		t.Fatalf("Close error = %v", errClose)
+	}
+
+	reopened := openDatabase(t, path)
+	key := mustLoad(t, reopened).State.Keys["scope-a"]
+	if key == nil || key.Label != "Alice" || !key.InConfig || key.ConcurrencyLimit != 0 {
+		t.Fatalf("migrated key = %+v, want preserved data and an unlimited default", key)
+	}
+	var version int
+	if errVersion := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); errVersion != nil {
+		t.Fatalf("read user_version: %v", errVersion)
+	}
+	if version != schemaVersion {
+		t.Fatalf("version = %d, want %d", version, schemaVersion)
 	}
 }
 

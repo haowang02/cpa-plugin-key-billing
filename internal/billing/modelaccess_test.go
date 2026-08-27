@@ -36,9 +36,9 @@ func TestKeyWithoutSelectionMayCallEveryModel(t *testing.T) {
 	if !store.AuthorizeModel("a", "chat/fast", "chat/fast").Allowed {
 		t.Fatal("a key with no selection was refused")
 	}
-	directory := store.KeyDirectory()
-	if len(directory.Keys) != 1 || !directory.Keys[0].AllModels {
-		t.Fatalf("directory = %+v, want the key reported as unrestricted", directory.Keys)
+	views := store.KeyViews()
+	if len(views) != 1 || !views[0].AllModels {
+		t.Fatalf("views = %+v, want the key reported as unrestricted", views)
 	}
 
 	group := mustCreateGroup(t, store, "基础", "chat/fast")

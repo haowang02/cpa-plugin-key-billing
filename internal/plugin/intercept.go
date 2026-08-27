@@ -12,15 +12,6 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// An exhausted budget is reported as a rate limit, which is the one refusal
-// every client SDK already knows how to wait out.
-const QuotaExhaustedStatus = http.StatusTooManyRequests
-
-// A model the key may not call is a permission problem rather than a missing
-// one: answering 404 would tell the client the model does not exist, and the
-// next thing it does is fall back to another name.
-const ModelForbiddenStatus = http.StatusForbidden
-
 // maxRetryAfterSeconds caps the Retry-After hint. A monthly plan can be weeks
 // from resetting, and a client that sleeps literally for that long is worse off
 // than one that retries hourly and gets another 429.
@@ -60,13 +51,47 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 		return OKEnvelope(modelForbiddenResponse(req.SourceFormat, access))
 	}
 
+	generate := true
+	if value, ok := req.Metadata[MetadataGenerate].(bool); ok {
+		generate = value
+	}
+	slot := billing.SlotDecision{Allowed: true}
+	admitted := false
+	if generate {
+		slot = a.store.AcquireSlot(scope, req.RequestID)
+		if !slot.Allowed {
+			return OKEnvelope(concurrencyLimitResponse(req.SourceFormat, slot))
+		}
+		defer func() {
+			// A panic or a later admission refusal must not leak the slot. Once
+			// admitted, request.complete owns the release path.
+			if slot.Acquired && !admitted {
+				a.store.ReleaseSlot(req.RequestID)
+			}
+		}()
+	}
+
 	decision := a.store.Authorize(scope, now)
 	if !decision.Allowed {
 		a.store.ReportQuotaBlock(scope, endpoint, decision)
 		return OKEnvelope(quotaExhaustedResponse(req.SourceFormat, decision, now))
 	}
 
+	admitted = true
 	return OKEnvelope(RequestInterceptResponse{})
+}
+
+func (a *App) completeRequest(raw []byte) ([]byte, error) {
+	var completion struct {
+		RequestID string `json:"RequestID"`
+	}
+	if errUnmarshal := json.Unmarshal(raw, &completion); errUnmarshal != nil {
+		return nil, fmt.Errorf("解析请求完成事件：%w", errUnmarshal)
+	}
+	if a != nil && a.store != nil {
+		a.store.ReleaseSlot(completion.RequestID)
+	}
+	return OKEnvelope(struct{}{})
 }
 
 func (a *App) handleUsage(raw []byte) ([]byte, error) {
@@ -138,9 +163,23 @@ func quotaExhaustedResponse(sourceFormat string, decision billing.Decision, now 
 	}
 	return RequestInterceptResponse{
 		Terminate:       true,
-		StatusCode:      QuotaExhaustedStatus,
+		StatusCode:      http.StatusTooManyRequests,
 		ResponseHeaders: headers,
 		ResponseBody:    refusalBody(sourceFormat, quotaExhaustedError, quotaExhaustedMessage(decision)),
+	}
+}
+
+func concurrencyLimitResponse(sourceFormat string, decision billing.SlotDecision) RequestInterceptResponse {
+	message := fmt.Sprintf("API key concurrency limit reached: %d active requests of %d allowed.",
+		decision.Active, decision.Limit)
+	return RequestInterceptResponse{
+		Terminate:  true,
+		StatusCode: http.StatusTooManyRequests,
+		ResponseHeaders: http.Header{
+			"Content-Type": []string{"application/json; charset=utf-8"},
+			"Retry-After":  []string{"1"},
+		},
+		ResponseBody: refusalBody(sourceFormat, quotaExhaustedError, message),
 	}
 }
 
@@ -150,7 +189,7 @@ func modelForbiddenResponse(sourceFormat string, decision billing.ModelDecision)
 	message := modelForbiddenMessage(decision)
 	return RequestInterceptResponse{
 		Terminate:  true,
-		StatusCode: ModelForbiddenStatus,
+		StatusCode: http.StatusForbidden,
 		ResponseHeaders: http.Header{
 			"Content-Type": []string{"application/json; charset=utf-8"},
 		},
@@ -220,13 +259,9 @@ var (
 	}
 )
 
-// Two shapes, because the proxy writes two: its Anthropic handler has an error
-// envelope of its own, and every other route — Gemini included, which answers in
-// the OpenAI shape rather than Google's — goes through one OpenAI-shaped builder.
-// Substring matching keeps format variants such as "claude-code" working.
-//
-// A websocket client sees none of this: the proxy closes the connection instead
-// of sending a terminated request's body, and only it can change that.
+// Anthropic clients use their native envelope; other formats use the
+// OpenAI-compatible envelope. Substring matching covers format variants such
+// as "claude-code".
 func refusalBody(sourceFormat string, kind refusal, message string) []byte {
 	normalized := strings.ToLower(strings.TrimSpace(sourceFormat))
 	var payload any

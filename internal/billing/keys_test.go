@@ -62,7 +62,7 @@ func TestResetAllCyclesSparesPlansThatNeverReset(t *testing.T) {
 	})
 }
 
-func TestKeyDirectorySettlesExpiredCycleWithoutRestartingIt(t *testing.T) {
+func TestKeyViewsSettleExpiredCycleWithoutRestartingIt(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
 	store.ReplaceAll(func(state *State) {
@@ -72,9 +72,9 @@ func TestKeyDirectorySettlesExpiredCycleWithoutRestartingIt(t *testing.T) {
 		}}
 	})
 
-	directory := store.KeyDirectory()
-	if len(directory.Keys) != 1 || !directory.Keys[0].CycleEndAt.IsZero() {
-		t.Fatalf("directory = %+v, want inactive cycle", directory)
+	views := store.KeyViews()
+	if len(views) != 1 || !views[0].CycleEndAt.IsZero() {
+		t.Fatalf("views = %+v, want inactive cycle", views)
 	}
 	store.Read(func(state *State) {
 		key := state.Keys["a"]

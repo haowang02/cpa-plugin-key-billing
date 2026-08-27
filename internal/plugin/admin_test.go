@@ -171,6 +171,26 @@ func TestPlanBindingsRoundTripThroughTheManagementAPI(t *testing.T) {
 	}
 }
 
+func TestKeyConcurrencyRoundTrips(t *testing.T) {
+	app := newConfiguredApp(t)
+	const apiKey = "sk-concurrency-000001"
+	scope := billing.CallerScope(apiKey)
+	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{apiKey}}, http.StatusOK, nil)
+	callOK(t, app, http.MethodPost, routeKeysConcurrency, nil, map[string]any{
+		"scope": scope, "concurrency_limit": 5,
+	}, http.StatusOK, nil)
+
+	view := keysByScope(t, app)[scope]
+	if view.ConcurrencyLimit != 5 || view.CurrentConcurrency != 0 {
+		t.Fatalf("view = %+v, want a five-slot limit", view)
+	}
+	if resp := callManagement(t, app, http.MethodPost, routeKeysConcurrency, nil, map[string]any{
+		"scope": scope, "concurrency_limit": billing.MaxConcurrencyLimit + 1,
+	}); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid limit status = %d, want 400 (body=%s)", resp.StatusCode, resp.Body)
+	}
+}
+
 func keysByScope(t *testing.T, app *App) map[string]billing.KeyView {
 	t.Helper()
 	byScope := map[string]billing.KeyView{}
@@ -197,6 +217,7 @@ func TestManagementErrorsMapToStatusCodes(t *testing.T) {
 		{"malformed body", http.MethodPost, routePlans, "{not json", http.StatusBadRequest},
 		{"trailing body", http.MethodPost, routePlans, `{"id":"x"}{"id":"y"}`, http.StatusBadRequest},
 		{"unknown field", http.MethodPost, routeKeysBind, map[string]any{"scope": "abc", "plan": "ghost"}, http.StatusBadRequest},
+		{"invalid concurrency", http.MethodPost, routeKeysConcurrency, map[string]any{"scope": "abc", "concurrency_limit": -1}, http.StatusBadRequest},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
