@@ -32,6 +32,29 @@ function Download-File {
     }
 }
 
+function Get-LatestRelease {
+    $uri = "https://api.github.com/repos/${repository}/releases/latest"
+    foreach ($attempt in 1..3) {
+        try {
+            $release = Invoke-RestMethod -UseBasicParsing -Uri $uri
+            $tag = [string]$release.tag_name
+            if ($tag -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)$') {
+                Fail "latest release has an invalid tag: $tag"
+            }
+            return [pscustomobject]@{
+                Tag = $tag
+                Version = $Matches[1]
+            }
+        }
+        catch {
+            if ($attempt -eq 3) {
+                Fail "failed to resolve the latest release"
+            }
+            Start-Sleep -Seconds $attempt
+        }
+    }
+}
+
 try {
     if ($env:OS -ne "Windows_NT") {
         Fail "this installer only supports Windows"
@@ -49,9 +72,10 @@ try {
         default { Fail "unsupported architecture: $architecture" }
     }
 
-    $asset = "${pluginName}_windows_${targetArch}.zip"
-    $downloadUrl = "https://github.com/${repository}/releases/latest/download/${asset}"
-    $checksumsUrl = "https://github.com/${repository}/releases/latest/download/checksums.txt"
+    $latestRelease = Get-LatestRelease
+    $asset = "${pluginName}_$($latestRelease.Version)_windows_${targetArch}.zip"
+    $downloadUrl = "https://github.com/${repository}/releases/download/$($latestRelease.Tag)/${asset}"
+    $checksumsUrl = "https://github.com/${repository}/releases/download/$($latestRelease.Tag)/checksums.txt"
 
     $tempDir = Join-Path ([IO.Path]::GetTempPath()) ("${pluginName}." + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $tempDir | Out-Null
