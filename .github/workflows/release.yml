@@ -4,15 +4,27 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to rebuild and republish.
+        required: true
+        type: string
 
 permissions:
   contents: read
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+  RELEASE_REF: ${{ inputs.release_tag || github.ref }}
 
 jobs:
   check:
     name: Verify tagged source
     uses: ./.github/workflows/check.yml
     with:
+      checkout_ref: ${{ inputs.release_tag || github.ref }}
+      release_tag: ${{ inputs.release_tag || github.ref_name }}
       verify_release_version: true
 
   build:
@@ -47,10 +59,22 @@ jobs:
             arch: arm64
             extension: so
             image: quay.io/pypa/manylinux2014_aarch64
+          - target: windows-amd64
+            runner: windows-2025
+            os: windows
+            arch: amd64
+            extension: dll
+          - target: windows-arm64
+            runner: windows-11-arm
+            os: windows
+            arch: arm64
+            extension: dll
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -59,9 +83,24 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Verify native runner architecture
+        if: matrix.os != 'windows'
         run: |
           test "$(go env GOOS)" = "${{ matrix.os }}"
           test "$(go env GOARCH)" = "${{ matrix.arch }}"
+
+      - name: Verify native Windows runner architecture
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          if ((go env GOOS) -ne $env:TARGET_OS) {
+            throw "Expected GOOS=$($env:TARGET_OS), got $(go env GOOS)"
+          }
+          if ((go env GOARCH) -ne $env:TARGET_ARCH) {
+            throw "Expected GOARCH=$($env:TARGET_ARCH), got $(go env GOARCH)"
+          }
 
       - name: Build macOS plugin
         if: matrix.os == 'darwin'
@@ -97,7 +136,23 @@ jobs:
             '
           rm -f dist/cpa-key-billing.h
 
-      - name: Verify and package plugin
+      - name: Build Windows plugin
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $env:CGO_ENABLED = "1"
+          $env:GOOS = "windows"
+          $env:GOARCH = $env:TARGET_ARCH
+          go build -buildvcs=false -tags cshared -buildmode=c-shared `
+            -o dist/cpa-key-billing.dll ./cmd/cpa-key-billing
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item -Force -ErrorAction SilentlyContinue dist/cpa-key-billing.h
+
+      - name: Verify and package Unix plugin
+        if: matrix.os != 'windows'
         env:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
@@ -106,7 +161,7 @@ jobs:
           binary="dist/cpa-key-billing.${EXTENSION}"
           test -s "$binary"
           file "$binary"
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
 
           legacy_archive="cpa-key-billing_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
           tar -czf "$legacy_archive" -C dist "cpa-key-billing.${EXTENSION}"
@@ -114,6 +169,38 @@ jobs:
           store_archive="cpa-key-billing_${version}_${TARGET_OS}_${TARGET_ARCH}.zip"
           zip -j "$store_archive" "$binary"
           test "$(unzip -Z1 "$store_archive")" = "cpa-key-billing.${EXTENSION}"
+
+      - name: Verify and package Windows plugin
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          $binary = "dist/cpa-key-billing.$($env:EXTENSION)"
+          if (-not (Test-Path $binary) -or (Get-Item $binary).Length -eq 0) {
+            throw "Missing or empty plugin binary: $binary"
+          }
+          Get-Item $binary
+          $version = $env:RELEASE_TAG -replace '^v', ''
+
+          $legacyArchive = "cpa-key-billing_$($env:TARGET_OS)_$($env:TARGET_ARCH).tar.gz"
+          tar -czf $legacyArchive -C dist "cpa-key-billing.$($env:EXTENSION)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $storeArchive = "cpa-key-billing_$($version)_$($env:TARGET_OS)_$($env:TARGET_ARCH).zip"
+          Compress-Archive -Path $binary -DestinationPath $storeArchive -Force
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($storeArchive)
+          try {
+            $entries = @($archive.Entries | ForEach-Object FullName)
+            if ($entries.Count -ne 1 -or $entries[0] -ne "cpa-key-billing.$($env:EXTENSION)") {
+              throw "Unexpected archive contents: $($entries -join ', ')"
+            }
+          } finally {
+            $archive.Dispose()
+          }
 
       - name: Upload release package
         uses: actions/upload-artifact@v7
@@ -138,6 +225,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Download release packages
         uses: actions/download-artifact@v7
@@ -154,10 +242,11 @@ jobs:
       - name: Generate changelog
         run: |
           changelog="release-assets/CHANGELOG.md"
-          if previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null)"; then
-            revision_range="${previous_tag}..${GITHUB_SHA}"
+          release_sha="$(git rev-list -n 1 "$RELEASE_TAG")"
+          if previous_tag="$(git describe --tags --abbrev=0 "${release_sha}^" 2>/dev/null)"; then
+            revision_range="${previous_tag}..${release_sha}"
           else
-            revision_range="$GITHUB_SHA"
+            revision_range="$release_sha"
           fi
 
           printf '### Changelog\n\n' > "$changelog"
@@ -170,9 +259,11 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           body_path: release-assets/CHANGELOG.md
           files: |
             release-assets/*.tar.gz
             release-assets/*.zip
             release-assets/checksums.txt
           fail_on_unmatched_files: true
+          overwrite_files: true

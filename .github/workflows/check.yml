@@ -7,6 +7,16 @@ on:
   pull_request:
   workflow_call:
     inputs:
+      checkout_ref:
+        description: Git ref to check out instead of the triggering ref.
+        required: false
+        default: ""
+        type: string
+      release_tag:
+        description: Release tag to compare with the plugin version.
+        required: false
+        default: ""
+        type: string
       verify_release_version:
         description: Verify that the release tag matches the plugin version.
         required: false
@@ -29,6 +39,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -47,7 +59,7 @@ jobs:
       - name: Verify release version
         if: inputs.verify_release_version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           version="$(awk -F'"' '/^[[:space:]]*Version[[:space:]]*=/ {print $2; exit}' internal/plugin/types.go)"
           test -n "$version"
