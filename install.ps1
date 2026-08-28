@@ -36,10 +36,6 @@ try {
     if ($env:OS -ne "Windows_NT") {
         Fail "this installer only supports Windows"
     }
-    if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) {
-        Fail "tar.exe is required to extract the plugin"
-    }
-
     $architecture = $env:PROCESSOR_ARCHITEW6432
     if ([string]::IsNullOrWhiteSpace($architecture)) {
         $architecture = $env:PROCESSOR_ARCHITECTURE
@@ -53,7 +49,7 @@ try {
         default { Fail "unsupported architecture: $architecture" }
     }
 
-    $asset = "${pluginName}_windows_${targetArch}.tar.gz"
+    $asset = "${pluginName}_windows_${targetArch}.zip"
     $downloadUrl = "https://github.com/${repository}/releases/latest/download/${asset}"
     $checksumsUrl = "https://github.com/${repository}/releases/latest/download/checksums.txt"
 
@@ -82,9 +78,11 @@ try {
         Fail "download checksum mismatch"
     }
 
-    & tar.exe -xzf $archive -C $tempDir $pluginFile
-    if ($LASTEXITCODE -ne 0) {
-        Fail "release archive does not contain $pluginFile"
+    try {
+        Expand-Archive -LiteralPath $archive -DestinationPath $tempDir -Force
+    }
+    catch {
+        Fail "failed to extract $asset"
     }
     $extractedFile = Join-Path $tempDir $pluginFile
     if (-not (Test-Path -LiteralPath $extractedFile) -or (Get-Item -LiteralPath $extractedFile).Length -eq 0) {

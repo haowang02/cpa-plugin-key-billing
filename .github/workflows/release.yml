@@ -200,14 +200,12 @@ jobs:
           Get-Item $binary
           $version = $env:RELEASE_TAG -replace '^v', ''
 
-          $legacyArchive = "cpa-key-billing_$($env:TARGET_OS)_$($env:TARGET_ARCH).tar.gz"
-          tar -czf $legacyArchive -C dist "cpa-key-billing.$($env:EXTENSION)"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
+          $legacyArchive = "cpa-key-billing_$($env:TARGET_OS)_$($env:TARGET_ARCH).zip"
+          Compress-Archive -Path $binary -DestinationPath $legacyArchive -Force
           $storeArchive = "cpa-key-billing_$($version)_$($env:TARGET_OS)_$($env:TARGET_ARCH).zip"
-          Compress-Archive -Path $binary -DestinationPath $storeArchive -Force
+          Copy-Item -LiteralPath $legacyArchive -Destination $storeArchive
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $archive = [IO.Compression.ZipFile]::OpenRead($storeArchive)
+          $archive = [IO.Compression.ZipFile]::OpenRead($legacyArchive)
           try {
             $entries = @($archive.Entries | ForEach-Object FullName)
             if ($entries.Count -ne 1 -or $entries[0] -ne "cpa-key-billing.$($env:EXTENSION)") {
@@ -223,6 +221,7 @@ jobs:
           name: package-${{ matrix.target }}
           path: |
             cpa-key-billing_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
+            cpa-key-billing_${{ matrix.os }}_${{ matrix.arch }}.zip
             cpa-key-billing_*_${{ matrix.os }}_${{ matrix.arch }}.zip
           if-no-files-found: error
           retention-days: 1
