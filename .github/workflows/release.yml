@@ -64,13 +64,17 @@ jobs:
             os: windows
             arch: amd64
             extension: dll
+            msystem: UCRT64
+            install: mingw-w64-ucrt-x86_64-gcc
             cc: gcc
           - target: windows-arm64
             runner: windows-11-arm
             os: windows
             arch: arm64
             extension: dll
-            cc: aarch64-w64-mingw32-clang
+            msystem: CLANGARM64
+            install: mingw-w64-clang-aarch64-gcc
+            cc: gcc
 
     steps:
       - name: Check out repository
@@ -104,29 +108,14 @@ jobs:
             throw "Expected GOARCH=$($env:TARGET_ARCH), got $(go env GOARCH)"
           }
 
-      - name: Set up LLVM MinGW for Windows arm64
-        if: matrix.os == 'windows' && matrix.arch == 'arm64'
-        shell: pwsh
-        env:
-          LLVM_MINGW_VERSION: "20260826"
-          LLVM_MINGW_SHA256: dbce5a314c44cf44d02ab0d0e6bce948955b46429274df25544f9cfea4986f7b
-          TARGET_CC: ${{ matrix.cc }}
-        run: |
-          $archiveName = "llvm-mingw-$($env:LLVM_MINGW_VERSION)-ucrt-aarch64.zip"
-          $archive = Join-Path $env:RUNNER_TEMP $archiveName
-          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$($env:LLVM_MINGW_VERSION)/$archiveName"
-          curl.exe -fsSL --retry 3 --connect-timeout 15 -o $archive $url
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $actualChecksum = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
-          if ($actualChecksum -ne $env:LLVM_MINGW_SHA256) {
-            throw "LLVM MinGW checksum mismatch"
-          }
-          Expand-Archive -Path $archive -DestinationPath $env:RUNNER_TEMP
-          $toolchainBin = Join-Path $env:RUNNER_TEMP "llvm-mingw-$($env:LLVM_MINGW_VERSION)-ucrt-aarch64/bin"
-          if (-not (Test-Path (Join-Path $toolchainBin "$($env:TARGET_CC).exe"))) {
-            throw "LLVM MinGW compiler not found: $($env:TARGET_CC)"
-          }
-          $toolchainBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Set up MSYS2
+        if: matrix.os == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          path-type: inherit
+          install: ${{ matrix.install }}
 
       - name: Build macOS plugin
         if: matrix.os == 'darwin'
@@ -164,22 +153,18 @@ jobs:
 
       - name: Build Windows plugin
         if: matrix.os == 'windows'
-        shell: pwsh
+        shell: msys2 {0}
         env:
           TARGET_ARCH: ${{ matrix.arch }}
           TARGET_CC: ${{ matrix.cc }}
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          $env:CGO_ENABLED = "1"
-          $env:GOOS = "windows"
-          $env:GOARCH = $env:TARGET_ARCH
-          $env:CC = $env:TARGET_CC
-          & $env:CC --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go build -buildvcs=false -tags cshared -buildmode=c-shared `
+          set -euo pipefail
+          mkdir -p dist
+          "$TARGET_CC" --version
+          CGO_ENABLED=1 GOOS=windows GOARCH="$TARGET_ARCH" CC="$TARGET_CC" \
+            go build -buildvcs=false -tags cshared -buildmode=c-shared \
             -o dist/cpa-key-billing.dll ./cmd/cpa-key-billing
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Remove-Item -Force -ErrorAction SilentlyContinue dist/cpa-key-billing.h
+          rm -f dist/cpa-key-billing.h
 
       - name: Verify and package Unix plugin
         if: matrix.os != 'windows'
