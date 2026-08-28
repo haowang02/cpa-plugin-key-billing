@@ -70,7 +70,7 @@ jobs:
             os: windows
             arch: arm64
             extension: dll
-            cc: clang
+            cc: aarch64-w64-mingw32-clang
 
     steps:
       - name: Check out repository
@@ -103,6 +103,30 @@ jobs:
           if ((go env GOARCH) -ne $env:TARGET_ARCH) {
             throw "Expected GOARCH=$($env:TARGET_ARCH), got $(go env GOARCH)"
           }
+
+      - name: Set up LLVM MinGW for Windows arm64
+        if: matrix.os == 'windows' && matrix.arch == 'arm64'
+        shell: pwsh
+        env:
+          LLVM_MINGW_VERSION: "20260826"
+          LLVM_MINGW_SHA256: dbce5a314c44cf44d02ab0d0e6bce948955b46429274df25544f9cfea4986f7b
+          TARGET_CC: ${{ matrix.cc }}
+        run: |
+          $archiveName = "llvm-mingw-$($env:LLVM_MINGW_VERSION)-ucrt-aarch64.zip"
+          $archive = Join-Path $env:RUNNER_TEMP $archiveName
+          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$($env:LLVM_MINGW_VERSION)/$archiveName"
+          curl.exe -fsSL --retry 3 --connect-timeout 15 -o $archive $url
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $actualChecksum = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($actualChecksum -ne $env:LLVM_MINGW_SHA256) {
+            throw "LLVM MinGW checksum mismatch"
+          }
+          Expand-Archive -Path $archive -DestinationPath $env:RUNNER_TEMP
+          $toolchainBin = Join-Path $env:RUNNER_TEMP "llvm-mingw-$($env:LLVM_MINGW_VERSION)-ucrt-aarch64/bin"
+          if (-not (Test-Path (Join-Path $toolchainBin "$($env:TARGET_CC).exe"))) {
+            throw "LLVM MinGW compiler not found: $($env:TARGET_CC)"
+          }
+          $toolchainBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build macOS plugin
         if: matrix.os == 'darwin'
