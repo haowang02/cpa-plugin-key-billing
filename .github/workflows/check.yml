@@ -70,6 +70,22 @@ jobs:
         env:
           GOTOOLCHAIN: auto
 
+      - name: Check Windows installer syntax
+        if: hashFiles('install.ps1') != ''
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path install.ps1),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -ne 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+
       - name: Run tests
         run: go test -race ./...
 
