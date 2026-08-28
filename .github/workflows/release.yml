@@ -178,8 +178,8 @@ jobs:
           file "$binary"
           version="${RELEASE_TAG#v}"
 
-          legacy_archive="cpa-key-billing_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
-          tar -czf "$legacy_archive" -C dist "cpa-key-billing.${EXTENSION}"
+          release_archive="cpa-key-billing_${version}_${TARGET_OS}_${TARGET_ARCH}.tar.gz"
+          tar -czf "$release_archive" -C dist "cpa-key-billing.${EXTENSION}"
 
           store_archive="cpa-key-billing_${version}_${TARGET_OS}_${TARGET_ARCH}.zip"
           zip -j "$store_archive" "$binary"
@@ -218,7 +218,7 @@ jobs:
         with:
           name: package-${{ matrix.target }}
           path: |
-            cpa-key-billing_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
+            cpa-key-billing_*_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
             cpa-key-billing_*_${{ matrix.os }}_${{ matrix.arch }}.zip
           if-no-files-found: error
           retention-days: 1

@@ -64,10 +64,21 @@ case "$(uname -m)" in
     ;;
 esac
 
-asset="${plugin_name}_${target_os}_${target_arch}.tar.gz"
+latest_release_url="$(
+  curl -fsSL --retry 3 --connect-timeout 15 -o /dev/null -w '%{url_effective}' \
+    "https://github.com/${repository}/releases/latest"
+)" || fail "failed to resolve the latest release"
+release_tag="${latest_release_url##*/}"
+version="$(
+  printf '%s\n' "$release_tag" \
+    | awk '/^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$/ {print substr($0, 2)}'
+)"
+[ -n "$version" ] || fail "latest release has an invalid tag: ${release_tag}"
+
+asset="${plugin_name}_${version}_${target_os}_${target_arch}.tar.gz"
 plugin_file="${plugin_name}.${extension}"
-download_url="https://github.com/${repository}/releases/latest/download/${asset}"
-checksums_url="https://github.com/${repository}/releases/latest/download/checksums.txt"
+download_url="https://github.com/${repository}/releases/download/${release_tag}/${asset}"
+checksums_url="https://github.com/${repository}/releases/download/${release_tag}/checksums.txt"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/${plugin_name}.XXXXXX")" || fail "failed to create temporary directory"
 archive="${tmp_dir}/${asset}"
