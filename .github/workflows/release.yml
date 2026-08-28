@@ -64,11 +64,13 @@ jobs:
             os: windows
             arch: amd64
             extension: dll
+            cc: gcc
           - target: windows-arm64
             runner: windows-11-arm
             os: windows
             arch: arm64
             extension: dll
+            cc: clang
 
     steps:
       - name: Check out repository
@@ -141,11 +143,15 @@ jobs:
         shell: pwsh
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          TARGET_CC: ${{ matrix.cc }}
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           $env:CGO_ENABLED = "1"
           $env:GOOS = "windows"
           $env:GOARCH = $env:TARGET_ARCH
+          $env:CC = $env:TARGET_CC
+          & $env:CC --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build -buildvcs=false -tags cshared -buildmode=c-shared `
             -o dist/cpa-key-billing.dll ./cmd/cpa-key-billing
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
