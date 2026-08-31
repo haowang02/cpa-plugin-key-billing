@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: true
+
 env:
   RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
   RELEASE_REF: ${{ inputs.release_tag || github.ref }}
@@ -29,8 +33,6 @@ jobs:
 
   build:
     name: Build ${{ matrix.target }}
-    needs:
-      - check
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -64,17 +66,19 @@ jobs:
             os: windows
             arch: amd64
             extension: dll
-            msystem: UCRT64
-            install: mingw-w64-ucrt-x86_64-gcc
             cc: gcc
+            cc_target: x86_64-w64-mingw32
+            objdump: objdump
+            cache_salt: runner-ucrt-gcc
           - target: windows-arm64
             runner: windows-11-arm
             os: windows
             arch: arm64
             extension: dll
-            msystem: CLANGARM64
-            install: mingw-w64-clang-aarch64-gcc
-            cc: gcc
+            cc: aarch64-w64-mingw32-gcc
+            cc_target: aarch64-w64-mingw32
+            objdump: aarch64-w64-mingw32-objdump
+            cache_salt: llvm-mingw-20260616
 
     steps:
       - name: Check out repository
@@ -108,14 +112,59 @@ jobs:
             throw "Expected GOARCH=$($env:TARGET_ARCH), got $(go env GOARCH)"
           }
 
-      - name: Set up MSYS2
-        if: matrix.os == 'windows'
-        uses: msys2/setup-msys2@v2
+      - name: Restore manylinux build cache
+        if: matrix.os == 'linux'
+        uses: actions/cache@v5
         with:
-          msystem: ${{ matrix.msystem }}
-          update: true
-          path-type: inherit
-          install: ${{ matrix.install }}
+          path: .cache/manylinux-${{ matrix.arch }}
+          key: manylinux2014-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum', '**/*.go', 'internal/plugin/ui.html') }}
+          restore-keys: |
+            manylinux2014-${{ matrix.arch }}-
+
+      - name: Restore Windows ARM64 CGO toolchain
+        id: windows-arm64-toolchain
+        if: matrix.os == 'windows' && matrix.arch == 'arm64'
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/llvm-mingw-20260616-ucrt-aarch64
+          key: llvm-mingw-windows-arm64-20260616-312593669435bd0b
+
+      - name: Set up Windows ARM64 CGO toolchain
+        if: matrix.os == 'windows' && matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          $toolchainVersion = "20260616"
+          $archiveName = "llvm-mingw-$toolchainVersion-ucrt-aarch64.zip"
+          $expectedSha256 = "312593669435bd0bfc1a43ac3fba23c8b27e0610bade88b2738e5a01702a99ba"
+          $archivePath = Join-Path $env:RUNNER_TEMP $archiveName
+          $toolchainRoot = Join-Path $env:RUNNER_TEMP "llvm-mingw-$toolchainVersion-ucrt-aarch64"
+          $downloadUrl = "https://github.com/mstorsjo/llvm-mingw/releases/download/$toolchainVersion/$archiveName"
+
+          if ("${{ steps.windows-arm64-toolchain.outputs.cache-hit }}" -ne "true") {
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath
+            $actualSha256 = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualSha256 -ne $expectedSha256) {
+              throw "llvm-mingw checksum mismatch: expected $expectedSha256, got $actualSha256"
+            }
+            Expand-Archive -Path $archivePath -DestinationPath $env:RUNNER_TEMP -Force
+          }
+
+          $binDirectory = Join-Path $toolchainRoot "bin"
+          $compiler = Join-Path $binDirectory "aarch64-w64-mingw32-gcc.exe"
+          if (-not (Test-Path $compiler -PathType Leaf)) {
+            throw "Windows ARM64 compiler not found after extraction: $compiler"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $binDirectory -Encoding utf8
+          & $compiler --version
+
+      - name: Restore Windows Go build cache
+        if: matrix.os == 'windows'
+        uses: actions/cache@v5
+        with:
+          path: ~/AppData/Local/go-build
+          key: windows-go-build-${{ matrix.arch }}-${{ matrix.cache_salt }}-${{ hashFiles('go.mod', 'go.sum', '**/*.go', 'internal/plugin/ui.html') }}
+          restore-keys: |
+            windows-go-build-${{ matrix.arch }}-${{ matrix.cache_salt }}-
 
       - name: Build macOS plugin
         if: matrix.os == 'darwin'
@@ -124,7 +173,8 @@ jobs:
         run: |
           mkdir -p dist
           CGO_ENABLED=1 GOOS=darwin GOARCH="$TARGET_ARCH" \
-            go build -buildvcs=false -tags cshared -buildmode=c-shared \
+            go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" \
+            -tags cshared -buildmode=c-shared \
             -o dist/cpa-key-billing.dylib ./cmd/cpa-key-billing
           rm -f dist/cpa-key-billing.h
 
@@ -135,36 +185,55 @@ jobs:
           TARGET_IMAGE: ${{ matrix.image }}
         run: |
           mkdir -p dist
-          go_version="$(go env GOVERSION)"
-          go_version="${go_version#go}"
+          go_root="$(go env GOROOT)"
+          cache_root="$GITHUB_WORKSPACE/.cache/manylinux-${TARGET_ARCH}"
+          mkdir -p "$cache_root/build" "$cache_root/mod"
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "$GITHUB_WORKSPACE:/src" -w /src \
-            -e GO_VERSION="$go_version" -e TARGET_ARCH \
+            -v "$go_root:/opt/go:ro" \
+            -e HOME=/tmp -e GOROOT=/opt/go -e TARGET_ARCH \
+            -e GOCACHE="/src/.cache/manylinux-${TARGET_ARCH}/build" \
+            -e GOMODCACHE="/src/.cache/manylinux-${TARGET_ARCH}/mod" \
             "$TARGET_IMAGE" \
             bash -euo pipefail -c '
-              curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGET_ARCH}.tar.gz" -o /tmp/go.tar.gz
-              tar -C /usr/local -xzf /tmp/go.tar.gz
-              export PATH=/usr/local/go/bin:$PATH
+              export PATH="$GOROOT/bin:$PATH"
               CGO_ENABLED=1 GOOS=linux GOARCH="$TARGET_ARCH" \
-                go build -buildvcs=false -tags cshared -buildmode=c-shared \
+                go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" \
+                -tags cshared -buildmode=c-shared \
                 -o dist/cpa-key-billing.so ./cmd/cpa-key-billing
             '
           rm -f dist/cpa-key-billing.h
 
       - name: Build Windows plugin
         if: matrix.os == 'windows'
-        shell: msys2 {0}
+        shell: pwsh
         env:
           TARGET_ARCH: ${{ matrix.arch }}
           TARGET_CC: ${{ matrix.cc }}
+          EXPECTED_CC_TARGET: ${{ matrix.cc_target }}
         run: |
-          set -euo pipefail
-          mkdir -p dist
-          "$TARGET_CC" --version
-          CGO_ENABLED=1 GOOS=windows GOARCH="$TARGET_ARCH" CC="$TARGET_CC" \
-            go build -buildvcs=false -tags cshared -buildmode=c-shared \
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          & $env:TARGET_CC --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to run Windows compiler: $env:TARGET_CC"
+          }
+          $compilerTarget = (& $env:TARGET_CC -dumpmachine).Trim()
+          if ($compilerTarget -ne $env:EXPECTED_CC_TARGET) {
+            throw "Expected compiler target $env:EXPECTED_CC_TARGET, got $compilerTarget"
+          }
+
+          $env:CGO_ENABLED = "1"
+          $env:GOOS = "windows"
+          $env:GOARCH = $env:TARGET_ARCH
+          $env:CC = $env:TARGET_CC
+          go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" `
+            -tags cshared -buildmode=c-shared `
             -o dist/cpa-key-billing.dll ./cmd/cpa-key-billing
-          rm -f dist/cpa-key-billing.h
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows plugin build failed"
+          }
+          Remove-Item dist/cpa-key-billing.h -Force -ErrorAction SilentlyContinue
 
       - name: Verify and package Unix plugin
         if: matrix.os != 'windows'
@@ -192,12 +261,21 @@ jobs:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
           EXTENSION: ${{ matrix.extension }}
+          TARGET_OBJDUMP: ${{ matrix.objdump }}
         run: |
           $binary = "dist/cpa-key-billing.$($env:EXTENSION)"
           if (-not (Test-Path $binary) -or (Get-Item $binary).Length -eq 0) {
             throw "Missing or empty plugin binary: $binary"
           }
           Get-Item $binary
+
+          $exports = & $env:TARGET_OBJDUMP -p $binary
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to inspect plugin binary with $env:TARGET_OBJDUMP"
+          }
+          if (-not ($exports | Select-String -Pattern "\bcliproxy_plugin_init\b" -Quiet)) {
+            throw "Plugin binary does not export cliproxy_plugin_init"
+          }
           $version = $env:RELEASE_TAG -replace '^v', ''
 
           $storeArchive = "cpa-key-billing_$($version)_$($env:TARGET_OS)_$($env:TARGET_ARCH).zip"
@@ -225,7 +303,9 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    needs: build
+    needs:
+      - check
+      - build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
