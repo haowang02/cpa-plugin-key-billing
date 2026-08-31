@@ -1091,6 +1091,11 @@ function table(headers, rows) {
   return el("div", { class: "table-scroll" },
     el("table", {}, el("thead", {}, head), el("tbody", {}, rows)));
 }
+function replaceContent(target, ...children) {
+  if (target.childNodes.length === children.length &&
+      children.every((child, index) => target.childNodes[index].isEqualNode(child))) return;
+  target.replaceChildren(...children);
+}
 function periodText(period) {
   if (!period) return "—";
   switch (period.kind) {
@@ -1307,7 +1312,7 @@ function renderAccount() {
 
   const access = overview.model_access || {};
   const models = (access.all_models ? accountState.models : access.models || []).slice().sort(compareModelId);
-  $("account-models").replaceChildren(...(models.length
+  replaceContent($("account-models"), ...(models.length
     ? models.map((model) => el("span", { class: "key-pill pill-model", text: model }))
     : [el("span", { class: "muted", text: "暂无可用模型" })]));
 
@@ -1321,7 +1326,7 @@ function renderAccount() {
       el("td", { class: "num" }, tokens(entry.output_tokens)),
       el("td", { class: "num" }, usd(entry.cost_usd)));
   });
-  $("account-model-usage").replaceChildren(table(
+  replaceContent($("account-model-usage"), table(
     ["模型", { label: "请求", num: true }, { label: "输入", num: true },
       { label: "输出", num: true }, { label: "费用", num: true }], rows));
   if (accountTab === "prices") {
@@ -1408,7 +1413,7 @@ function renderAccountLogs() {
     content.push(el("div", { class: "log-load-state" },
       el("button", { onclick: () => guard(() => loadLogs(true, true)) }, "重试加载")));
   }
-  scroller.replaceChildren(...content);
+  replaceContent(scroller, ...content);
   scroller.scrollTop = previousScrollTop;
   scroller.scrollLeft = previousScrollLeft;
   requestAnimationFrame(maybeLoadMoreAccountLogs);
@@ -1552,7 +1557,7 @@ function renderKeys() {
       );
     });
 
-  $("keys-body").replaceChildren(table(
+  replaceContent($("keys-body"), table(
     ["API Key", "订阅计划", "可用模型", "并发数", "本期费用", "到期时间",
       { label: "累计请求", num: true }, { label: "累计费用", num: true }, "状态", "操作"],
     rows));
@@ -1776,7 +1781,7 @@ function renderModels() {
       el("td", { class: "num" }, usd(entry.cost_usd)),
     );
   });
-  $("models-body").replaceChildren(table(
+  replaceContent($("models-body"), table(
     ["模型", { label: "请求", num: true }, { label: "输入", num: true }, { label: "输出", num: true },
       { label: "缓存读取", num: true }, { label: "缓存率", num: true },
       { label: "缓存写入", num: true }, { label: "费用", num: true }],
@@ -1805,7 +1810,7 @@ function renderPlans() {
       ),
     );
   });
-  $("plans-body").replaceChildren(table(
+  replaceContent($("plans-body"), table(
     ["名称", { label: "额度", num: true }, "周期", "已绑定 Key", "操作"],
     rows));
   renderPlanKeyPicker($("plan-id").value);
@@ -1853,7 +1858,7 @@ function renderGroups() {
       ),
     );
   })];
-  $("groups-body").replaceChildren(table(
+  replaceContent($("groups-body"), table(
     ["名称", { label: "模型数", num: true }, "包含模型", "已绑定 Key", "操作"], rows));
   renderGroupModelPicker();
 }
@@ -1972,7 +1977,7 @@ function renderPriceTable(target, prices, filter, editable) {
   const headers = ["模型", { label: "输入 / 1M Token", num: true }, { label: "输出 / 1M Token", num: true },
     { label: "缓存读取 / 1M Token", num: true }, { label: "缓存写入 / 1M Token", num: true }];
   if (editable) headers.push("来源", "操作");
-  $(target).replaceChildren(table(headers, rows));
+  replaceContent($(target), table(headers, rows));
 }
 
 function logKeyName(entry) {
@@ -2096,10 +2101,8 @@ async function loadLogs(append, account) {
     logHasMore = false;
     logAutoLoadMore = true;
     logLoadError = "";
-    owner.logs = null;
-    scroller.scrollTop = 0;
   }
-  renderLogsNow();
+  if (!owner.logs || append) renderLogsNow();
   try {
     const page = account ? await accountAPI(accountLogPath(offset)) : await plugin("GET", logPath(offset));
     // Search and status changes can overtake an older request. Only the newest
@@ -2247,7 +2250,7 @@ function renderLogs() {
     content.push(el("div", { class: "log-load-state" },
       el("button", { onclick: () => guard(() => loadLogs(true)) }, "重试加载")));
   }
-  scroller.replaceChildren(...content);
+  replaceContent(scroller, ...content);
   scroller.scrollTop = previousScrollTop;
   scroller.scrollLeft = previousScrollLeft;
   requestAnimationFrame(maybeLoadMoreLogs);
@@ -2295,7 +2298,7 @@ function renderEvents() {
         el("td", { class: "event-message" }, event.message || ""),
       );
     });
-  $("events-body").replaceChildren(rows.length
+  replaceContent($("events-body"), rows.length
     ? table(["时间", "级别", "内容"], rows)
     : el("div", { class: "empty", text: events.length ? "没有匹配的日志" : "暂无插件日志" }));
 }
@@ -2618,7 +2621,9 @@ function refreshCurrentView(automatic) {
   if (!currentRole || (automatic && document.hidden)) return Promise.resolve();
   if (refreshPromise) return refreshPromise;
   stopAutoRefresh();
-  document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => { button.disabled = true; });
+  if (!automatic) {
+    document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => { button.disabled = true; });
+  }
   refreshPromise = (async () => {
     try {
       if (currentRole === "account") await reloadAccount();
@@ -2633,7 +2638,9 @@ function refreshCurrentView(automatic) {
       notify(message, "err");
     } finally {
       refreshPromise = null;
-      document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => { button.disabled = false; });
+      if (!automatic) {
+        document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => { button.disabled = false; });
+      }
       scheduleAutoRefresh();
     }
   })();
