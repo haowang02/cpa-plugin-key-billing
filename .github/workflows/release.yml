@@ -76,7 +76,7 @@ jobs:
             arch: arm64
             extension: dll
             cc: aarch64-w64-mingw32-gcc
-            cc_target: aarch64-w64-mingw32
+            cc_target: aarch64-w64-windows-gnu
             objdump: aarch64-w64-mingw32-objdump
             cache_salt: llvm-mingw-20260616
 
