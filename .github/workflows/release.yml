@@ -181,8 +181,7 @@ jobs:
         run: |
           mkdir -p dist
           CGO_ENABLED=1 GOOS=darwin GOARCH="$TARGET_ARCH" \
-            go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" \
-            -tags cshared -buildmode=c-shared \
+            go build -buildvcs=false -tags cshared -buildmode=c-shared \
             -o dist/cpa-key-billing.dylib ./cmd/cpa-key-billing
           rm -f dist/cpa-key-billing.h
 
