@@ -59,7 +59,8 @@ func TestAccountOverviewAuthenticatesByAPIKeyScope(t *testing.T) {
 		t.Fatal(errDecode)
 	}
 	if !overview.Tracked || overview.Identity.Label != "Alice" || len(overview.ByModel) != 1 ||
-		overview.ByModel[0].OutputTokens != 20 {
+		overview.ByModel[0].OutputTokens != 20 || !overview.ModelAccess.AllModels ||
+		len(overview.ModelAccess.Models) != 0 {
 		t.Fatalf("overview = %+v", overview)
 	}
 	body := string(response.Body)
@@ -144,13 +145,17 @@ func TestAccountLogsExposeProviderWithoutCredentialAccount(t *testing.T) {
 	}
 }
 
-func TestAccountPricesContainOnlyAllowedModels(t *testing.T) {
+func TestAccountModelAccessExpandsGroupsAndLimitsPrices(t *testing.T) {
 	app := configuredAccountApp(t)
 	scope := billing.CallerScope(accountTestKeyA)
 	if _, errPrice := app.store.UpsertPrice(billing.PriceRule{Pattern: "other-model", InputPer1M: 9, OutputPer1M: 18}); errPrice != nil {
 		t.Fatal(errPrice)
 	}
-	if errModels := app.store.SetKeyModels(scope, nil, []string{"gpt-5.5", "missing-model"}); errModels != nil {
+	group, errGroup := app.store.CreateModelGroup(billing.ModelGroup{Name: "可用模型", Models: []string{"gpt-5.5", "missing-model"}})
+	if errGroup != nil {
+		t.Fatal(errGroup)
+	}
+	if errModels := app.store.SetKeyModels(scope, []string{group.ID}, nil); errModels != nil {
 		t.Fatal(errModels)
 	}
 	response := callAccount(t, app, resourceAccountPricesPath, accountTestKeyA, nil)
@@ -164,6 +169,15 @@ func TestAccountPricesContainOnlyAllowedModels(t *testing.T) {
 	}
 	if strings.Contains(string(response.Body), "other-model") || strings.Contains(string(response.Body), `"source"`) {
 		t.Fatalf("account prices leaked unavailable model: %s", response.Body)
+	}
+	response = callAccount(t, app, resourceAccountOverviewPath, accountTestKeyA, nil)
+	var overview accountOverviewResponse
+	if errDecode := json.Unmarshal(response.Body, &overview); errDecode != nil {
+		t.Fatal(errDecode)
+	}
+	if overview.ModelAccess.AllModels || len(overview.ModelAccess.Models) != 2 ||
+		overview.ModelAccess.Models[0] != "gpt-5.5" || overview.ModelAccess.Models[1] != "missing-model" {
+		t.Fatalf("overview model access = %+v", overview.ModelAccess)
 	}
 }
 

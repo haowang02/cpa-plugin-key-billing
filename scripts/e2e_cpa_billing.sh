@@ -1137,6 +1137,7 @@ run_target() {
   account_call "$port" "/v0/resource/plugins/cpa-key-billing/account/logs?limit=100&q=gpt-auto" >"$account_search_file"
   if ! jq -e '
       .tracked == true and
+      .model_access.all_models == true and (.model_access.models | length) == 0 and
       (has("keys") | not) and (has("plans") | not) and (has("prices") | not)
     ' "$account_overview_file" >/dev/null ||
     ! jq -e 'length > 0 and all(.[]; has("pattern") and (has("source") | not) and (has("operation") | not))' \

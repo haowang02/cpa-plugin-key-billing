@@ -846,7 +846,7 @@ let currentRole = "";
 let loginMode = location.hash === "#account" ? "account" : "admin";
 let loginModeRequest = 0;
 let state = { keys: [], plans: [], prices: [], groups: [], status: null, stats: null, logs: null, events: null };
-let accountState = { overview: null, prices: null, logs: null };
+let accountState = { overview: null, prices: null, logs: null, models: [] };
 let accountTab = "usage";
 
 function credentialRequest(request) {
@@ -1000,6 +1000,18 @@ async function api(method, path, body, opts) {
 
 const plugin = (method, path, body) => api(method, PLUGIN_BASE + path, body);
 const accountAPI = (path) => api("GET", ACCOUNT_BASE + path, null, { raw: true });
+
+function modelIDs(payload) {
+  const list = (payload && payload.data) || (payload && payload.models) || (Array.isArray(payload) ? payload : []);
+  const seen = new Set();
+  return list.map((item) => String(typeof item === "string" ? item : item?.id || item?.name || "").trim())
+    .filter((model) => {
+      const key = model.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
 
 function usd(value) {
   const amount = Number(value || 0);
@@ -1185,7 +1197,7 @@ async function startAccount(key) {
   authKey = key;
   // CLIProxyAPI remains authoritative for whether this downstream key is
   // currently valid. The plugin endpoint only uses the key to select its hash.
-  await api("GET", "/v1/models", null, { raw: true });
+  accountState.models = modelIDs(await api("GET", "/v1/models", null, { raw: true }));
   $("gate").classList.add("hidden");
   $("app").classList.add("hidden");
   $("account-app").classList.remove("hidden");
@@ -1294,12 +1306,10 @@ function renderAccount() {
     "已使用 " + usd(subscription.spent_usd) + " / " + usd(subscription.limit_usd) + "（" + percent.toFixed(2) + "%）";
 
   const access = overview.model_access || {};
-  const models = access.models || [];
-  $("account-models").replaceChildren(...(access.all_models
-    ? [el("span", { class: "tag info", text: "全部模型" })]
-    : models.length
-      ? models.map((model) => el("span", { class: "key-pill pill-model", text: model }))
-      : [el("span", { class: "muted", text: "暂无可用模型" })]));
+  const models = (access.all_models ? accountState.models : access.models || []).slice().sort(compareModelId);
+  $("account-models").replaceChildren(...(models.length
+    ? models.map((model) => el("span", { class: "key-pill pill-model", text: model }))
+    : [el("span", { class: "muted", text: "暂无可用模型" })]));
 
   const rows = (overview.by_model || []).map((entry) => {
     const input = Number(entry.uncached_input_tokens || 0) + Number(entry.cache_read_tokens || 0) +
@@ -2462,8 +2472,7 @@ async function autoSyncModels(apiKeys) {
       throw new Error("HTTP " + resp.status);
     }
     const payload = await resp.json();
-    const list = (payload && payload.data) || (payload && payload.models) || (Array.isArray(payload) ? payload : []);
-    const models = list.map((item) => (typeof item === "string" ? item : item && (item.id || item.name))).filter(Boolean);
+    const models = modelIDs(payload);
     if (!models.length) {
       return "";
     }
@@ -2581,7 +2590,7 @@ document.querySelectorAll('[data-page-action="logout"]').forEach((button) => {
   button.onclick = () => guard(async () => {
     const role = currentRole || loginMode;
     await deleteCredential(role);
-    accountState = { overview: null, prices: null, logs: null };
+    accountState = { overview: null, prices: null, logs: null, models: [] };
     showGate(role, "");
   });
 });
