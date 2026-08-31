@@ -67,6 +67,14 @@ const logSearch = ` AND (
 	instr(ulower(l.billing_model), ulower(?)) > 0 OR
 	instr(ulower(coalesce(c.name, '')), ulower(?)) > 0)`
 
+const visibleLogSearch = ` AND (
+	instr(ulower(l.executor_type), ulower(?)) > 0 OR
+	instr(ulower(l.reasoning_effort), ulower(?)) > 0 OR
+	instr(ulower(l.service_tier), ulower(?)) > 0 OR
+	instr(ulower(l.billing_model), ulower(?)) > 0 OR
+	(instr(coalesce(c.provider, ''), '@') = 0 AND instr(ulower(coalesce(c.provider, '')), ulower(?)) > 0) OR
+	instr(CAST(l.latency_ms AS TEXT), ?) > 0)`
+
 func (d *DB) Logs(query billing.LogQuery, since time.Time) (billing.LogView, error) {
 	view := billing.LogView{Entries: []billing.LogRow{}}
 	where, args := logFilter(query, since)
@@ -106,7 +114,7 @@ func (d *DB) Logs(query billing.LogQuery, since time.Time) (billing.LogView, err
 			l.tiered, l.long_context, l.threshold_input_tokens,
 			l.applied_input_per_1m, l.applied_output_per_1m,
 			l.applied_cache_read_per_1m, l.applied_cache_write_per_1m,
-			coalesce(k.preview, ''), coalesce(k.label, ''), coalesce(c.name, '')`+page, pageArgs...)
+			coalesce(k.preview, ''), coalesce(k.label, ''), coalesce(c.name, ''), coalesce(c.provider, '')`+page, pageArgs...)
 	if errQuery != nil {
 		return billing.LogView{}, fmt.Errorf("读取计费日志：%w", errQuery)
 	}
@@ -127,12 +135,20 @@ func (d *DB) Logs(query billing.LogQuery, since time.Time) (billing.LogView, err
 func logFilter(query billing.LogQuery, since time.Time) (string, []any) {
 	where := logSource
 	args := []any{nanos(since)}
+	if scope := strings.TrimSpace(query.Scope); scope != "" {
+		where += " AND l.scope = ?"
+		args = append(args, scope)
+	}
 	search := strings.TrimSpace(query.Search)
 	if search == "" {
 		return where, args
 	}
-	where += logSearch
-	for range strings.Count(logSearch, "?") {
+	searchClause := logSearch
+	if query.VisibleFieldsOnly {
+		searchClause = visibleLogSearch
+	}
+	where += searchClause
+	for range strings.Count(searchClause, "?") {
 		args = append(args, search)
 	}
 	return where, args
@@ -155,7 +171,7 @@ func scanLogRow(rows *sql.Rows) (billing.LogRow, error) {
 		&row.Cost.Tiered, &row.Cost.LongContext, &row.Cost.ThresholdInputTokens,
 		&row.Cost.AppliedInputPer1M, &row.Cost.AppliedOutputPer1M,
 		&row.Cost.AppliedCacheReadPer1M, &row.Cost.AppliedCacheWritePer1M,
-		&row.Preview, &row.Label, &row.Source); errScan != nil {
+		&row.Preview, &row.Label, &row.Source, &row.Provider); errScan != nil {
 		return billing.LogRow{}, fmt.Errorf("读取计费日志：%w", errScan)
 	}
 	row.At = timeAt(at)

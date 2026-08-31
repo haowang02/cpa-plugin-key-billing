@@ -106,17 +106,40 @@ func TestManagementRegistrationDeclaresOneMenuResource(t *testing.T) {
 	var registration ManagementRegistrationResponse
 	decodeResult(t, raw, &registration)
 
-	// The panel routes plugin pages by menu index, so exactly one entry keeps
-	// bookmarked URLs stable across releases.
-	if len(registration.Resources) != 1 {
+	// The panel routes plugin pages by menu index, so exactly one resource may
+	// declare a menu even though the API Key JSON reads are also registered as
+	// browser resources.
+	var menuResources []ResourceRoute
+	for _, resource := range registration.Resources {
+		if resource.Menu != "" {
+			menuResources = append(menuResources, resource)
+		}
+	}
+	if len(menuResources) != 1 {
 		t.Fatalf("Resources = %+v, want exactly one menu entry", registration.Resources)
 	}
-	resource := registration.Resources[0]
+	resource := menuResources[0]
 	if resource.Menu != MenuLabel {
 		t.Fatalf("Menu = %q, want %q", resource.Menu, MenuLabel)
 	}
 	if resource.Path != resourceBase+resourceUIPath {
 		t.Fatalf("Path = %q, want %q", resource.Path, resourceBase+resourceUIPath)
+	}
+	wantResources := map[string]bool{
+		resourceBase + resourceUIPath:              false,
+		resourceBase + resourceAccountOverviewPath: false,
+		resourceBase + resourceAccountPricesPath:   false,
+		resourceBase + resourceAccountLogsPath:     false,
+	}
+	for _, item := range registration.Resources {
+		if _, expected := wantResources[item.Path]; expected {
+			wantResources[item.Path] = true
+		}
+	}
+	for path, found := range wantResources {
+		if !found {
+			t.Errorf("resource %q is not registered", path)
+		}
 	}
 
 	// The host rejects ':' and '*' in route paths and resolves them under

@@ -11,9 +11,12 @@ import (
 )
 
 const (
-	managementBase = "/v0/management/plugins/" + PluginID
-	resourceBase   = "/v0/resource/plugins/" + PluginID
-	resourceUIPath = "/ui"
+	managementBase              = "/v0/management/plugins/" + PluginID
+	resourceBase                = "/v0/resource/plugins/" + PluginID
+	resourceUIPath              = "/ui"
+	resourceAccountOverviewPath = "/account/overview"
+	resourceAccountPricesPath   = "/account/prices"
+	resourceAccountLogsPath     = "/account/logs"
 )
 
 //go:embed ui.html
@@ -42,9 +45,9 @@ const (
 	routeEvents          = "/events"
 )
 
-// Management routes are authenticated by CPA and must be exact paths: the host
-// rejects ':' and '*', so record identifiers travel in the query string or the
-// body. The single resource route is what the panel renders as a sidebar entry.
+// Management routes must be exact paths because the host rejects ':' and '*'.
+// Only the UI resource declares a menu entry; account resources are direct
+// read-only endpoints.
 func managementRegistration() ManagementRegistrationResponse {
 	return ManagementRegistrationResponse{
 		Routes: []ManagementRoute{
@@ -82,6 +85,9 @@ func managementRegistration() ManagementRegistrationResponse {
 		},
 		Resources: []ResourceRoute{
 			{Path: resourceBase + resourceUIPath, Menu: MenuLabel, Description: MenuDescription},
+			{Path: resourceBase + resourceAccountOverviewPath},
+			{Path: resourceBase + resourceAccountPricesPath},
+			{Path: resourceBase + resourceAccountLogsPath},
 		},
 	}
 }
@@ -110,11 +116,27 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 		return OKEnvelope(ManagementResponse{
 			StatusCode: http.StatusOK,
 			Headers: http.Header{
-				"Content-Type":  []string{"text/html; charset=utf-8"},
-				"Cache-Control": []string{"no-store"},
+				"Content-Type":           []string{"text/html; charset=utf-8"},
+				"Cache-Control":          []string{"private, no-store"},
+				"Pragma":                 []string{"no-cache"},
+				"Referrer-Policy":        []string{"no-referrer"},
+				"X-Content-Type-Options": []string{"nosniff"},
+				"Content-Security-Policy": []string{
+					"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; " +
+						"img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+				},
 			},
 			Body: uiHTML,
 		})
+	}
+	if req.Method == http.MethodGet && path == resourceBase+resourceAccountOverviewPath {
+		return OKEnvelope(a.accountOverview(req))
+	}
+	if req.Method == http.MethodGet && path == resourceBase+resourceAccountPricesPath {
+		return OKEnvelope(a.accountPrices(req))
+	}
+	if req.Method == http.MethodGet && path == resourceBase+resourceAccountLogsPath {
+		return OKEnvelope(a.accountLogs(req))
 	}
 	if path != managementBase && !strings.HasPrefix(path, managementBase+"/") {
 		return OKEnvelope(JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path))

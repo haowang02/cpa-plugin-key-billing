@@ -255,6 +255,14 @@ management_call() {
     "http://127.0.0.1:$port$path"
 }
 
+account_call() {
+  local port="$1"
+  local path="$2"
+  curl -fsS --max-time 30 \
+    -H "Authorization: Bearer e2e-downstream-key" \
+    "http://127.0.0.1:$port$path"
+}
+
 protocol_label() {
   case "$1" in
     chat) printf 'OpenAI Chat' ;;
@@ -843,7 +851,7 @@ run_target() {
   local target_dir="$run_dir/target-$index"
   local host_dir="$target_dir/host"
   local runtime_dir="$target_dir/runtime"
-  local api_key_json plugins_file prompt
+  local api_key_json plugins_file prompt account_overview_file account_prices_file account_logs_file account_search_file
   local client upstream stream endpoint body mode extension response_file logs_file
   local client_label upstream_label mode_label request_number requested_model billing_model upstream_models model_id
   local model_case case_name actual_upstream_model expected_source expected_uncached expected_cache_write
@@ -1119,6 +1127,32 @@ run_target() {
     echo "CLIProxyAPI ${host_label} 计费日志数量为 ${actual_requests}，预期 ${expected_requests}。" >&2
     return 1
   fi
+  account_overview_file="$runtime_dir/account-overview.json"
+  account_prices_file="$runtime_dir/account-prices.json"
+  account_logs_file="$runtime_dir/account-logs.json"
+  account_search_file="$runtime_dir/account-search.json"
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/account/overview" >"$account_overview_file"
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/account/prices" >"$account_prices_file"
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/account/logs?limit=100" >"$account_logs_file"
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/account/logs?limit=100&q=gpt-auto" >"$account_search_file"
+  if ! jq -e '
+      .tracked == true and
+      (has("keys") | not) and (has("plans") | not) and (has("prices") | not)
+    ' "$account_overview_file" >/dev/null ||
+    ! jq -e 'length > 0 and all(.[]; has("pattern") and (has("source") | not) and (has("operation") | not))' \
+      "$account_prices_file" >/dev/null ||
+    ! jq -e --argjson expected "$expected_requests" '
+      .total == $expected and (.entries | length) == $expected and
+      all(.entries[]; (has("scope") | not) and (has("auth_index") | not) and
+        (has("price_source") | not) and ((.source // "") | contains("@") | not)) and
+      any(.entries[]; has("executor_type")) and any(.entries[]; has("source"))
+    ' "$account_logs_file" >/dev/null ||
+    ! jq -e '.total == 1 and (.entries | length) == 1 and .entries[0].billing_model == "gpt-auto"' \
+      "$account_search_file" >/dev/null; then
+    echo "CLIProxyAPI ${host_label} 的 API Key 自助查询范围或响应字段不正确。" >&2
+    return 1
+  fi
+  log_step "API Key 自助查询已验证：仅返回当前 Key 的 35 条计费记录"
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/stats" >"$runtime_dir/stats.json"
   # The matrix uses one billing model per request; the three routing cases use
   # their stable normalized names.

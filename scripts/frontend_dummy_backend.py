@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parents[1]
 UI_PATH = ROOT / "internal" / "plugin" / "ui.html"
 API_BASE = "/v0/management/plugins/cpa-key-billing"
+ACCOUNT_BASE = "/v0/resource/plugins/cpa-key-billing/account"
 NOW = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
 
 
@@ -580,6 +581,92 @@ def log_view(query):
     page = matched[offset:offset + limit] if limit else matched[offset:]
     return {"entries": page, "total": len(matched), "offset": offset, "status_counts": counts}
 
+
+def safe_account_source(source):
+    provider = str(source or "").split(" · ", 1)[0]
+    return "" if "@" in provider else provider
+
+
+def account_log_view(query, scope):
+    scoped = [entry for entry in LOGS if entry["scope"] == scope]
+    search = query.get("q", [""])[0].strip().lower()
+    if search:
+        scoped = [entry for entry in scoped if search in " ".join((
+            str(entry.get("billing_model", "")), str(entry.get("reasoning_effort", "")),
+            str(entry.get("service_tier", "")), str(entry.get("latency_ms", "")),
+            str(entry.get("executor_type", "")), safe_account_source(entry.get("source", "")),
+        )).lower()]
+    selected_status = query.get("status", [""])[0]
+    counts = {
+        "all": len(scoped),
+        "normal": sum(not entry.get("failed") for entry in scoped),
+        "failed": sum(bool(entry.get("failed")) for entry in scoped),
+    }
+    matched = [entry for entry in scoped if not selected_status or
+               ("failed" if entry.get("failed") else "normal") == selected_status]
+    offset = max(0, int(query.get("offset", ["0"])[0] or 0))
+    limit = max(0, int(query.get("limit", ["0"])[0] or 0))
+    page = matched[offset:offset + limit] if limit else matched[offset:]
+    entries = []
+    for entry in page:
+        cost = entry["cost"]
+        entries.append({
+            "at": entry["at"],
+            "billing_model": entry["billing_model"],
+            "executor_type": entry["executor_type"],
+            "source": safe_account_source(entry.get("source", "")),
+            "reasoning_effort": entry["reasoning_effort"],
+            "service_tier": entry["service_tier"],
+            "failed": entry["failed"],
+            "latency_ms": entry["latency_ms"],
+            "ttft_ms": entry["ttft_ms"],
+            "accounting_quality": entry["accounting_quality"],
+            "total_usd": cost["total_usd"],
+            "uncached_input_tokens": cost["uncached_input_tokens"],
+            "cache_read_tokens": cost["cache_read_tokens"],
+            "cache_write_tokens": cost["cache_write_tokens"],
+            "output_tokens": cost["billed_output_tokens"],
+            "reasoning_tokens": entry["reasoning_tokens"],
+        })
+    return {"entries": entries, "total": len(matched), "status_counts": counts}
+
+
+def account_overview(index):
+    key = LIVE_KEYS[index]
+    model_names = sorted(set(key["models"] + [model for group in MODEL_GROUPS
+                                              if group["id"] in key["model_groups"]
+                                              for model in group["models"]]))
+    return {
+        "tracked": True,
+        "identity": {"preview": key["preview"], "label": key["label"]},
+        "subscription": {
+            "name": key["plan_name"], "unlimited": key["unlimited"], "blocked": key["blocked"],
+            "limit_usd": key["limit_usd"], "spent_usd": key["spent_usd"],
+            "remaining_usd": max(0, key["limit_usd"] - key["spent_usd"]),
+            "used_percent": key["used_percent"], "period_kind": "monthly",
+            "cycle_end_at": key.get("cycle_end_at"),
+        },
+        "concurrency": {"limit": key["concurrency_limit"], "current": key["current_concurrency"]},
+        "model_access": {"all_models": key["all_models"], "models": model_names},
+        "by_model": MODEL_TOTALS[:2],
+    }
+
+
+def account_price_view(index):
+    def public_price(row):
+        return {key: value for key, value in row.items() if key != "source"}
+
+    key = LIVE_KEYS[index]
+    if key["all_models"]:
+        return [public_price(row) for row in PRICES]
+    allowed = sorted(set(key["models"] + [model for group in MODEL_GROUPS
+                                          if group["id"] in key["model_groups"]
+                                          for model in group["models"]]))
+    by_model = {row["pattern"]: row for row in PRICES}
+    return [public_price(by_model.get(model, {
+        "pattern": model, "input_per_1m": 0, "output_per_1m": 0,
+    })) for model in allowed]
+
 EVENTS = [
     {
         "at": iso(NOW - timedelta(minutes=1)),
@@ -679,12 +766,32 @@ class Handler(BaseHTTPRequestHandler):
             self.send_html(body)
             return
         if parsed.path in ("/", "/ui"):
-            body = UI_PATH.read_text().replace(
-                "</head>",
-                '<script>sessionStorage.setItem("cpa-key-billing:mgmt-key", "dummy");</script>\n</head>',
-                1,
-            )
+            body = UI_PATH.read_text()
+            if self.host_mode != "standalone":
+                body = body.replace(
+                    "</head>",
+                    '<script>localStorage.setItem("managementKey", JSON.stringify("dummy"));</script>\n</head>',
+                    1,
+                )
             self.send_html(body)
+            return
+        authorization = self.headers.get("Authorization", "")
+        api_keys = [f"sk-demo-{index:04d}" for index in range(1, len(LIVE_KEYS) + 1)]
+        if parsed.path == "/v1/models":
+            if not authorization.startswith("Bearer ") or authorization[7:] not in api_keys:
+                self.send_json(401, {"error": {"message": "API Key 无效"}})
+                return
+        if parsed.path in (f"{ACCOUNT_BASE}/overview", f"{ACCOUNT_BASE}/prices", f"{ACCOUNT_BASE}/logs"):
+            if not authorization.startswith("Bearer ") or authorization[7:] not in api_keys:
+                self.send_json(401, {"error": {"message": "API Key 无效"}})
+                return
+            index = api_keys.index(authorization[7:])
+            if parsed.path.endswith("/overview"):
+                self.send_json(200, account_overview(index))
+            elif parsed.path.endswith("/prices"):
+                self.send_json(200, account_price_view(index))
+            else:
+                self.send_json(200, account_log_view(parse_qs(parsed.query), LIVE_KEYS[index]["scope"]))
             return
         payload = payload_for(parsed.path, parse_qs(parsed.query))
         if payload is None:
@@ -783,6 +890,7 @@ def main():
     )
     if args.host != "standalone":
         print(f"Direct plugin document: http://127.0.0.1:{server.server_port}/ui", flush=True)
+    print(f"API Key account page: http://127.0.0.1:{server.server_port}/ui#account", flush=True)
     print("Data is reset on every restart. Press Ctrl-C to stop.", flush=True)
     try:
         server.serve_forever()

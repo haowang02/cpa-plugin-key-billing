@@ -197,3 +197,19 @@ func TestComputeCostRefusesInvalidOrUnclassifiedBreakdown(t *testing.T) {
 		t.Fatalf("unclassified breakdown cost = %+v", cost)
 	}
 }
+
+func TestPricesForModelsMaterializesOnlyEffectiveAllowedPrices(t *testing.T) {
+	store := newStore(t)
+	store.ReplaceAll(func(state *State) {
+		state.Prices = []PriceRule{
+			{Pattern: "chat/*", InputPer1M: 2, OutputPer1M: 4},
+			{Pattern: "unrelated", InputPer1M: 9, OutputPer1M: 18},
+		}
+	})
+
+	prices := store.PricesForModels([]string{"missing-model", "chat/slow", "chat/slow"})
+	if len(prices) != 2 || prices[0].Pattern != "chat/slow" || prices[0].InputPer1M != 2 ||
+		prices[1].Pattern != "missing-model" || prices[1].InputPer1M != 0 {
+		t.Fatalf("restricted prices = %+v", prices)
+	}
+}

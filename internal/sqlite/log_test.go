@@ -102,6 +102,41 @@ func TestLogFiltersCountWhatTheyHide(t *testing.T) {
 	}
 }
 
+func TestLogScopeConstrainsRowsAndCounts(t *testing.T) {
+	database, _ := loggedDatabase(t)
+
+	view := mustQuery(t, database, billing.LogQuery{Scope: "scope-a", Limit: 10})
+	if view.Total != 4 || len(view.Entries) != 4 ||
+		view.Statuses != (billing.LogStatusCounts{All: 4, Normal: 4}) {
+		t.Fatalf("scope-a view = %+v, statuses %+v", view.Entries, view.Statuses)
+	}
+	for _, entry := range view.Entries {
+		if entry.Scope != "scope-a" {
+			t.Fatalf("scope-a query returned %+v", entry)
+		}
+	}
+
+	view = mustQuery(t, database, billing.LogQuery{Scope: "scope-b", Status: billing.UsageStatusFailed, Limit: 10})
+	if view.Total != 2 || len(view.Entries) != 2 ||
+		view.Statuses != (billing.LogStatusCounts{All: 2, Failed: 2}) {
+		t.Fatalf("scope-b view = %+v, statuses %+v", view.Entries, view.Statuses)
+	}
+}
+
+func TestVisibleLogSearchCannotProbeHiddenCredentialFields(t *testing.T) {
+	database, _ := loggedDatabase(t)
+	query := billing.LogQuery{Scope: "scope-a", VisibleFieldsOnly: true}
+
+	query.Search = "ops@example.com"
+	if view := mustQuery(t, database, query); view.Total != 0 {
+		t.Fatalf("credential search exposed %d scoped rows", view.Total)
+	}
+	query.Search = "codex"
+	if view := mustQuery(t, database, query); view.Total != 4 {
+		t.Fatalf("visible provider search returned %d rows, want 4", view.Total)
+	}
+}
+
 func TestLogRowsFollowTheKeyTheyName(t *testing.T) {
 	database, state := loggedDatabase(t)
 	state.Keys["scope-a"].Label = "Alice Cooper"
@@ -114,7 +149,8 @@ func TestLogRowsFollowTheKeyTheyName(t *testing.T) {
 	if entry := view.Entries[0]; entry.Label != "Alice Cooper" || entry.Preview != "sk-tes…0001" ||
 		entry.ExecutorType != "CodexExecutor" ||
 		entry.ReasoningEffort != "high" || entry.ServiceTier != "auto" ||
-		entry.Source != "codex · ops@example.com" || entry.LatencyMS != 1500 || entry.TTFTMS != 250 {
+		entry.Source != "codex · ops@example.com" || entry.Provider != "codex" ||
+		entry.LatencyMS != 1500 || entry.TTFTMS != 250 {
 		t.Fatalf("entry = %+v", entry)
 	}
 }

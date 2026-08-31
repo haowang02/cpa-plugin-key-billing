@@ -98,6 +98,20 @@ plugins:
 
 重启 CLIProxyAPI 后，在管理中心打开「API Key 计费」。确认模型定价后，创建订阅计划并绑定需要限制的 API Key。
 
+## 页面访问
+
+管理员可以从 CLIProxyAPI 管理中心的「API Key 计费」菜单进入，也可以直接打开：
+
+```text
+http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui
+```
+
+普通用户使用自己的 API Key 查询订阅额度和用量时，直接打开：
+
+```text
+http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui#account
+```
+
 ## 计费与订阅规则
 
 - 未绑定订阅计划的 API Key 只统计用量，不限制额度。每个 API Key 独立计算订阅周期。

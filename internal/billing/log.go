@@ -31,9 +31,10 @@ const LogRetention = 30 * 24 * time.Hour
 // credential renames update historical rows without rewriting the log.
 type LogRow struct {
 	LogEntry
-	Preview string `json:"preview,omitempty"`
-	Label   string `json:"label,omitempty"`
-	Source  string `json:"source,omitempty"`
+	Preview  string `json:"preview,omitempty"`
+	Label    string `json:"label,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Provider string `json:"-"`
 }
 
 const (
@@ -44,9 +45,16 @@ const (
 // LogQuery selects one page of the usage log. Searching and filtering happen
 // in the repository so the browser only receives the requested page.
 type LogQuery struct {
-	Search string
-	Status string
-	Offset int
+	// Scope is an internal authorization boundary. Callers never select it from
+	// a query parameter: account endpoints derive it from the presented API key.
+	Scope string
+	// VisibleFieldsOnly keeps self-service search within fields returned by the
+	// account DTO. In particular, hidden credential account names must not
+	// become searchable side channels.
+	VisibleFieldsOnly bool
+	Search            string
+	Status            string
+	Offset            int
 	// Limit is the page size; a non-positive limit returns every match.
 	Limit int
 }

@@ -59,16 +59,8 @@ func (s *Store) KeyViews() []KeyView {
 			if key == nil {
 				continue
 			}
-			if key.PlanID != "" {
-				plan, exists := plans[key.PlanID]
-				if !exists {
-					// Self-heal a binding whose plan was removed out of band.
-					key.PlanID = ""
-					key.Cycle = Cycle{}
-					settled = append(settled, scope)
-				} else if settleExpiredCycle(key, plan, now) {
-					settled = append(settled, scope)
-				}
+			if settleKeyPlan(key, plans, now) {
+				settled = append(settled, scope)
 			}
 			views = append(views, keyView(scope, key, plans, s.activeByScope[scope]))
 		}
@@ -119,6 +111,49 @@ func keyView(scope string, key *KeyState, plans map[string]Plan, currentConcurre
 	}
 	sortModelTotals(view.ByModel)
 	return view
+}
+
+func settleKeyPlan(key *KeyState, plans map[string]Plan, now time.Time) bool {
+	if key.PlanID == "" {
+		return false
+	}
+	plan, exists := plans[key.PlanID]
+	if exists {
+		return settleExpiredCycle(key, plan, now)
+	}
+	key.PlanID = ""
+	key.Cycle = Cycle{}
+	return true
+}
+
+// KeyViewForScope returns one active principal without materializing every
+// other key. It applies the same expired-cycle settlement as KeyViews so the
+// account page and the next admission decision agree.
+func (s *Store) KeyViewForScope(scope string) (KeyView, bool) {
+	scope = normalizeScope(scope)
+	if scope == "" {
+		return KeyView{}, false
+	}
+	type result struct {
+		view KeyView
+		ok   bool
+	}
+	current := updateResult(s, func(state *State) (result, Changes) {
+		key := state.Keys[scope]
+		if key == nil || !key.DeletedAt.IsZero() {
+			return result{}, Changes{}
+		}
+		plans := make(map[string]Plan, len(state.Plans))
+		for _, plan := range state.Plans {
+			plans[plan.ID] = plan
+		}
+		changed := Changes{}
+		if settleKeyPlan(key, plans, s.Now()) {
+			changed.Keys = []string{scope}
+		}
+		return result{view: keyView(scope, key, plans, s.activeByScope[scope]), ok: true}, changed
+	})
+	return current.view, current.ok
 }
 
 func sortKeyViews(views []KeyView) {

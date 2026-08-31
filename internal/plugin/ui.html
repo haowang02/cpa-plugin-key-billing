@@ -128,10 +128,10 @@ tbody tr:hover{background:var(--bg-hover)}
 .head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:52px;padding-right:200px;margin-bottom:16px}
 @media (max-width:768px){.head{padding-right:0;min-height:0;margin-bottom:12px}}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--border-color)}
-.tabs button[data-tab]{min-height:0;border:none;border-bottom:2px solid transparent;border-radius:0;padding:8px 14px;
+.tabs button[data-tab],.tabs button[data-account-tab]{min-height:0;border:none;border-bottom:2px solid transparent;border-radius:0;padding:8px 14px;
   background:none;color:var(--text-secondary);box-shadow:none;font-weight:600;line-height:1.5}
-.tabs button[data-tab]:hover{background:none;color:var(--text-primary)}
-.tabs button[data-tab].active{color:var(--text-primary);border-bottom-color:var(--primary-color)}
+.tabs button[data-tab]:hover,.tabs button[data-account-tab]:hover{background:none;color:var(--text-primary)}
+.tabs button[data-tab].active,.tabs button[data-account-tab].active{color:var(--text-primary);border-bottom-color:var(--primary-color)}
 .tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500;
   line-height:1.5;white-space:nowrap;border:1px solid transparent}
 .tag.ok{background:var(--success-badge-bg);color:var(--success-badge-text);border-color:var(--success-badge-border)}
@@ -226,12 +226,46 @@ tbody tr:hover{background:var(--bg-hover)}
 .stat{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-md);
   box-shadow:var(--shadow);padding:12px 14px}
 .stat b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.stat b.date-value{font-size:14px;line-height:30px;white-space:nowrap}
 .notice{padding:10px 14px;border-radius:var(--radius-md);margin-bottom:14px;display:none;border:1px solid transparent}
 .notice.show{display:block}
 .notice.err{background:var(--failure-badge-bg);color:var(--failure-badge-text);border-color:var(--failure-badge-border)}
 .notice.ok{background:var(--success-badge-bg);color:var(--success-badge-text);border-color:var(--success-badge-border)}
 .hidden{display:none!important}
-.gate{max-width:460px;margin:12vh auto}
+.gate{max-width:520px;margin:9vh auto;padding:20px}
+.gate-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.gate h1{margin:0;font-size:18px;line-height:1.5}
+.access-switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:18px 0;
+  border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--bg-secondary)}
+.access-switch button{min-height:38px;border-color:transparent;border-radius:calc(var(--radius-md) - 2px);background:transparent;
+  color:var(--text-secondary);font-size:14px;font-weight:600}
+.access-switch button.active{border-color:var(--border-primary);background:var(--bg-tertiary);color:var(--text-primary);
+  box-shadow:var(--shadow)}
+.gate .field{gap:6px;color:var(--text-primary);font-size:13px;font-weight:600}
+.gate .field input{width:100%;min-height:42px;padding:8px 11px;font-size:14px}
+.remember-row{display:flex;align-items:center;gap:8px;margin:12px 0;color:var(--text-secondary);cursor:pointer}
+.remember-row input{width:auto}
+.gate-submit{width:100%;min-height:42px;margin-top:4px;font-size:14px;font-weight:600}
+.app-header{justify-content:space-between;padding-right:0}
+.app-title{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+.standalone-actions{display:inline-flex;align-items:center;gap:4px;padding:6px;
+  border:1px solid color-mix(in srgb,var(--border-color) 68%,transparent);border-radius:16px;
+  background:color-mix(in srgb,var(--bg-primary) 68%,transparent);color:var(--text-secondary);
+  box-shadow:0 18px 44px rgb(0 0 0 / .17),inset 0 1px 0 rgb(255 255 255 / .04);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.standalone-actions .icon-action{display:grid;place-items:center;width:38px;height:38px;min-width:38px;min-height:38px;
+  padding:0;border-radius:11px;border-color:transparent;background:transparent;color:var(--text-secondary)}
+.standalone-actions .icon-action:hover:not(:disabled){border-color:transparent;
+  background:color-mix(in srgb,var(--text-primary) 8%,transparent);color:var(--text-primary)}
+.standalone-actions .icon-action:focus-visible{outline:none;
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--primary-color) 26%,transparent)}
+.icon-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+body.embedded .standalone-actions{display:none}
+.account-plan{display:grid;gap:10px}
+.account-progress{height:8px;overflow:hidden;border-radius:999px;background:var(--bg-tertiary)}
+.account-progress>i{display:block;height:100%;background:var(--primary-color)}
+.account-models{display:flex;gap:6px;flex-wrap:wrap}
+.account-empty{padding:40px 20px;text-align:center}
 .empty{padding:26px;text-align:center;color:var(--text-tertiary)}
 dialog{border:1px solid var(--border-color);border-radius:12px;background:var(--floating-surface);
   color:var(--text-primary);box-shadow:var(--floating-shadow);padding:18px;
@@ -349,12 +383,16 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .wrap{padding:14px 12px 40px}
   /* CPAMC overlays mobile controls on the iframe, while CPAMP keeps its 50px
      navbar outside the frame. Only the former needs an internal safe area. */
-  :root:not([data-cpamp-plugin-host=true]) .wrap{padding-top:90px}
+  :root:not([data-cpamp-plugin-host=true]) body.embedded .wrap{padding-top:90px}
   .section-toolbar{align-items:flex-start}
   .section-toolbar>.section-actions{flex:1 1 100%;width:100%}
-  .section-actions .wide-search,#price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
+  .section-actions .wide-search,#price-filter,#account-price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
   .section-actions #log-note{flex:1 0 100%}
   .log-card{height:calc(100dvh - 295px);min-height:320px}
+  .gate{margin:3vh auto;padding:16px}
+  .app-header{align-items:flex-start}
+  .app-header .standalone-actions{width:100%;justify-content:flex-end;gap:2px;padding:5px;border-radius:14px}
+  .standalone-actions .icon-action{width:36px;height:36px;min-width:36px;min-height:36px}
 }
 @media (max-width:520px){
   dialog{width:calc(100vw - 24px);max-width:none;padding:16px}
@@ -376,6 +414,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
  * before the body to avoid painting in the wrong theme. */
 (function () {
   const STORE_KEY = "cli-proxy-theme";
+  const PLUGIN_STORE_KEY = "cpa-key-billing:theme";
   const PREFIX = "enc::v1::";
   const SALT = "cli-proxy-api-webui::secure-storage";
 
@@ -412,6 +451,10 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   function currentTheme() {
     const doc = parentDocument();
     if (doc) return doc.documentElement.getAttribute("data-theme") || "";
+    try {
+      const own = localStorage.getItem(PLUGIN_STORE_KEY);
+      if (own === "dark" || own === "white") return own;
+    } catch (_) {}
     return resolve(storedTheme());
   }
 
@@ -434,26 +477,47 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   if (window.matchMedia) {
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", sync);
   }
+  window.billingTheme = {
+    current: currentTheme,
+    toggle() {
+      const next = currentTheme() === "dark" ? "white" : "dark";
+      try { localStorage.setItem(PLUGIN_STORE_KEY, next); } catch (_) {}
+      apply(next);
+      window.dispatchEvent(new CustomEvent("billing-theme-change", { detail: next }));
+      return next;
+    },
+  };
 })();
 </script>
 </head>
 <body>
 <div class="wrap">
 
-<section id="gate" class="card gate hidden">
-  <h2>需要管理密钥</h2>
-  <p class="muted small" id="gate-reason"></p>
+<section id="gate" class="card gate hidden" aria-labelledby="gate-title">
+  <div class="gate-top"><h1 id="gate-title">选择访问方式</h1><div class="standalone-actions"><button type="button" class="icon-action" data-page-action="theme" aria-label="切换主题"></button></div></div>
+  <div class="access-switch" role="tablist" aria-label="访问方式">
+    <button id="gate-mode-admin" type="button" role="tab" aria-selected="true" class="active">管理密钥</button>
+    <button id="gate-mode-account" type="button" role="tab" aria-selected="false">API Key 查看</button>
+  </div>
+  <form id="gate-form">
+  <input id="gate-username" class="hidden" type="text" name="access-role" autocomplete="username" value="admin">
   <div id="gate-error" class="notice err"></div>
-  <label class="field">管理密钥
-    <input id="gate-key" type="password" autocomplete="current-password" placeholder="Management Key">
+  <label class="field"><span id="gate-key-label">管理密钥</span>
+    <input id="gate-key" type="password" autocomplete="current-password" placeholder="输入 Management Key">
   </label>
-  <button id="gate-submit" class="primary" style="margin-top:10px">确定</button>
+  <label class="remember-row"><input id="gate-remember" type="checkbox">记住密码</label>
+  <button id="gate-submit" type="submit" class="primary gate-submit">进入管理控制台</button>
+  </form>
 </section>
 
 <main id="app" class="hidden">
-  <header class="head">
-    <h1>API Key 计费</h1>
-    <span id="head-status" class="tag plain">…</span>
+  <header class="head app-header">
+    <div class="app-title"><h1>API Key 计费</h1><span id="head-status" class="tag plain">…</span></div>
+    <div class="standalone-actions" aria-label="页面操作">
+      <button type="button" class="icon-action" data-page-action="refresh" aria-label="刷新"></button>
+      <button type="button" class="icon-action" data-page-action="theme" aria-label="切换主题"></button>
+      <button type="button" class="icon-action" data-page-action="logout" aria-label="退出登录"></button>
+    </div>
   </header>
 
   <div id="notice" class="notice"></div>
@@ -602,6 +666,82 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   </section>
 
 </main>
+
+<main id="account-app" class="hidden">
+  <header class="head app-header">
+    <div class="app-title">
+      <h1>API Key 用量</h1>
+      <span id="account-status" class="tag plain">只读</span>
+      <span id="account-identity" class="muted mono"></span>
+    </div>
+    <div class="standalone-actions" aria-label="页面操作">
+      <button type="button" class="icon-action" data-page-action="refresh" aria-label="刷新"></button>
+      <button type="button" class="icon-action" data-page-action="theme" aria-label="切换主题"></button>
+      <button type="button" class="icon-action" data-page-action="logout" aria-label="退出登录"></button>
+    </div>
+  </header>
+  <div id="account-notice" class="notice"></div>
+  <div class="stats" style="margin-bottom:16px">
+    <div class="stat"><span class="muted small">本期消费</span><b id="account-spent">—</b></div>
+    <div class="stat"><span class="muted small">剩余额度</span><b id="account-remaining">—</b></div>
+    <div class="stat"><span class="muted small">到期时间</span><b id="account-expiry" class="date-value">—</b></div>
+    <div class="stat"><span class="muted small">当前并发</span><b id="account-concurrency">—</b></div>
+  </div>
+  <section id="account-untracked" class="card account-empty hidden">
+    <h2>尚无计费记录</h2>
+    <p class="muted">该 API Key 已通过验证，但插件尚未收到可归属的用量。</p>
+  </section>
+  <section id="account-content">
+    <nav class="tabs" aria-label="API Key 查询功能">
+      <button type="button" class="active" data-account-tab="usage">订阅用量</button>
+      <button type="button" data-account-tab="prices">模型定价</button>
+      <button type="button" data-account-tab="logs">计费日志</button>
+    </nav>
+    <section id="account-tab-usage">
+      <div class="card account-plan">
+        <div class="row spread"><h2 id="account-plan-name" style="margin:0">订阅额度</h2><span id="account-reset" class="muted small"></span></div>
+        <div class="account-progress" role="progressbar" aria-label="本期额度使用率"><i id="account-progress-bar"></i></div>
+        <div id="account-plan-summary" class="muted small"></div>
+      </div>
+      <div class="card">
+        <h2>可用模型</h2>
+        <div id="account-models" class="account-models"></div>
+      </div>
+      <div class="card">
+        <h2>模型用量</h2>
+        <div id="account-model-usage"></div>
+      </div>
+    </section>
+    <section id="account-tab-prices" class="hidden">
+      <div class="card">
+        <div class="row spread section-toolbar" style="margin-bottom:12px">
+          <h2 style="margin:0">模型定价</h2>
+          <div class="row section-actions">
+            <input id="account-price-filter" placeholder="搜索模型" style="max-width:220px">
+          </div>
+        </div>
+        <div id="account-prices-body"></div>
+      </div>
+    </section>
+    <section id="account-tab-logs" class="hidden">
+      <div class="card log-card">
+        <div class="row spread section-toolbar" style="margin-bottom:12px">
+          <h2 style="margin:0">计费日志</h2>
+          <div class="row section-actions">
+            <span id="account-log-note" class="muted small"></span>
+            <select id="account-log-status" aria-label="按状态筛选">
+              <option value="">全部状态</option>
+              <option value="normal">正常</option>
+              <option value="failed">失败</option>
+            </select>
+            <input id="account-log-filter" placeholder="搜索模型、执行器、推理、速度或来源" class="wide-search">
+          </div>
+        </div>
+        <div id="account-logs" class="log-table-region"></div>
+      </div>
+    </section>
+  </section>
+</main>
 </div>
 
 <dialog id="price-dlg" class="price-dialog">
@@ -659,16 +799,18 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 <script>
 "use strict";
 const PLUGIN_BASE = "/v0/management/plugins/cpa-key-billing";
+const ACCOUNT_BASE = "/v0/resource/plugins/cpa-key-billing/account";
 const $ = (id) => document.getElementById(id);
 
 /* A same-origin iframe can borrow the panel's obfuscated management key. When
- * it is unavailable, the fallback keeps a manually entered key for this browser
- * tab only. */
+ * it is unavailable, the standalone login can use its own encrypted vault. */
 const PANEL_STORE_KEY = "cli-proxy-auth";
 const PANEL_KEY = "managementKey";
 const PANEL_PREFIX = "enc::v1::";
 const PANEL_SALT = "cli-proxy-api-webui::secure-storage";
-const FALLBACK_KEY = "cpa-key-billing:mgmt-key";
+const CREDENTIAL_DB = "cpa-key-billing-credentials";
+const CREDENTIAL_STORE = "vault";
+const CREDENTIAL_KEY = "wrapping-key";
 
 function panelDeobfuscate(raw) {
   if (typeof raw !== "string" || !raw.startsWith(PANEL_PREFIX)) return raw;
@@ -697,8 +839,104 @@ function readPanelKey() {
   return "";
 }
 
+const embedded = window.parent !== window;
+document.body.classList.toggle("embedded", embedded);
 let authKey = "";
+let currentRole = "";
+let loginMode = location.hash === "#account" ? "account" : "admin";
+let loginModeRequest = 0;
 let state = { keys: [], plans: [], prices: [], groups: [], status: null, stats: null, logs: null, events: null };
+let accountState = { overview: null, prices: null, logs: null };
+let accountTab = "usage";
+
+function credentialRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("浏览器凭据存储失败"));
+  });
+}
+
+function openCredentialDB() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB || !window.crypto?.subtle) {
+      reject(new Error("当前浏览器不支持安全记住凭据"));
+      return;
+    }
+    const request = indexedDB.open(CREDENTIAL_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(CREDENTIAL_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("浏览器凭据存储失败"));
+  });
+}
+
+async function credentialValue(name) {
+  const db = await openCredentialDB();
+  try {
+    return await credentialRequest(db.transaction(CREDENTIAL_STORE).objectStore(CREDENTIAL_STORE).get(name));
+  } finally {
+    db.close();
+  }
+}
+
+async function putCredentialValue(name, value) {
+  const db = await openCredentialDB();
+  try {
+    const transaction = db.transaction(CREDENTIAL_STORE, "readwrite");
+    transaction.objectStore(CREDENTIAL_STORE).put(value, name);
+    await new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error || new Error("浏览器凭据存储失败"));
+      transaction.onabort = () => reject(transaction.error || new Error("浏览器凭据存储失败"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function deleteCredential(role) {
+  try {
+    const db = await openCredentialDB();
+    try {
+      const transaction = db.transaction(CREDENTIAL_STORE, "readwrite");
+      transaction.objectStore(CREDENTIAL_STORE).delete(role);
+      await new Promise((resolve, reject) => {
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error || new Error("浏览器凭据存储失败"));
+      });
+    } finally {
+      db.close();
+    }
+  } catch (_) {}
+}
+
+async function wrappingKey() {
+  let key = await credentialValue(CREDENTIAL_KEY);
+  if (key) return key;
+  key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  await putCredentialValue(CREDENTIAL_KEY, key);
+  return key;
+}
+
+async function rememberCredential(role, credential) {
+  const key = await wrappingKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(credential));
+  await putCredentialValue(role, { iv: Array.from(iv), data: Array.from(new Uint8Array(data)) });
+}
+
+async function recalledCredential(role) {
+  try {
+    const saved = await credentialValue(role);
+    if (!saved?.iv || !saved?.data) return "";
+    const key = await wrappingKey();
+    const data = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(saved.iv) },
+      key, new Uint8Array(saved.data));
+    return new TextDecoder().decode(data).trim();
+  } catch (_) {
+    await deleteCredential(role);
+    return "";
+  }
+}
 
 // The plugin stores "every model" as an empty selection rather than as a group
 // holding every model, so this identifier only ever travels: the picker offers
@@ -753,7 +991,7 @@ async function api(method, path, body, opts) {
     const detail = payload && payload.error ? (payload.error.message ?? payload.error) : text;
     const message = typeof detail === "string" ? unescapeDeep(detail).trim() : "";
     if (resp.status === 401 || resp.status === 403) {
-      throw new AuthError(message || "管理密钥无效或已被拒绝");
+      throw new AuthError(message || (currentRole === "account" ? "API Key 无效或已被拒绝" : "管理密钥无效或已被拒绝"));
     }
     throw new Error(message || ("HTTP " + resp.status));
   }
@@ -761,6 +999,7 @@ async function api(method, path, body, opts) {
 }
 
 const plugin = (method, path, body) => api(method, PLUGIN_BASE + path, body);
+const accountAPI = (path) => api("GET", ACCOUNT_BASE + path, null, { raw: true });
 
 function usd(value) {
   const amount = Number(value || 0);
@@ -853,14 +1092,14 @@ function periodText(period) {
 
 let noticeTimer = 0;
 function notify(message, kind) {
-  const node = $("notice");
+  const node = $(currentRole === "account" ? "account-notice" : "notice");
   node.textContent = message;
   node.className = "notice show " + (kind || "ok");
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => { node.className = "notice"; }, kind === "err" ? 9000 : 4000);
 }
 function fail(err) {
-  if (err instanceof AuthError) { gate(GATE_REJECTED, err.message); return; }
+  if (err instanceof AuthError) { showGate(currentRole || loginMode, err.message); return; }
   notify(err.message || String(err), "err");
 }
 async function guard(fn) { try { await fn(); } catch (err) { fail(err); } }
@@ -880,29 +1119,80 @@ function ask(title, text, value) {
 }
 const confirmAction = (title, text) => ask(title, text, undefined);
 
-const GATE_NO_PANEL_KEY = "无法读取管理密钥。请在此输入，或在登录管理中心时勾选「记住密码」。";
-const GATE_REJECTED = "管理密钥已失效，请重新输入或返回管理中心登录。";
+function previewCredential(value) {
+  value = String(value || "").trim();
+  if (value.length <= 12) return "*".repeat(value.length);
+  return value.slice(0, 6) + "…" + value.slice(-4);
+}
 
-function gate(reason, error) {
+async function setLoginMode(mode, preserveError) {
+  const ticket = ++loginModeRequest;
+  loginMode = mode === "account" ? "account" : "admin";
+  if (!embedded) {
+    const url = new URL(location.href);
+    url.hash = loginMode === "account" ? "account" : "";
+    history.replaceState(null, "", url);
+  }
+  const account = loginMode === "account";
+  $("gate-mode-admin").classList.toggle("active", !account);
+  $("gate-mode-admin").setAttribute("aria-selected", String(!account));
+  $("gate-mode-account").classList.toggle("active", account);
+  $("gate-mode-account").setAttribute("aria-selected", String(account));
+  $("gate-key-label").textContent = account ? "API Key" : "管理密钥";
+  $("gate-username").value = account ? "api-key" : "administrator";
+  $("gate-key").placeholder = account ? "输入 API Key" : "输入 Management Key";
+  $("gate-submit").textContent = account ? "查看我的用量" : "进入管理控制台";
+  $("gate-key").value = "";
+  if (!preserveError) {
+    $("gate-error").textContent = "";
+    $("gate-error").className = "notice err";
+  }
+  const saved = await recalledCredential(loginMode);
+  if (ticket !== loginModeRequest) return;
+  if (saved) $("gate-key").placeholder = "已记住密码，可直接继续";
+  $("gate-remember").checked = !!saved;
+}
+
+function showGate(mode, error) {
+  stopAutoRefresh();
   authKey = "";
-  try { sessionStorage.removeItem(FALLBACK_KEY); } catch (_) {}
+  currentRole = "";
   $("app").classList.add("hidden");
+  $("account-app").classList.add("hidden");
   $("gate").classList.remove("hidden");
-  $("gate-reason").textContent = reason || "";
   const box = $("gate-error");
   box.textContent = error || "";
   box.className = error ? "notice err show" : "notice err";
+  setLoginMode(mode, true);
 }
 
-async function start(key) {
+async function startAdmin(key) {
+  currentRole = "admin";
   authKey = key;
   // Repeated invalid management keys can trigger an IP ban, so probe once only.
   await plugin("GET", "/status");
   $("gate").classList.add("hidden");
+  $("account-app").classList.add("hidden");
   $("app").classList.remove("hidden");
   const summary = await autoSyncKeys();
   await reloadAll();
   if (summary) notify(summary);
+  scheduleAutoRefresh();
+}
+
+async function startAccount(key) {
+  currentRole = "account";
+  authKey = key;
+  // CLIProxyAPI remains authoritative for whether this downstream key is
+  // currently valid. The plugin endpoint only uses the key to select its hash.
+  await api("GET", "/v1/models", null, { raw: true });
+  $("gate").classList.add("hidden");
+  $("app").classList.add("hidden");
+  $("account-app").classList.remove("hidden");
+  $("account-identity").textContent = previewCredential(key);
+  setAccountTab("usage", false);
+  await reloadAccount();
+  scheduleAutoRefresh();
 }
 
 async function reloadAll() {
@@ -931,6 +1221,189 @@ async function reloadAll() {
   render();
 }
 
+async function reloadAccount() {
+  accountState.overview = await accountAPI("/overview");
+  if (accountTab === "prices") {
+    accountState.prices = await accountAPI("/prices");
+  } else if (accountTab === "logs") {
+    await loadLogs(false, true);
+  }
+  renderAccount();
+}
+
+function setAccountTab(tab, reload) {
+  accountTab = ["usage", "prices", "logs"].includes(tab) ? tab : "usage";
+  document.querySelectorAll("[data-account-tab]").forEach((button) => {
+    const active = button.dataset.accountTab === accountTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  for (const name of ["usage", "prices", "logs"]) {
+    $("account-tab-" + name).classList.toggle("hidden", name !== accountTab);
+  }
+  if (reload !== false && currentRole === "account") {
+    const wasRefreshing = !!refreshPromise;
+    const pending = refreshCurrentView(false);
+    if (wasRefreshing) pending.finally(() => {
+      if (currentRole === "account" && accountTab === tab) refreshCurrentView(false);
+    });
+  }
+}
+
+function accountLogPath(offset) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(LOG_BATCH_SIZE) });
+  const search = $("account-log-filter").value.trim();
+  if (search) params.set("q", search);
+  const status = $("account-log-status").value;
+  if (status) params.set("status", status);
+  return "/logs?" + params.toString();
+}
+
+function maybeLoadMoreAccountLogs() {
+  const scroller = $("account-logs");
+  if (!logAutoLoadMore || !logHasMore || logLoading || logLoadingMore || !shouldLoadMoreLogs(scroller)) return;
+  guard(() => loadLogs(true, true));
+}
+
+function renderAccount() {
+  const overview = accountState.overview || { tracked: false };
+  const tracked = overview.tracked === true;
+  $("account-untracked").classList.toggle("hidden", tracked);
+  $("account-content").classList.toggle("hidden", !tracked);
+  const identity = overview.identity || {};
+  if (tracked) $("account-identity").textContent = identity.label ? identity.label + " · " + identity.preview : identity.preview;
+  const subscription = overview.subscription || {};
+  const concurrency = overview.concurrency || {};
+  const status = $("account-status");
+  status.textContent = !tracked ? "尚无记录" : subscription.blocked ? "额度用尽" : "正常";
+  status.className = "tag " + (!tracked ? "plain" : subscription.blocked ? "bad" : "ok");
+  $("account-spent").textContent = tracked ? usd(subscription.spent_usd) : "$0";
+  $("account-remaining").textContent = !tracked ? "—" : subscription.unlimited ? "不限制" : usd(subscription.remaining_usd);
+  $("account-expiry").textContent = tracked ? cycleNote(subscription, subscription.period_kind) : "—";
+  $("account-concurrency").textContent = !tracked ? "—" : int(concurrency.current) + " / " +
+    (Number(concurrency.limit || 0) > 0 ? int(concurrency.limit) : "∞");
+  if (!tracked) return;
+
+  $("account-plan-name").textContent = subscription.name || (subscription.unlimited ? "未绑定订阅计划" : "订阅额度");
+  $("account-reset").textContent = subscription.cycle_end_at ? when(subscription.cycle_end_at) + " 重置" :
+    (subscription.unlimited ? "不限制" : "未开始");
+  const percent = subscription.unlimited ? 0 : Math.max(0, Math.min(100, Number(subscription.used_percent || 0)));
+  $("account-progress-bar").style.width = percent + "%";
+  $("account-progress-bar").parentElement.setAttribute("aria-valuenow", String(Math.round(percent)));
+  $("account-plan-summary").textContent = subscription.unlimited ? "当前 API Key 未设置订阅额度" :
+    "已使用 " + usd(subscription.spent_usd) + " / " + usd(subscription.limit_usd) + "（" + percent.toFixed(2) + "%）";
+
+  const access = overview.model_access || {};
+  const models = access.models || [];
+  $("account-models").replaceChildren(...(access.all_models
+    ? [el("span", { class: "tag info", text: "全部模型" })]
+    : models.length
+      ? models.map((model) => el("span", { class: "key-pill pill-model", text: model }))
+      : [el("span", { class: "muted", text: "暂无可用模型" })]));
+
+  const rows = (overview.by_model || []).map((entry) => {
+    const input = Number(entry.uncached_input_tokens || 0) + Number(entry.cache_read_tokens || 0) +
+      Number(entry.cache_creation_tokens || 0);
+    return el("tr", {},
+      el("td", { class: "mono" }, entry.billing_model || "—"),
+      el("td", { class: "num" }, int(entry.requests)),
+      el("td", { class: "num" }, tokens(input)),
+      el("td", { class: "num" }, tokens(entry.output_tokens)),
+      el("td", { class: "num" }, usd(entry.cost_usd)));
+  });
+  $("account-model-usage").replaceChildren(table(
+    ["模型", { label: "请求", num: true }, { label: "输入", num: true },
+      { label: "输出", num: true }, { label: "费用", num: true }], rows));
+  if (accountTab === "prices") {
+    renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false);
+  }
+  if (accountTab === "logs") renderAccountLogs();
+}
+
+function renderAccountLogs() {
+  hideCostTooltip();
+  const view = accountState.logs;
+  const note = $("account-log-note");
+  const scroller = $("account-logs");
+  if (!view) {
+    note.textContent = "";
+    if (logLoading) {
+      scroller.replaceChildren(el("div", { class: "empty", text: "加载中…" }));
+    } else if (logLoadError) {
+      scroller.replaceChildren(el("div", { class: "empty" },
+        el("div", { text: "计费日志加载失败" }),
+        el("button", { style: "margin-top:10px", onclick: () => guard(() => loadLogs(false, true)) }, "重试")));
+    } else {
+      scroller.replaceChildren(el("div", { class: "empty", text: "暂无数据" }));
+    }
+    return;
+  }
+  labelLogStatuses($("account-log-status"), view.status_counts);
+  const entries = view.entries || [];
+  note.textContent = "已加载 " + int(entries.length) + " / " + int(view.total) + " 条";
+  const previousScrollTop = scroller.scrollTop;
+  const previousScrollLeft = scroller.scrollLeft;
+  const rows = entries.map((entry) => {
+    const statusMarks = [];
+    if (entry.failed) statusMarks.push(el("span", { class: "tag bad", text: "失败" }));
+    if (entry.accounting_quality && entry.accounting_quality !== "complete") {
+      statusMarks.push(el("span", { class: "tag warn",
+        text: entry.accounting_quality === "inconsistent" ? "Token 明细异常" : "Token 未分类" }));
+    }
+    if (!statusMarks.length) statusMarks.push(el("span", { class: "tag ok", text: "正常" }));
+    const cost = {
+      uncached_input_tokens: entry.uncached_input_tokens || 0,
+      cache_read_tokens: entry.cache_read_tokens || 0,
+      cache_write_tokens: entry.cache_write_tokens || 0,
+      billed_output_tokens: entry.output_tokens || 0,
+    };
+    const input = cost.uncached_input_tokens + cost.cache_read_tokens + cost.cache_write_tokens;
+    const output = cost.billed_output_tokens;
+    const measured = entry.accounting_quality === "complete";
+    const tokens = (value) => measured ? exactTokens(value) : "—";
+    const hasTTFT = Number(entry.ttft_ms || 0) > 0;
+    return el("tr", {},
+      el("td", { class: "small" }, when(entry.at)),
+      el("td", { class: "small" }, el("div", { class: "log-cell-line mono" }, entry.billing_model || "—")),
+      el("td", { class: "small" },
+        el("div", { class: "log-cell-line mono" }, entry.executor_type || "执行器未知"),
+        el("div", { class: "log-source muted" }, entry.source || "来源未知")),
+      el("td", { class: "small" },
+        el("div", { class: "log-cell-line mono" }, entry.reasoning_effort || "—"),
+        el("div", { class: "log-cell-line muted" }, entry.service_tier || "—")),
+      el("td", { class: "log-status" }, statusMarks),
+      el("td", { class: "num" },
+        el("div", {}, outputTPS(cost, entry.latency_ms, measured)),
+        el("div", { class: "muted small", title: hasTTFT ? "首字延迟 · 总延迟" : "总延迟" },
+          hasTTFT ? latency(entry.ttft_ms) + " · " + latency(entry.latency_ms) : latency(entry.latency_ms))),
+      el("td", { class: "num" }, tokens(input)),
+      el("td", { class: "num" },
+        el("div", {}, tokens(cost.cache_read_tokens)),
+        measured ? el("div", { class: "muted small" }, cacheReadRate(cost.cache_read_tokens, input)) : null),
+      el("td", { class: "num" }, tokens(cost.cache_write_tokens)),
+      el("td", { class: "num" },
+        el("div", {}, tokens(output)),
+        measured && entry.reasoning_tokens
+          ? el("div", { class: "muted small" }, "推理 " + exactTokens(entry.reasoning_tokens)) : null),
+      el("td", { class: "num" }, usd(entry.total_usd)));
+  });
+
+  const content = [table(
+    ["时间", "模型", "执行器 / 来源", "推理 / 速度", "状态", { label: "TPS / 延迟", num: true },
+      { label: "输入", num: true }, { label: "缓存读取", num: true }, { label: "缓存写入", num: true },
+      { label: "输出", num: true }, { label: "费用", num: true }], rows)];
+  if (logLoadingMore) {
+    content.push(el("div", { class: "log-load-state", role: "status", text: "正在加载更多…" }));
+  } else if (!logAutoLoadMore && logHasMore) {
+    content.push(el("div", { class: "log-load-state" },
+      el("button", { onclick: () => guard(() => loadLogs(true, true)) }, "重试加载")));
+  }
+  scroller.replaceChildren(...content);
+  scroller.scrollTop = previousScrollTop;
+  scroller.scrollLeft = previousScrollLeft;
+  requestAnimationFrame(maybeLoadMoreAccountLogs);
+}
+
 function render() {
   // Every row the picker is anchored to is about to be replaced.
   closeModelPicker();
@@ -939,7 +1412,7 @@ function render() {
   renderModels();
   renderPlans();
   renderGroups();
-  renderPrices();
+  renderPriceTable("prices-body", state.prices, $("price-filter").value, true);
   renderLogs();
   renderEvents();
 }
@@ -1075,9 +1548,10 @@ function renderKeys() {
     rows));
 }
 
-function cycleNote(view) {
+function cycleNote(view, periodKind) {
   if (view.unlimited) return "—";
-  if (state.plans.find((plan) => plan.id === view.plan_id)?.period?.kind === "never") return "不重置";
+  const kind = periodKind || state.plans.find((plan) => plan.id === view.plan_id)?.period?.kind;
+  if (kind === "never") return "不重置";
   return view.cycle_end_at ? when(view.cycle_end_at) : "未开始";
 }
 
@@ -1465,24 +1939,30 @@ function compareModelId(a, b) {
   return 0;
 }
 
-function renderPrices() {
-  const filter = $("price-filter").value.trim().toLowerCase();
-  const rows = state.prices
+function renderPriceTable(target, prices, filter, editable) {
+  filter = filter.trim().toLowerCase();
+  const rows = (prices || [])
     .filter((row) => !filter || row.pattern.toLowerCase().includes(filter))
     .sort((a, b) => compareModelId(a.pattern, b.pattern))
-    .map((row) => el("tr", {},
-      el("td", { class: "mono" }, row.pattern),
-      el("td", { class: "num" }, tierPriceCell(row, "input_per_1m", false)),
-      el("td", { class: "num" }, tierPriceCell(row, "output_per_1m", false)),
-      el("td", { class: "num" }, tierPriceCell(row, "cache_read_per_1m", true)),
-      el("td", { class: "num" }, tierPriceCell(row, "cache_write_per_1m", true)),
-      el("td", {}, priceSourceTag(row.source)),
-      el("td", { class: "small" }, el("button", { class: "link", text: "编辑", onclick: () => editPrice(row) })),
-    ));
-  $("prices-body").replaceChildren(table(
-    ["模型", { label: "输入 / 1M Token", num: true }, { label: "输出 / 1M Token", num: true },
-      { label: "缓存读取 / 1M Token", num: true }, { label: "缓存写入 / 1M Token", num: true }, "来源", "操作"],
-    rows));
+    .map((row) => {
+      const cells = [
+        el("td", { class: "mono" }, row.pattern),
+        el("td", { class: "num" }, tierPriceCell(row, "input_per_1m", false)),
+        el("td", { class: "num" }, tierPriceCell(row, "output_per_1m", false)),
+        el("td", { class: "num" }, tierPriceCell(row, "cache_read_per_1m", true)),
+        el("td", { class: "num" }, tierPriceCell(row, "cache_write_per_1m", true)),
+      ];
+      if (editable) {
+        cells.push(el("td", {}, priceSourceTag(row.source)));
+        cells.push(el("td", { class: "small" },
+          el("button", { class: "link", text: "编辑", onclick: () => editPrice(row) })));
+      }
+      return el("tr", {}, cells);
+    });
+  const headers = ["模型", { label: "输入 / 1M Token", num: true }, { label: "输出 / 1M Token", num: true },
+    { label: "缓存读取 / 1M Token", num: true }, { label: "缓存写入 / 1M Token", num: true }];
+  if (editable) headers.push("来源", "操作");
+  $(target).replaceChildren(table(headers, rows));
 }
 
 function logKeyName(entry) {
@@ -1558,8 +2038,8 @@ const LOG_STATUS_LABELS = { "": "全部状态", normal: "正常", failed: "失�
 // The browser only holds the batches loaded so far, so the counts are the
 // server's: they cover the whole search and ignore the status choice itself,
 // which is what lets each option say how many entries picking it would show.
-function labelLogStatuses(counts) {
-  for (const option of $("log-status").options) {
+function labelLogStatuses(select, counts) {
+  for (const option of select.options) {
     option.textContent = LOG_STATUS_LABELS[option.value] + "（" + int((counts || {})[option.value || "all"]) + "）";
   }
 }
@@ -1588,10 +2068,14 @@ function maybeLoadMoreLogs() {
   guard(() => loadLogs(true));
 }
 
-async function loadLogs(append) {
+async function loadLogs(append, account) {
+  account = account === true;
   append = append === true;
   if (append && (!logHasMore || logLoading || logLoadingMore)) return;
-  const existing = append && state.logs ? (state.logs.entries || []) : [];
+  const owner = account ? accountState : state;
+  const scroller = $(account ? "account-logs" : "logs-body");
+  const renderLogsNow = account ? renderAccountLogs : renderLogs;
+  const existing = append && owner.logs ? (owner.logs.entries || []) : [];
   const offset = existing.length;
   const ticket = ++logRequest;
   if (append) {
@@ -1602,18 +2086,18 @@ async function loadLogs(append) {
     logHasMore = false;
     logAutoLoadMore = true;
     logLoadError = "";
-    state.logs = null;
-    $("logs-body").scrollTop = 0;
+    owner.logs = null;
+    scroller.scrollTop = 0;
   }
-  renderLogs();
+  renderLogsNow();
   try {
-    const page = await plugin("GET", logPath(offset));
+    const page = account ? await accountAPI(accountLogPath(offset)) : await plugin("GET", logPath(offset));
     // Search and status changes can overtake an older request. Only the newest
     // filter generation is allowed to replace or append table rows.
     if (ticket !== logRequest) return;
     const incoming = page.entries || [];
     const entries = existing.concat(incoming);
-    state.logs = { ...page, entries };
+    owner.logs = { ...page, entries };
     logHasMore = incoming.length > 0 && entries.length < Number(page.total || 0);
     logAutoLoadMore = true;
     logLoadError = "";
@@ -1627,7 +2111,7 @@ async function loadLogs(append) {
     if (ticket === logRequest) {
       logLoading = false;
       logLoadingMore = false;
-      renderLogs();
+      renderLogsNow();
     }
   }
 }
@@ -1649,7 +2133,7 @@ function renderLogs() {
     }
     return;
   }
-  labelLogStatuses(view.status_counts);
+  labelLogStatuses($("log-status"), view.status_counts);
   const entries = view.entries || [];
   note.textContent = "已加载 " + int(entries.length) + " / " + int(view.total) + " 条";
   const scroller = $("logs-body");
@@ -2016,16 +2500,158 @@ async function autoSyncKeys() {
   return summaries.join("；");
 }
 
-$("gate-submit").onclick = () => {
-  const key = $("gate-key").value.trim();
-  if (!key) { $("gate-error").textContent = "请输入管理密钥"; $("gate-error").className = "notice err show"; return; }
+async function submitLogin() {
+  const role = loginMode;
+  let key = $("gate-key").value.trim();
+  if (!key) key = await recalledCredential(role);
+  if (!key) {
+    $("gate-error").textContent = role === "account" ? "请输入 API Key" : "请输入管理密钥";
+    $("gate-error").className = "notice err show";
+    return;
+  }
   $("gate-submit").disabled = true;
-  start(key)
-    .then(() => { try { sessionStorage.setItem(FALLBACK_KEY, key); } catch (_) {} })
-    .catch((err) => gate(GATE_NO_PANEL_KEY, err instanceof AuthError ? err.message : ("连接失败：" + err.message)))
-    .finally(() => { $("gate-submit").disabled = false; });
-};
-$("gate-key").addEventListener("keydown", (event) => { if (event.key === "Enter") $("gate-submit").click(); });
+  try {
+    if (role === "account") await startAccount(key);
+    else await startAdmin(key);
+    if ($("gate-remember").checked) {
+      try {
+        await rememberCredential(role, key);
+      } catch (err) {
+        const message = "已登录，但无法在此浏览器中记住凭据：" + (err.message || err);
+        notify(message, "err");
+      }
+    } else {
+      await deleteCredential(role);
+    }
+    $("gate-key").value = "";
+  } catch (err) {
+    if (err instanceof AuthError) await deleteCredential(role);
+    showGate(role, err instanceof AuthError ? err.message : ("连接失败：" + (err.message || err)));
+  } finally {
+    $("gate-submit").disabled = false;
+  }
+}
+
+$("gate-form").onsubmit = (event) => { event.preventDefault(); submitLogin(); };
+$("gate-mode-admin").onclick = () => setLoginMode("admin");
+$("gate-mode-account").onclick = () => setLoginMode("account");
+
+function actionIcon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const paths = {
+    refresh: ["M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", "M21 3v5h-5"],
+    sun: ["M12 2v2", "M12 20v2", "M4.93 4.93l1.41 1.41", "M17.66 17.66l1.41 1.41", "M2 12h2", "M20 12h2", "M6.34 17.66l-1.41 1.41", "M19.07 4.93l-1.41 1.41", "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0"],
+    moon: ["M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"],
+    logout: ["M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4", "M16 17l5-5-5-5", "M21 12H9"],
+  };
+  for (const value of paths[name] || []) {
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    path.setAttribute("d", value);
+    svg.append(path);
+  }
+  return svg;
+}
+
+function setActionIcon(button, name, label) {
+  button.replaceChildren(actionIcon(name));
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
+function updateThemeButtons() {
+  const dark = window.billingTheme?.current() === "dark";
+  document.querySelectorAll('[data-page-action="theme"]').forEach((button) => {
+    setActionIcon(button, dark ? "sun" : "moon", dark ? "切换到浅色主题" : "切换到深色主题");
+  });
+}
+
+for (const button of document.querySelectorAll('[data-page-action="refresh"]')) {
+  setActionIcon(button, "refresh", "刷新");
+  button.onclick = () => refreshCurrentView(false);
+}
+for (const button of document.querySelectorAll('[data-page-action="logout"]')) {
+  setActionIcon(button, "logout", "退出登录");
+}
+document.querySelectorAll('[data-page-action="theme"]').forEach((button) => {
+  button.onclick = () => { window.billingTheme?.toggle(); updateThemeButtons(); };
+});
+document.querySelectorAll('[data-page-action="logout"]').forEach((button) => {
+  button.onclick = () => guard(async () => {
+    const role = currentRole || loginMode;
+    await deleteCredential(role);
+    accountState = { overview: null, prices: null, logs: null };
+    showGate(role, "");
+  });
+});
+window.addEventListener("billing-theme-change", updateThemeButtons);
+
+const AUTO_REFRESH_MS = 10000;
+let autoRefreshTimer = 0;
+let refreshPromise = null;
+
+function stopAutoRefresh() {
+  clearTimeout(autoRefreshTimer);
+  autoRefreshTimer = 0;
+}
+
+function scheduleAutoRefresh() {
+  stopAutoRefresh();
+  if (!currentRole || document.hidden) return;
+  autoRefreshTimer = setTimeout(() => {
+    autoRefreshTimer = 0;
+    refreshCurrentView(true);
+  }, AUTO_REFRESH_MS);
+}
+
+function refreshCurrentView(automatic) {
+  if (!currentRole || (automatic && document.hidden)) return Promise.resolve();
+  if (refreshPromise) return refreshPromise;
+  stopAutoRefresh();
+  document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => { button.disabled = true; });
+  refreshPromise = (async () => {
+    try {
+      if (currentRole === "account") await reloadAccount();
+      else await reloadAll();
+    } catch (err) {
+      if (err instanceof AuthError) {
+        await deleteCredential(currentRole);
+        showGate(currentRole, err.message);
+        return;
+      }
+      const message = (automatic ? "自动刷新失败：" : "刷新失败：") + (err.message || err);
+      notify(message, "err");
+    } finally {
+      refreshPromise = null;
+      document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => { button.disabled = false; });
+      scheduleAutoRefresh();
+    }
+  })();
+  return refreshPromise;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopAutoRefresh();
+  else if (currentRole) refreshCurrentView(true);
+});
+document.querySelectorAll("[data-account-tab]").forEach((button) => {
+  button.onclick = () => setAccountTab(button.dataset.accountTab);
+});
+$("account-price-filter").addEventListener("input", () =>
+  renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false));
+$("account-log-filter").addEventListener("input", () => {
+  clearTimeout(logSearchTimer);
+  logSearchTimer = setTimeout(() => {
+    logSearchTimer = 0;
+    guard(() => loadLogs(false, true));
+  }, 180);
+});
+$("account-log-status").onchange = () => guard(() => loadLogs(false, true));
+$("account-logs").addEventListener("scroll", () => {
+  hideCostTooltip();
+  maybeLoadMoreAccountLogs();
+}, { passive: true });
 
 const TABS = Array.from(document.querySelectorAll(".tabs button[data-tab]"));
 for (const tab of TABS) {
@@ -2126,7 +2752,8 @@ $("logs-clear").onclick = () => guard(async () => {
   await reloadAll();
 });
 
-$("price-filter").addEventListener("input", renderPrices);
+$("price-filter").addEventListener("input", () =>
+  renderPriceTable("prices-body", state.prices, $("price-filter").value, true));
 $("price-reference-search").addEventListener("input", () => {
   clearTimeout(priceReferenceTimer);
   priceReferenceTimer = setTimeout(() => {
@@ -2189,21 +2816,23 @@ resetGroupForm();
 
 (async function () {
   const panelKey = readPanelKey();
-  let fallback = "";
-  try { fallback = sessionStorage.getItem(FALLBACK_KEY) || ""; } catch (_) {}
-  const key = panelKey || fallback;
-  if (!key) {
-    gate(GATE_NO_PANEL_KEY, "");
-    return;
-  }
+  updateThemeButtons();
   try {
-    await start(key);
-  } catch (err) {
-    if (err instanceof AuthError) {
-      gate(panelKey ? GATE_REJECTED : GATE_NO_PANEL_KEY, err.message);
+    if (embedded && panelKey) {
+      await startAdmin(panelKey);
       return;
     }
-    gate(GATE_NO_PANEL_KEY, "连接失败：" + (err.message || err));
+    const saved = await recalledCredential(loginMode);
+    if (!saved) {
+      showGate(loginMode, "");
+      return;
+    }
+    $("gate-remember").checked = true;
+    if (loginMode === "account") await startAccount(saved);
+    else await startAdmin(saved);
+  } catch (err) {
+    await deleteCredential(loginMode);
+    showGate(loginMode, err instanceof AuthError ? err.message : ("连接失败：" + (err.message || err)));
   }
 })();
 </script>

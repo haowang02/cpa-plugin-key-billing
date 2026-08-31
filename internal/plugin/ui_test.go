@@ -20,6 +20,10 @@ func TestUIIsServedAsAStandaloneDocument(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Headers.Get("Content-Type"), "text/html") {
 		t.Fatalf("response = %+v, want an HTML document", resp)
 	}
+	if resp.Headers.Get("Cache-Control") != "private, no-store" || resp.Headers.Get("Referrer-Policy") != "no-referrer" ||
+		!strings.Contains(resp.Headers.Get("Content-Security-Policy"), "connect-src 'self'") {
+		t.Fatalf("security headers = %+v", resp.Headers)
+	}
 
 	body := string(resp.Body)
 	if !strings.HasPrefix(body, "<!doctype html>") {

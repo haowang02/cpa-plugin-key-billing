@@ -101,14 +101,15 @@ func (r *memoryRepository) Save(_ *State, changes Changes) error {
 // Searching, filtering and paging are the database's job and are tested there;
 // what this package asks of the log is which entries a mutation produced and
 // whose identity they carry.
-func (r *memoryRepository) Logs(_ LogQuery, since time.Time) (LogView, error) {
+func (r *memoryRepository) Logs(query LogQuery, since time.Time) (LogView, error) {
 	view := LogView{Entries: []LogRow{}}
 	for i := len(r.log) - 1; i >= 0; i-- {
 		entry := r.log[i]
-		if entry.At.Before(since) {
+		if entry.At.Before(since) || (query.Scope != "" && entry.Scope != query.Scope) {
 			continue
 		}
-		row := LogRow{LogEntry: entry, Source: r.state.Credentials[entry.AuthIndex].Name()}
+		credential := r.state.Credentials[entry.AuthIndex]
+		row := LogRow{LogEntry: entry, Source: credential.Name(), Provider: credential.Provider}
 		if key := r.state.Keys[entry.Scope]; key != nil {
 			row.Preview, row.Label = key.Preview, key.Label
 		}

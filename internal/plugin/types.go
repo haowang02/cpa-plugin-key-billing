@@ -18,7 +18,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "0.7.5"
+	Version    = "0.8.0"
 
 	MenuLabel       = "API Key 计费"
 	MenuDescription = "管理下游 API Key 的计费、并发限制、订阅额度和用量"
@@ -164,10 +164,11 @@ type ResourceRoute struct {
 }
 
 type ManagementRequest struct {
-	Method string     `json:"Method"`
-	Path   string     `json:"Path"`
-	Query  url.Values `json:"Query"`
-	Body   []byte     `json:"Body"`
+	Method  string      `json:"Method"`
+	Path    string      `json:"Path"`
+	Headers http.Header `json:"Headers"`
+	Query   url.Values  `json:"Query"`
+	Body    []byte      `json:"Body"`
 }
 
 type ManagementResponse struct {
