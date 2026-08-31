@@ -20,6 +20,7 @@
   --amber-color:#d97706; --amber-text:#92400e;
   --amber-10:color-mix(in srgb, var(--amber-color) 10%, transparent);
   --amber-30:color-mix(in srgb, var(--amber-color) 30%, transparent);
+  --quota-high-color:#10b981; --quota-medium-color:#e0aa14; --quota-low-color:var(--error-color);
   --primary-10:color-mix(in srgb, var(--primary-color) 10%, transparent);
   --shadow:0 1px 2px 0 #00000014;
   --radius-md:8px;
@@ -41,6 +42,7 @@
   --amber-color:#f59e0b; --amber-text:#fcd34d;
   --amber-10:color-mix(in srgb, var(--amber-color) 14%, transparent);
   --amber-30:color-mix(in srgb, var(--amber-color) 38%, transparent);
+  --quota-high-color:#0fae78; --quota-medium-color:#ffd862; --quota-low-color:#cf4b3a;
   --shadow:0 1px 3px 0 #0000004d;
 }
 :root[data-cpamp-plugin-host=true]{
@@ -71,6 +73,9 @@
   --info-badge-border:var(--data-badge-info-border,#bfdbfe);
   --amber-color:var(--color-warning,#f59e0b); --amber-text:var(--data-badge-warning-text,#d97706);
   --amber-10:var(--data-badge-warning-bg,#fffbeb); --amber-30:var(--data-badge-warning-border,#fde68a);
+  --quota-high-color:var(--success-color,var(--color-success,#10b981));
+  --quota-medium-color:var(--warning-color,var(--color-warning,#e0aa14));
+  --quota-low-color:var(--danger-color,var(--color-danger,var(--error-color)));
   --primary-10:var(--primary-ring,color-mix(in srgb,var(--primary-color) 10%,transparent));
   --table-header-bg:var(--app-surface-strong,var(--bg-primary));
   --table-header-bg:rgb(from var(--bg-primary) r g b / 1);
@@ -216,9 +221,12 @@ tbody tr:hover{background:var(--bg-hover)}
 }
 .usage{display:flex;flex-direction:column;gap:5px;min-width:118px;max-width:210px}
 .usage>span{font-size:12px;white-space:nowrap}
-.bar{height:6px;border-radius:3px;background:var(--bg-tertiary);overflow:hidden;min-width:56px}
-.bar>i{display:block;height:100%;background:var(--primary-color)}
-.bar.full>i{background:var(--error-color)}
+.bar{height:6px;border-radius:999px;background:color-mix(in srgb,var(--text-primary) 8%,transparent);overflow:hidden;min-width:56px}
+.quota-fill{display:block;height:100%;border-radius:999px;transition:width 360ms cubic-bezier(.23,1,.32,1)}
+.quota-fill.high{background:var(--quota-high-color)}
+.quota-fill.medium{background:var(--quota-medium-color)}
+.quota-fill.low{background:var(--quota-low-color)}
+@media (prefers-reduced-motion:reduce){.quota-fill{transition:none}}
 .concurrency-editor{display:flex;align-items:center;gap:7px;min-width:172px}
 .concurrency-editor .native-select,.concurrency-editor select{width:112px;min-width:112px}
 .concurrency-editor .small{white-space:nowrap}
@@ -262,8 +270,7 @@ tbody tr:hover{background:var(--bg-hover)}
 .icon-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 body.embedded .standalone-actions{display:none}
 .account-plan{display:grid;gap:10px}
-.account-progress{height:8px;overflow:hidden;border-radius:999px;background:var(--bg-tertiary)}
-.account-progress>i{display:block;height:100%;background:var(--primary-color)}
+.account-progress{height:6px;overflow:hidden;border-radius:999px;background:color-mix(in srgb,var(--text-primary) 8%,transparent)}
 .account-models{display:flex;gap:6px;flex-wrap:wrap}
 .account-empty{padding:40px 20px;text-align:center}
 .empty{padding:26px;text-align:center;color:var(--text-tertiary)}
@@ -700,7 +707,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <section id="account-tab-usage">
       <div class="card account-plan">
         <div class="row spread"><h2 id="account-plan-name" style="margin:0">订阅额度</h2><span id="account-reset" class="muted small"></span></div>
-        <div class="account-progress" role="progressbar" aria-label="本期额度使用率"><i id="account-progress-bar"></i></div>
+        <div class="account-progress" role="progressbar" aria-label="剩余额度"><i id="account-progress-bar" class="quota-fill"></i></div>
         <div id="account-plan-summary" class="muted small"></div>
       </div>
       <div class="card">
@@ -1028,6 +1035,11 @@ function usd(value) {
     maximumFractionDigits: digits,
   });
 }
+function remainingQuota(usedPercent) {
+  const used = Number(usedPercent || 0);
+  const percent = 100 - Math.max(0, Math.min(100, Number.isFinite(used) ? used : 0));
+  return { percent, level: percent >= 70 ? "high" : percent >= 30 ? "medium" : "low" };
+}
 function int(value) { return Number(value || 0).toLocaleString("zh-CN"); }
 function tokens(value) {
   const n = Number(value || 0);
@@ -1304,11 +1316,16 @@ function renderAccount() {
   $("account-plan-name").textContent = subscription.name || (subscription.unlimited ? "未绑定订阅计划" : "订阅额度");
   $("account-reset").textContent = subscription.cycle_end_at ? when(subscription.cycle_end_at) + " 重置" :
     (subscription.unlimited ? "不限制" : "未开始");
-  const percent = subscription.unlimited ? 0 : Math.max(0, Math.min(100, Number(subscription.used_percent || 0)));
-  $("account-progress-bar").style.width = percent + "%";
-  $("account-progress-bar").parentElement.setAttribute("aria-valuenow", String(Math.round(percent)));
+  const quota = remainingQuota(subscription.used_percent);
+  const progress = $("account-progress-bar");
+  const progressPercent = subscription.unlimited ? 0 : quota.percent;
+  progress.className = "quota-fill " + quota.level;
+  progress.style.width = progressPercent + "%";
+  progress.parentElement.setAttribute("aria-valuemin", "0");
+  progress.parentElement.setAttribute("aria-valuemax", "100");
+  progress.parentElement.setAttribute("aria-valuenow", String(Math.round(progressPercent)));
   $("account-plan-summary").textContent = subscription.unlimited ? "当前 API Key 未设置订阅额度" :
-    "已使用 " + usd(subscription.spent_usd) + " / " + usd(subscription.limit_usd) + "（" + percent.toFixed(2) + "%）";
+    "剩余 " + usd(subscription.remaining_usd) + " / " + usd(subscription.limit_usd) + "（" + quota.percent.toFixed(2) + "%）";
 
   const access = overview.model_access || {};
   const models = (access.all_models ? accountState.models : access.models || []).slice().sort(compareModelId);
@@ -1484,12 +1501,15 @@ function renderKeys() {
       }, el("option", { value: "", text: "不限制" }),
          state.plans.map((plan) => el("option", { value: plan.id, selected: plan.id === view.plan_id }, plan.name || plan.id)));
 
-      const percent = view.unlimited ? 0 : Math.min(100, view.used_percent || 0);
+      const quota = remainingQuota(view.used_percent);
       const usage = view.unlimited
         ? el("span", { class: "muted", text: "—" })
         : el("div", { class: "usage" },
-            el("span", { class: "mono" }, usd(view.spent_usd) + " / " + usd(view.limit_usd)),
-            el("div", { class: "bar" + (view.blocked ? " full" : "") }, el("i", { style: "width:" + percent + "%" })));
+            el("span", { class: "mono" }, "剩余 " + usd(Math.max(0, Number(view.limit_usd || 0) - Number(view.spent_usd || 0))) +
+              " / " + usd(view.limit_usd)),
+            el("div", { class: "bar", role: "progressbar", "aria-label": name + " 的剩余额度",
+              "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(quota.percent)) },
+              el("i", { class: "quota-fill " + quota.level, style: "width:" + quota.percent + "%" })));
 
       const currentConcurrencyLimit = Number(view.concurrency_limit || 0);
       const concurrencyValues = CONCURRENCY_OPTIONS.includes(currentConcurrencyLimit)
@@ -1558,7 +1578,7 @@ function renderKeys() {
     });
 
   replaceContent($("keys-body"), table(
-    ["API Key", "订阅计划", "可用模型", "并发数", "本期费用", "到期时间",
+    ["API Key", "订阅计划", "可用模型", "并发数", "剩余额度", "到期时间",
       { label: "累计请求", num: true }, { label: "累计费用", num: true }, "状态", "操作"],
     rows));
 }
