@@ -794,14 +794,12 @@ function latency(value) {
   if (milliseconds < 1000) return Math.round(milliseconds) + " ms";
   return (milliseconds / 1000).toFixed(2) + " s";
 }
-function outputTPS(cost, latencyMS, ttftMS, measured) {
+function outputTPS(cost, latencyMS, measured) {
   const totalLatency = Number(latencyMS || 0);
-  const firstTokenLatency = Number(ttftMS || 0);
-  const generationLatency = totalLatency - firstTokenLatency;
-  const outputTokens = Number(cost.billed_output_tokens || 0);
-  if (!measured || !Number.isFinite(generationLatency) || generationLatency <= 0 ||
-      !Number.isFinite(outputTokens) || outputTokens < 0) return "—";
-  return (outputTokens * 1000 / generationLatency).toFixed(1) + " t/s";
+  const totalOutputTokens = Number(cost.billed_output_tokens || 0);
+  if (!measured || !Number.isFinite(totalLatency) || totalLatency <= 0 ||
+      !Number.isFinite(totalOutputTokens) || totalOutputTokens < 0) return "—";
+  return (totalOutputTokens * 1000 / totalLatency).toFixed(1) + " t/s";
 }
 function cacheReadRate(cacheRead, totalInput) {
   const input = Number(totalInput || 0);
@@ -1706,7 +1704,7 @@ function renderLogs() {
         ),
         el("td", { class: "log-status" }, statusMarks),
         el("td", { class: "num" },
-          el("div", {}, outputTPS(cost, entry.latency_ms, entry.ttft_ms, measured)),
+          el("div", {}, outputTPS(cost, entry.latency_ms, measured)),
           el("div", {
             class: "muted small", title: hasTTFT ? "首字延迟 · 总延迟" : "总延迟",
           }, hasTTFT
