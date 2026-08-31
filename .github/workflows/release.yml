@@ -77,7 +77,7 @@ jobs:
             extension: dll
             cc: aarch64-w64-mingw32-gcc
             cc_target: aarch64-w64-windows-gnu
-            objdump: aarch64-w64-mingw32-objdump
+            objdump: llvm-objdump
             cache_salt: llvm-mingw-20260616
 
     steps:
@@ -124,7 +124,7 @@ jobs:
       - name: Restore Windows ARM64 CGO toolchain
         id: windows-arm64-toolchain
         if: matrix.os == 'windows' && matrix.arch == 'arm64'
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/llvm-mingw-20260616-ucrt-aarch64
           key: llvm-mingw-windows-arm64-20260616-312593669435bd0b
@@ -157,9 +157,17 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $binDirectory -Encoding utf8
           & $compiler --version
 
+      - name: Save Windows ARM64 CGO toolchain
+        if: matrix.os == 'windows' && matrix.arch == 'arm64' && steps.windows-arm64-toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}/llvm-mingw-20260616-ucrt-aarch64
+          key: llvm-mingw-windows-arm64-20260616-312593669435bd0b
+
       - name: Restore Windows Go build cache
+        id: windows-go-build-cache
         if: matrix.os == 'windows'
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: ~/AppData/Local/go-build
           key: windows-go-build-${{ matrix.arch }}-${{ matrix.cache_salt }}-${{ hashFiles('go.mod', 'go.sum', '**/*.go', 'internal/plugin/ui.html') }}
@@ -234,6 +242,13 @@ jobs:
             throw "Windows plugin build failed"
           }
           Remove-Item dist/cpa-key-billing.h -Force -ErrorAction SilentlyContinue
+
+      - name: Save Windows Go build cache
+        if: matrix.os == 'windows' && steps.windows-go-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/AppData/Local/go-build
+          key: windows-go-build-${{ matrix.arch }}-${{ matrix.cache_salt }}-${{ hashFiles('go.mod', 'go.sum', '**/*.go', 'internal/plugin/ui.html') }}
 
       - name: Verify and package Unix plugin
         if: matrix.os != 'windows'
