@@ -355,7 +355,12 @@ jobs:
           fi
 
           printf '### Changelog\n\n' > "$changelog"
-          git log --pretty=tformat:'%s%x09%h%x09%H' "$revision_range" \
+          git log --no-merges --extended-regexp --invert-grep \
+            --grep='^(build|chore|ci|docs|test)(\([^)]*\))?!?:' \
+            --pretty=tformat:'%s%x09%h%x09%H' "$revision_range" -- \
+            cmd internal go.mod go.sum \
+            ':(exclude,glob)**/*_test.go' \
+            ':(exclude,glob)**/testdata/**' \
             | while IFS="$(printf '\t')" read -r subject short_sha full_sha; do
                 printf -- '- %s ([%s](https://github.com/%s/commit/%s))\n' \
                   "$subject" "$short_sha" "$GITHUB_REPOSITORY" "$full_sha"
