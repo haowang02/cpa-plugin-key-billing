@@ -7,5 +7,6 @@ __pycache__
 *-state.json
 .DS_Store
 .claude
-.playwright-cli
 .agents
+.playwright/
+.playwright-cli/
