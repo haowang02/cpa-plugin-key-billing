@@ -11,12 +11,14 @@ import (
 )
 
 const (
-	managementBase              = "/v0/management/plugins/" + PluginID
-	resourceBase                = "/v0/resource/plugins/" + PluginID
-	resourceUIPath              = "/ui"
-	resourceAccountOverviewPath = "/account/overview"
-	resourceAccountPricesPath   = "/account/prices"
-	resourceAccountLogsPath     = "/account/logs"
+	managementBase               = "/v0/management/plugins/" + PluginID
+	resourceBase                 = "/v0/resource/plugins/" + PluginID
+	resourceUIPath               = "/ui"
+	resourceAccountOverviewPath  = "/account/overview"
+	resourceAccountPricesPath    = "/account/prices"
+	resourceAccountLogsPath      = "/account/logs"
+	resourceAccountAuthFilesPath = "/account/auth-files"
+	resourceAccountAuthQuotaPath = "/account/auth-files/quota"
 )
 
 //go:embed ui.html
@@ -43,6 +45,8 @@ const (
 	routeStats           = "/stats"
 	routeLogs            = "/logs"
 	routeEvents          = "/events"
+	routeAuthFiles       = "/auth-files"
+	routeAuthQuota       = "/auth-files/quota"
 )
 
 // Management routes must be exact paths because the host rejects ':' and '*'.
@@ -82,12 +86,16 @@ func managementRegistration() ManagementRegistrationResponse {
 			{Method: http.MethodDelete, Path: managementBase + routeLogs, Description: "清空计费日志。"},
 			{Method: http.MethodGet, Path: managementBase + routeEvents, Description: "查看插件运行日志。"},
 			{Method: http.MethodDelete, Path: managementBase + routeEvents, Description: "清空插件运行日志。"},
+			{Method: http.MethodGet, Path: managementBase + routeAuthFiles, Description: "查看认证文件。"},
+			{Method: http.MethodGet, Path: managementBase + routeAuthQuota, Description: "按需查看认证文件限额。"},
 		},
 		Resources: []ResourceRoute{
 			{Path: resourceBase + resourceUIPath, Menu: MenuLabel, Description: MenuDescription},
 			{Path: resourceBase + resourceAccountOverviewPath},
 			{Path: resourceBase + resourceAccountPricesPath},
 			{Path: resourceBase + resourceAccountLogsPath},
+			{Path: resourceBase + resourceAccountAuthFilesPath},
+			{Path: resourceBase + resourceAccountAuthQuotaPath},
 		},
 	}
 }
@@ -137,6 +145,12 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 	}
 	if req.Method == http.MethodGet && path == resourceBase+resourceAccountLogsPath {
 		return OKEnvelope(a.accountLogs(req))
+	}
+	if req.Method == http.MethodGet && path == resourceBase+resourceAccountAuthFilesPath {
+		return OKEnvelope(a.accountAuthFiles(req))
+	}
+	if req.Method == http.MethodGet && path == resourceBase+resourceAccountAuthQuotaPath {
+		return OKEnvelope(a.accountAuthQuota(req))
 	}
 	if path != managementBase && !strings.HasPrefix(path, managementBase+"/") {
 		return OKEnvelope(JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path))
@@ -203,6 +217,10 @@ func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementRe
 		return a.clearLogs()
 	case http.MethodGet + " " + routeEvents:
 		return a.listEvents()
+	case http.MethodGet + " " + routeAuthFiles:
+		return a.authFiles(false)
+	case http.MethodGet + " " + routeAuthQuota:
+		return a.authQuota(req, false)
 	case http.MethodDelete + " " + routeEvents:
 		return a.clearEvents()
 	default:

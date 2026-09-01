@@ -10,7 +10,12 @@ import (
 )
 
 type App struct {
-	store *billing.Store
+	store      *billing.Store
+	hostCaller HostCaller
+}
+
+func (a *App) SetHostCaller(caller HostCaller) {
+	a.hostCaller = caller
 }
 
 func NewApp() *App {

@@ -126,10 +126,12 @@ func TestManagementRegistrationDeclaresOneMenuResource(t *testing.T) {
 		t.Fatalf("Path = %q, want %q", resource.Path, resourceBase+resourceUIPath)
 	}
 	wantResources := map[string]bool{
-		resourceBase + resourceUIPath:              false,
-		resourceBase + resourceAccountOverviewPath: false,
-		resourceBase + resourceAccountPricesPath:   false,
-		resourceBase + resourceAccountLogsPath:     false,
+		resourceBase + resourceUIPath:               false,
+		resourceBase + resourceAccountOverviewPath:  false,
+		resourceBase + resourceAccountPricesPath:    false,
+		resourceBase + resourceAccountLogsPath:      false,
+		resourceBase + resourceAccountAuthFilesPath: false,
+		resourceBase + resourceAccountAuthQuotaPath: false,
 	}
 	for _, item := range registration.Resources {
 		if _, expected := wantResources[item.Path]; expected {

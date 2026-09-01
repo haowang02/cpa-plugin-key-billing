@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UI_PATH = ROOT / "internal" / "plugin" / "ui.html"
 API_BASE = "/v0/management/plugins/cpa-key-billing"
 ACCOUNT_BASE = "/v0/resource/plugins/cpa-key-billing/account"
-NOW = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+NOW = datetime.now().astimezone().replace(hour=20, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
 
 HOST_SHELL = r"""<!doctype html>
@@ -260,6 +260,231 @@ MODEL_GROUPS = [
     # An empty group grants nothing of its own, which the group tab marks.
     {"id": "draft", "name": "待整理", "models": []},
 ]
+
+
+AUTH_FILES = [
+    {
+        "auth_index": "auth-demo-xai-disabled",
+        "name": "xai-disabled@example.com.json",
+        "category": "xai",
+        "email": "xai-disabled@example.com",
+        "disabled": True,
+        "unavailable": False,
+        "quota_supported": False,
+        "quota_unavailable_reason": "认证文件已停用",
+    },
+    {
+        "auth_index": "auth-demo-codex-plus",
+        "name": "codex-7f84a219-demo.enterprise.automation.account@example.com-plus.json",
+        "category": "codex",
+        "email": "demo.enterprise.automation.account@example.com",
+        "disabled": False,
+        "unavailable": False,
+        "quota_supported": True,
+    },
+    {
+        "auth_index": "auth-demo-claude",
+        "name": "claude-team@example.com.json",
+        "category": "claude",
+        "email": "claude-team@example.com",
+        "disabled": False,
+        "unavailable": False,
+        "quota_supported": True,
+    },
+    {
+        "auth_index": "auth-demo-gemini",
+        "name": "gemini-cli@example.com.json",
+        "category": "gemini-cli",
+        "email": "gemini-cli@example.com",
+        "disabled": False,
+        "unavailable": False,
+        "quota_supported": False,
+    },
+    {
+        "auth_index": "auth-demo-codex-pro",
+        "name": "codex-pro@example.com.json",
+        "category": "codex",
+        "email": "pro@example.com",
+        "disabled": False,
+        "unavailable": False,
+        "quota_supported": True,
+    },
+    {
+        "auth_index": "auth-demo-codex-pro5x",
+        "name": "codex-pro-lite@example.com.json",
+        "category": "codex",
+        "email": "pro-lite@example.com",
+        "disabled": False,
+        "unavailable": False,
+        "quota_supported": True,
+    },
+    {
+        "auth_index": "auth-demo-codex-runtime",
+        "name": "codex-runtime-only.json",
+        "category": "codex",
+        "email": "runtime-only@example.com",
+        "disabled": False,
+        "unavailable": False,
+        "runtime_only": True,
+        "quota_supported": False,
+        "quota_unavailable_reason": "运行时认证文件没有可读取的物理凭据",
+    },
+    {
+        "auth_index": "auth-demo-antigravity",
+        "name": "antigravity@example.com.json",
+        "category": "antigravity",
+        "email": "antigravity@example.com",
+        "disabled": False,
+        "unavailable": False,
+        "quota_supported": True,
+    },
+    {
+        "auth_index": "auth-demo-kimi",
+        "name": "kimi@example.com.json",
+        "category": "kimi",
+        "email": "kimi@example.com",
+        "disabled": False,
+        "unavailable": True,
+        "quota_supported": True,
+    },
+    {
+        "auth_index": "auth-demo-xai-active",
+        "name": "xai-active@example.com.json",
+        "category": "xai",
+        "email": "xai-active@example.com",
+        "disabled": False,
+        "unavailable": False,
+        "quota_supported": True,
+    },
+]
+
+for auth_file in AUTH_FILES:
+    auth_file["cache_revision"] = iso(NOW - timedelta(minutes=5))
+
+AUTH_CATEGORY_ORDER = {"claude": 0, "antigravity": 1, "codex": 2, "xai": 3, "kimi": 4}
+AUTH_FILES.sort(
+    key=lambda item: (
+        AUTH_CATEGORY_ORDER.get(item["category"], 5),
+        item["category"].lower(),
+        item["name"].lower(),
+        item["auth_index"],
+    )
+)
+
+
+def quota_row(label, used_percent, reset_after_seconds, **extra):
+    return {
+        "label": label,
+        "used_percent": used_percent,
+        "reset_after_seconds": reset_after_seconds,
+        **extra,
+    }
+
+
+AUTH_FILE_QUOTAS = {
+    "auth-demo-codex-pro": {
+        "plan": "pro-20x",
+        "rate_limit_reset_credits_available_count": 1,
+        "quota": [
+            quota_row("周限额", 38, 432000),
+            quota_row(
+                "GPT-5.3-Codex-Spark 5 小时限额",
+                0,
+                18000,
+            ),
+            quota_row(
+                "GPT-5.3-Codex-Spark 周限额",
+                0,
+                604800,
+            ),
+        ],
+    },
+    "auth-demo-codex-plus": {
+        "plan": "plus",
+        "rate_limit_reset_credits_available_count": 1,
+        "quota": [
+            quota_row("5 小时限额", 65, 14400),
+            quota_row("周限额", 10, 518400),
+        ],
+    },
+    "auth-demo-codex-pro5x": {
+        "plan": "pro-5x",
+        "rate_limit_reset_credits_available_count": 1,
+        "quota": [
+            quota_row("5 小时限额", 44, 10800),
+            quota_row("周限额", 27, 259200),
+        ],
+    },
+    "auth-demo-claude": {
+        "plan": "Team",
+        "quota": [
+            quota_row("5 小时限额", 24, 12600),
+            quota_row("周限额", 41, 388800),
+            {
+                "label": "额外用量",
+                "used": 1250,
+                "limit": 10000,
+                "remaining": 8750,
+                "used_percent": 12.5,
+                "money_cents": True,
+            },
+        ],
+    },
+    "auth-demo-antigravity": {
+        "plan": "Google AI Pro",
+        "quota": [
+            quota_row(
+                "5 小时限额",
+                18,
+                64800,
+                group_label="Gemini Models",
+            ),
+            quota_row(
+                "周限额",
+                7,
+                64800,
+                group_label="Gemini Models",
+            ),
+        ],
+    },
+    "auth-demo-kimi": {
+        "quota": [
+            quota_row("5 小时限额", 52, 7200),
+            quota_row("周限额", 31, 345600),
+        ],
+    },
+    "auth-demo-xai-active": {
+        "quota": [
+            quota_row("周限额", 22, 410400),
+            {
+                "label": "月度额度",
+                "used": 850,
+                "limit": 5000,
+                "remaining": 4150,
+                "used_percent": 17,
+                "money_cents": True,
+                "reset_after_seconds": 1814400,
+            },
+        ],
+    },
+    "auth-demo-xai-disabled": {
+        "plan": "Free",
+        "quota": [quota_row("周限额", 100, 86400)],
+    },
+}
+
+
+def auth_file_quota(query):
+    auth_index = query.get("auth_index", [""])[0]
+    quota = AUTH_FILE_QUOTAS.get(auth_index)
+    if quota is None:
+        return None
+    auth_file = next(item for item in AUTH_FILES if item["auth_index"] == auth_index)
+    return {
+        "auth_revision": auth_file["cache_revision"],
+        "fetched_at": iso(NOW),
+        **quota,
+    }
 
 
 # Three shapes the picker has to put back on the screen: every model, a group
@@ -819,6 +1044,10 @@ def payload_for(path, query):
         return log_view(query)
     if path == f"{API_BASE}/events":
         return {"events": EVENTS}
+    if path == f"{API_BASE}/auth-files":
+        return {"files": AUTH_FILES}
+    if path == f"{API_BASE}/auth-files/quota":
+        return auth_file_quota(query)
     if path == f"{API_BASE}/prices/catalog":
         term = query.get("q", [""])[0].lower()
         return {"models": [row for row in PRICES if term in row["pattern"].lower()]}
@@ -881,7 +1110,14 @@ class Handler(BaseHTTPRequestHandler):
             if not authorization.startswith("Bearer ") or authorization[7:] not in api_keys:
                 self.send_json(401, {"error": {"message": "API Key 无效"}})
                 return
-        if parsed.path in (f"{ACCOUNT_BASE}/overview", f"{ACCOUNT_BASE}/prices", f"{ACCOUNT_BASE}/logs"):
+        account_paths = {
+            f"{ACCOUNT_BASE}/overview",
+            f"{ACCOUNT_BASE}/prices",
+            f"{ACCOUNT_BASE}/logs",
+            f"{ACCOUNT_BASE}/auth-files",
+            f"{ACCOUNT_BASE}/auth-files/quota",
+        }
+        if parsed.path in account_paths:
             if not authorization.startswith("Bearer ") or authorization[7:] not in api_keys:
                 self.send_json(401, {"error": {"message": "API Key 无效"}})
                 return
@@ -890,6 +1126,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, account_overview(index))
             elif parsed.path.endswith("/prices"):
                 self.send_json(200, account_price_view(index))
+            elif parsed.path.endswith("/auth-files"):
+                self.send_json(200, {"files": AUTH_FILES})
+            elif parsed.path.endswith("/auth-files/quota"):
+                payload = auth_file_quota(parse_qs(parsed.query))
+                if payload is None:
+                    self.send_json(404, {"error": {"message": "认证文件不存在或不支持限额查询"}})
+                else:
+                    self.send_json(200, payload)
             else:
                 self.send_json(200, account_log_view(parse_qs(parsed.query), LIVE_KEYS[index]["scope"]))
             return

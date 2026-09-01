@@ -14,6 +14,16 @@ typedef struct {
 	size_t len;
 } cliproxy_buffer;
 
+typedef int (*cliproxy_host_call_fn)(void*, const char*, const uint8_t*, size_t, cliproxy_buffer*);
+typedef void (*cliproxy_host_free_fn)(void*, size_t);
+
+typedef struct {
+	uint32_t abi_version;
+	void* host_ctx;
+	cliproxy_host_call_fn call;
+	cliproxy_host_free_fn free_buffer;
+} cliproxy_host_api;
+
 typedef int (*cliproxy_plugin_call_fn)(char*, uint8_t*, size_t, cliproxy_buffer*);
 typedef void (*cliproxy_plugin_free_fn)(void*, size_t);
 typedef void (*cliproxy_plugin_shutdown_fn)(void);
@@ -28,10 +38,31 @@ typedef struct {
 extern int cliproxyPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
 extern void cliproxyPluginFree(void*, size_t);
 extern void cliproxyPluginShutdown(void);
+
+static const cliproxy_host_api* stored_host;
+
+static void store_host_api(const cliproxy_host_api* host) {
+	stored_host = host;
+}
+
+static int call_host_api(const char* method, const uint8_t* request, size_t request_len, cliproxy_buffer* response) {
+	if (stored_host == NULL || stored_host->call == NULL) {
+		return 1;
+	}
+	return stored_host->call(stored_host->host_ctx, method, request, request_len, response);
+}
+
+static void free_host_buffer(void* ptr, size_t len) {
+	if (stored_host != NULL && stored_host->free_buffer != NULL && ptr != NULL) {
+		stored_host->free_buffer(ptr, len);
+	}
+}
 */
 import "C"
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"unsafe"
 
@@ -42,20 +73,65 @@ var app = plugin.NewApp()
 
 func main() {}
 
-// cliproxy_plugin_init fills in the plugin half of the ABI. The host also
-// passes its own callback table, which this plugin has no use for: everything
-// it needs arrives with the calls the host makes into it.
-//
 //export cliproxy_plugin_init
-func cliproxy_plugin_init(host unsafe.Pointer, api *C.cliproxy_plugin_api) C.int {
+func cliproxy_plugin_init(host *C.cliproxy_host_api, api *C.cliproxy_plugin_api) C.int {
 	if api == nil {
 		return 1
 	}
+	C.store_host_api(host)
+	app.SetHostCaller(callHost)
 	api.abi_version = C.uint32_t(plugin.ABIVersion)
 	api.call = C.cliproxy_plugin_call_fn(C.cliproxyPluginCall)
 	api.free_buffer = C.cliproxy_plugin_free_fn(C.cliproxyPluginFree)
 	api.shutdown = C.cliproxy_plugin_shutdown_fn(C.cliproxyPluginShutdown)
 	return 0
+}
+
+func callHost(method string, payload any) (json.RawMessage, error) {
+	rawPayload, errMarshal := json.Marshal(payload)
+	if errMarshal != nil {
+		return nil, fmt.Errorf("序列化 host callback %s：%w", method, errMarshal)
+	}
+	cMethod := C.CString(method)
+	defer C.free(unsafe.Pointer(cMethod))
+	var response C.cliproxy_buffer
+	var requestPtr *C.uint8_t
+	if len(rawPayload) > 0 {
+		request := C.CBytes(rawPayload)
+		if request == nil {
+			return nil, fmt.Errorf("分配 host callback %s 请求失败", method)
+		}
+		defer C.free(request)
+		requestPtr = (*C.uint8_t)(request)
+	}
+	callCode := C.call_host_api(cMethod, requestPtr, C.size_t(len(rawPayload)), &response)
+	if response.ptr != nil {
+		defer C.free_host_buffer(response.ptr, response.len)
+	}
+	var rawResponse []byte
+	if response.ptr != nil && response.len > 0 {
+		if response.len > C.size_t(^uint32(0)>>1) {
+			return nil, fmt.Errorf("host callback %s 响应过大", method)
+		}
+		rawResponse = C.GoBytes(response.ptr, C.int(response.len))
+	}
+	if len(rawResponse) == 0 {
+		return nil, fmt.Errorf("host callback %s 无响应，code=%d", method, int(callCode))
+	}
+	var envelope plugin.Envelope
+	if errUnmarshal := json.Unmarshal(rawResponse, &envelope); errUnmarshal != nil {
+		return nil, fmt.Errorf("解析 host callback %s 响应：%w", method, errUnmarshal)
+	}
+	if !envelope.OK {
+		if envelope.Error != nil {
+			return nil, fmt.Errorf("%s：%s", envelope.Error.Code, envelope.Error.Message)
+		}
+		return nil, fmt.Errorf("host callback %s 失败", method)
+	}
+	if callCode != 0 {
+		return nil, fmt.Errorf("host callback %s 返回 code=%d", method, int(callCode))
+	}
+	return append(json.RawMessage(nil), envelope.Result...), nil
 }
 
 //export cliproxyPluginCall

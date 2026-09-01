@@ -250,7 +250,7 @@ tbody tr:hover{background:var(--bg-hover)}
 .quota-fill.high{background:var(--quota-high-color)}
 .quota-fill.medium{background:var(--quota-medium-color)}
 .quota-fill.low{background:var(--quota-low-color)}
-@media (prefers-reduced-motion:reduce){body,button,input,select,textarea,.quota-fill{transition:none}}
+@media (prefers-reduced-motion:reduce){body,button,input,select,textarea,.quota-fill,.auth-file-card{transition:none}.auth-refresh-icon-button.loading svg{animation:none}}
 .concurrency-editor{display:flex;align-items:center;gap:7px;min-width:172px}
 .concurrency-editor .native-select,.concurrency-editor select{width:96px;min-width:96px}
 .concurrency-editor .small{white-space:nowrap}
@@ -298,6 +298,55 @@ body.embedded .standalone-actions{display:none}
 .account-models{display:flex;gap:6px;flex-wrap:wrap}
 .account-empty{padding:40px 20px;text-align:center}
 .empty{padding:26px;text-align:center;color:var(--text-tertiary)}
+.auth-filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.auth-filter-bar select{min-width:150px}
+.auth-filter-bar input[type=search]{width:min(360px,100%)}
+.toggle-filter{display:inline-flex;align-items:center;gap:8px;min-height:35px;padding:0 10px;
+  border:1px solid var(--border-primary);border-radius:var(--radius-md);color:var(--text-secondary);cursor:pointer;white-space:nowrap}
+.toggle-filter input{position:absolute;opacity:0;pointer-events:none}
+.toggle-track{position:relative;width:28px;height:16px;border-radius:999px;background:color-mix(in srgb,var(--text-primary) 18%,transparent);transition:background-color .15s}
+.toggle-track::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--bg-primary);box-shadow:0 1px 3px #0003;transition:transform .15s}
+.toggle-filter input:checked+.toggle-track{background:var(--primary-color)}
+.toggle-filter input:checked+.toggle-track::after{transform:translateX(12px)}
+.toggle-filter:focus-within{border-color:var(--primary-color);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary-color) 18%,transparent)}
+.auth-file-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;align-items:stretch}
+.auth-file-card{height:100%;min-width:0;padding:14px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--bg-secondary);
+  transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease,background-color .16s ease}
+@media (hover:hover){.auth-file-card:hover{transform:translateY(-2px);border-color:var(--border-hover);background:color-mix(in srgb,var(--bg-secondary) 92%,var(--primary-color));
+  box-shadow:0 7px 18px color-mix(in srgb,var(--text-primary) 10%,transparent)}}
+.auth-file-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.auth-file-main{display:flex;align-items:flex-start;gap:10px;min-width:0;flex:1}
+.auth-file-identity{min-width:0;flex:1}
+.auth-file-email-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.auth-file-meta{display:flex;align-items:center;gap:10px;min-width:0;overflow:hidden;margin-top:4px;color:var(--text-secondary);font-size:12px;white-space:nowrap}
+.auth-file-meta>span{flex:none}
+.auth-provider-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 30px;width:30px;height:30px;margin-top:2px;overflow:hidden;border-radius:50%;line-height:0}
+.auth-provider-icon svg{display:block;width:100%;height:100%;transform:scale(var(--auth-provider-icon-scale,.75))}
+.auth-provider-icon[data-provider=antigravity]{--auth-provider-icon-scale:.7;background:#fff}
+.auth-provider-icon[data-provider=claude]{--auth-provider-icon-scale:.75;background:#d97757;color:#fff}
+.auth-provider-icon[data-provider=codex]{--auth-provider-icon-scale:.7;background:#fff}
+.auth-provider-icon[data-provider=gemini]{--auth-provider-icon-scale:.8;background:#fff}
+.auth-provider-icon[data-provider=kimi]{--auth-provider-icon-scale:.6;background:#000}
+.auth-provider-icon[data-provider=xai]{--auth-provider-icon-scale:.75;background:#000;color:#fff}
+.auth-provider-icon[data-provider=antigravity],.auth-provider-icon[data-provider=codex],.auth-provider-icon[data-provider=gemini]{box-shadow:inset 0 0 0 1px rgb(0 0 0 / .05)}
+:root[data-theme=dark] .auth-provider-icon[data-provider=antigravity],:root[data-theme=dark] .auth-provider-icon[data-provider=codex],:root[data-theme=dark] .auth-provider-icon[data-provider=gemini]{box-shadow:none}
+:root[data-theme=dark] .auth-provider-icon[data-provider=kimi],:root[data-theme=dark] .auth-provider-icon[data-provider=xai]{box-shadow:inset 0 0 0 1px rgb(255 255 255 / .1)}
+.auth-file-actions{display:flex;align-items:center;gap:6px;flex:none}
+.auth-refresh-icon-button{display:grid;place-items:center;width:34px;min-width:34px;min-height:34px;padding:0;line-height:0}
+.auth-refresh-icon-button svg{display:block;width:16px;height:16px;overflow:visible;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;transform-origin:center}
+:root[data-cpamp-plugin-host=true] button.auth-refresh-icon-button{padding:0;line-height:0}
+.auth-refresh-icon-button.loading svg{animation:auth-refresh-spin .8s linear infinite}
+@keyframes auth-refresh-spin{to{transform:rotate(360deg)}}
+.auth-file-quota{display:grid;gap:11px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color)}
+.auth-quota-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--text-secondary);font-size:12px}
+.auth-quota-list{display:grid;grid-template-columns:minmax(0,1fr);gap:11px}
+.auth-quota-row{display:grid;gap:4px;min-width:0}
+.auth-quota-line{display:flex;align-items:baseline;gap:10px;min-width:0}
+.auth-quota-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);font-size:12px;font-weight:600}
+.auth-quota-stats{display:flex;align-items:baseline;gap:7px;min-width:0;white-space:nowrap;color:var(--text-tertiary);font-size:11px;font-variant-numeric:tabular-nums}
+.auth-quota-value{color:var(--text-primary);font-size:12px;font-weight:600}
+.auth-quota-error{padding:9px 10px;border:1px solid var(--failure-badge-border);border-radius:var(--radius-md);background:var(--failure-badge-bg);color:var(--failure-badge-text);font-size:12px;overflow-wrap:anywhere}
+:root[data-cpamp-plugin-host=true] .auth-file-card{background:var(--surface-subtle,var(--app-surface-strong,var(--bg-secondary)))}
 dialog{border:1px solid var(--border-color);border-radius:12px;background:var(--floating-surface);
   color:var(--text-primary);box-shadow:var(--floating-shadow);padding:18px;
   width:min(420px,calc(100vw - 32px));min-width:0;max-width:90vw}
@@ -484,6 +533,10 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .section-toolbar>.section-actions{flex:1 1 100%;width:100%}
   .section-actions .wide-search,#price-filter,#account-price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
   .section-actions #log-note{flex:1 0 100%}
+  .auth-filter-bar{display:grid;grid-template-columns:1fr 1fr}
+  .auth-filter-bar input[type=search]{grid-column:1/-1;width:100%}
+  .auth-filter-bar select,.toggle-filter{width:100%;min-width:0}
+  .auth-file-grid{grid-template-columns:1fr}
   .log-card{height:clamp(560px,calc(100dvh - 20px),760px)}
   .log-filter-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .log-filter-bar>select,.log-filter-bar #log-key{width:100%;min-width:0;max-width:none}
@@ -643,6 +696,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <button data-tab="groups">模型分组</button>
     <button data-tab="prices">模型定价</button>
     <button data-tab="logs">计费日志</button>
+    <button data-tab="auth-files">认证文件</button>
     <button data-tab="events">插件日志</button>
   </div>
 
@@ -788,6 +842,23 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <div id="log-time-backdrop" class="time-range-backdrop hidden"></div>
   </section>
 
+  <section id="tab-auth-files" class="hidden">
+    <div class="card">
+      <div class="row spread section-toolbar" style="margin-bottom:12px">
+        <h2 style="margin:0">认证文件</h2><button id="auth-refresh-filtered" type="button">更新限额</button>
+      </div>
+      <div class="auth-filter-bar">
+        <label class="toggle-filter"><input id="auth-enabled-only" type="checkbox" checked><span class="toggle-track" aria-hidden="true"></span><span>仅启用</span></label>
+        <select id="auth-provider" aria-label="按认证文件类别筛选">
+          <option value="">全部类别</option><option value="claude">Claude</option><option value="antigravity">Antigravity</option>
+          <option value="codex">Codex</option><option value="xai">xAI</option><option value="kimi">Kimi</option>
+        </select>
+        <input id="auth-search" type="search" placeholder="搜索认证文件" autocomplete="off">
+      </div>
+      <div id="auth-files-body"></div>
+    </div>
+  </section>
+
   <section id="tab-events" class="hidden">
     <div class="card log-card">
       <div class="row spread section-toolbar" style="margin-bottom:12px">
@@ -837,6 +908,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
       <button type="button" class="active" data-account-tab="usage">订阅用量</button>
       <button type="button" data-account-tab="prices">模型定价</button>
       <button type="button" data-account-tab="logs">计费日志</button>
+      <button type="button" data-account-tab="auth-files">认证文件</button>
     </nav>
     <section id="account-tab-usage">
       <div class="card account-plan">
@@ -913,6 +985,22 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
         <div class="log-footer"><span id="account-log-note" class="muted small"></span></div>
       </div>
       <div id="account-log-time-backdrop" class="time-range-backdrop hidden"></div>
+    </section>
+    <section id="account-tab-auth-files" class="hidden">
+      <div class="card">
+        <div class="row spread section-toolbar" style="margin-bottom:12px">
+          <h2 style="margin:0">认证文件</h2><button id="account-auth-refresh-filtered" type="button">更新限额</button>
+        </div>
+        <div class="auth-filter-bar">
+          <label class="toggle-filter"><input id="account-auth-enabled-only" type="checkbox" checked><span class="toggle-track" aria-hidden="true"></span><span>仅启用</span></label>
+          <select id="account-auth-provider" aria-label="按认证文件类别筛选">
+            <option value="">全部类别</option><option value="claude">Claude</option><option value="antigravity">Antigravity</option>
+            <option value="codex">Codex</option><option value="xai">xAI</option><option value="kimi">Kimi</option>
+          </select>
+          <input id="account-auth-search" type="search" placeholder="搜索认证文件" autocomplete="off">
+        </div>
+        <div id="account-auth-files-body"></div>
+      </div>
     </section>
   </section>
 </main>
@@ -1015,13 +1103,46 @@ function readPanelKey() {
 
 const embedded = window.parent !== window;
 document.body.classList.toggle("embedded", embedded);
+const ADMIN_TAB_IDS = ["keys", "plans", "groups", "prices", "logs", "auth-files", "events"];
+const ACCOUNT_TAB_IDS = ["usage", "prices", "logs", "auth-files"];
+const PAGE_ROUTE_KEY = "cpa-key-billing.route.v1." + (embedded ? "embedded" : "standalone");
+
+function parsePageRoute(value) {
+  const [role, tab] = value.split("/");
+  if (role === "account") return { role, tab: ACCOUNT_TAB_IDS.includes(tab) ? tab : "usage" };
+  if (role === "admin") return { role, tab: ADMIN_TAB_IDS.includes(tab) ? tab : "keys" };
+  if (ADMIN_TAB_IDS.includes(role)) return { role: "admin", tab: role };
+  return null;
+}
+
+function pageRoute() {
+  const direct = parsePageRoute(location.hash.slice(1));
+  if (direct) return direct;
+  try {
+    const stored = parsePageRoute(sessionStorage.getItem(PAGE_ROUTE_KEY) || "");
+    if (stored) return stored;
+  } catch (_) {}
+  return { role: "admin", tab: "keys" };
+}
+
+function writePageRoute(role, tab) {
+  try { sessionStorage.setItem(PAGE_ROUTE_KEY, role + "/" + tab); } catch (_) {}
+  const hash = "#" + role + "/" + tab;
+  if (location.hash !== hash) history.replaceState(null, "", hash);
+}
+
+const initialRoute = pageRoute();
 let authKey = "";
 let currentRole = "";
-let loginMode = location.hash === "#account" ? "account" : "admin";
+let loginMode = initialRoute.role;
 let loginModeRequest = 0;
-let state = { keys: [], plans: [], prices: [], groups: [], status: null, stats: null, logs: null, events: null };
-let accountState = { overview: null, prices: null, logs: null, models: [] };
-let accountTab = "usage";
+let state = { keys: [], plans: [], prices: [], groups: [], status: null, stats: null, logs: null, events: null,
+  authFiles: null, authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map() };
+let accountState = { overview: null, prices: null, logs: null, models: [], authFiles: null,
+  authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map() };
+let authQuotaGeneration = { admin: 0, account: 0 };
+let authQuotaScope = { admin: "", account: "" };
+let accountTab = initialRoute.role === "account" ? initialRoute.tab : "usage";
 
 function credentialRequest(request) {
   return new Promise((resolve, reject) => {
@@ -1180,12 +1301,24 @@ class AuthError extends Error {}
 
 async function api(method, path, body, opts) {
   const init = { method, headers: { "Authorization": "Bearer " + authKey } };
+  const timeoutMS = Number(opts?.timeoutMS || 0);
+  const controller = timeoutMS > 0 ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMS) : 0;
+  if (controller) init.signal = controller.signal;
   if (body !== undefined && body !== null) {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const resp = await fetch(location.origin + path, init);
-  const text = await resp.text();
+  let resp, text;
+  try {
+    resp = await fetch(location.origin + path, init);
+    text = await resp.text();
+  } catch (error) {
+    if (controller?.signal.aborted) throw new Error("请求超时，请稍后重试");
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
   let payload = null;
   if (text) { try { payload = JSON.parse(text); } catch (_) { payload = null; } }
   if (!resp.ok) {
@@ -1199,8 +1332,8 @@ async function api(method, path, body, opts) {
   return (opts && opts.raw) ? payload : unescapeDeep(payload);
 }
 
-const plugin = (method, path, body) => api(method, PLUGIN_BASE + path, body);
-const accountAPI = (path) => api("GET", ACCOUNT_BASE + path, null, { raw: true });
+const plugin = (method, path, body, opts) => api(method, PLUGIN_BASE + path, body, opts);
+const accountAPI = (path, opts) => api("GET", ACCOUNT_BASE + path, null, { ...(opts || {}), raw: true });
 
 function modelIDs(payload) {
   const list = (payload && payload.data) || (payload && payload.models) || (Array.isArray(payload) ? payload : []);
@@ -1366,11 +1499,9 @@ function previewCredential(value) {
 async function setLoginMode(mode, preserveError) {
   const ticket = ++loginModeRequest;
   loginMode = mode === "account" ? "account" : "admin";
-  if (!embedded) {
-    const url = new URL(location.href);
-    url.hash = loginMode === "account" ? "account" : "";
-    history.replaceState(null, "", url);
-  }
+  const route = pageRoute();
+  const tab = route.role === loginMode ? route.tab : loginMode === "account" ? "usage" : "keys";
+  writePageRoute(loginMode, tab);
   const account = loginMode === "account";
   $("gate-mode-admin").classList.toggle("active", !account);
   $("gate-mode-admin").setAttribute("aria-selected", String(!account));
@@ -1393,6 +1524,7 @@ async function setLoginMode(mode, preserveError) {
 
 function showGate(mode, error) {
   stopAutoRefresh();
+  if (currentRole) clearAuthQuotaCache(currentRole === "account");
   authKey = "";
   currentRole = "";
   $("app").classList.add("hidden");
@@ -1409,6 +1541,9 @@ async function startAdmin(key) {
   authKey = key;
   // Repeated invalid management keys can trigger an IP ban, so probe once only.
   await plugin("GET", "/status");
+  await activateAuthQuotaCache(false, key);
+  const route = pageRoute();
+  setAdminTab(route.role === "admin" ? route.tab : "keys", false);
   $("gate").classList.add("hidden");
   $("account-app").classList.add("hidden");
   $("app").classList.remove("hidden");
@@ -1424,11 +1559,13 @@ async function startAccount(key) {
   // CLIProxyAPI remains authoritative for whether this downstream key is
   // currently valid. The plugin endpoint only uses the key to select its hash.
   accountState.models = modelIDs(await api("GET", "/v1/models", null, { raw: true }));
+  await activateAuthQuotaCache(true, key);
   $("gate").classList.add("hidden");
   $("app").classList.add("hidden");
   $("account-app").classList.remove("hidden");
   $("account-identity").textContent = previewCredential(key);
-  setAccountTab("usage", false);
+  const route = pageRoute();
+  setAccountTab(route.role === "account" ? route.tab : "usage", false);
   await reloadAccount();
   scheduleAutoRefresh();
 }
@@ -1441,10 +1578,12 @@ async function reloadAll() {
   // The two logs stay out of it. They are the payloads that grow with traffic
   // rather than with configuration, so each is fetched only while its own tab
   // is open, and the billing log arrives incrementally in bounded batches.
-  const [overview, events] = await Promise.all([
+  const authFilesActive = !!document.querySelector('[data-tab="auth-files"].active');
+  const [overview, events, , authFiles] = await Promise.all([
     plugin("GET", "/overview"),
     document.querySelector('[data-tab="events"].active') ? plugin("GET", "/events") : Promise.resolve(null),
     document.querySelector('[data-tab="logs"].active') ? loadLogs() : Promise.resolve(null),
+    authFilesActive ? plugin("GET", "/auth-files") : Promise.resolve(null),
   ]);
   state.status = overview.status;
   // Deleted keys stay in the directory so the summary still counts their spend
@@ -1456,6 +1595,7 @@ async function reloadAll() {
   state.groups = overview.model_groups || [];
   state.stats = overview.stats;
   if (events) state.events = events.events || [];
+  if (authFiles) updateAuthFiles(false, authFiles.files || []);
   render();
 }
 
@@ -1465,18 +1605,22 @@ async function reloadAccount() {
     accountState.prices = await accountAPI("/prices");
   } else if (accountTab === "logs") {
     await loadLogs(false, true);
+  } else if (accountTab === "auth-files") {
+    const authFiles = await accountAPI("/auth-files");
+    updateAuthFiles(true, authFiles.files || []);
   }
   renderAccount();
 }
 
 function setAccountTab(tab, reload) {
-  accountTab = ["usage", "prices", "logs"].includes(tab) ? tab : "usage";
+  accountTab = ACCOUNT_TAB_IDS.includes(tab) ? tab : "usage";
+  writePageRoute("account", accountTab);
   document.querySelectorAll("[data-account-tab]").forEach((button) => {
     const active = button.dataset.accountTab === accountTab;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
   });
-  for (const name of ["usage", "prices", "logs"]) {
+  for (const name of ACCOUNT_TAB_IDS) {
     $("account-tab-" + name).classList.toggle("hidden", name !== accountTab);
   }
   if (reload !== false && currentRole === "account") {
@@ -1544,6 +1688,7 @@ function renderAccount() {
     renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false);
   }
   if (accountTab === "logs") renderAccountLogs();
+  if (accountTab === "auth-files") renderAuthFiles(true);
 }
 
 function renderAccountLogs() {
@@ -1632,6 +1777,402 @@ function renderAccountLogs() {
   requestAnimationFrame(() => maybeLoadMoreLogs(true));
 }
 
+const AUTH_CATEGORY_LABELS = { claude: "Claude", antigravity: "Antigravity", codex: "Codex", xai: "xAI", kimi: "Kimi" };
+// Lobe Icons provider marks and avatar treatments, matching keeper's source and mapping.
+const AUTH_PROVIDER_ICONS = {
+  claude: { viewBox: "0 0 24 24", paths: [
+    { fill: "currentColor", d: "M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" },
+  ] },
+  antigravity: { viewBox: "0 0 64 59", paths: [
+    { fill: "#3789F9", transform: "translate(28,0)", d: "M0 0h8l6 4 5 10 8 26 5 10 4 4-1 5h-5l-8-7-11-17-5-2-7 1-5 5-8 13-8 7h-6l1-6 5-6 5-13 7-22 5-9z" },
+    { fill: "#6D80D8", transform: "translate(28,0)", d: "M0 0h8l6 4 5 10 6 21-4-1-5-5-5-3-4-6v-2l-5-2-5-1-5 3-4 1 3-10 5-7z" },
+    { fill: "#D78240", transform: "translate(28,0)", d: "M0 0h8l6 4 5 10 1 5-7-4-3-3-7-2-4-2-6-1 3-5z" },
+    { fill: "#3294CC", transform: "translate(25,14)", d: "M0 0l5 1 5 3 2 5-11-1-6 5-5 8-3 5h-3l7-21 5-3z" },
+    { fill: "#E45C49", transform: "translate(36,1)", d: "M0 0l5 2 5 8 2 8-7-4-4-4-1-6-3-1 3-1z" },
+    { fill: "#90AE64", transform: "translate(21,7)", d: "M0 0l9 1 3 2v2l-5 1-3 2-5 3-4 1 3-10z" },
+    { fill: "#53A89A", transform: "translate(25,14)", d: "M0 0l5 1v3l-7 3-5 4-4-1 2-5 5-3z" },
+    { fill: "#B5677D", transform: "translate(33,11)", d: "M0 0h5l11 9 1 4-5-1-4-3V7L4 5 0 2z" },
+    { fill: "#778998", transform: "translate(27,12)", d: "M0 0h6l8 6 5 5 4 1-1 3-7-3-5-4V6L4 5z" },
+    { fill: "#3390DF", transform: "translate(26,21)", d: "M0 0l4 2-15 15-1-3 7-10z" },
+    { fill: "#3FA1B7", transform: "translate(27,18)", d: "M0 0l2 1-6 4-5 4-4 4-1-3 1-3 7-3 3-3z" },
+    { fill: "#8277BB", transform: "translate(37,18)", d: "M0 0h4l5 5 4 1-1 3-7-3-5-4z" },
+    { fill: "#4989CF", transform: "translate(30,17)", d: "M0 0l5 1 2 5-9-1z" },
+    { fill: "#71B774", transform: "translate(23,12)", d: "M0 0l5 1-3 2-5 3-4 1 1-4z" },
+    { fill: "#6687E9", transform: "translate(44,28)", d: "M0 0l7 1 2 6-4-1-5-5z" },
+    { fill: "#C7AF38", transform: "translate(23,3)", d: "M0 0h7l-2 1v2l3 1-4 1-6-1z" },
+    { fill: "#EF842A", transform: "translate(28,0)", d: "M0 0h8v3L4 4l-8-1z" },
+    { fill: "#F35241", transform: "translate(36,1)", d: "M0 0l5 2 4 6-1 3-6-8-2-1z" },
+  ] },
+  codex: { viewBox: "0 0 24 24", paths: [
+    { fill: "#5965e8", d: "M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275a.09.09 0 00.08.021 4.55 4.55 0 013.046.275l.163.079a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00-.021-.104 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388zm3.482 10.565a.637.637 0 000 1.272h3.636a.637.637 0 100-1.272h-3.636zM8.462 9.23a.637.637 0 00-1.106.631l1.272 2.224-1.266 2.136a.636.636 0 101.095.649l1.454-2.455a.636.636 0 00.005-.64L8.462 9.23z" },
+  ] },
+  gemini: { viewBox: "0 0 24 24", paths: [
+    { fill: "#3186FF", d: "M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z" },
+  ] },
+  kimi: { viewBox: "0 0 24 24", paths: [
+    { fill: "#1783FF", d: "M21.846 0a1.923 1.923 0 110 3.846H20.15a.226.226 0 01-.227-.226V1.923C19.923.861 20.784 0 21.846 0z" },
+    { fill: "#fff", d: "M11.065 11.199l7.257-7.2c.137-.136.06-.41-.116-.41H14.3a.164.164 0 00-.117.051l-7.82 7.756c-.122.12-.302.013-.302-.179V3.82c0-.127-.083-.23-.185-.23H3.186c-.103 0-.186.103-.186.23V19.77c0 .128.083.23.186.23h2.69c.103 0 .186-.102.186-.23v-3.25c0-.069.025-.135.069-.178l2.424-2.406a.158.158 0 01.205-.023l6.484 4.772a7.677 7.677 0 003.453 1.283c.108.012.2-.095.2-.23v-3.06c0-.117-.07-.212-.164-.227a5.028 5.028 0 01-2.027-.807l-5.613-4.064c-.117-.078-.132-.279-.028-.381z" },
+  ] },
+  xai: { viewBox: "0 0 24 24", paths: [
+    { fill: "currentColor", d: "M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383L24 .5l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815" },
+  ] },
+};
+
+function authProviderIcon(category) {
+  const key = category === "gemini-cli" || category === "gemini-interactions" ? "gemini" : category;
+  const icon = AUTH_PROVIDER_ICONS[key];
+  if (!icon) return null;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", icon.viewBox);
+  svg.setAttribute("aria-hidden", "true");
+  for (const item of icon.paths) {
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    for (const [name, value] of Object.entries(item)) if (name !== "d") path.setAttribute(name, value);
+    path.setAttribute("d", item.d);
+    svg.append(path);
+  }
+  return el("span", { class: "auth-provider-icon", "data-provider": key, "aria-hidden": "true" }, svg);
+}
+
+function authUI(account) {
+  const prefix = account ? "account-auth" : "auth";
+  return {
+    owner: account ? accountState : state,
+    body: $(prefix + "-files-body"),
+    enabledOnly: $(prefix + "-enabled-only"),
+    provider: $(prefix + "-provider"),
+    search: $(prefix + "-search"),
+    bulk: $(prefix + "-refresh-filtered"),
+  };
+}
+
+const AUTH_QUOTA_CACHE_PREFIX = "cpa-key-billing.auth-quotas.v1.";
+
+function resetAuthQuotaMemory(account) {
+  const role = account ? "account" : "admin";
+  const owner = account ? accountState : state;
+  authQuotaGeneration[role]++;
+  owner.authQuotas.clear();
+  owner.authQuotaLoading.clear();
+  owner.authQuotaErrors.clear();
+  const bulk = authUI(account).bulk;
+  if (bulk) {
+    bulk.dataset.loading = "false";
+    bulk.textContent = "更新限额";
+  }
+}
+
+function authQuotaStorageKey(role) {
+  const scope = authQuotaScope[role];
+  return scope ? AUTH_QUOTA_CACHE_PREFIX + role + "." + scope : "";
+}
+
+function persistAuthQuotaCache(account) {
+  const role = account ? "account" : "admin";
+  const key = authQuotaStorageKey(role);
+  if (!key) return;
+  const owner = account ? accountState : state;
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ entries: [...owner.authQuotas] }));
+  } catch (_) {}
+}
+
+function clearAuthQuotaCache(account) {
+  const role = account ? "account" : "admin";
+  const key = authQuotaStorageKey(role);
+  if (key) {
+    try { sessionStorage.removeItem(key); } catch (_) {}
+  }
+  authQuotaScope[role] = "";
+  resetAuthQuotaMemory(account);
+}
+
+async function activateAuthQuotaCache(account, credential) {
+  const role = account ? "account" : "admin";
+  resetAuthQuotaMemory(account);
+  authQuotaScope[role] = "";
+  if (!window.crypto?.subtle) return;
+  let digest;
+  try {
+    const bytes = new TextEncoder().encode(role + "|" + credential);
+    digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  } catch (_) { return; }
+  authQuotaScope[role] = [...digest].slice(0, 16).map((value) => value.toString(16).padStart(2, "0")).join("");
+  let cached;
+  try { cached = JSON.parse(sessionStorage.getItem(authQuotaStorageKey(role)) || "null"); } catch (_) { return; }
+  if (!Array.isArray(cached?.entries)) return;
+  const owner = account ? accountState : state;
+  for (const entry of cached.entries) {
+    if (Array.isArray(entry) && typeof entry[0] === "string" && entry[1] && typeof entry[1] === "object") {
+      owner.authQuotas.set(entry[0], entry[1]);
+    }
+  }
+}
+
+function updateAuthFiles(account, files) {
+  const role = account ? "account" : "admin";
+  const owner = account ? accountState : state;
+  const byIndex = new Map(files.map((file) => [file.auth_index, file]));
+  const previous = new Map((owner.authFiles || []).map((file) => [file.auth_index, file.cache_revision || ""]));
+  const changed = new Set(files.filter((file) => previous.has(file.auth_index) &&
+    previous.get(file.auth_index) !== (file.cache_revision || "")).map((file) => file.auth_index));
+  const staleIndex = (index) => {
+    const file = byIndex.get(index);
+    if (!file || changed.has(index)) return true;
+    const result = owner.authQuotas.get(index);
+    return !!file.cache_revision && !!result && result.auth_revision !== file.cache_revision;
+  };
+  const stale = [...owner.authQuotas.keys(), ...owner.authQuotaErrors.keys(), ...owner.authQuotaLoading]
+    .some(staleIndex);
+  owner.authFiles = files;
+  if (!stale) return;
+  authQuotaGeneration[role]++;
+  for (const index of owner.authQuotas.keys()) if (staleIndex(index)) owner.authQuotas.delete(index);
+  for (const index of owner.authQuotaErrors.keys()) if (staleIndex(index)) owner.authQuotaErrors.delete(index);
+  owner.authQuotaLoading.clear();
+  persistAuthQuotaCache(account);
+}
+
+function authQuotaCacheCurrent(account, owner, generation, index) {
+  const role = account ? "account" : "admin";
+  const currentOwner = account ? accountState : state;
+  return owner === currentOwner && generation === authQuotaGeneration[role] &&
+    (owner.authFiles || []).some((file) => file.auth_index === index);
+}
+
+function authPlanLabel(category, value) {
+  const plan = String(value || "").trim();
+  if (!plan) return "";
+  if (category === "codex") {
+    const labels = new Map([
+      ["free", "Free"], ["plus", "Plus"], ["team", "Team"],
+      ["pro-5x", "Pro 5x"], ["pro-20x", "Pro 20x"], ["enterprise", "Enterprise"],
+    ]);
+    const known = labels.get(plan.toLocaleLowerCase());
+    if (known) return known;
+  }
+  return plan;
+}
+
+function filteredAuthFiles(account) {
+  const ui = authUI(account);
+  const provider = ui.provider.value;
+  const search = ui.search.value.trim().toLocaleLowerCase();
+  return (ui.owner.authFiles || []).filter((file) => {
+    if (ui.enabledOnly.checked && file.disabled) return false;
+    if (provider && file.category !== provider) return false;
+    if (!search) return true;
+    const currentPlan = ui.owner.authQuotas.get(file.auth_index)?.plan;
+    return [file.name, file.email, currentPlan, file.category]
+      .some((value) => String(value || "").toLocaleLowerCase().includes(search));
+  });
+}
+
+function quotaRemaining(row) {
+  let percent = null;
+  if (Number.isFinite(Number(row.remaining_fraction))) percent = Number(row.remaining_fraction) * 100;
+  else if (Number.isFinite(Number(row.used_percent))) percent = 100 - Number(row.used_percent);
+  else if (Number(row.limit) > 0 && Number.isFinite(Number(row.remaining))) percent = Number(row.remaining) / Number(row.limit) * 100;
+  if (percent === null) return null;
+  percent = Math.max(0, Math.min(100, percent));
+  return { percent, level: percent >= 70 ? "high" : percent >= 30 ? "medium" : "low" };
+}
+
+function compactResetDate(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return "";
+  const pad = (part) => String(part).padStart(2, "0");
+  return pad(date.getMonth() + 1) + "/" + pad(date.getDate()) + " " + pad(date.getHours()) + ":" + pad(date.getMinutes());
+}
+
+function compactResetAfter(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 60) return "不到1分钟后";
+  if (seconds >= 86400) return Math.floor(seconds / 86400) + "天后";
+  if (seconds >= 3600) return Math.floor(seconds / 3600) + "小时后";
+  return Math.floor(seconds / 60) + "分钟后";
+}
+
+function quotaResetMeta(row, fetchedAt) {
+  const seconds = Number(row.reset_after_seconds);
+  let resetAt = row.reset_at ? new Date(row.reset_at) : null;
+  if ((!resetAt || isNaN(resetAt.getTime())) && Number.isFinite(seconds) && seconds >= 0) {
+    const fetched = new Date(fetchedAt);
+    const base = isNaN(fetched.getTime()) ? Date.now() : fetched.getTime();
+    resetAt = new Date(base + seconds * 1000);
+  }
+  const after = Number.isFinite(seconds) && seconds >= 0
+    ? seconds
+    : resetAt && !isNaN(resetAt.getTime()) ? Math.max(0, Math.floor((resetAt.getTime() - Date.now()) / 1000)) : NaN;
+  return { at: resetAt ? compactResetDate(resetAt) : "", after: compactResetAfter(after) };
+}
+
+function quotaAmount(row) {
+  if (!Number.isFinite(Number(row.used)) && !Number.isFinite(Number(row.limit)) && !Number.isFinite(Number(row.remaining))) return "";
+  const money = row.money_cents === true;
+  const format = (value) => money ? usd(Number(value) / 100) : Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+  if (Number.isFinite(Number(row.used)) && Number.isFinite(Number(row.limit))) return format(row.used) + " / " + format(row.limit);
+  if (Number.isFinite(Number(row.remaining))) return "剩余 " + format(row.remaining);
+  if (Number.isFinite(Number(row.used))) return "已用 " + format(row.used);
+  if (Number.isFinite(Number(row.limit))) return "额度 " + format(row.limit);
+  return "";
+}
+
+function quotaLabel(row) {
+  const label = String(row.label || "");
+  const group = String(row.group_label || "");
+  return group && group.toLocaleLowerCase() !== label.toLocaleLowerCase() ? group + " · " + label : group || label;
+}
+
+function renderQuotaRow(row, fetchedAt) {
+  const label = quotaLabel(row);
+  const remaining = quotaRemaining(row);
+  const value = remaining ? remaining.percent.toFixed(0) + "%" : "—";
+  const reset = quotaResetMeta(row, fetchedAt);
+  const amount = quotaAmount(row);
+  const stats = [el("span", { class: "auth-quota-value", text: value })];
+  if (amount) stats.push(el("span", { text: amount }));
+  if (reset.at) stats.push(el("span", { text: reset.at }));
+  if (reset.after) stats.push(el("span", { text: "· " + reset.after }));
+  return el("div", { class: "auth-quota-row" },
+    el("div", { class: "auth-quota-line" },
+      el("span", { class: "auth-quota-label", title: label, text: label }),
+      el("span", { class: "auth-quota-stats" }, stats)),
+    el("div", { class: "bar", role: "progressbar", "aria-label": label,
+      "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": remaining ? Math.round(remaining.percent) : null },
+      el("i", { class: "quota-fill " + (remaining?.level || "high"), style: "width:" + (remaining?.percent || 0) + "%" })));
+}
+
+function renderAuthFileQuota(file, account) {
+  const owner = account ? accountState : state;
+  const index = file.auth_index;
+  if (owner.authQuotaLoading.has(index)) {
+    return el("div", { class: "auth-file-quota" }, el("div", { class: "muted small", text: "正在更新限额…" }));
+  }
+  const error = owner.authQuotaErrors.get(index);
+  if (error) return el("div", { class: "auth-file-quota" }, el("div", { class: "auth-quota-error", text: error }));
+  const result = owner.authQuotas.get(index);
+  if (!result) return null;
+  const summary = [];
+  if (Number.isFinite(Number(result.rate_limit_reset_credits_available_count))) {
+    summary.push(el("span", { text: "主动重置次数 " + int(result.rate_limit_reset_credits_available_count) }));
+  }
+  if (result.fetched_at) summary.push(el("span", { class: "muted", text: when(result.fetched_at) + " 更新" }));
+  const rows = result.quota || [];
+  return el("div", { class: "auth-file-quota" },
+    summary.length ? el("div", { class: "auth-quota-summary" }, summary) : null,
+    rows.length ? el("div", { class: "auth-quota-list" }, rows.map((row) => renderQuotaRow(row, result.fetched_at))) :
+      el("div", { class: "muted small", text: "上游未返回可展示的限额" }));
+}
+
+function renderAuthFiles(account) {
+  const ui = authUI(account);
+  if (!ui.body) return;
+  if (!ui.owner.authFiles) {
+    replaceContent(ui.body, el("div", { class: "empty", text: "加载中…" }));
+    return;
+  }
+  const files = filteredAuthFiles(account);
+  const refreshable = files.filter((file) => file.quota_supported).length;
+  ui.bulk.disabled = refreshable === 0 || ui.bulk.dataset.loading === "true";
+  if (!files.length) {
+    replaceContent(ui.body, el("div", { class: "empty", text: "没有符合筛选条件的认证文件" }));
+    return;
+  }
+  replaceContent(ui.body, el("div", { class: "auth-file-grid" }, files.map((file) => {
+    const statusText = file.disabled ? "已停用" : file.unavailable ? "不可用" : "已启用";
+    const statusClass = file.disabled ? "plain" : file.unavailable ? "bad" : "ok";
+    const category = AUTH_CATEGORY_LABELS[file.category] || file.category || "未知";
+    const plan = authPlanLabel(file.category, ui.owner.authQuotas.get(file.auth_index)?.plan);
+    const seenMeta = new Set();
+    const meta = [category, plan].filter((value) => {
+      const key = String(value || "").trim().toLocaleLowerCase();
+      if (!key || seenMeta.has(key)) return false;
+      seenMeta.add(key);
+      return true;
+    });
+    const loading = ui.owner.authQuotaLoading.has(file.auth_index);
+    const refreshButton = el("button", { type: "button", class: "auth-refresh-icon-button" + (loading ? " loading" : ""),
+      disabled: !file.quota_supported || loading, "aria-label": "更新限额",
+      title: file.quota_supported ? "更新限额" : file.quota_unavailable_reason || "该认证文件类型暂不支持限额查询",
+      onclick: () => guard(() => refreshAuthQuota(file, account)) }, actionIcon("refresh"));
+    return el("article", { class: "auth-file-card" },
+      el("div", { class: "auth-file-head" },
+        el("div", { class: "auth-file-main" },
+          authProviderIcon(file.category),
+          el("div", { class: "auth-file-identity" },
+            el("div", { class: "auth-file-email-title", title: file.email || "未提供邮箱", text: file.email || "未提供邮箱" }),
+            el("div", { class: "auth-file-meta" }, meta.map((value) => el("span", { title: value, text: value }))))),
+        el("div", { class: "auth-file-actions" },
+          el("span", { class: "tag " + statusClass, text: statusText }),
+          refreshButton)),
+      renderAuthFileQuota(file, account));
+  })));
+}
+
+const AUTH_QUOTA_TIMEOUT_MS = 65000;
+const AUTH_QUOTA_BATCH_CONCURRENCY = 3;
+
+async function refreshAuthQuota(file, account, shouldRender = true) {
+  const owner = account ? accountState : state;
+  const role = account ? "account" : "admin";
+  const generation = authQuotaGeneration[role];
+  if (owner.authQuotaLoading.has(file.auth_index)) return;
+  owner.authQuotaLoading.add(file.auth_index);
+  owner.authQuotaErrors.delete(file.auth_index);
+  if (shouldRender) renderAuthFiles(account);
+  try {
+    const path = "/auth-files/quota?auth_index=" + encodeURIComponent(file.auth_index);
+    const opts = { timeoutMS: AUTH_QUOTA_TIMEOUT_MS };
+    const result = account ? await accountAPI(path, opts) : await plugin("GET", path, null, opts);
+    if (authQuotaCacheCurrent(account, owner, generation, file.auth_index)) {
+      owner.authQuotas.set(file.auth_index, result);
+      persistAuthQuotaCache(account);
+    }
+  } catch (error) {
+    if (authQuotaCacheCurrent(account, owner, generation, file.auth_index)) {
+      owner.authQuotaErrors.set(file.auth_index, error.message || String(error));
+    }
+  } finally {
+    if (authQuotaCacheCurrent(account, owner, generation, file.auth_index)) {
+      owner.authQuotaLoading.delete(file.auth_index);
+      if (shouldRender) renderAuthFiles(account);
+    }
+  }
+}
+
+async function refreshFilteredAuthQuotas(account) {
+  const ui = authUI(account);
+  const role = account ? "account" : "admin";
+  const generation = authQuotaGeneration[role];
+  const files = filteredAuthFiles(account).filter((file) => file.quota_supported && !ui.owner.authQuotaLoading.has(file.auth_index));
+  if (!files.length || ui.bulk.dataset.loading === "true") return;
+  ui.bulk.dataset.loading = "true";
+  ui.bulk.disabled = true;
+  const label = ui.bulk.textContent;
+  let next = 0;
+  let completed = 0;
+  try {
+    const worker = async () => {
+      while (next < files.length) {
+        const file = files[next++];
+        await refreshAuthQuota(file, account, false);
+        if (generation !== authQuotaGeneration[role]) return;
+        completed++;
+        ui.bulk.textContent = "更新中 " + completed + " / " + files.length;
+        renderAuthFiles(account);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(AUTH_QUOTA_BATCH_CONCURRENCY, files.length) }, worker));
+  } finally {
+    if (generation === authQuotaGeneration[role]) {
+      ui.bulk.dataset.loading = "false";
+      ui.bulk.textContent = label;
+      renderAuthFiles(account);
+    }
+  }
+}
+
 function render() {
   // Every row the picker is anchored to is about to be replaced.
   closeModelPicker();
@@ -1642,6 +2183,7 @@ function render() {
   renderGroups();
   renderPriceTable("prices-body", state.prices, $("price-filter").value, true);
   renderLogs();
+  renderAuthFiles(false);
   renderEvents();
 }
 
@@ -3048,7 +3590,8 @@ document.querySelectorAll('[data-page-action="logout"]').forEach((button) => {
   button.onclick = () => guard(async () => {
     const role = currentRole || loginMode;
     await deleteCredential(role);
-    accountState = { overview: null, prices: null, logs: null, models: [] };
+    accountState = { overview: null, prices: null, logs: null, models: [], authFiles: null,
+      authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map() };
     showGate(role, "");
   });
 });
@@ -3111,19 +3654,30 @@ document.querySelectorAll("[data-account-tab]").forEach((button) => {
 });
 $("account-price-filter").addEventListener("input", () =>
   renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false));
+for (const account of [false, true]) {
+  const ui = authUI(account);
+  ui.enabledOnly.addEventListener("change", () => renderAuthFiles(account));
+  ui.provider.addEventListener("change", () => renderAuthFiles(account));
+  ui.search.addEventListener("input", () => renderAuthFiles(account));
+  ui.bulk.onclick = () => guard(() => refreshFilteredAuthQuotas(account));
+}
 $("account-logs").addEventListener("scroll", () => {
   hideCostTooltip();
   maybeLoadMoreLogs(true);
 }, { passive: true });
 
 const TABS = Array.from(document.querySelectorAll(".tabs button[data-tab]"));
-for (const tab of TABS) {
-  tab.onclick = () => {
-    for (const other of TABS) other.classList.toggle("active", other === tab);
-    for (const other of TABS) $("tab-" + other.dataset.tab).classList.toggle("hidden", other !== tab);
-    guard(reloadAll);
-  };
+function setAdminTab(name, reload) {
+  const selected = ADMIN_TAB_IDS.includes(name) ? name : "keys";
+  writePageRoute("admin", selected);
+  for (const tab of TABS) {
+    const active = tab.dataset.tab === selected;
+    tab.classList.toggle("active", active);
+    $("tab-" + tab.dataset.tab).classList.toggle("hidden", !active);
+  }
+  if (reload !== false && currentRole === "admin") guard(reloadAll);
 }
+for (const tab of TABS) tab.onclick = () => setAdminTab(tab.dataset.tab);
 
 $("key-filter").addEventListener("input", renderKeys);
 $("plan-kind").addEventListener("change", syncPlanFields);
@@ -3298,7 +3852,7 @@ resetGroupForm();
   const panelKey = readPanelKey();
   updateThemeButtons();
   try {
-    if (embedded && panelKey) {
+    if (embedded && panelKey && initialRoute.role !== "account") {
       await startAdmin(panelKey);
       return;
     }
