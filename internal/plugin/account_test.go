@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"cpa-key-billing/internal/billing"
 )
@@ -110,16 +111,28 @@ func TestAccountLogsCannotCrossScopesOrExposeAdminFields(t *testing.T) {
 	if view.Total != 1 || len(view.Entries) != 1 || view.Entries[0].Output != 20 {
 		t.Fatalf("view = %+v", view)
 	}
+	if view.Filters == nil || len(view.Filters.Models) != 1 || view.Filters.Models[0] != "gpt-5.5" ||
+		len(view.Filters.Sources) != 0 {
+		t.Fatalf("account log filter options = %+v", view.Filters)
+	}
+	from := view.Entries[0].At.Format(time.RFC3339Nano)
+	to := view.Entries[0].At.Add(time.Second).Format(time.RFC3339Nano)
+	filtered := callAccount(t, app, resourceAccountLogsPath, accountTestKeyA, url.Values{
+		"model": {"gpt-5.5"}, "status": {"normal"}, "from": {from}, "to": {to},
+	})
+	if errDecode := json.Unmarshal(filtered.Body, &view); errDecode != nil || view.Total != 1 {
+		t.Fatalf("filtered account log = %+v, err = %v", view, errDecode)
+	}
 	body := string(response.Body)
 	for _, forbidden := range []string{accountTestKeyA, accountTestKeyB, billing.CallerScope(accountTestKeyA),
-		`"scope"`, `"auth_index"`, `"price_source"`, `"applied_output_per_1m"`, "@example.com"} {
+		`"scope"`, `"auth_index"`, `"price_source"`, `"applied_output_per_1m"`} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("account log leaked %q: %s", forbidden, body)
 		}
 	}
 }
 
-func TestAccountLogsExposeProviderWithoutCredentialAccount(t *testing.T) {
+func TestAccountLogsUseTheAdministratorSource(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	if _, errSync := app.store.SyncKeys([]string{accountTestKeyA}, false); errSync != nil {
 		t.Fatal(errSync)
@@ -137,11 +150,16 @@ func TestAccountLogsExposeProviderWithoutCredentialAccount(t *testing.T) {
 		t.Fatal(errDecode)
 	}
 	if len(view.Entries) != 1 || view.Entries[0].ExecutorType != "CodexExecutor" ||
-		view.Entries[0].Source != "codex" {
-		t.Fatalf("sanitized account log = %+v", view)
+		view.Entries[0].Source != "codex · private@example.com" {
+		t.Fatalf("account log = %+v", view)
 	}
-	if strings.Contains(string(response.Body), "private@example.com") {
-		t.Fatalf("account log leaked credential account: %s", response.Body)
+	if view.Filters == nil || len(view.Filters.Sources) != 1 || view.Filters.Sources[0] != "codex · private@example.com" {
+		t.Fatalf("account source filters = %+v", view.Filters)
+	}
+	filtered := callAccount(t, app, resourceAccountLogsPath, accountTestKeyA,
+		url.Values{"source": {"codex · private@example.com"}})
+	if errDecode := json.Unmarshal(filtered.Body, &view); errDecode != nil || view.Total != 1 {
+		t.Fatalf("source-filtered account log = %+v, err = %v", view, errDecode)
 	}
 }
 

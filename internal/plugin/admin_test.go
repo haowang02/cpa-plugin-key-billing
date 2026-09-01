@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"cpa-key-billing/internal/billing"
 )
@@ -321,18 +322,23 @@ func TestLogQueryReachesTheStore(t *testing.T) {
 
 	var logs billing.LogView
 	callOK(t, app, http.MethodGet, routeLogs, url.Values{"offset": {"2"}, "limit": {"2"}}, nil, http.StatusOK, &logs)
-	if len(logs.Entries) != 1 || logs.Total != 3 || logs.Statuses.Normal != 3 {
+	if len(logs.Entries) != 1 || logs.Total != 3 || logs.Statuses.Normal != 3 || logs.Filters != nil {
 		t.Fatalf("logs = %d entries, total %d, statuses %+v", len(logs.Entries), logs.Total, logs.Statuses)
 	}
-	callOK(t, app, http.MethodGet, routeLogs,
-		url.Values{"q": {"gpt-5.5"}, "status": {"failed"}}, nil, http.StatusOK, &logs)
-	if logs.Total != 0 || logs.Statuses.All != 3 {
-		t.Fatalf("logs = %+v, want the search counted and no failures shown", logs)
+	from := logs.Entries[0].At.Add(-time.Second).Format(time.RFC3339Nano)
+	to := app.store.Now().Add(time.Second).Format(time.RFC3339Nano)
+	callOK(t, app, http.MethodGet, routeLogs, url.Values{
+		"api_key": {billing.CallerScope(apiKey)}, "model": {"gpt-5.5"}, "source": {logs.Entries[0].Source},
+		"status": {"normal"}, "from": {from}, "to": {to},
+	}, nil, http.StatusOK, &logs)
+	if logs.Total != 3 || logs.Filters == nil {
+		t.Fatalf("field and time filtered logs = %+v", logs)
 	}
 
 	for _, query := range []url.Values{
 		{"status": {"unknown"}}, {"offset": {"-1"}}, {"limit": {"0"}},
-		{"limit": {"1001"}}, {"limit": {"one page"}},
+		{"limit": {"1001"}}, {"limit": {"one page"}}, {"from": {"yesterday"}},
+		{"from": {"2026-09-01T02:00:00Z"}, "to": {"2026-09-01T01:00:00Z"}},
 	} {
 		if resp := callManagement(t, app, http.MethodGet, routeLogs, query, nil); resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%v status = %d, want 400 (body=%s)", query, resp.StatusCode, resp.Body)

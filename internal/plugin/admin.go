@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"cpa-key-billing/internal/billing"
 )
@@ -328,27 +329,59 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 
 func (a *App) listLogs(req ManagementRequest) ManagementResponse {
 	query := billing.LogQuery{
-		Search: req.Query.Get("q"),
-		Status: strings.TrimSpace(req.Query.Get("status")),
-		Limit:  defaultLogPageSize,
+		KeyScope: strings.TrimSpace(req.Query.Get("api_key")),
+		Model:    strings.TrimSpace(req.Query.Get("model")),
+		Source:   strings.TrimSpace(req.Query.Get("source")),
+		Status:   strings.TrimSpace(req.Query.Get("status")),
+		Limit:    defaultLogPageSize,
 	}
 	if !billing.ValidLogStatus(query.Status) {
 		return JSONError(http.StatusBadRequest, "invalid", "status 无效："+query.Status)
 	}
-	if errOffset := countParam(req.Query, "offset", &query.Offset); errOffset != nil {
-		return errorResponse(errOffset)
+	if errQuery := logPageParams(req.Query, &query); errQuery != nil {
+		return errorResponse(errQuery)
 	}
-	if errLimit := countParam(req.Query, "limit", &query.Limit); errLimit != nil {
-		return errorResponse(errLimit)
-	}
-	if query.Limit < 1 || query.Limit > maxLogPageSize {
-		return errorResponse(&billing.Error{Kind: billing.KindInvalid, Msg: "limit 必须是 1 到 1000 之间的整数"})
-	}
+	query.IncludeFilters = query.Offset == 0
 	view, errLogs := a.store.Logs(query)
 	if errLogs != nil {
 		return errorResponse(errLogs)
 	}
 	return JSONResponse(http.StatusOK, view)
+}
+
+func logPageParams(values url.Values, query *billing.LogQuery) error {
+	if errOffset := countParam(values, "offset", &query.Offset); errOffset != nil {
+		return errOffset
+	}
+	if errLimit := countParam(values, "limit", &query.Limit); errLimit != nil {
+		return errLimit
+	}
+	if errFrom := timeParam(values, "from", &query.From); errFrom != nil {
+		return errFrom
+	}
+	if errTo := timeParam(values, "to", &query.To); errTo != nil {
+		return errTo
+	}
+	if !query.From.IsZero() && !query.To.IsZero() && !query.From.Before(query.To) {
+		return &billing.Error{Kind: billing.KindInvalid, Msg: "from 必须早于 to"}
+	}
+	if query.Limit < 1 || query.Limit > maxLogPageSize {
+		return &billing.Error{Kind: billing.KindInvalid, Msg: "limit 必须是 1 到 1000 之间的整数"}
+	}
+	return nil
+}
+
+func timeParam(query url.Values, name string, target *time.Time) error {
+	raw := strings.TrimSpace(query.Get(name))
+	if raw == "" {
+		return nil
+	}
+	parsed, errParse := time.Parse(time.RFC3339Nano, raw)
+	if errParse != nil {
+		return &billing.Error{Kind: billing.KindInvalid, Msg: name + " 必须是 RFC3339 时间"}
+	}
+	*target = parsed
+	return nil
 }
 
 // An absent parameter leaves the target at whatever the query already means.

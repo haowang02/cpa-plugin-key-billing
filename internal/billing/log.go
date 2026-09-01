@@ -42,28 +42,41 @@ const (
 	UsageStatusFailed = "failed"
 )
 
-// LogQuery selects one page of the usage log. Searching and filtering happen
-// in the repository so the browser only receives the requested page.
+// LogQuery selects one filtered page of the usage log.
 type LogQuery struct {
 	// Scope is an internal authorization boundary. Callers never select it from
 	// a query parameter: account endpoints derive it from the presented API key.
-	Scope string
-	// VisibleFieldsOnly keeps self-service search within fields returned by the
-	// account DTO. In particular, hidden credential account names must not
-	// become searchable side channels.
-	VisibleFieldsOnly bool
-	Search            string
-	Status            string
-	Offset            int
+	Scope          string
+	KeyScope       string
+	Model          string
+	Source         string
+	Status         string
+	From           time.Time
+	To             time.Time
+	IncludeFilters bool
+	Offset         int
 	// Limit is the page size; a non-positive limit returns every match.
 	Limit int
 }
 
 // LogView is one page plus totals that cannot be inferred from that page.
 type LogView struct {
-	Entries  []LogRow        `json:"entries"`
-	Total    int             `json:"total"`
-	Statuses LogStatusCounts `json:"status_counts"`
+	Entries  []LogRow         `json:"entries"`
+	Total    int              `json:"total"`
+	Statuses LogStatusCounts  `json:"status_counts"`
+	Filters  *LogFilterValues `json:"filter_options,omitempty"`
+}
+
+type LogFilterValues struct {
+	APIKeys []LogAPIKeyOption `json:"api_keys"`
+	Models  []string          `json:"models"`
+	Sources []string          `json:"sources"`
+}
+
+type LogAPIKeyOption struct {
+	Scope   string `json:"scope"`
+	Preview string `json:"preview,omitempty"`
+	Label   string `json:"label,omitempty"`
 }
 
 type LogStatusCounts struct {

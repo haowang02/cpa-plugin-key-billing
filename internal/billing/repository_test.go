@@ -98,7 +98,7 @@ func (r *memoryRepository) Save(_ *State, changes Changes) error {
 	return nil
 }
 
-// Searching, filtering and paging are the database's job and are tested there;
+// Filtering and paging are the database's job and are tested there;
 // what this package asks of the log is which entries a mutation produced and
 // whose identity they carry.
 func (r *memoryRepository) Logs(query LogQuery, since time.Time) (LogView, error) {

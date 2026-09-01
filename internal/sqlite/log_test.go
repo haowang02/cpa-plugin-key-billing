@@ -69,7 +69,7 @@ func TestLogsPageOverTheWholeMatch(t *testing.T) {
 	}
 }
 
-func TestLogFiltersCountWhatTheyHide(t *testing.T) {
+func TestLogStatusCountsWhatItHides(t *testing.T) {
 	database, _ := loggedDatabase(t)
 
 	if view := mustQuery(t, database, billing.LogQuery{Status: billing.UsageStatusNormal}); view.Total != 4 ||
@@ -80,35 +80,47 @@ func TestLogFiltersCountWhatTheyHide(t *testing.T) {
 		len(view.Entries) != 2 {
 		t.Fatalf("view = %+v, want the two failed events", view.Entries)
 	}
-	if view := mustQuery(t, database, billing.LogQuery{Search: "bOb"}); view.Total != 2 ||
-		view.Statuses != (billing.LogStatusCounts{All: 2, Failed: 2}) {
-		t.Fatalf("view = %d entries, statuses %+v; want only Bob's events", view.Total, view.Statuses)
+}
+
+func TestLogFieldAndTimeFiltersShareOneQuery(t *testing.T) {
+	database, state := loggedDatabase(t)
+	state.Credentials["auth-xai"] = billing.Credential{Provider: "xai", Account: "ops-xai@example.com"}
+	entry := logEntry("scope-b", logStart.Add(6*time.Minute), false)
+	entry.AuthIndex = "auth-xai"
+	entry.UpstreamModel = "gpt-5.6-sol"
+	entry.BillingModel = "team/gpt-5.6-sol"
+	mustSave(t, database, state, billing.Changes{Credentials: true, Log: []billing.LogEntry{entry}})
+
+	query := billing.LogQuery{
+		KeyScope: "scope-b", Model: "team/gpt-5.6-sol", Source: "xai · ops-xai@example.com",
+		From: logStart.Add(6 * time.Minute), To: logStart.Add(7 * time.Minute), IncludeFilters: true,
 	}
-	if view := mustQuery(t, database, billing.LogQuery{Search: "ops@example.com"}); view.Total != 6 {
-		t.Fatalf("total = %d, want every event matched by its credential", view.Total)
+	view := mustQuery(t, database, query)
+	if view.Total != 1 || len(view.Entries) != 1 || !view.Entries[0].At.Equal(entry.At) {
+		t.Fatalf("view = %+v, want the one exact field and time match", view.Entries)
 	}
-	if view := mustQuery(t, database, billing.LogQuery{Search: "codexexecutor"}); view.Total != 6 {
-		t.Fatalf("total = %d, want every event matched by its executor", view.Total)
+	if view.Filters == nil || len(view.Filters.APIKeys) != 1 || len(view.Filters.Models) != 1 ||
+		len(view.Filters.Sources) != 1 {
+		t.Fatalf("filter options = %+v", view.Filters)
 	}
-	if view := mustQuery(t, database, billing.LogQuery{Search: "high"}); view.Total != 6 {
-		t.Fatalf("total = %d, want every event matched by its reasoning effort", view.Total)
-	}
-	if view := mustQuery(t, database, billing.LogQuery{Search: "auto"}); view.Total != 6 {
-		t.Fatalf("total = %d, want every event matched by its service tier", view.Total)
-	}
-	if view := mustQuery(t, database, billing.LogQuery{Search: "bob", Status: billing.UsageStatusNormal}); view.Total != 0 ||
-		view.Statuses.All != 2 {
-		t.Fatalf("view = %+v, want no rows but the search still counted", view)
+
+	if outside := mustQuery(t, database, billing.LogQuery{
+		From: entry.At.Add(time.Nanosecond), To: entry.At.Add(time.Minute),
+	}); outside.Total != 0 {
+		t.Fatalf("outside range total = %d, want 0", outside.Total)
 	}
 }
 
 func TestLogScopeConstrainsRowsAndCounts(t *testing.T) {
 	database, _ := loggedDatabase(t)
 
-	view := mustQuery(t, database, billing.LogQuery{Scope: "scope-a", Limit: 10})
+	view := mustQuery(t, database, billing.LogQuery{Scope: "scope-a", Limit: 10, IncludeFilters: true})
 	if view.Total != 4 || len(view.Entries) != 4 ||
 		view.Statuses != (billing.LogStatusCounts{All: 4, Normal: 4}) {
 		t.Fatalf("scope-a view = %+v, statuses %+v", view.Entries, view.Statuses)
+	}
+	if view.Filters == nil || len(view.Filters.APIKeys) != 1 || view.Filters.APIKeys[0].Scope != "scope-a" {
+		t.Fatalf("scope-a filter options = %+v", view.Filters)
 	}
 	for _, entry := range view.Entries {
 		if entry.Scope != "scope-a" {
@@ -123,26 +135,12 @@ func TestLogScopeConstrainsRowsAndCounts(t *testing.T) {
 	}
 }
 
-func TestVisibleLogSearchCannotProbeHiddenCredentialFields(t *testing.T) {
-	database, _ := loggedDatabase(t)
-	query := billing.LogQuery{Scope: "scope-a", VisibleFieldsOnly: true}
-
-	query.Search = "ops@example.com"
-	if view := mustQuery(t, database, query); view.Total != 0 {
-		t.Fatalf("credential search exposed %d scoped rows", view.Total)
-	}
-	query.Search = "codex"
-	if view := mustQuery(t, database, query); view.Total != 4 {
-		t.Fatalf("visible provider search returned %d rows, want 4", view.Total)
-	}
-}
-
 func TestLogRowsFollowTheKeyTheyName(t *testing.T) {
 	database, state := loggedDatabase(t)
 	state.Keys["scope-a"].Label = "Alice Cooper"
 	mustSave(t, database, state, billing.Changes{Keys: []string{"scope-a"}})
 
-	view := mustQuery(t, database, billing.LogQuery{Search: "alice cooper"})
+	view := mustQuery(t, database, billing.LogQuery{KeyScope: "scope-a"})
 	if view.Total != 4 {
 		t.Fatalf("total = %d, want the renamed key's whole history", view.Total)
 	}
@@ -184,16 +182,6 @@ func TestLoadDropsEntriesPastRetention(t *testing.T) {
 	}
 	if view := mustQuery(t, database, billing.LogQuery{}); view.Total != 3 {
 		t.Fatalf("total = %d, want the aged entries gone from the database", view.Total)
-	}
-}
-
-func TestLogSearchFoldsBeyondASCII(t *testing.T) {
-	database, state := loggedDatabase(t)
-	state.Keys["scope-a"].Label = "ÉQUIPE PARIS"
-	mustSave(t, database, state, billing.Changes{Keys: []string{"scope-a"}})
-
-	if view := mustQuery(t, database, billing.LogQuery{Search: "équipe"}); view.Total != 4 {
-		t.Fatalf("total = %d, want the key matched by its label in the other case", view.Total)
 	}
 }
 

@@ -9,32 +9,18 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	// The driver is cgo SQLite. The plugin is built as a c-shared library, so
 	// cgo is available anyway, and a C implementation starts no goroutines of
 	// its own — which a Go runtime living inside CLIProxyAPI's process cannot
 	// afford. See the note on billing.Store.
-	"github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3"
 
 	"cpa-key-billing/internal/billing"
 )
 
 const schemaVersion = 8
-
-// driverName is this package's own registration of the SQLite driver. It exists
-// for ulower(): the built-in lower() folds ASCII only, so a key labelled in any
-// other alphabet would not match a search typed in the other case.
-const driverName = "sqlite3_cpa_billing"
-
-func init() {
-	sql.Register(driverName, &sqlite3.SQLiteDriver{
-		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-			return conn.RegisterFunc("ulower", strings.ToLower, true)
-		},
-	})
-}
 
 type DB struct {
 	db   *sql.DB
@@ -57,7 +43,7 @@ func Open(path string) (*DB, error) {
 	// writing through on every completed request affordable.
 	dsn := (&url.URL{Scheme: "file", Path: path, OmitHost: true}).String() +
 		"?_busy_timeout=5000&_foreign_keys=on&_journal_mode=WAL&_synchronous=NORMAL&_txlock=immediate"
-	handle, errOpen := sql.Open(driverName, dsn)
+	handle, errOpen := sql.Open("sqlite3", dsn)
 	if errOpen != nil {
 		return nil, fmt.Errorf("打开计费数据库 %s：%w", path, errOpen)
 	}

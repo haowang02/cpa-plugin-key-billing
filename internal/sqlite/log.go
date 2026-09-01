@@ -56,28 +56,16 @@ const logSource = `
 	LEFT JOIN credentials c ON c.auth_index = l.auth_index
 	WHERE l.at >= ?`
 
-const logSearch = ` AND (
-	instr(ulower(coalesce(k.label, '')), ulower(?)) > 0 OR
-	instr(ulower(coalesce(k.preview, '')), ulower(?)) > 0 OR
-	instr(ulower(l.scope), ulower(?)) > 0 OR
-	instr(ulower(l.executor_type), ulower(?)) > 0 OR
-	instr(ulower(l.reasoning_effort), ulower(?)) > 0 OR
-	instr(ulower(l.service_tier), ulower(?)) > 0 OR
-	instr(ulower(l.upstream_model), ulower(?)) > 0 OR
-	instr(ulower(l.billing_model), ulower(?)) > 0 OR
-	instr(ulower(coalesce(c.name, '')), ulower(?)) > 0)`
-
-const visibleLogSearch = ` AND (
-	instr(ulower(l.executor_type), ulower(?)) > 0 OR
-	instr(ulower(l.reasoning_effort), ulower(?)) > 0 OR
-	instr(ulower(l.service_tier), ulower(?)) > 0 OR
-	instr(ulower(l.billing_model), ulower(?)) > 0 OR
-	(instr(coalesce(c.provider, ''), '@') = 0 AND instr(ulower(coalesce(c.provider, '')), ulower(?)) > 0) OR
-	instr(CAST(l.latency_ms AS TEXT), ?) > 0)`
-
 func (d *DB) Logs(query billing.LogQuery, since time.Time) (billing.LogView, error) {
 	view := billing.LogView{Entries: []billing.LogRow{}}
 	where, args := logFilter(query, since)
+	if query.IncludeFilters {
+		filters, errFilters := d.logFilterValues(query, since)
+		if errFilters != nil {
+			return billing.LogView{}, errFilters
+		}
+		view.Filters = filters
+	}
 
 	counts := d.db.QueryRow(`
 		SELECT count(*),
@@ -133,25 +121,83 @@ func (d *DB) Logs(query billing.LogQuery, since time.Time) (billing.LogView, err
 }
 
 func logFilter(query billing.LogQuery, since time.Time) (string, []any) {
-	where := logSource
-	args := []any{nanos(since)}
+	where, args := logTimeFilter(query, since)
 	if scope := strings.TrimSpace(query.Scope); scope != "" {
 		where += " AND l.scope = ?"
 		args = append(args, scope)
 	}
-	search := strings.TrimSpace(query.Search)
-	if search == "" {
-		return where, args
+	if scope := strings.TrimSpace(query.KeyScope); scope != "" {
+		where += " AND l.scope = ?"
+		args = append(args, scope)
 	}
-	searchClause := logSearch
-	if query.VisibleFieldsOnly {
-		searchClause = visibleLogSearch
+	if model := strings.TrimSpace(query.Model); model != "" {
+		where += " AND coalesce(NULLIF(l.billing_model, ''), l.upstream_model) = ?"
+		args = append(args, model)
 	}
-	where += searchClause
-	for range strings.Count(searchClause, "?") {
-		args = append(args, search)
+	if source := strings.TrimSpace(query.Source); source != "" {
+		where += " AND coalesce(c.name, '') = ?"
+		args = append(args, source)
 	}
 	return where, args
+}
+
+func logTimeFilter(query billing.LogQuery, since time.Time) (string, []any) {
+	if !query.From.IsZero() && query.From.After(since) {
+		since = query.From
+	}
+	where := logSource
+	args := []any{nanos(since)}
+	if !query.To.IsZero() {
+		where += " AND l.at < ?"
+		args = append(args, nanos(query.To))
+	}
+	return where, args
+}
+
+func (d *DB) logFilterValues(query billing.LogQuery, since time.Time) (*billing.LogFilterValues, error) {
+	where, args := logTimeFilter(query, since)
+	if scope := strings.TrimSpace(query.Scope); scope != "" {
+		where += " AND l.scope = ?"
+		args = append(args, scope)
+	}
+	rows, errQuery := d.db.Query(`
+		WITH filtered AS (
+			SELECT l.scope, coalesce(k.preview, '') AS preview, coalesce(k.label, '') AS label,
+				coalesce(NULLIF(l.billing_model, ''), l.upstream_model) AS model,
+				coalesce(c.name, '') AS source`+where+`
+		)
+		SELECT kind, value, preview, label FROM (
+			SELECT 'key' AS kind, scope AS value, preview, label FROM filtered GROUP BY scope, preview, label
+			UNION ALL
+			SELECT 'model', model, '', '' FROM filtered WHERE model != '' GROUP BY model
+			UNION ALL
+			SELECT 'source', source, '', '' FROM filtered WHERE source != '' GROUP BY source
+		) ORDER BY kind, CASE WHEN kind = 'key' AND label = '' THEN 1 ELSE 0 END,
+			label COLLATE NOCASE, value COLLATE NOCASE`, args...)
+	if errQuery != nil {
+		return nil, fmt.Errorf("读取计费日志筛选项：%w", errQuery)
+	}
+	defer func() { _ = rows.Close() }()
+
+	filters := &billing.LogFilterValues{APIKeys: []billing.LogAPIKeyOption{}, Models: []string{}, Sources: []string{}}
+	for rows.Next() {
+		var kind, value, preview, label string
+		if errScan := rows.Scan(&kind, &value, &preview, &label); errScan != nil {
+			return nil, fmt.Errorf("读取计费日志筛选项：%w", errScan)
+		}
+		switch kind {
+		case "key":
+			filters.APIKeys = append(filters.APIKeys, billing.LogAPIKeyOption{Scope: value, Preview: preview, Label: label})
+		case "model":
+			filters.Models = append(filters.Models, value)
+		case "source":
+			filters.Sources = append(filters.Sources, value)
+		}
+	}
+	if errRows := rows.Err(); errRows != nil {
+		return nil, fmt.Errorf("读取计费日志筛选项：%w", errRows)
+	}
+	return filters, nil
 }
 
 func scanLogRow(rows *sql.Rows) (billing.LogRow, error) {

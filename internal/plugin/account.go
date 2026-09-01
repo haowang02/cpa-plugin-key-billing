@@ -68,6 +68,12 @@ type accountLogView struct {
 	Entries  []accountLogEntry       `json:"entries"`
 	Total    int                     `json:"total"`
 	Statuses billing.LogStatusCounts `json:"status_counts"`
+	Filters  *accountLogFilters      `json:"filter_options,omitempty"`
+}
+
+type accountLogFilters struct {
+	Models  []string `json:"models"`
+	Sources []string `json:"sources"`
 }
 
 func (a *App) accountOverview(req ManagementRequest) ManagementResponse {
@@ -136,30 +142,29 @@ func (a *App) accountLogs(req ManagementRequest) ManagementResponse {
 		return accountJSON(http.StatusOK, accountLogView{Entries: []accountLogEntry{}})
 	}
 	query := billing.LogQuery{
-		Scope: scope, VisibleFieldsOnly: true, Search: req.Query.Get("q"),
+		Scope: scope,
+		Model: strings.TrimSpace(req.Query.Get("model")), Source: strings.TrimSpace(req.Query.Get("source")),
 		Status: strings.TrimSpace(req.Query.Get("status")), Limit: defaultLogPageSize,
 	}
 	if !billing.ValidLogStatus(query.Status) {
 		return accountJSONError(http.StatusBadRequest, "invalid", "status 无效")
 	}
-	if errOffset := countParam(req.Query, "offset", &query.Offset); errOffset != nil {
-		return accountErrorResponse(errOffset)
+	if errQuery := logPageParams(req.Query, &query); errQuery != nil {
+		return accountErrorResponse(errQuery)
 	}
-	if errLimit := countParam(req.Query, "limit", &query.Limit); errLimit != nil {
-		return accountErrorResponse(errLimit)
-	}
-	if query.Limit < 1 || query.Limit > maxLogPageSize {
-		return accountJSONError(http.StatusBadRequest, "invalid", "limit 必须是 1 到 1000 之间的整数")
-	}
+	query.IncludeFilters = query.Offset == 0
 	view, errLogs := a.store.Logs(query)
 	if errLogs != nil {
 		return accountErrorResponse(errLogs)
 	}
 	result := accountLogView{Entries: make([]accountLogEntry, 0, len(view.Entries)), Total: view.Total, Statuses: view.Statuses}
+	if view.Filters != nil {
+		result.Filters = &accountLogFilters{Models: view.Filters.Models, Sources: view.Filters.Sources}
+	}
 	for _, row := range view.Entries {
 		result.Entries = append(result.Entries, accountLogEntry{
 			At: row.At, BillingModel: row.BillingModel, ExecutorType: row.ExecutorType,
-			Source: accountSource(row.Provider), ReasoningEffort: row.ReasoningEffort,
+			Source: row.Source, ReasoningEffort: row.ReasoningEffort,
 			ServiceTier: row.ServiceTier, Failed: row.Failed, LatencyMS: row.LatencyMS, TTFTMS: row.TTFTMS,
 			AccountingQuality: row.AccountingQuality, TotalUSD: row.Cost.TotalUSD,
 			UncachedInput: row.Cost.UncachedInputTokens, CacheRead: row.Cost.CacheReadTokens,
@@ -167,14 +172,6 @@ func (a *App) accountLogs(req ManagementRequest) ManagementResponse {
 		})
 	}
 	return accountJSON(http.StatusOK, result)
-}
-
-func accountSource(provider string) string {
-	name := billing.Credential{Provider: provider}.Name()
-	if strings.Contains(name, "@") {
-		return ""
-	}
-	return name
 }
 
 func accountScope(headers http.Header) (string, bool) {

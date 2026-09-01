@@ -361,7 +361,55 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 }
 .wide-search{width:360px;max-width:100%}
 .section-actions{min-width:0}
-.log-card{height:calc(100dvh - 247px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
+.log-card{height:clamp(560px,calc(100dvh - 32px),840px);min-height:0;border-radius:12px;
+  display:flex;flex-direction:column;margin-bottom:0}
+.log-title-row{margin-bottom:9px}
+.log-filter-bar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:0 0 11px;border-bottom:1px solid var(--border-color)}
+.log-filter-bar>select{min-width:132px;max-width:210px}
+.log-filter-bar #log-key{min-width:180px}
+.time-range-control{position:relative}
+.log-title-row .time-range-popover{left:auto;right:0}
+.time-range-trigger{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:136px;
+  white-space:nowrap;font-weight:500}
+.time-range-icon{width:15px;height:15px;flex:none;color:var(--text-tertiary);fill:none;stroke:currentColor;
+  stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.time-range-icon+span{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis}
+.time-range-chevron{width:7px;height:7px;margin:-3px 1px 0 3px;border-right:1.5px solid currentColor;
+  border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
+.time-range-trigger[aria-expanded=true] .time-range-chevron{margin-top:3px;transform:rotate(225deg)}
+.time-range-popover{position:absolute;z-index:1200;top:calc(100% + 6px);left:0;width:min(320px,calc(100vw - 24px));
+  padding:12px;border:1px solid var(--floating-border,var(--border-color));border-radius:var(--radius-md);
+  background:var(--floating-surface);box-shadow:var(--floating-shadow);transform-origin:top right;
+  animation:time-range-in 150ms ease-out both}
+@keyframes time-range-in{from{opacity:0;transform:translateY(-3px) scale(.985)}}
+.time-range-heading{padding:1px 3px 9px;color:var(--text-tertiary);font-size:11px;font-weight:600}
+.time-range-presets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.time-range-presets button{min-width:0;min-height:34px;padding:0 9px;border:1px solid transparent;border-radius:8px;
+  background:transparent;color:var(--text-secondary);font-size:12px;font-weight:500;text-align:left;white-space:nowrap}
+.time-range-presets button:hover{border-color:var(--border-color);background:var(--bg-secondary);color:var(--text-primary)}
+.time-range-presets button.active{border-color:color-mix(in srgb,var(--primary-color) 34%,var(--border-color));
+  background:color-mix(in srgb,var(--primary-color) 9%,var(--bg-primary));color:var(--text-primary)}
+.time-range-presets button.active::after{content:"✓";float:right;color:var(--primary-color);font-weight:700}
+.time-range-presets button:last-child{grid-column:1/-1}
+.time-range-custom{display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px;padding-top:10px;
+  border-top:1px solid var(--border-color)}
+.time-range-custom .field{min-width:0}
+.time-range-custom input{width:100%;min-width:0}
+.time-range-custom>span{display:none}
+.time-range-actions{grid-column:1/-1;justify-content:flex-end;margin-top:3px}
+.time-range-backdrop{display:none}
+:root[data-cpamp-plugin-host=true] .time-range-trigger{
+  border-color:var(--app-input-border,var(--border-color));background:var(--app-input-bg,var(--bg-primary));font-weight:500}
+:root[data-cpamp-plugin-host=true] .time-range-trigger[aria-expanded=true]{
+  border-color:var(--app-input-border-focus,var(--primary-color));
+  background:var(--app-input-bg-focus,var(--bg-primary));box-shadow:inset 0 0 0 1px var(--focus-inset)}
+:root[data-cpamp-plugin-host=true] .time-range-popover{
+  border-color:color-mix(in srgb,var(--app-input-border-focus,var(--primary-color)) 28%,var(--app-border-strong,var(--border-color)));
+  background:var(--app-surface-strong,var(--floating-surface));
+  box-shadow:0 18px 36px #0f172a29,0 0 0 1px color-mix(in srgb,var(--primary-color) 10%,transparent);
+  backdrop-filter:var(--glass-backdrop-filter,none);-webkit-backdrop-filter:var(--glass-backdrop-filter,none)}
+:root[data-cpamp-plugin-host=true][data-theme=dark] .time-range-popover{
+  box-shadow:0 18px 36px #0000006b,0 0 0 1px color-mix(in srgb,var(--primary-color) 16%,transparent)}
 .event-list{display:grid;gap:8px;padding:2px 0 10px}
 .event-entry{padding:9px 11px;border:1px solid var(--event-row-border);border-radius:var(--radius-md);
   background:var(--event-row-bg)}
@@ -387,6 +435,8 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .log-status{max-width:118px}
 .log-status .tag{display:inline-block;margin:0 4px 2px 0}
 .log-table-region{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.log-footer{display:flex;flex:none;justify-content:flex-end;align-items:center;min-height:29px;padding:7px 2px 0;
+  border-top:1px solid var(--border-color);font-variant-numeric:tabular-nums}
 .log-table-region .table-scroll{overflow:visible}
 .log-table-region thead th{position:sticky;top:0;z-index:2;background:var(--bg-primary);box-shadow:0 1px 0 var(--border-color)}
 .log-cell-line{display:flex;align-items:center;gap:4px;min-height:20px;white-space:nowrap}
@@ -418,7 +468,16 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .section-toolbar>.section-actions{flex:1 1 100%;width:100%}
   .section-actions .wide-search,#price-filter,#account-price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
   .section-actions #log-note{flex:1 0 100%}
-  .log-card{height:calc(100dvh - 295px);min-height:320px}
+  .log-card{height:clamp(560px,calc(100dvh - 20px),760px)}
+  .log-filter-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .log-filter-bar>select,.log-filter-bar #log-key{width:100%;min-width:0;max-width:none}
+  #logs-filter-clear{grid-column:1/-1}
+  #account-logs-filter-clear{grid-column:1/-1}
+  .log-title-row .time-range-popover{position:fixed;z-index:1301;inset:auto 10px 10px;width:auto;
+    max-height:calc(100dvh - 20px);overflow:auto}
+  .time-range-backdrop:not(.hidden){display:block;position:fixed;z-index:1300;inset:0;background:#0006}
+  .time-range-custom{grid-template-columns:1fr}
+  .time-range-custom>span{display:none}
   .request-failure .event-entry-head{grid-template-columns:minmax(0,1fr) auto;
     grid-template-areas:"time tags" "meta meta";gap:5px 10px}
   .event-entry-tags{gap:4px}
@@ -663,21 +722,55 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 
   <section id="tab-logs" class="hidden">
     <div class="card log-card">
-      <div class="row spread section-toolbar" style="margin-bottom:12px">
+      <div class="row spread section-toolbar log-title-row">
         <h2 style="margin:0">计费日志</h2>
         <div class="row section-actions">
-          <span id="log-note" class="muted small"></span>
-          <select id="log-status" aria-label="按状态筛选">
-            <option value="">全部状态</option>
-            <option value="normal">正常</option>
-            <option value="failed">失败</option>
-          </select>
-          <input id="log-filter" placeholder="搜索 API Key、备注、模型、执行器、推理、速度或来源" class="wide-search">
+          <div class="time-range-control">
+            <button id="log-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
+              <svg class="time-range-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5l3.25 2"></path></svg>
+              <span id="log-time-label">今天</span><span class="time-range-chevron" aria-hidden="true"></span>
+            </button>
+            <div id="log-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择计费日志时间范围">
+              <div class="time-range-heading">时间范围</div>
+              <div class="time-range-presets" role="group" aria-label="常用时间范围">
+                <button type="button" data-log-time-preset="8h">最近 8 小时</button>
+                <button type="button" data-log-time-preset="24h">最近 24 小时</button>
+                <button type="button" data-log-time-preset="7d">最近 7 天</button>
+                <button type="button" data-log-time-preset="30d">最近 30 天</button>
+                <button type="button" data-log-time-preset="today">今天</button>
+                <button type="button" data-log-time-preset="yesterday">昨天</button>
+                <button type="button" data-log-time-preset="custom">自定义</button>
+              </div>
+              <div id="log-time-custom" class="time-range-custom hidden">
+                <label class="field">开始时间<input id="log-time-from" type="datetime-local" step="60"></label>
+                <span aria-hidden="true">→</span>
+                <label class="field">结束时间<input id="log-time-to" type="datetime-local" step="60"></label>
+                <div class="row time-range-actions">
+                  <button id="log-time-cancel" type="button">取消</button>
+                  <button id="log-time-apply" type="button" class="primary">应用</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button id="logs-export">导出 CSV</button>
           <button id="logs-clear" class="danger">清空日志</button>
         </div>
       </div>
+      <div class="log-filter-bar">
+        <select id="log-key" aria-label="按 API Key 筛选"><option value="">全部 API Key</option></select>
+        <select id="log-model" aria-label="按模型筛选"><option value="">全部模型</option></select>
+        <select id="log-source" aria-label="按来源筛选"><option value="">全部来源</option></select>
+        <select id="log-status" aria-label="按状态筛选">
+          <option value="">全部状态</option>
+          <option value="normal">正常</option>
+          <option value="failed">失败</option>
+        </select>
+        <button id="logs-filter-clear" type="button">清除筛选</button>
+      </div>
       <div id="logs-body" class="log-table-region"></div>
+      <div class="log-footer"><span id="log-note" class="muted small"></span></div>
     </div>
+    <div id="log-time-backdrop" class="time-range-backdrop hidden"></div>
   </section>
 
   <section id="tab-events" class="hidden">
@@ -685,7 +778,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
       <div class="row spread section-toolbar" style="margin-bottom:12px">
         <h2 style="margin:0">插件日志</h2>
         <div class="row section-actions">
-          <span id="event-note" class="muted small"></span>
           <select id="event-level" aria-label="按级别筛选">
             <option value="">全部级别</option>
             <option value="error">错误</option>
@@ -759,20 +851,53 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     </section>
     <section id="account-tab-logs" class="hidden">
       <div class="card log-card">
-        <div class="row spread section-toolbar" style="margin-bottom:12px">
+        <div class="row spread section-toolbar log-title-row">
           <h2 style="margin:0">计费日志</h2>
           <div class="row section-actions">
-            <span id="account-log-note" class="muted small"></span>
-            <select id="account-log-status" aria-label="按状态筛选">
-              <option value="">全部状态</option>
-              <option value="normal">正常</option>
-              <option value="failed">失败</option>
-            </select>
-            <input id="account-log-filter" placeholder="搜索模型、执行器、推理、速度或来源" class="wide-search">
+            <div class="time-range-control">
+              <button id="account-log-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
+                <svg class="time-range-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5l3.25 2"></path></svg>
+                <span id="account-log-time-label">今天</span><span class="time-range-chevron" aria-hidden="true"></span>
+              </button>
+              <div id="account-log-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择计费日志时间范围">
+                <div class="time-range-heading">时间范围</div>
+                <div class="time-range-presets" role="group" aria-label="常用时间范围">
+                  <button type="button" data-account-log-time-preset="8h">最近 8 小时</button>
+                  <button type="button" data-account-log-time-preset="24h">最近 24 小时</button>
+                  <button type="button" data-account-log-time-preset="7d">最近 7 天</button>
+                  <button type="button" data-account-log-time-preset="30d">最近 30 天</button>
+                  <button type="button" data-account-log-time-preset="today">今天</button>
+                  <button type="button" data-account-log-time-preset="yesterday">昨天</button>
+                  <button type="button" data-account-log-time-preset="custom">自定义</button>
+                </div>
+                <div id="account-log-time-custom" class="time-range-custom hidden">
+                  <label class="field">开始时间<input id="account-log-time-from" type="datetime-local" step="60"></label>
+                  <span aria-hidden="true">→</span>
+                  <label class="field">结束时间<input id="account-log-time-to" type="datetime-local" step="60"></label>
+                  <div class="row time-range-actions">
+                    <button id="account-log-time-cancel" type="button">取消</button>
+                    <button id="account-log-time-apply" type="button" class="primary">应用</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button id="account-logs-export">导出 CSV</button>
           </div>
         </div>
+        <div class="log-filter-bar">
+          <select id="account-log-model" aria-label="按模型筛选"><option value="">全部模型</option></select>
+          <select id="account-log-source" aria-label="按来源筛选"><option value="">全部来源</option></select>
+          <select id="account-log-status" aria-label="按状态筛选">
+            <option value="">全部状态</option>
+            <option value="normal">正常</option>
+            <option value="failed">失败</option>
+          </select>
+          <button id="account-logs-filter-clear" type="button">清除筛选</button>
+        </div>
         <div id="account-logs" class="log-table-region"></div>
+        <div class="log-footer"><span id="account-log-note" class="muted small"></span></div>
       </div>
+      <div id="account-log-time-backdrop" class="time-range-backdrop hidden"></div>
     </section>
   </section>
 </main>
@@ -981,14 +1106,41 @@ const ALL_GROUP_NAME = "全部模型";
 const CONCURRENCY_OPTIONS = [0, 1, 2, 3, 5, 10, 20, 50];
 const CUSTOM_CONCURRENCY = "__custom__";
 const LOG_BATCH_SIZE = 50;
+const LOG_EXPORT_BATCH_SIZE = 1000;
 const LOG_LOAD_MORE_THRESHOLD_PX = 320;
+const LOG_CSV_COLUMNS = [
+  "at", "scope", "auth_index", "executor_type", "reasoning_effort", "service_tier",
+  "upstream_model", "billing_model", "failed", "latency_ms", "ttft_ms", "accounting_quality",
+  "price_source", "reasoning_tokens", "total_usd", "uncached_input_usd", "cache_read_usd",
+  "cache_write_usd", "output_usd", "uncached_input_tokens", "cache_read_tokens",
+  "cache_write_tokens", "billed_output_tokens", "tiered", "long_context", "threshold_input_tokens",
+  "applied_input_per_1m", "applied_output_per_1m", "applied_cache_read_per_1m",
+  "applied_cache_write_per_1m", "preview", "label", "source",
+];
+const ACCOUNT_LOG_CSV_COLUMNS = [
+  "at", "billing_model", "executor_type", "source", "reasoning_effort", "service_tier", "failed",
+  "latency_ms", "ttft_ms", "accounting_quality", "total_usd", "uncached_input_tokens",
+  "cache_read_tokens", "cache_write_tokens", "output_tokens", "reasoning_tokens",
+];
+const LOG_FILTER_IDS = {
+  admin: ["log-key", "log-model", "log-source", "log-status"],
+  account: ["account-log-model", "account-log-source", "account-log-status"],
+};
+const LOG_TIME_LABELS = {
+  "8h": "最近 8 小时", "24h": "最近 24 小时", "7d": "最近 7 天", "30d": "最近 30 天",
+  today: "今天", yesterday: "昨天",
+};
 let logRequest = 0;
-let logSearchTimer = 0;
 let logLoading = false;
 let logLoadingMore = false;
 let logHasMore = false;
 let logAutoLoadMore = true;
 let logLoadError = "";
+let logExporting = false;
+let logTimeRanges = {
+  admin: naturalLogTimeRange("today"),
+  account: naturalLogTimeRange("today"),
+};
 
 // CLIProxyAPI HTML-escapes every string in a plugin management response, so a
 // label saved as "A & B" comes back as "A &amp; B". Left alone it would gain
@@ -1306,15 +1458,6 @@ function setAccountTab(tab, reload) {
   }
 }
 
-function accountLogPath(offset) {
-  const params = new URLSearchParams({ offset: String(offset), limit: String(LOG_BATCH_SIZE) });
-  const search = $("account-log-filter").value.trim();
-  if (search) params.set("q", search);
-  const status = $("account-log-status").value;
-  if (status) params.set("status", status);
-  return "/logs?" + params.toString();
-}
-
 function maybeLoadMoreAccountLogs() {
   const scroller = $("account-logs");
   if (!logAutoLoadMore || !logHasMore || logLoading || logLoadingMore || !shouldLoadMoreLogs(scroller)) return;
@@ -1397,7 +1540,9 @@ function renderAccountLogs() {
     }
     return;
   }
+  populateLogFilters(view.filter_options, true);
   labelLogStatuses($("account-log-status"), view.status_counts);
+  updateLogFilterControls(true);
   const entries = view.entries || [];
   note.textContent = "已加载 " + int(entries.length) + " / " + int(view.total) + " 条";
   const previousScrollTop = scroller.scrollTop;
@@ -2094,30 +2239,231 @@ function hideCostTooltip() {
   tooltip.setAttribute("aria-hidden", "true");
 }
 
-// The option labels carry the counts, so the plain text lives here.
 const LOG_STATUS_LABELS = { "": "全部状态", normal: "正常", failed: "失败" };
 
-// The browser only holds the batches loaded so far, so the counts are the
-// server's: they cover the whole search and ignore the status choice itself,
-// which is what lets each option say how many entries picking it would show.
+// Counts cover the whole field/time selection and ignore the status choice,
+// so each status option can show how many entries selecting it would reveal.
 function labelLogStatuses(select, counts) {
   for (const option of select.options) {
     option.textContent = LOG_STATUS_LABELS[option.value] + "（" + int((counts || {})[option.value || "all"]) + "）";
   }
 }
 
-// Searching and filtering happen in the plugin. Scrolling keeps the active
-// filter stable and asks for the next bounded batch by its current row offset.
-function logPath(offset) {
+function populateLogSelect(select, defaultLabel, values, valueOf = (item) => item, labelOf = valueOf) {
+  const selected = select.value;
+  const selectedLabel = select.selectedOptions[0]?.textContent || selected;
+  const options = [el("option", { value: "", text: defaultLabel })];
+  let found = !selected;
+  for (const item of values || []) {
+    const value = String(valueOf(item) || "");
+    if (!value) continue;
+    if (value === selected) found = true;
+    options.push(el("option", { value, text: labelOf(item) }));
+  }
+  if (selected && !found) options.push(el("option", { value: selected, text: selectedLabel }));
+  select.replaceChildren(...options);
+  select.value = selected;
+}
+
+function populateLogFilters(filters, account) {
+  if (!filters) return;
+  const prefix = account ? "account-log" : "log";
+  if (!account) {
+    populateLogSelect($("log-key"), "全部 API Key", filters.api_keys,
+      (item) => item.scope, (item) => item.label ? item.label + " · " + item.preview : item.preview || item.scope);
+  }
+  populateLogSelect($(prefix + "-model"), "全部模型", filters.models);
+  populateLogSelect($(prefix + "-source"), "全部来源", filters.sources);
+}
+
+function logPath(offset, limit, account) {
   const params = new URLSearchParams({
     offset: String(offset),
-    limit: String(LOG_BATCH_SIZE),
+    limit: String(limit || LOG_BATCH_SIZE),
   });
-  const search = $("log-filter").value.trim();
-  if (search) params.set("q", search);
-  const status = $("log-status").value;
+  const prefix = account ? "account-log" : "log";
+  const key = account ? "" : $("log-key").value;
+  const model = $(prefix + "-model").value;
+  const source = $(prefix + "-source").value;
+  const status = $(prefix + "-status").value;
+  if (key) params.set("api_key", key);
+  if (model) params.set("model", model);
+  if (source) params.set("source", source);
   if (status) params.set("status", status);
+  const range = logTimeRanges[account ? "account" : "admin"];
+  if (range.from) params.set("from", range.from);
+  if (range.to) params.set("to", range.to);
   return "/logs?" + params.toString();
+}
+
+function logTimeLabel(range) {
+  if (range.mode === "custom") {
+    const format = (value) => new Date(value).toLocaleString("zh-CN", {
+      month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+    return format(range.from) + " – " + format(range.to);
+  }
+  return LOG_TIME_LABELS[range.mode] || LOG_TIME_LABELS.today;
+}
+
+function localDateTimeValue(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function recentLogTimeRange(mode) {
+  const to = new Date();
+  const value = Number.parseInt(mode, 10);
+  const duration = value * (mode.endsWith("h") ? 3600000 : 86400000);
+  return { mode, from: new Date(to.getTime() - duration).toISOString(), to: to.toISOString() };
+}
+
+function naturalLogTimeRange(mode) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const from = mode === "yesterday"
+    ? new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1) : today;
+  const to = mode === "yesterday"
+    ? today : new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  return { mode, from: from.toISOString(), to: to.toISOString() };
+}
+
+function logTimeID(account, suffix) {
+  return (account ? "account-log" : "log") + "-time-" + suffix;
+}
+
+function logTimePresetSelector(account) {
+  return "[data-" + (account ? "account-" : "") + "log-time-preset]";
+}
+
+function updateLogFilterControls(account) {
+  const role = account ? "account" : "admin";
+  $(logTimeID(account, "label")).textContent = logTimeLabel(logTimeRanges[role]);
+  $(account ? "account-logs-filter-clear" : "logs-filter-clear").disabled =
+    !LOG_FILTER_IDS[role].some((id) => $(id).value);
+}
+
+function closeLogTimePopover(account) {
+  $(logTimeID(account, "popover")).classList.add("hidden");
+  $(logTimeID(account, "backdrop")).classList.add("hidden");
+  $(logTimeID(account, "trigger")).setAttribute("aria-expanded", "false");
+}
+
+function renderLogTimePopover(mode, account) {
+  document.querySelectorAll(logTimePresetSelector(account)).forEach((button) =>
+    button.classList.toggle("active", button.dataset[account ? "accountLogTimePreset" : "logTimePreset"] === mode));
+  $(logTimeID(account, "custom")).classList.toggle("hidden", mode !== "custom");
+  if (mode === "custom") {
+    const now = new Date();
+    const range = logTimeRanges[account ? "account" : "admin"];
+    const from = range.mode === "custom" ? new Date(range.from) : new Date(now.getTime() - 86400000);
+    const to = range.mode === "custom" ? new Date(range.to) : now;
+    $(logTimeID(account, "from")).value = localDateTimeValue(from);
+    $(logTimeID(account, "to")).value = localDateTimeValue(to);
+  }
+}
+
+function openLogTimePopover(account) {
+  const popover = $(logTimeID(account, "popover"));
+  if (!popover.classList.contains("hidden")) {
+    closeLogTimePopover(account);
+    return;
+  }
+  renderLogTimePopover(logTimeRanges[account ? "account" : "admin"].mode, account);
+  popover.classList.remove("hidden");
+  $(logTimeID(account, "backdrop")).classList.remove("hidden");
+  $(logTimeID(account, "trigger")).setAttribute("aria-expanded", "true");
+}
+
+function applyLogTimeRange(range, account) {
+  logTimeRanges[account ? "account" : "admin"] = range;
+  updateLogFilterControls(account);
+  closeLogTimePopover(account);
+  guard(() => loadLogs(false, account));
+}
+
+function bindLogTimeControls(account) {
+  const selector = logTimePresetSelector(account);
+  const modeOf = (button) => button.dataset[account ? "accountLogTimePreset" : "logTimePreset"];
+  $(logTimeID(account, "trigger")).onclick = () => openLogTimePopover(account);
+  $(logTimeID(account, "backdrop")).onclick = () => closeLogTimePopover(account);
+  document.querySelectorAll(selector).forEach((button) => {
+    button.onclick = () => {
+      const mode = modeOf(button);
+      renderLogTimePopover(mode, account);
+      if (mode === "custom") return;
+      if (mode === "today" || mode === "yesterday") {
+        applyLogTimeRange(naturalLogTimeRange(mode), account);
+      } else {
+        applyLogTimeRange(recentLogTimeRange(mode), account);
+      }
+    };
+  });
+  $(logTimeID(account, "cancel")).onclick = () => closeLogTimePopover(account);
+  $(logTimeID(account, "apply")).onclick = () => guard(async () => {
+    const from = new Date($(logTimeID(account, "from")).value);
+    const to = new Date($(logTimeID(account, "to")).value);
+    if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) {
+      throw new Error("请选择完整的开始和结束时间");
+    }
+    if (from >= to) throw new Error("开始时间必须早于结束时间");
+    applyLogTimeRange({ mode: "custom", from: from.toISOString(), to: to.toISOString() }, account);
+  });
+}
+
+function csvCell(value) {
+  if (value === undefined || value === null) return "";
+  let text = String(value);
+  if (/^[=+\-@]/.test(text)) text = "'" + text;
+  return '"' + text.replaceAll('"', '""') + '"';
+}
+
+function logCSV(entries, account) {
+  const columns = account ? ACCOUNT_LOG_CSV_COLUMNS : LOG_CSV_COLUMNS;
+  const lines = [columns.map(csvCell).join(",")];
+  for (const entry of entries) {
+    const row = account ? entry : { ...entry, ...entry.cost };
+    lines.push(columns.map((column) => csvCell(row[column])).join(","));
+  }
+  return "\ufeff" + lines.join("\r\n") + "\r\n";
+}
+
+function downloadCSV(filename, content) {
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+  const anchor = el("a", { href: url, download: filename });
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function exportLogs(account) {
+  if (logExporting) return;
+  logExporting = true;
+  const button = $(account ? "account-logs-export" : "logs-export");
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在导出…";
+  try {
+    const entries = [];
+    let total = Infinity;
+    while (entries.length < total) {
+      const path = logPath(entries.length, LOG_EXPORT_BATCH_SIZE, account);
+      const page = account ? await accountAPI(path) : await plugin("GET", path);
+      const incoming = page.entries || [];
+      total = Number(page.total || 0);
+      entries.push(...incoming);
+      if (!incoming.length) break;
+    }
+    const stamp = new Date().toISOString().replaceAll(":", "-").slice(0, 19);
+    const name = account ? "cpa-key-billing-account-logs-" : "cpa-key-billing-logs-";
+    downloadCSV(name + stamp + ".csv", logCSV(entries, account));
+    notify("已导出 " + int(entries.length) + " 条计费日志");
+  } finally {
+    logExporting = false;
+    button.disabled = false;
+    button.textContent = original;
+  }
 }
 
 function shouldLoadMoreLogs(scroller) {
@@ -2151,13 +2497,14 @@ async function loadLogs(append, account) {
   }
   if (!owner.logs || append) renderLogsNow();
   try {
-    const page = account ? await accountAPI(accountLogPath(offset)) : await plugin("GET", logPath(offset));
-    // Search and status changes can overtake an older request. Only the newest
-    // filter generation is allowed to replace or append table rows.
+    const path = logPath(offset, LOG_BATCH_SIZE, account);
+    const page = account ? await accountAPI(path) : await plugin("GET", path);
+    // Filter changes can overtake an older request. Only the newest generation
+    // may replace or append rows.
     if (ticket !== logRequest) return;
     const incoming = page.entries || [];
     const entries = existing.concat(incoming);
-    owner.logs = { ...page, entries };
+    owner.logs = { ...page, filter_options: page.filter_options || owner.logs?.filter_options, entries };
     logHasMore = incoming.length > 0 && entries.length < Number(page.total || 0);
     logAutoLoadMore = true;
     logLoadError = "";
@@ -2193,7 +2540,9 @@ function renderLogs() {
     }
     return;
   }
+  populateLogFilters(view.filter_options, false);
   labelLogStatuses($("log-status"), view.status_counts);
+  updateLogFilterControls(false);
   const entries = view.entries || [];
   note.textContent = "已加载 " + int(entries.length) + " / " + int(view.total) + " 条";
   const scroller = $("logs-body");
@@ -2329,9 +2678,7 @@ function eventField(label, value) {
 
 function renderEvents() {
   const events = state.events;
-  const note = $("event-note");
   if (!events) {
-    note.textContent = "";
     $("events-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
     return;
   }
@@ -2347,7 +2694,6 @@ function renderEvents() {
   // entries picking it would show.
   labelEventLevels(searched);
   const matched = searched.filter((event) => matchesEventLevel(event, $("event-level").value));
-  note.textContent = int(matched.length) + " 条";
   const entries = matched
     .map((event) => {
       const level = eventLevels[event.level] || eventLevels.info;
@@ -2733,14 +3079,6 @@ document.querySelectorAll("[data-account-tab]").forEach((button) => {
 });
 $("account-price-filter").addEventListener("input", () =>
   renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false));
-$("account-log-filter").addEventListener("input", () => {
-  clearTimeout(logSearchTimer);
-  logSearchTimer = setTimeout(() => {
-    logSearchTimer = 0;
-    guard(() => loadLogs(false, true));
-  }, 180);
-});
-$("account-log-status").onchange = () => guard(() => loadLogs(false, true));
 $("account-logs").addEventListener("scroll", () => {
   hideCostTooltip();
   maybeLoadMoreAccountLogs();
@@ -2817,16 +3155,33 @@ $("events-clear").onclick = () => guard(async () => {
   notify("已清空 " + result.cleared + " 条插件日志");
   await reloadAll();
 });
-// Typing runs against the plugin, so the keystrokes are collected before the
-// search is sent.
-$("log-filter").addEventListener("input", () => {
-  clearTimeout(logSearchTimer);
-  logSearchTimer = setTimeout(() => {
-    logSearchTimer = 0;
-    guard(() => loadLogs(false));
-  }, 180);
+for (const account of [false, true]) {
+  const role = account ? "account" : "admin";
+  for (const id of LOG_FILTER_IDS[role]) {
+    $(id).addEventListener("change", () => guard(() => loadLogs(false, account)));
+  }
+  const clear = $(account ? "account-logs-filter-clear" : "logs-filter-clear");
+  clear.onclick = () => {
+    for (const id of LOG_FILTER_IDS[role]) $(id).value = "";
+    updateLogFilterControls(account);
+    guard(() => loadLogs(false, account));
+  };
+  $(account ? "account-logs-export" : "logs-export").onclick = () => guard(() => exportLogs(account));
+  bindLogTimeControls(account);
+}
+addEventListener("pointerdown", (event) => {
+  for (const account of [false, true]) {
+    const popover = $(logTimeID(account, "popover"));
+    if (!popover.classList.contains("hidden") && !popover.contains(event.target) &&
+      !$(logTimeID(account, "trigger")).contains(event.target)) closeLogTimePopover(account);
+  }
+}, true);
+addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeLogTimePopover(false);
+    closeLogTimePopover(true);
+  }
 });
-$("log-status").addEventListener("change", () => guard(() => loadLogs(false)));
 $("logs-body").addEventListener("scroll", () => {
   hideCostTooltip();
   maybeLoadMoreLogs();

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UI_PATH = ROOT / "internal" / "plugin" / "ui.html"
 API_BASE = "/v0/management/plugins/cpa-key-billing"
 ACCOUNT_BASE = "/v0/resource/plugins/cpa-key-billing/account"
-NOW = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
 
 
 HOST_SHELL = r"""<!doctype html>
@@ -418,7 +418,7 @@ def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, lo
 
 LOG_CASES = [
     {
-        "source": "codex · haowang4455@gmail.com",
+        "source": "codex · demo@example.com",
         "executor_type": "CodexExecutor",
         "reasoning_effort": "high",
         "service_tier": "auto",
@@ -428,7 +428,7 @@ LOG_CASES = [
         "cost": make_cost(140000, 19857, 1032, 4852, (5, 0.5, 5, 30), True, False),
     },
     {
-        "source": "xai · 00f7ghqi90@haowang.im",
+        "source": "xai · demo@example.com",
         "executor_type": "XAIWebsocketsExecutor",
         "reasoning_effort": "xhigh",
         "service_tier": "priority",
@@ -529,7 +529,7 @@ def make_logs(count=120):
         key = KEYS[index % len(KEYS)]
         entries.append(
             {
-                "at": iso(NOW - timedelta(seconds=index * 17)),
+                "at": iso(NOW - timedelta(hours=index * 6)),
                 "scope": key["scope"],
                 "preview": key["preview"],
                 "label": key["label"],
@@ -553,24 +553,34 @@ def make_logs(count=120):
 
 LOGS = make_logs()
 
-# The billing log is served one page at a time, and the counts beside the status
-# filter come with it, so the dummy has to answer the same query the plugin does.
-LOG_SEARCH_FIELDS = (
-    "label", "preview", "scope", "executor_type", "reasoning_effort", "service_tier",
-    "upstream_model", "billing_model", "source",
-)
-
-
 def log_view(query):
-    search = query.get("q", [""])[0].strip().lower()
+    selected_key = query.get("api_key", [""])[0]
+    selected_model = query.get("model", [""])[0]
+    selected_source = query.get("source", [""])[0]
     selected_status = query.get("status", [""])[0]
     offset = max(0, int(query.get("offset", ["0"])[0] or 0))
     limit = max(0, int(query.get("limit", ["0"])[0] or 0))
+    time_matched = filter_log_time(LOGS, query)
+    keys = {}
+    for entry in time_matched:
+        keys[entry["scope"]] = {
+            "scope": entry["scope"], "preview": entry.get("preview", ""), "label": entry.get("label", ""),
+        }
+    filter_options = {
+        "api_keys": sorted(keys.values(), key=lambda item: (not item["label"], item["label"].lower(),
+                                                             item["preview"].lower())),
+        "models": sorted({entry.get("billing_model") or entry.get("upstream_model", "")
+                          for entry in time_matched} - {""}, key=str.lower),
+        "sources": sorted({entry.get("source", "") for entry in time_matched} - {""}, key=str.lower),
+    }
     counts = {"all": 0, "normal": 0, "failed": 0}
     matched = []
-    for entry in LOGS:
-        haystack = " ".join(str(entry.get(field, "")) for field in LOG_SEARCH_FIELDS).lower()
-        if search and search not in haystack:
+    for entry in time_matched:
+        if selected_key and entry.get("scope") != selected_key:
+            continue
+        if selected_model and (entry.get("billing_model") or entry.get("upstream_model")) != selected_model:
+            continue
+        if selected_source and entry.get("source") != selected_source:
             continue
         status = "failed" if entry.get("failed") else "normal"
         counts["all"] += 1
@@ -579,23 +589,36 @@ def log_view(query):
             continue
         matched.append(entry)
     page = matched[offset:offset + limit] if limit else matched[offset:]
-    return {"entries": page, "total": len(matched), "offset": offset, "status_counts": counts}
+    result = {"entries": page, "total": len(matched), "offset": offset, "status_counts": counts}
+    if offset == 0:
+        result["filter_options"] = filter_options
+    return result
 
 
-def safe_account_source(source):
-    provider = str(source or "").split(" · ", 1)[0]
-    return "" if "@" in provider else provider
+def filter_log_time(entries, query):
+    from_raw = query.get("from", [""])[0]
+    to_raw = query.get("to", [""])[0]
+    from_time = datetime.fromisoformat(from_raw.replace("Z", "+00:00")) if from_raw else None
+    to_time = datetime.fromisoformat(to_raw.replace("Z", "+00:00")) if to_raw else None
+    return [entry for entry in entries if
+            (not from_time or datetime.fromisoformat(entry["at"].replace("Z", "+00:00")) >= from_time) and
+            (not to_time or datetime.fromisoformat(entry["at"].replace("Z", "+00:00")) < to_time)]
 
 
 def account_log_view(query, scope):
-    scoped = [entry for entry in LOGS if entry["scope"] == scope]
-    search = query.get("q", [""])[0].strip().lower()
-    if search:
-        scoped = [entry for entry in scoped if search in " ".join((
-            str(entry.get("billing_model", "")), str(entry.get("reasoning_effort", "")),
-            str(entry.get("service_tier", "")), str(entry.get("latency_ms", "")),
-            str(entry.get("executor_type", "")), safe_account_source(entry.get("source", "")),
-        )).lower()]
+    scoped = filter_log_time([entry for entry in LOGS if entry["scope"] == scope], query)
+    filter_options = {
+        "models": sorted({entry.get("billing_model") or entry.get("upstream_model", "")
+                          for entry in scoped} - {""}, key=str.lower),
+        "sources": sorted({entry.get("source", "") for entry in scoped} - {""}, key=str.lower),
+    }
+    selected_model = query.get("model", [""])[0]
+    selected_source = query.get("source", [""])[0]
+    if selected_model:
+        scoped = [entry for entry in scoped if
+                  (entry.get("billing_model") or entry.get("upstream_model")) == selected_model]
+    if selected_source:
+        scoped = [entry for entry in scoped if entry.get("source", "") == selected_source]
     selected_status = query.get("status", [""])[0]
     counts = {
         "all": len(scoped),
@@ -614,7 +637,7 @@ def account_log_view(query, scope):
             "at": entry["at"],
             "billing_model": entry["billing_model"],
             "executor_type": entry["executor_type"],
-            "source": safe_account_source(entry.get("source", "")),
+            "source": entry.get("source", ""),
             "reasoning_effort": entry["reasoning_effort"],
             "service_tier": entry["service_tier"],
             "failed": entry["failed"],
@@ -628,7 +651,10 @@ def account_log_view(query, scope):
             "output_tokens": cost["billed_output_tokens"],
             "reasoning_tokens": entry["reasoning_tokens"],
         })
-    return {"entries": entries, "total": len(matched), "status_counts": counts}
+    result = {"entries": entries, "total": len(matched), "status_counts": counts}
+    if offset == 0:
+        result["filter_options"] = filter_options
+    return result
 
 
 def account_overview(index):
