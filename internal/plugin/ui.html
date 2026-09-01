@@ -97,7 +97,7 @@ body{margin:0;background-color:var(--bg-secondary);color:var(--text-primary);
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
   transition:background-color .3s,color .3s}
 a{color:var(--primary-active)}
-.wrap{max-width:1180px;margin:0 auto;padding:18px 20px 60px}
+.wrap{max-width:1360px;margin:0 auto;padding:18px 20px 60px}
 h1{font-size:18px;margin:0}
 h2{font-size:15px;margin:0 0 12px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -252,7 +252,7 @@ tbody tr:hover{background:var(--bg-hover)}
 .quota-fill.low{background:var(--quota-low-color)}
 @media (prefers-reduced-motion:reduce){body,button,input,select,textarea,.quota-fill{transition:none}}
 .concurrency-editor{display:flex;align-items:center;gap:7px;min-width:172px}
-.concurrency-editor .native-select,.concurrency-editor select{width:112px;min-width:112px}
+.concurrency-editor .native-select,.concurrency-editor select{width:96px;min-width:96px}
 .concurrency-editor .small{white-space:nowrap}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
 .stat{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-md);
@@ -329,7 +329,10 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .key-picker input{width:auto}
 .key-picker label.disabled{cursor:not-allowed;opacity:.55}
 .key-picker label.disabled:hover{background:transparent}
-.key-pill-list{display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-width:180px;max-width:520px}
+.key-pill-list{display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-width:180px}
+.plan-key-list{max-width:clamp(520px,44vw,820px)}
+.group-models{max-width:clamp(320px,22vw,420px)}
+.group-key-list{max-width:clamp(400px,28vw,520px)}
 .key-pill{display:inline-block;padding:2px 8px;border:1px solid transparent;border-radius:999px;
   max-width:100%;background:var(--count-badge-bg);color:var(--count-badge-text);font-size:12px;
   white-space:normal;overflow-wrap:anywhere}
@@ -366,8 +369,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .model-picker-actions{justify-content:flex-end}
 .group-model-picker{max-height:260px}
 .group-model-actions .link{display:inline-flex;align-items:center;align-self:stretch;padding-block:0}
-/* Two pill lists in one row would otherwise push the actions past the card. */
-.group-models{max-width:320px}
 @media (max-width:768px){
   /* Anchoring a popover to a cell inside a horizontally scrolling table stops
      making sense once the table is wider than the screen, so it becomes a sheet. */
@@ -1700,7 +1701,7 @@ function renderKeys() {
       const usage = view.unlimited
         ? el("span", { class: "muted", text: "—" })
         : el("div", { class: "usage" },
-            el("span", { class: "mono" }, "剩余 " + usd(Math.max(0, Number(view.limit_usd || 0) - Number(view.spent_usd || 0))) +
+            el("span", { class: "muted small mono" }, "剩余 " + usd(Math.max(0, Number(view.limit_usd || 0) - Number(view.spent_usd || 0))) +
               " / " + usd(view.limit_usd)),
             el("div", { class: "bar", role: "progressbar", "aria-label": name + " 的剩余额度",
               "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(quota.percent)) },
@@ -2015,7 +2016,7 @@ function renderPlans() {
       el("td", { class: "num" }, usd(plan.amount_usd)),
       el("td", {}, periodText(plan.period)),
       el("td", {}, boundKeys.length
-        ? el("div", { class: "key-pill-list" }, boundKeys.map((key) =>
+        ? el("div", { class: "key-pill-list plan-key-list" }, boundKeys.map((key) =>
             el("span", { class: "key-pill", text: keyPillText(key), title: key.scope })))
         : el("span", { class: "muted", text: "—" })),
       el("td", { class: "small" },
@@ -2037,7 +2038,7 @@ function renderPlans() {
 
 function keyPills(keys) {
   return keys.length
-    ? el("div", { class: "key-pill-list" }, keys.map((key) =>
+    ? el("div", { class: "key-pill-list group-key-list" }, keys.map((key) =>
         el("span", { class: "key-pill", text: keyPillText(key), title: key.scope })))
     : el("span", { class: "muted", text: "—" });
 }
