@@ -1458,12 +1458,6 @@ function setAccountTab(tab, reload) {
   }
 }
 
-function maybeLoadMoreAccountLogs() {
-  const scroller = $("account-logs");
-  if (!logAutoLoadMore || !logHasMore || logLoading || logLoadingMore || !shouldLoadMoreLogs(scroller)) return;
-  guard(() => loadLogs(true, true));
-}
-
 function renderAccount() {
   const overview = accountState.overview || { tracked: false };
   const tracked = overview.tracked === true;
@@ -1605,7 +1599,7 @@ function renderAccountLogs() {
   replaceContent(scroller, ...content);
   scroller.scrollTop = previousScrollTop;
   scroller.scrollLeft = previousScrollLeft;
-  requestAnimationFrame(maybeLoadMoreAccountLogs);
+  requestAnimationFrame(() => maybeLoadMoreLogs(true));
 }
 
 function render() {
@@ -2470,10 +2464,14 @@ function shouldLoadMoreLogs(scroller) {
   return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= LOG_LOAD_MORE_THRESHOLD_PX;
 }
 
-function maybeLoadMoreLogs() {
-  const scroller = $("logs-body");
+function maybeLoadMoreLogs(account) {
+  account = account === true;
+  const role = account ? "account" : "admin";
+  const tabActive = account ? accountTab === "logs" : !!document.querySelector('[data-tab="logs"].active');
+  if (currentRole !== role || !tabActive) return;
+  const scroller = $(account ? "account-logs" : "logs-body");
   if (!logAutoLoadMore || !logHasMore || logLoading || logLoadingMore || !shouldLoadMoreLogs(scroller)) return;
-  guard(() => loadLogs(true));
+  guard(() => loadLogs(true, account));
 }
 
 async function loadLogs(append, account) {
@@ -2649,7 +2647,7 @@ function renderLogs() {
   replaceContent(scroller, ...content);
   scroller.scrollTop = previousScrollTop;
   scroller.scrollLeft = previousScrollLeft;
-  requestAnimationFrame(maybeLoadMoreLogs);
+  requestAnimationFrame(() => maybeLoadMoreLogs(false));
 }
 
 const eventLevels = {
@@ -3081,7 +3079,7 @@ $("account-price-filter").addEventListener("input", () =>
   renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false));
 $("account-logs").addEventListener("scroll", () => {
   hideCostTooltip();
-  maybeLoadMoreAccountLogs();
+  maybeLoadMoreLogs(true);
 }, { passive: true });
 
 const TABS = Array.from(document.querySelectorAll(".tabs button[data-tab]"));
@@ -3184,7 +3182,7 @@ addEventListener("keydown", (event) => {
 });
 $("logs-body").addEventListener("scroll", () => {
   hideCostTooltip();
-  maybeLoadMoreLogs();
+  maybeLoadMoreLogs(false);
 }, { passive: true });
 $("keys-reset-all").onclick = () => guard(async () => {
   if (!await confirmAction("重置所有周期性额度？",
