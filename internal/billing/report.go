@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-func (s *Store) ReportRequestFailure(scope, authIndex, provider, authType, account, model, reason string) {
+func (s *Store) ReportRequestFailure(
+	scope, authIndex, provider, authType, account, model, reason string,
+	failure RequestFailure,
+) {
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
 		return
@@ -20,11 +23,14 @@ func (s *Store) ReportRequestFailure(scope, authIndex, provider, authType, accou
 	if credential == "" {
 		credential = usageCredential(scope, provider, authType, account).Name()
 	}
+	failure.APIKey = name
+	failure.Model = strings.TrimSpace(model)
+	failure.Upstream = credential
 
 	var message strings.Builder
 	message.WriteString("请求失败：")
 	message.WriteString(name)
-	if model = strings.TrimSpace(model); model != "" {
+	if model = failure.Model; model != "" {
 		message.WriteString("，模型 ")
 		message.WriteString(model)
 	}
@@ -39,7 +45,9 @@ func (s *Store) ReportRequestFailure(scope, authIndex, provider, authType, accou
 	} else {
 		message.WriteString("宿主未提供错误内容。")
 	}
-	s.Event(EventError, "%s", message.String())
+	s.appendEvent(Event{
+		Level: EventError, Message: message.String(), RequestFailure: &failure,
+	})
 }
 
 // ReportQuotaBlock records that a key was turned away for an exhausted

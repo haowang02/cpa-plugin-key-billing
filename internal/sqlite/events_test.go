@@ -50,6 +50,31 @@ func TestEventsSurviveAReopen(t *testing.T) {
 	}
 }
 
+func TestStructuredRequestFailureSurvivesAReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	database := openDatabase(t, path)
+	event := billing.Event{
+		At: logStart, Level: billing.EventError, Message: "请求失败",
+		RequestFailure: &billing.RequestFailure{
+			APIKey: "Alice · sk-tes…0001", Model: "gpt-5.5", Upstream: "codex · demo@example.com",
+			StatusCode: 426, ErrorType: "server_error",
+			Body: `{"error":{"message":"replay required","type":"server_error","status":426}}`,
+		},
+	}
+	if errAppend := database.AppendEvent(event, time.Time{}); errAppend != nil {
+		t.Fatalf("AppendEvent error = %v", errAppend)
+	}
+	if errClose := database.Close(); errClose != nil {
+		t.Fatalf("Close error = %v", errClose)
+	}
+
+	events := mustEvents(t, openDatabase(t, path), time.Time{})
+	if len(events) != 1 || events[0].RequestFailure == nil ||
+		*events[0].RequestFailure != *event.RequestFailure {
+		t.Fatalf("events = %+v, want structured failure %+v", events, event.RequestFailure)
+	}
+}
+
 // Appending is the moment the log grows, and opening it is the moment a log
 // that stopped growing is looked at again.
 func TestEventsAreDroppedPastRetention(t *testing.T) {

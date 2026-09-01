@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -9,10 +10,15 @@ import (
 )
 
 func (d *DB) AppendEvent(event billing.Event, cutoff time.Time) error {
+	requestFailure := ""
+	if event.RequestFailure != nil {
+		raw, _ := json.Marshal(event.RequestFailure)
+		requestFailure = string(raw)
+	}
 	return d.transact(func(tx *sql.Tx) error {
 		if _, errInsert := tx.Exec(
-			"INSERT INTO plugin_log (at, level, message) VALUES (?, ?, ?)",
-			nanos(event.At), string(event.Level), event.Message); errInsert != nil {
+			"INSERT INTO plugin_log (at, level, message, request_failure) VALUES (?, ?, ?, ?)",
+			nanos(event.At), string(event.Level), event.Message, requestFailure); errInsert != nil {
 			return fmt.Errorf("写入插件日志：%w", errInsert)
 		}
 		return pruneEvents(tx.Exec, cutoff)
@@ -33,7 +39,7 @@ func pruneEvents(exec execer, cutoff time.Time) error {
 // committed under, so two stamped in the same nanosecond still read in order.
 func (d *DB) Events(since time.Time) ([]billing.Event, error) {
 	rows, errQuery := d.db.Query(
-		"SELECT at, level, message FROM plugin_log WHERE at >= ? ORDER BY id DESC", nanos(since))
+		"SELECT at, level, message, request_failure FROM plugin_log WHERE at >= ? ORDER BY id DESC", nanos(since))
 	if errQuery != nil {
 		return nil, fmt.Errorf("读取插件日志：%w", errQuery)
 	}
@@ -41,12 +47,20 @@ func (d *DB) Events(since time.Time) ([]billing.Event, error) {
 	events := []billing.Event{}
 	for rows.Next() {
 		var (
-			event billing.Event
-			at    int64
-			level string
+			event          billing.Event
+			at             int64
+			level          string
+			requestFailure string
 		)
-		if errScan := rows.Scan(&at, &level, &event.Message); errScan != nil {
+		if errScan := rows.Scan(&at, &level, &event.Message, &requestFailure); errScan != nil {
 			return nil, fmt.Errorf("读取插件日志：%w", errScan)
+		}
+		if requestFailure != "" {
+			var failure billing.RequestFailure
+			if errDecode := json.Unmarshal([]byte(requestFailure), &failure); errDecode != nil {
+				return nil, fmt.Errorf("解析插件日志详情：%w", errDecode)
+			}
+			event.RequestFailure = &failure
 		}
 		event.At = timeAt(at)
 		event.Level = billing.EventLevel(level)

@@ -220,6 +220,33 @@ func TestOpenMigratesUsageLogRequestOptionsWithoutLosingEntries(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesPluginLogFailureWithoutLosingEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	database := openDatabase(t, path)
+	mustAppendEvent(t, database, logStart, billing.EventInfo, "保留旧插件日志", time.Time{})
+	if _, errDowngrade := database.db.Exec(`
+		ALTER TABLE plugin_log DROP COLUMN request_failure;
+		PRAGMA user_version = 7`); errDowngrade != nil {
+		t.Fatalf("prepare version 7 database: %v", errDowngrade)
+	}
+	if errClose := database.Close(); errClose != nil {
+		t.Fatalf("Close error = %v", errClose)
+	}
+
+	reopened := openDatabase(t, path)
+	events := mustEvents(t, reopened, time.Time{})
+	if len(events) != 1 || events[0].Message != "保留旧插件日志" || events[0].RequestFailure != nil {
+		t.Fatalf("migrated events = %+v", events)
+	}
+	var version int
+	if errVersion := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); errVersion != nil {
+		t.Fatalf("read user_version: %v", errVersion)
+	}
+	if version != schemaVersion {
+		t.Fatalf("version = %d, want %d", version, schemaVersion)
+	}
+}
+
 // Billing one request must write that request's key, not the whole record.
 func TestSaveWritesOnlyTheNamedKeys(t *testing.T) {
 	database := openTestDB(t)

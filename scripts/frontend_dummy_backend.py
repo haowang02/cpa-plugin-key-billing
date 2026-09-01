@@ -667,29 +667,103 @@ def account_price_view(index):
         "pattern": model, "input_per_1m": 0, "output_per_1m": 0,
     })) for model in allowed]
 
+def request_failure(at, key, model, message, label="", status=0, error_type="", code=""):
+    identity = f"{label} · {key}" if label else key
+    error = {"message": message}
+    if error_type:
+        error["type"] = error_type
+    if code:
+        error["code"] = code
+    if 400 <= status <= 599:
+        error["status"] = status
+    reason = (f"HTTP {status}：" if status else "") + message
+    if error_type:
+        reason += f"（{error_type}）"
+    return {
+        "at": iso(at),
+        "level": "error",
+        "message": (
+            f"请求失败：{identity}，模型 {model}，凭据 codex · demo@example.com。"
+            f"原因：{reason}"
+        ),
+        "request_failure": {
+            "api_key": identity,
+            "model": model,
+            "upstream": "codex · demo@example.com",
+            "status_code": status,
+            "error_type": error_type,
+            "body": json.dumps({"error": error}, ensure_ascii=False, separators=(",", ":")),
+        },
+    }
+
+
 EVENTS = [
+    request_failure(
+        datetime(2026, 9, 1, 11, 37, 49, tzinfo=timezone.utc),
+        "sk-demo…0001",
+        "gpt-5.6-sol",
+        (
+            "This content was flagged for possible cybersecurity risk. "
+            "If this seems wrong, try rephrasing your request. To get authorized for security work, "
+            "join the Trusted Access for Cyber program: https://chatgpt.com/cyber"
+        ),
+        label="演示 Key",
+        status=400,
+        error_type="invalid_request",
+    ),
+    request_failure(
+        datetime(2026, 9, 1, 9, 39, 38, tzinfo=timezone.utc),
+        "sk-demo…0001",
+        "gpt-5.6-sol",
+        "websocket: close 1006 (abnormal closure): unexpected EOF",
+    ),
+    request_failure(
+        datetime(2026, 9, 1, 5, 37, 38, tzinfo=timezone.utc),
+        "sk-demo…0002",
+        "gpt-5.6-sol",
+        "websocket: close 1006 (abnormal closure): unexpected EOF",
+    ),
+    request_failure(
+        datetime(2026, 9, 1, 3, 5, 36, tzinfo=timezone.utc),
+        "sk-demo…0001",
+        "gpt-5.5",
+        "upstream transport requires full HTTP replay",
+        status=426,
+        error_type="server_error",
+        code="upstream_http_replay_required",
+    ),
+    request_failure(
+        datetime(2026, 9, 1, 3, 5, 35, tzinfo=timezone.utc),
+        "sk-demo…0001",
+        "gpt-5.5",
+        "read tcp 192.0.2.10:41740->192.0.2.20:1080: i/o timeout",
+    ),
+    request_failure(
+        datetime(2026, 9, 1, 2, 23, 3, tzinfo=timezone.utc),
+        "sk-demo…0001",
+        "gpt-5.6-sol",
+        "websocket: close 1006 (abnormal closure): unexpected EOF",
+    ),
     {
-        "at": iso(NOW - timedelta(minutes=1)),
-        "level": "error",
-        "message": "保存计费数据失败：写入计费日志：attempt to write a readonly database",
-    },
-    {
-        "at": iso(NOW - timedelta(minutes=12)),
-        "level": "error",
-        "message": "更新 models.dev 参考价目录失败：Get \"https://models.dev/api.json\": dial tcp: i/o timeout",
-    },
-    {
-        "at": iso(NOW - timedelta(hours=2)),
-        "level": "info",
-        "message": "已同步 CLIProxyAPI 的 API Key 列表：新增 3 个，移除 1 个。",
-    },
-    {
-        "at": iso(NOW - timedelta(days=1)),
+        "at": iso(datetime(2026, 8, 31, 19, 49, 2, tzinfo=timezone.utc)),
         "level": "info",
         "message": (
             "已加载计费数据库 /srv/cli-proxy-api/plugins/cpa-key-billing-state.db："
-            "16 个 API Key、2 个订阅计划、120 条计费日志。已启用。"
+            "9 个 API Key、1 个订阅计划、24097 条计费日志。已启用。"
         ),
+    },
+    request_failure(
+        datetime(2026, 8, 31, 8, 33, 35, tzinfo=timezone.utc),
+        "sk-demo…0001",
+        "gpt-5.6-sol",
+        "Our servers are currently overloaded. Please try again later.",
+        status=502,
+        error_type="service_unavailable_error",
+    ),
+    {
+        "at": iso(datetime(2026, 8, 31, 7, 20, 0, tzinfo=timezone.utc)),
+        "level": "info",
+        "message": "已同步 CLIProxyAPI 的 API Key 列表：新增 2 个，移除 1 个。",
     },
 ]
 

@@ -24,11 +24,15 @@
   --primary-10:color-mix(in srgb, var(--primary-color) 10%, transparent);
   --shadow:0 1px 2px 0 #00000014;
   --radius-md:8px;
+  --event-row-bg:transparent;--event-row-border:var(--border-color);
+  --event-code-bg:var(--bg-secondary);--event-code-border:var(--border-primary);
+  --event-error-rail:var(--error-color);
 }
 [data-theme=white]{
   --bg-secondary:#fff; --bg-primary:#fff; --bg-tertiary:#f6f6f6;
   --floating-surface:#fff; --floating-shadow:0 12px 26px #0000001f;
   --border-color:#e5e5e5; --border-primary:#d9d9d9; --border-hover:#ccc;
+  --event-code-bg:var(--bg-tertiary);
 }
 [data-theme=dark]{
   --bg-secondary:#151412; --bg-primary:#1d1b18; --bg-tertiary:#262320; --bg-hover:#2e2a26;
@@ -44,6 +48,7 @@
   --amber-30:color-mix(in srgb, var(--amber-color) 38%, transparent);
   --quota-high-color:#0fae78; --quota-medium-color:#ffd862; --quota-low-color:#cf4b3a;
   --shadow:0 1px 3px 0 #0000004d;
+  --event-code-bg:var(--bg-secondary);--event-code-border:var(--border-primary);
 }
 :root[data-cpamp-plugin-host=true]{
   /* CPAMP exposes its design tokens inside same-origin plugin frames. Keep the
@@ -80,6 +85,11 @@
   --table-header-bg:var(--app-surface-strong,var(--bg-primary));
   --table-header-bg:rgb(from var(--bg-primary) r g b / 1);
   --shadow:var(--glass-shadow,none); --radius-md:var(--app-radius-md,12px);
+  --event-row-bg:var(--surface-subtle,var(--bg-tertiary));
+  --event-row-border:var(--border-subtle,var(--app-border,var(--border-color)));
+  --event-code-bg:var(--app-surface-strong,var(--bg-primary));
+  --event-code-border:var(--app-border-strong,var(--border-primary));
+  --event-error-rail:var(--color-danger,var(--error-color));
 }
 *{box-sizing:border-box}
 body{margin:0;background-color:var(--bg-secondary);color:var(--text-primary);
@@ -352,13 +362,26 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .wide-search{width:360px;max-width:100%}
 .section-actions{min-width:0}
 .log-card{height:calc(100dvh - 247px);min-height:360px;border-radius:12px;display:flex;flex-direction:column;margin-bottom:0}
-/* Tables size to their content, which for a log message means one very wide row
- * behind a horizontal scroll. The plugin log fixes its layout instead, so the
- * message wraps inside the card however long it is. */
-#events-body table{table-layout:fixed;width:100%;min-width:0}
-#events-body th:nth-child(1),#events-body td:nth-child(1){width:170px}
-#events-body th:nth-child(2),#events-body td:nth-child(2){width:76px}
-.event-message{white-space:pre-wrap;overflow-wrap:anywhere}
+.event-list{display:grid;gap:8px;padding:2px 0 10px}
+.event-entry{padding:9px 11px;border:1px solid var(--event-row-border);border-radius:var(--radius-md);
+  background:var(--event-row-bg)}
+.event-entry.request-failure{border-left:3px solid var(--event-error-rail)}
+.event-entry-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.event-entry-tags{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}
+.event-time{color:var(--text-secondary);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
+.request-failure .event-entry-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-areas:"time meta tags";gap:14px}
+.request-failure .event-time{grid-area:time}
+.request-failure .event-request-meta{grid-area:meta}
+.request-failure .event-entry-tags{grid-area:tags}
+.event-message{margin-top:7px;padding:7px 9px;border:1px solid var(--event-code-border);border-radius:var(--radius-md);
+  background:var(--event-code-bg);line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.event-request-meta{display:flex;align-items:baseline;gap:3px 12px;min-width:0;flex-wrap:wrap}
+.event-field{display:flex;align-items:baseline;gap:6px;min-width:0}
+.event-field-label{flex:none;color:var(--text-tertiary);font-size:11px;font-weight:500}
+.event-field-value{min-width:0;color:var(--text-secondary);font-size:12px;font-weight:400;overflow-wrap:anywhere}
+.event-error-body{margin:7px 0 0;padding:7px 9px;border:1px solid var(--event-code-border);border-radius:var(--radius-md);
+  background:var(--event-code-bg);font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
 /* Two marks on one line push the cost column out of the card, so the status
  * cell wraps them instead of widening the table. */
 .log-status{max-width:118px}
@@ -396,6 +419,10 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .section-actions .wide-search,#price-filter,#account-price-filter{flex:1 0 100%;width:100%!important;max-width:none!important;min-width:0}
   .section-actions #log-note{flex:1 0 100%}
   .log-card{height:calc(100dvh - 295px);min-height:320px}
+  .request-failure .event-entry-head{grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas:"time tags" "meta meta";gap:5px 10px}
+  .event-entry-tags{gap:4px}
+  .event-entry-tags .tag{padding-inline:6px}
   .gate{margin:3vh auto;padding:16px}
   .app-header{align-items:flex-start}
   .app-header .standalone-actions{width:100%;justify-content:flex-end;gap:2px;padding:5px;border-radius:14px}
@@ -2293,6 +2320,13 @@ function labelEventLevels(events) {
   }
 }
 
+function eventField(label, value) {
+  if (!value) return null;
+  return el("div", { class: "event-field" },
+    el("span", { class: "event-field-label", text: label }),
+    el("span", { class: "event-field-value mono", text: value }));
+}
+
 function renderEvents() {
   const events = state.events;
   const note = $("event-note");
@@ -2302,24 +2336,47 @@ function renderEvents() {
     return;
   }
   const filter = $("event-filter").value.trim().toLowerCase();
-  const searched = events.filter((event) =>
-    !filter || (event.message || "").toLowerCase().includes(filter));
+  const searched = events.filter((event) => {
+    if (!filter) return true;
+    const failure = event.request_failure || {};
+    return [event.message, failure.api_key, failure.model, failure.upstream,
+      failure.status_code ? "HTTP " + failure.status_code : "", failure.error_type, failure.body]
+      .filter(Boolean).join(" ").toLowerCase().includes(filter);
+  });
   // The counts ignore the level choice itself, so each option says how many
   // entries picking it would show.
   labelEventLevels(searched);
   const matched = searched.filter((event) => matchesEventLevel(event, $("event-level").value));
   note.textContent = int(matched.length) + " 条";
-  const rows = matched
+  const entries = matched
     .map((event) => {
       const level = eventLevels[event.level] || eventLevels.info;
-      return el("tr", {},
-        el("td", { class: "small" }, when(event.at)),
-        el("td", {}, el("span", { class: level.class, text: level.label })),
-        el("td", { class: "event-message" }, event.message || ""),
+      const failure = event.request_failure;
+      if (failure) {
+        const tags = [];
+        if (failure.status_code) tags.push(el("span", { class: "tag bad", text: "HTTP " + failure.status_code }));
+        if (failure.error_type) tags.push(el("span", { class: "tag bad", text: failure.error_type }));
+        if (!tags.length) tags.push(el("span", { class: level.class, text: level.label }));
+        return el("article", { class: "event-entry request-failure", role: "listitem" },
+          el("div", { class: "event-entry-head" },
+            el("time", { class: "event-time", datetime: event.at || null }, when(event.at)),
+            el("div", { class: "event-request-meta" },
+              eventField("上游", failure.upstream),
+              eventField("API Key", failure.api_key),
+              eventField("模型", failure.model)),
+            el("div", { class: "event-entry-tags" }, tags)),
+          el("pre", { class: "event-error-body mono", text: failure.body || "宿主未提供错误内容。" }),
+        );
+      }
+      return el("article", { class: "event-entry", role: "listitem" },
+        el("div", { class: "event-entry-head" },
+          el("time", { class: "event-time", datetime: event.at || null }, when(event.at)),
+          el("span", { class: level.class, text: level.label })),
+        el("div", { class: "event-message" }, event.message || ""),
       );
     });
-  replaceContent($("events-body"), rows.length
-    ? table(["时间", "级别", "内容"], rows)
+  replaceContent($("events-body"), entries.length
+    ? el("div", { class: "event-list", role: "list", "aria-label": "插件日志列表" }, entries)
     : el("div", { class: "empty", text: events.length ? "没有匹配的日志" : "暂无插件日志" }));
 }
 

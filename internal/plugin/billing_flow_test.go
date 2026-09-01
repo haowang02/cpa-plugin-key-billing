@@ -143,13 +143,21 @@ func TestUsageHandleReportsZeroUsageFailureAndBillsReportedFailureUsage(t *testi
 		t.Fatalf("Events error = %v", errEvents)
 	}
 	failureMessage := ""
+	var requestFailure *billing.RequestFailure
 	for _, event := range events {
 		if strings.HasPrefix(event.Message, "请求失败：") {
 			failureMessage = event.Message
+			requestFailure = event.RequestFailure
 			if event.Level != billing.EventError {
 				t.Fatalf("failure event level = %q", event.Level)
 			}
 		}
+	}
+	if requestFailure == nil || requestFailure.APIKey != "Alice · sk-tes…0001" ||
+		requestFailure.Model != flowModel || requestFailure.Upstream != "codex · billing@example.com" ||
+		requestFailure.StatusCode != 502 || requestFailure.ErrorType != "service_unavailable_error" ||
+		requestFailure.Body != `{"error":{"message":"service overloaded","type":"service_unavailable_error","status":502}}` {
+		t.Fatalf("request failure = %+v", requestFailure)
 	}
 	for _, want := range []string{
 		"Alice · sk-tes…0001", "模型 " + flowModel, "codex · billing@example.com",

@@ -145,7 +145,8 @@ CREATE TABLE IF NOT EXISTS plugin_log (
 	id      INTEGER PRIMARY KEY AUTOINCREMENT,
 	at      INTEGER NOT NULL,
 	level   TEXT    NOT NULL DEFAULT '',
-	message TEXT    NOT NULL DEFAULT ''
+	message TEXT    NOT NULL DEFAULT '',
+	request_failure TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS plugin_log_at ON plugin_log(at);

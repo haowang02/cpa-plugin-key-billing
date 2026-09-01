@@ -21,7 +21,7 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 // driverName is this package's own registration of the SQLite driver. It exists
 // for ulower(): the built-in lower() folds ASCII only, so a key labelled in any
@@ -103,6 +103,9 @@ func (d *DB) init() error {
 		if errMigrate := migrateUsageLogRequestOptions(tx); errMigrate != nil {
 			return fmt.Errorf("迁移计费数据库 %s 的日志推理和速度字段：%w", d.path, errMigrate)
 		}
+		if errMigrate := migratePluginLogFailure(tx); errMigrate != nil {
+			return fmt.Errorf("迁移计费数据库 %s 的请求失败日志字段：%w", d.path, errMigrate)
+		}
 		if version < schemaVersion {
 			if _, errVersion := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); errVersion != nil {
 				return fmt.Errorf("标记计费数据库 %s 的格式版本：%w", d.path, errVersion)
@@ -110,6 +113,18 @@ func (d *DB) init() error {
 		}
 		return nil
 	})
+}
+
+func migratePluginLogFailure(tx *sql.Tx) error {
+	columns, errColumns := tableColumns(tx, "plugin_log")
+	if errColumns != nil {
+		return errColumns
+	}
+	if _, exists := columns["request_failure"]; exists {
+		return nil
+	}
+	_, errAlter := tx.Exec("ALTER TABLE plugin_log ADD COLUMN request_failure TEXT NOT NULL DEFAULT ''")
+	return errAlter
 }
 
 func migrateUsageLogRequestOptions(tx *sql.Tx) error {

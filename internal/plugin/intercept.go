@@ -111,8 +111,13 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 		if model == "" {
 			model = record.Model
 		}
+		failure := usageFailureDetails(record.Failure)
 		a.store.ReportRequestFailure(scope, record.AuthIndex, record.Provider, record.AuthType, record.Source,
-			model, usageFailureReason(record.Failure))
+			model, failure.Reason, billing.RequestFailure{
+				StatusCode: failure.StatusCode,
+				ErrorType:  failure.ErrorType,
+				Body:       failure.Body,
+			})
 		if !usageHasTokens(record.Detail) {
 			return OKEnvelope(struct{}{})
 		}
