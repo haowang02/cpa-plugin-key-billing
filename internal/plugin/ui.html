@@ -109,9 +109,12 @@ h2{font-size:15px;margin:0 0 12px}
   box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
 button{appearance:none;min-height:35px;font:inherit;font-weight:400;line-height:1.5;border:1px solid var(--border-primary);
   background:var(--bg-primary);color:var(--text-primary);box-shadow:none;
-  border-radius:var(--radius-md);padding:6px 12px;cursor:pointer;transition:background-color .15s,border-color .15s,color .15s}
+  border-radius:var(--radius-md);padding:6px 12px;cursor:pointer;
+  transition:background-color .15s,border-color .15s,color .15s,box-shadow .15s}
 button:hover:not(:disabled){border-color:var(--border-hover);background:var(--bg-hover)}
-button:disabled{opacity:.5;cursor:not-allowed}
+button:disabled{opacity:.6;cursor:not-allowed}
+:root:not([data-cpamp-plugin-host=true]) button:focus-visible{
+  outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--primary-color) 18%,transparent)}
 button.primary{background:var(--primary-color);border-color:var(--primary-color);color:var(--primary-contrast)}
 button.primary:hover:not(:disabled){background:var(--primary-hover);border-color:var(--primary-hover);color:var(--primary-contrast)}
 button.danger{color:var(--error-color)}
@@ -120,16 +123,19 @@ button.link{min-height:0;border:none;background:none;padding:2px 4px;color:var(-
 button.link:hover:not(:disabled){background:none;color:var(--text-primary);text-decoration:underline}
 button.link.danger:hover:not(:disabled){color:var(--error-color)}
 input,select,textarea{font:inherit;color:var(--text-primary);background:var(--bg-secondary);
-  border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:6px 9px}
+  border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:6px 9px;
+  transition:background-color .15s,border-color .15s,box-shadow .15s}
 input:not([type=checkbox]):not([type=radio]),select{min-height:35px}
-input:focus,select:focus,textarea:focus{border-color:var(--primary-color);box-shadow:0 0 0 3px var(--primary-10);outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--primary-color);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--primary-color) 18%,transparent);outline:none}
 input[type=number]{width:110px}
 .native-select{position:relative;display:inline-flex;align-items:center;color:var(--text-secondary)}
 .native-select::after{content:"";position:absolute;right:13px;top:50%;width:8px;height:8px;
   border-right:2px solid currentColor;border-bottom:2px solid currentColor;
   transform:translateY(-70%) rotate(45deg);pointer-events:none}
 .native-select>select{-webkit-appearance:none;appearance:none;padding-right:34px;color:var(--text-primary)}
-label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-secondary)}
+label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:500;color:var(--text-secondary)}
+label.field>input,label.field>select{font-weight:400}
 :root:not([data-cpamp-plugin-host=true]) label.field>input,
 :root:not([data-cpamp-plugin-host=true]) label.field>select{font-size:14px;line-height:1.5}
 .table-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;
@@ -139,6 +145,7 @@ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border-colo
 th{font-size:12px;color:var(--text-secondary);font-weight:600;white-space:nowrap}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 tbody tr:hover{background:var(--bg-hover)}
+.table-scroll .muted{color:var(--text-secondary)}
 /* The management panel floats its own action bar (refresh, language, theme,
    sign out) over the top-right corner of this iframe, so that corner holds
    nothing: the header stays left-aligned and tall enough that the content below
@@ -168,6 +175,10 @@ tbody tr:hover{background:var(--bg-hover)}
   min-height:34px;border-color:var(--app-input-border,var(--border-primary));
   background:var(--app-input-bg,var(--app-surface-strong,var(--bg-primary)));box-shadow:none
 }
+:root[data-cpamp-plugin-host=true] input:not([type=checkbox]):not([type=radio]),
+:root[data-cpamp-plugin-host=true] select{padding-block:5px}
+:root[data-cpamp-plugin-host=true] label.field>input,
+:root[data-cpamp-plugin-host=true] label.field>select{font-size:13px;line-height:1.5}
 :root[data-cpamp-plugin-host=true] input:focus,
 :root[data-cpamp-plugin-host=true] select:focus,
 :root[data-cpamp-plugin-host=true] textarea:focus{
@@ -239,7 +250,7 @@ tbody tr:hover{background:var(--bg-hover)}
 .quota-fill.high{background:var(--quota-high-color)}
 .quota-fill.medium{background:var(--quota-medium-color)}
 .quota-fill.low{background:var(--quota-low-color)}
-@media (prefers-reduced-motion:reduce){.quota-fill{transition:none}}
+@media (prefers-reduced-motion:reduce){body,button,input,select,textarea,.quota-fill{transition:none}}
 .concurrency-editor{display:flex;align-items:center;gap:7px;min-width:172px}
 .concurrency-editor .native-select,.concurrency-editor select{width:112px;min-width:112px}
 .concurrency-editor .small{white-space:nowrap}
