@@ -805,7 +805,7 @@ def payload_for(path, query):
             "model_groups": MODEL_GROUPS,
             "stats": {
                 "keys": len(LIVE_KEYS),
-                "blocked_keys": 0,
+                "active_requests": sum(item["current_concurrency"] for item in LIVE_KEYS),
                 "lifetime": {
                     "requests": sum(item["requests"] for item in MODEL_TOTALS),
                     "cost_usd": sum(item["cost_usd"] for item in MODEL_TOTALS),

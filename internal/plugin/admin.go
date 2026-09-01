@@ -95,7 +95,7 @@ func (a *App) overview() ManagementResponse {
 		Plans:       a.store.Plans(),
 		Prices:      a.store.PriceRows(),
 		ModelGroups: a.store.ModelGroups(),
-		Stats:       billing.StatsFrom(keys),
+		Stats:       billing.StatsFrom(keys, a.store.ActiveRequestCount()),
 	})
 }
 

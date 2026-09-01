@@ -634,7 +634,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <div class="stat"><span class="muted small">累计费用</span><b id="s-cost">—</b></div>
     <div class="stat"><span class="muted small">累计请求</span><b id="s-req">—</b></div>
     <div class="stat"><span class="muted small">API Key 数量</span><b id="s-keys">—</b></div>
-    <div class="stat"><span class="muted small">额度用尽</span><b id="s-blocked">—</b></div>
+    <div class="stat"><span class="muted small">活跃请求</span><b id="s-active">—</b></div>
   </div>
 
   <div class="tabs">
@@ -1654,7 +1654,7 @@ function renderHeader() {
   $("s-cost").textContent = usd(stats.lifetime?.cost_usd);
   $("s-req").textContent = int(stats.lifetime?.requests);
   $("s-keys").textContent = int(stats.keys);
-  $("s-blocked").textContent = int(stats.blocked_keys);
+  $("s-active").textContent = int(stats.active_requests);
 }
 
 function keyName(view) {

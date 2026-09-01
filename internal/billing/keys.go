@@ -413,22 +413,22 @@ func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Tim
 }
 
 type StatsView struct {
-	Keys        int           `json:"keys"`
-	BlockedKeys int           `json:"blocked_keys"`
-	Lifetime    Totals        `json:"lifetime"`
-	ByModel     []ModelTotals `json:"by_model"`
+	Keys           int           `json:"keys"`
+	ActiveRequests int           `json:"active_requests"`
+	Lifetime       Totals        `json:"lifetime"`
+	ByModel        []ModelTotals `json:"by_model"`
 }
 
 func (s *Store) Stats() StatsView {
-	return StatsFrom(s.KeyViews())
+	return StatsFrom(s.KeyViews(), s.ActiveRequestCount())
 }
 
 // Totals are derived from the listing rather than counted separately, so they
 // cannot disagree with the rows an operator is reading. Listing also settles
 // expired cycles, which is why a caller that needs both lists once and passes
 // the result here instead of asking for each.
-func StatsFrom(views []KeyView) StatsView {
-	stats := StatsView{ByModel: []ModelTotals{}}
+func StatsFrom(views []KeyView, activeRequests int) StatsView {
+	stats := StatsView{ActiveRequests: activeRequests, ByModel: []ModelTotals{}}
 	byModel := make(map[string]*Totals)
 	for _, view := range views {
 		// A deleted key still spent what it spent, and its billing log is still
@@ -436,9 +436,6 @@ func StatsFrom(views []KeyView) StatsView {
 		stats.Lifetime.Add(view.Lifetime)
 		if view.DeletedAt.IsZero() {
 			stats.Keys++
-			if view.Blocked {
-				stats.BlockedKeys++
-			}
 		}
 		for _, entry := range view.ByModel {
 			totals := byModel[entry.BillingModel]

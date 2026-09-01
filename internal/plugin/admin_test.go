@@ -185,6 +185,13 @@ func TestKeyConcurrencyRoundTrips(t *testing.T) {
 	if view.ConcurrencyLimit != 5 || view.CurrentConcurrency != 0 {
 		t.Fatalf("view = %+v, want a five-slot limit", view)
 	}
+	if decision := app.store.AcquireSlot(scope, "active-overview-request"); !decision.Allowed {
+		t.Fatalf("AcquireSlot = %+v, want an active request", decision)
+	}
+	if active := readOverview(t, app).Stats.ActiveRequests; active != 1 {
+		t.Fatalf("Stats.ActiveRequests = %d, want 1", active)
+	}
+	app.store.ReleaseSlot("active-overview-request")
 	if resp := callManagement(t, app, http.MethodPost, routeKeysConcurrency, nil, map[string]any{
 		"scope": scope, "concurrency_limit": billing.MaxConcurrencyLimit + 1,
 	}); resp.StatusCode != http.StatusBadRequest {

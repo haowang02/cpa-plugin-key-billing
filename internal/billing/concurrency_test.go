@@ -20,6 +20,9 @@ func TestConcurrencySlotsEnforceLimitAndAreIdempotent(t *testing.T) {
 	if duplicate := store.AcquireSlot("scope-a", "request-2"); !duplicate.Allowed || duplicate.Active != 2 || duplicate.Acquired {
 		t.Fatalf("duplicate = %+v, want an idempotent reservation", duplicate)
 	}
+	if active := store.ActiveRequestCount(); active != 2 {
+		t.Fatalf("ActiveRequestCount = %d, want 2", active)
+	}
 	if store.ReleaseSlot("missing") || !store.ReleaseSlot("request-1") || store.ReleaseSlot("request-1") {
 		t.Fatal("slot release was not idempotent")
 	}
