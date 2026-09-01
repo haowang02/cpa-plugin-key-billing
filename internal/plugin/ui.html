@@ -107,7 +107,7 @@ h2{font-size:15px;margin:0 0 12px}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
 .card{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:var(--radius-md);
   box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
-button{appearance:none;min-height:0;font:inherit;font-weight:400;line-height:1.5;border:1px solid var(--border-primary);
+button{appearance:none;min-height:35px;font:inherit;font-weight:400;line-height:1.5;border:1px solid var(--border-primary);
   background:var(--bg-primary);color:var(--text-primary);box-shadow:none;
   border-radius:var(--radius-md);padding:6px 12px;cursor:pointer;transition:background-color .15s,border-color .15s,color .15s}
 button:hover:not(:disabled){border-color:var(--border-hover);background:var(--bg-hover)}
@@ -116,11 +116,12 @@ button.primary{background:var(--primary-color);border-color:var(--primary-color)
 button.primary:hover:not(:disabled){background:var(--primary-hover);border-color:var(--primary-hover);color:var(--primary-contrast)}
 button.danger{color:var(--error-color)}
 button.danger:hover:not(:disabled){border-color:var(--error-color)}
-button.link{border:none;background:none;padding:2px 4px;color:var(--primary-active)}
+button.link{min-height:0;border:none;background:none;padding:2px 4px;color:var(--primary-active)}
 button.link:hover:not(:disabled){background:none;color:var(--text-primary);text-decoration:underline}
 button.link.danger:hover:not(:disabled){color:var(--error-color)}
 input,select,textarea{font:inherit;color:var(--text-primary);background:var(--bg-secondary);
   border:1px solid var(--border-primary);border-radius:var(--radius-md);padding:6px 9px}
+input:not([type=checkbox]):not([type=radio]),select{min-height:35px}
 input:focus,select:focus,textarea:focus{border-color:var(--primary-color);box-shadow:0 0 0 3px var(--primary-10);outline:none}
 input[type=number]{width:110px}
 .native-select{position:relative;display:inline-flex;align-items:center;color:var(--text-secondary)}
@@ -129,6 +130,8 @@ input[type=number]{width:110px}
   transform:translateY(-70%) rotate(45deg);pointer-events:none}
 .native-select>select{-webkit-appearance:none;appearance:none;padding-right:34px;color:var(--text-primary)}
 label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-secondary)}
+:root:not([data-cpamp-plugin-host=true]) label.field>input,
+:root:not([data-cpamp-plugin-host=true]) label.field>select{font-size:14px;line-height:1.5}
 .table-scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;
   -webkit-overflow-scrolling:touch}
 table{width:max-content;min-width:100%;border-collapse:collapse;font-size:13px}
@@ -351,6 +354,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .model-picker-hint{padding:0 2px;color:var(--text-tertiary);font-size:11px}
 .model-picker-actions{justify-content:flex-end}
 .group-model-picker{max-height:260px}
+.group-model-actions .link{display:inline-flex;align-items:center;align-self:stretch;padding-block:0}
 /* Two pill lists in one row would otherwise push the actions past the card. */
 .group-models{max-width:320px}
 @media (max-width:768px){
@@ -471,8 +475,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   .log-card{height:clamp(560px,calc(100dvh - 20px),760px)}
   .log-filter-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .log-filter-bar>select,.log-filter-bar #log-key{width:100%;min-width:0;max-width:none}
-  #logs-filter-clear{grid-column:1/-1}
-  #account-logs-filter-clear{grid-column:1/-1}
+  #logs-filter-clear,#account-logs-filter-clear{grid-column:1/-1;justify-self:start}
   .log-title-row .time-range-popover{position:fixed;z-index:1301;inset:auto 10px 10px;width:auto;
     max-height:calc(100dvh - 20px);overflow:auto}
   .time-range-backdrop:not(.hidden){display:block;position:fixed;z-index:1300;inset:0;background:#0006}
@@ -695,7 +698,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
       <div style="margin-top:14px">
         <div class="row spread" style="margin-bottom:6px">
           <span class="small muted">包含模型（<span id="group-model-count">0</span>）</span>
-          <span class="row" style="gap:4px">
+          <span class="row group-model-actions" style="gap:4px">
             <input id="group-model-search" type="search" placeholder="搜索模型" style="max-width:200px">
             <button id="group-model-all" class="link">全选</button>
             <button id="group-model-none" class="link">清空</button>
@@ -765,7 +768,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
           <option value="normal">正常</option>
           <option value="failed">失败</option>
         </select>
-        <button id="logs-filter-clear" type="button">清除筛选</button>
+        <button id="logs-filter-clear" class="link" type="button">清除筛选</button>
       </div>
       <div id="logs-body" class="log-table-region"></div>
       <div class="log-footer"><span id="log-note" class="muted small"></span></div>
@@ -892,7 +895,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
             <option value="normal">正常</option>
             <option value="failed">失败</option>
           </select>
-          <button id="account-logs-filter-clear" type="button">清除筛选</button>
+          <button id="account-logs-filter-clear" class="link" type="button">清除筛选</button>
         </div>
         <div id="account-logs" class="log-table-region"></div>
         <div class="log-footer"><span id="account-log-note" class="muted small"></span></div>
