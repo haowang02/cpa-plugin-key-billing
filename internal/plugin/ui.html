@@ -1270,10 +1270,25 @@ function tokenThreshold(value) {
   return exactTokens(n);
 }
 function when(value) {
-  if (!value) return "—";
+  const parts = dateTimeParts(value);
+  return parts ? parts.date + " " + parts.time : "—";
+}
+function dateTimeParts(value) {
+  if (!value) return null;
   const date = new Date(value);
-  if (isNaN(date.getTime()) || date.getFullYear() < 2000) return "—";
-  return date.toLocaleString("zh-CN", { hour12: false });
+  if (isNaN(date.getTime()) || date.getFullYear() < 2000) return null;
+  return {
+    time: date.toLocaleTimeString("zh-CN", { hour12: false }),
+    date: date.toLocaleDateString("zh-CN"),
+  };
+}
+function dateTimeLines(value) {
+  const parts = dateTimeParts(value);
+  if (!parts) return el("div", {}, "—");
+  return [
+    el("div", {}, parts.time),
+    el("div", { class: "muted small mono" }, parts.date),
+  ];
 }
 
 function el(tag, attrs, ...children) {
@@ -1575,7 +1590,7 @@ function renderAccountLogs() {
     const tokens = (value) => measured ? exactTokens(value) : "—";
     const hasTTFT = Number(entry.ttft_ms || 0) > 0;
     return el("tr", {},
-      el("td", { class: "small" }, when(entry.at)),
+      el("td", {}, dateTimeLines(entry.at)),
       el("td", { class: "small" }, el("div", { class: "log-cell-line mono" }, entry.billing_model || "—")),
       el("td", { class: "small" },
         el("div", { class: "log-cell-line mono" }, entry.executor_type || "执行器未知"),
@@ -1723,6 +1738,8 @@ function renderKeys() {
       const notes = [];
       if (view.preview && view.preview !== name) notes.push(view.preview);
       if (!view.in_config) notes.push("不在 CLIProxyAPI Key 列表中");
+      const hasExpiry = !view.unlimited && view.cycle_end_at &&
+        state.plans.find((plan) => plan.id === view.plan_id)?.period?.kind !== "never";
 
       return el("tr", {},
         el("td", {},
@@ -1733,7 +1750,9 @@ function renderKeys() {
         el("td", {}, modelTrigger(view)),
         el("td", {}, concurrency),
         el("td", {}, usage),
-        el("td", { class: "small muted" }, cycleNote(view)),
+        el("td", {}, hasExpiry
+          ? dateTimeLines(view.cycle_end_at)
+          : el("div", { class: "muted small" }, cycleNote(view))),
         el("td", { class: "num" }, int(view.lifetime?.requests)),
         el("td", { class: "num" }, usd(view.lifetime?.cost_usd)),
         el("td", {}, view.blocked
@@ -2588,7 +2607,7 @@ function renderLogs() {
       const showUpstreamModel = entry.upstream_model && entry.upstream_model !== billingModel;
 
       return el("tr", {},
-        el("td", { class: "small" }, when(entry.at)),
+        el("td", {}, dateTimeLines(entry.at)),
         el("td", {},
           el("div", {}, keyDisplay),
           entry.preview && entry.preview !== keyDisplay
