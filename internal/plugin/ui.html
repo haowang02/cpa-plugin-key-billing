@@ -1018,8 +1018,8 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   <div class="price-fields">
     <label class="field">输入 / 1M Token<input id="price-in" type="number" step="any" min="0" value="0"></label>
     <label class="field">输出 / 1M Token<input id="price-out" type="number" step="any" min="0" value="0"></label>
-    <label class="field">缓存读取 / 1M Token<input id="price-cr" type="number" step="any" min="0" placeholder="留空时沿用输入单价"></label>
-    <label class="field">缓存写入 / 1M Token<input id="price-cw" type="number" step="any" min="0" placeholder="留空时沿用输入单价"></label>
+    <label class="field">缓存读 / 1M Token<input id="price-cr" type="number" step="any" min="0" placeholder="留空时沿用输入单价"></label>
+    <label class="field">缓存写 / 1M Token<input id="price-cw" type="number" step="any" min="0" placeholder="留空时沿用输入单价"></label>
   </div>
   <label class="switch-field"><input id="price-tiered" type="checkbox">启用长上下文阶梯计价</label>
   <div id="price-tier-fields" class="price-fields tier-fields hidden">
@@ -1027,8 +1027,8 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
     <span></span>
     <label class="field">长上下文输入 / 1M Token<input id="price-tier-in" type="number" step="any" min="0" value="0"></label>
     <label class="field">长上下文输出 / 1M Token<input id="price-tier-out" type="number" step="any" min="0" value="0"></label>
-    <label class="field">长上下文缓存读取 / 1M Token<input id="price-tier-cr" type="number" step="any" min="0" placeholder="留空时沿用长上下文输入单价"></label>
-    <label class="field">长上下文缓存写入 / 1M Token<input id="price-tier-cw" type="number" step="any" min="0" placeholder="留空时沿用长上下文输入单价"></label>
+    <label class="field">长上下文缓存读 / 1M Token<input id="price-tier-cr" type="number" step="any" min="0" placeholder="留空时沿用长上下文输入单价"></label>
+    <label class="field">长上下文缓存写 / 1M Token<input id="price-tier-cw" type="number" step="any" min="0" placeholder="留空时沿用长上下文输入单价"></label>
   </div>
   <div class="row price-dialog-actions">
     <button id="price-cancel">取消</button>
@@ -1891,7 +1891,7 @@ function renderAccountLogs() {
 
   const content = [table(
     ["时间", "模型", "执行器 / 来源", "推理 / 速度", "状态", { label: "TPS / 延迟", num: true },
-      { label: "输入", num: true }, { label: "缓存读取", num: true }, { label: "缓存写入", num: true },
+      { label: "输入", num: true }, { label: "缓存读", num: true }, { label: "缓存写", num: true },
       { label: "输出", num: true }, { label: "费用", num: true }], rows)];
   if (load.loadingMore) {
     content.push(el("div", { class: "log-load-state", role: "status", text: "正在加载更多…" }));
@@ -2459,15 +2459,15 @@ function renderKeys() {
           ? el("span", { class: "tag bad", text: "额度用尽" })
           : el("span", { class: "tag " + (view.unlimited ? "plain" : "ok"), text: view.unlimited ? "不限制" : "正常" })),
         el("td", { class: "small" },
-          el("button", { class: "link", text: "重置额度", disabled: view.unlimited || undefined,
+          el("button", { class: "link", text: "重置", disabled: view.unlimited || undefined,
             onclick: () => guard(async () => {
               if (!await confirmAction("重置订阅额度？", "当前周期将结束，下一次请求会开启新周期；累计用量不受影响。")) return;
               await plugin("POST", "/keys/reset", { scope: view.scope });
               notify("订阅额度已重置"); await refreshPage("foreground");
             }) }),
-          el("button", { class: "link", text: "设置备注",
+          el("button", { class: "link", text: "备注",
             onclick: () => guard(async () => {
-              const label = await ask("设置备注", keyName(view), view.label || "");
+              const label = await ask("备注", keyName(view), view.label || "");
               if (label === null) return;
               await plugin("POST", "/keys/label", { scope: view.scope, label });
               notify("已保存备注"); await refreshPage("foreground");
@@ -2702,8 +2702,8 @@ function renderModels() {
   });
   replaceContent($("models-body"), table(
     ["模型", { label: "请求", num: true }, { label: "输入", num: true }, { label: "输出", num: true },
-      { label: "缓存读取", num: true }, { label: "缓存率", num: true },
-      { label: "缓存写入", num: true }, { label: "费用", num: true }],
+      { label: "缓存读", num: true }, { label: "缓存率", num: true },
+      { label: "缓存写", num: true }, { label: "费用", num: true }],
     rows));
 }
 
@@ -2894,7 +2894,7 @@ function renderPriceTable(target, prices, filter, editable) {
       return el("tr", {}, cells);
     });
   const headers = ["模型", { label: "输入 / 1M Token", num: true }, { label: "输出 / 1M Token", num: true },
-    { label: "缓存读取 / 1M Token", num: true }, { label: "缓存写入 / 1M Token", num: true }];
+    { label: "缓存读 / 1M Token", num: true }, { label: "缓存写 / 1M Token", num: true }];
   if (editable) headers.push("来源", "操作");
   replaceContent($(target), table(headers, rows));
 }
@@ -2914,8 +2914,8 @@ function showCostTooltip(anchor, cost, reasoningTokens) {
   const output = Number(cost.billed_output_tokens || 0);
   const rows = [
     ["未缓存输入", cost.uncached_input_tokens, cost.applied_input_per_1m, cost.uncached_input_usd],
-    ["缓存读取", cost.cache_read_tokens, cost.applied_cache_read_per_1m, cost.cache_read_usd],
-    ["缓存写入", cost.cache_write_tokens, cost.applied_cache_write_per_1m, cost.cache_write_usd],
+    ["缓存读", cost.cache_read_tokens, cost.applied_cache_read_per_1m, cost.cache_read_usd],
+    ["缓存写", cost.cache_write_tokens, cost.applied_cache_write_per_1m, cost.cache_write_usd],
     ["输出", output, cost.applied_output_per_1m, cost.output_usd],
   ];
   tooltip.replaceChildren(
@@ -3385,8 +3385,8 @@ function renderLogs() {
 
   const content = [table(
     ["时间", "API Key", "模型", "执行器 / 来源", "推理 / 速度", "状态", { label: "TPS / 延迟", num: true },
-      { label: "输入", num: true }, { label: "缓存读取", num: true },
-      { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
+      { label: "输入", num: true }, { label: "缓存读", num: true },
+      { label: "缓存写", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
     rows)];
   if (load.loadingMore) {
     content.push(el("div", { class: "log-load-state", role: "status", text: "正在加载更多…" }));
