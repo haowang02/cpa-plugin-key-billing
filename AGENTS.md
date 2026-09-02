@@ -4,7 +4,7 @@
 
 - **Release tags:** Update `Version` in `internal/plugin/types.go` before creating a tag.
 - **Tag version increments:** When creating a tag, increment the patch version unless the user explicitly requests a major or minor version change.
-- **Frontend changes:** Start `python3 scripts/frontend_dummy_backend.py`, then test the affected desktop and narrow-screen layouts with Playwright. Static checks alone are insufficient.
+- **Frontend changes:** Start `python3 scripts/frontend_dummy_backend.py --port 18765`, then test the affected desktop and narrow-screen layouts with Playwright. Static checks alone are insufficient; do not use the script's default port.
 - **Billing changes:** Run `scripts/e2e_cpa_billing.sh v7.2.143` after modifying usage parsing, pricing calculations, quota enforcement, failure reporting, or other billing behavior. This suite is not required for frontend-only, documentation-only, or other non-billing changes.
 
 ## Architecture Invariants
