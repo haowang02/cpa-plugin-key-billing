@@ -46,24 +46,18 @@ func callOK(t *testing.T, app *App, method, suffix string, query url.Values, bod
 	}
 }
 
-// Everything the panel reads outside the two logs comes back from this one
-// route, so it is what the round-trip tests read their edits back through.
-func readOverview(t *testing.T, app *App) overviewResponse {
+func readAccess(t *testing.T, app *App) accessResponse {
 	t.Helper()
-	var overview overviewResponse
-	callOK(t, app, http.MethodGet, routeOverview, nil, nil, http.StatusOK, &overview)
-	return overview
+	var access accessResponse
+	callOK(t, app, http.MethodGet, routeAccess, nil, nil, http.StatusOK, &access)
+	return access
 }
 
-func TestEveryDeclaredRouteIsDispatchable(t *testing.T) {
-	app := newConfiguredApp(t)
-	for _, route := range managementRegistration().Routes {
-		suffix := strings.TrimPrefix(route.Path, managementBase)
-		resp := callManagement(t, app, route.Method, suffix, url.Values{}, nil)
-		if resp.StatusCode == http.StatusNotFound {
-			t.Fatalf("declared route %s %s is not dispatched (body=%s)", route.Method, route.Path, resp.Body)
-		}
-	}
+func readPrices(t *testing.T, app *App) []billing.PriceRow {
+	t.Helper()
+	var prices []billing.PriceRow
+	callOK(t, app, http.MethodGet, routePrices, nil, nil, http.StatusOK, &prices)
+	return prices
 }
 
 func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
@@ -77,7 +71,7 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("result = %+v, want two rows with one priced from the catalog", synced)
 	}
 
-	prices := readOverview(t, app).Prices
+	prices := readPrices(t, app)
 	if len(prices) != 2 || prices[0].Pattern != "gpt-4o" || prices[0].Source != billing.PriceSourceBuiltin ||
 		prices[1].Source != billing.PriceSourceNone {
 		t.Fatalf("prices = %+v, want the catalog price and an unpriced row", prices)
@@ -89,7 +83,7 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 		"output_per_1m":     10,
 		"cache_read_per_1m": 0.125,
 	}, http.StatusOK, nil)
-	if prices = readOverview(t, app).Prices; prices[1].InputPer1M != 1.25 ||
+	if prices = readPrices(t, app); prices[1].InputPer1M != 1.25 ||
 		prices[1].Source != billing.PriceSourceCustom {
 		t.Fatalf("row = %+v, want the edit recorded as custom", prices[1])
 	}
@@ -101,7 +95,7 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 	if reset.Restored != 1 {
 		t.Fatalf("restored = %d, want 1", reset.Restored)
 	}
-	if prices = readOverview(t, app).Prices; len(prices) != 2 || prices[1].InputPer1M != 0 {
+	if prices = readPrices(t, app); len(prices) != 2 || prices[1].InputPer1M != 0 {
 		t.Fatalf("prices = %+v, want the rows kept and the edit dropped", prices)
 	}
 
@@ -136,7 +130,7 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("plan = %+v, want only the amount changed", patched.Plan)
 	}
 
-	if plans := readOverview(t, app).Plans; len(plans) != 1 {
+	if plans := readAccess(t, app).Plans; len(plans) != 1 {
 		t.Fatalf("plans = %+v", plans)
 	}
 
@@ -185,13 +179,13 @@ func TestKeyConcurrencyRoundTrips(t *testing.T) {
 	if view.ConcurrencyLimit != 5 || view.CurrentConcurrency != 0 {
 		t.Fatalf("view = %+v, want a five-slot limit", view)
 	}
-	if decision := app.store.AcquireSlot(scope, "active-overview-request"); !decision.Allowed {
+	if decision := app.store.AcquireSlot(scope, "active-access-request"); !decision.Allowed {
 		t.Fatalf("AcquireSlot = %+v, want an active request", decision)
 	}
-	if active := readOverview(t, app).Stats.ActiveRequests; active != 1 {
-		t.Fatalf("Stats.ActiveRequests = %d, want 1", active)
+	if active := keysByScope(t, app)[scope].CurrentConcurrency; active != 1 {
+		t.Fatalf("CurrentConcurrency = %d, want 1", active)
 	}
-	app.store.ReleaseSlot("active-overview-request")
+	app.store.ReleaseSlot("active-access-request")
 	if resp := callManagement(t, app, http.MethodPost, routeKeysConcurrency, nil, map[string]any{
 		"scope": scope, "concurrency_limit": billing.MaxConcurrencyLimit + 1,
 	}); resp.StatusCode != http.StatusBadRequest {
@@ -202,7 +196,7 @@ func TestKeyConcurrencyRoundTrips(t *testing.T) {
 func keysByScope(t *testing.T, app *App) map[string]billing.KeyView {
 	t.Helper()
 	byScope := map[string]billing.KeyView{}
-	for _, key := range readOverview(t, app).Keys {
+	for _, key := range readAccess(t, app).Keys {
 		byScope[key.Scope] = key
 	}
 	return byScope
@@ -259,7 +253,7 @@ func TestSyncKeysStoresOnlyMaskedKeys(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 
-	keys := readOverview(t, app).Keys
+	keys := readAccess(t, app).Keys
 	if len(keys) != 2 {
 		t.Fatalf("keys = %+v", keys)
 	}
@@ -284,8 +278,6 @@ func TestSyncKeysStoresOnlyMaskedKeys(t *testing.T) {
 	}
 }
 
-// A key deleted from CPA leaves the key list but keeps its billing history,
-// which the log can only render while the record is there to name it.
 func TestSyncRetiresKeysDeletedFromCPA(t *testing.T) {
 	app := newConfiguredApp(t)
 	const kept, removed = "sk-kept-00000000001", "sk-removed-00000001"
@@ -295,11 +287,11 @@ func TestSyncRetiresKeysDeletedFromCPA(t *testing.T) {
 
 	var result billing.SyncResult
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{kept}}, http.StatusOK, &result)
-	if result.Removed != 1 || result.Matched != 1 {
+	if result.Removed != 1 || result.Added != 0 {
 		t.Fatalf("result = %+v", result)
 	}
 
-	keys := readOverview(t, app).Keys
+	keys := readAccess(t, app).Keys
 	if len(keys) != 2 {
 		t.Fatalf("keys = %+v, want the deleted key kept alongside the live one", keys)
 	}
@@ -310,16 +302,14 @@ func TestSyncRetiresKeysDeletedFromCPA(t *testing.T) {
 		}
 	}
 
-	var logs billing.LogView
-	callOK(t, app, http.MethodGet, routeLogs, nil, nil, http.StatusOK, &logs)
-	if len(logs.Entries) != 1 || logs.Entries[0].Preview == "" {
-		t.Fatalf("logs = %+v, want the deleted key's history still readable", logs.Entries)
+	var events billing.RequestEventView
+	callOK(t, app, http.MethodGet, routeEvents, nil, nil, http.StatusOK, &events)
+	if len(events.Entries) != 1 || events.Entries[0].Preview == "" {
+		t.Fatalf("events = %+v, want the deleted key's history still readable", events.Entries)
 	}
 }
 
-// Only the query string is the handler's to get right; the paging behind it
-// belongs to the store and is covered there.
-func TestLogQueryReachesTheStore(t *testing.T) {
+func TestRequestEventQueryReachesTheStore(t *testing.T) {
 	app := newConfiguredApp(t)
 	const apiKey = "sk-paged-000000000001"
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{apiKey}}, http.StatusOK, nil)
@@ -327,19 +317,19 @@ func TestLogQueryReachesTheStore(t *testing.T) {
 		billOneRequest(t, app, apiKey, int64(100*(i+1)))
 	}
 
-	var logs billing.LogView
-	callOK(t, app, http.MethodGet, routeLogs, url.Values{"offset": {"2"}, "limit": {"2"}}, nil, http.StatusOK, &logs)
-	if len(logs.Entries) != 1 || logs.Total != 3 || logs.Statuses.Normal != 3 || logs.Filters != nil {
-		t.Fatalf("logs = %d entries, total %d, statuses %+v", len(logs.Entries), logs.Total, logs.Statuses)
+	var events billing.RequestEventView
+	callOK(t, app, http.MethodGet, routeEvents, url.Values{"offset": {"2"}, "limit": {"2"}}, nil, http.StatusOK, &events)
+	if len(events.Entries) != 1 || events.Total != 3 || events.Statuses.Normal != 3 || events.Filters != nil {
+		t.Fatalf("events = %d entries, total %d, statuses %+v", len(events.Entries), events.Total, events.Statuses)
 	}
-	from := logs.Entries[0].At.Add(-time.Second).Format(time.RFC3339Nano)
+	from := events.Entries[0].At.Add(-time.Second).Format(time.RFC3339Nano)
 	to := app.store.Now().Add(time.Second).Format(time.RFC3339Nano)
-	callOK(t, app, http.MethodGet, routeLogs, url.Values{
-		"api_key": {billing.CallerScope(apiKey)}, "model": {"gpt-5.5"}, "source": {logs.Entries[0].Source},
+	callOK(t, app, http.MethodGet, routeEvents, url.Values{
+		"api_key": {billing.CallerScope(apiKey)}, "model": {"gpt-5.5"}, "source": {events.Entries[0].Source},
 		"status": {"normal"}, "from": {from}, "to": {to},
-	}, nil, http.StatusOK, &logs)
-	if logs.Total != 3 || logs.Filters == nil {
-		t.Fatalf("field and time filtered logs = %+v", logs)
+	}, nil, http.StatusOK, &events)
+	if events.Total != 3 || events.Filters == nil {
+		t.Fatalf("field and time filtered events = %+v", events)
 	}
 
 	for _, query := range []url.Values{
@@ -347,30 +337,50 @@ func TestLogQueryReachesTheStore(t *testing.T) {
 		{"limit": {"1001"}}, {"limit": {"one page"}}, {"from": {"yesterday"}},
 		{"from": {"2026-09-01T02:00:00Z"}, "to": {"2026-09-01T01:00:00Z"}},
 	} {
-		if resp := callManagement(t, app, http.MethodGet, routeLogs, query, nil); resp.StatusCode != http.StatusBadRequest {
+		if resp := callManagement(t, app, http.MethodGet, routeEvents, query, nil); resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%v status = %d, want 400 (body=%s)", query, resp.StatusCode, resp.Body)
 		}
 	}
 }
 
-func TestLogQueryUsesABoundedDefaultPage(t *testing.T) {
+func TestRequestEventQueryUsesABoundedDefaultPage(t *testing.T) {
 	app := newConfiguredApp(t)
-	for range defaultLogPageSize + 1 {
+	for range defaultEventPageSize + 1 {
 		billOneRequest(t, app, testAPIKey, 1)
 	}
 
-	var logs billing.LogView
-	callOK(t, app, http.MethodGet, routeLogs, nil, nil, http.StatusOK, &logs)
-	if len(logs.Entries) != defaultLogPageSize || logs.Total != defaultLogPageSize+1 {
-		t.Fatalf("logs = %d entries of %d, want the default page of %d", len(logs.Entries), logs.Total, defaultLogPageSize)
+	var events billing.RequestEventView
+	callOK(t, app, http.MethodGet, routeEvents, nil, nil, http.StatusOK, &events)
+	if len(events.Entries) != defaultEventPageSize || events.Total != defaultEventPageSize+1 {
+		t.Fatalf("events = %d entries of %d, want the default page of %d", len(events.Entries), events.Total, defaultEventPageSize)
 	}
 }
 
-// TestManagementRoutesWorkWhileDisabled matters for diagnosis: an operator who
-// turned the plugin off still needs to read and fix its configuration.
+func TestManagementAnalysisOmitsTheSelectedKeyDimension(t *testing.T) {
+	app := newConfiguredApp(t)
+	const apiKey = "sk-analysis-0000000001"
+	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{apiKey}}, http.StatusOK, nil)
+	billOneRequest(t, app, apiKey, 20)
+
+	var view billing.AnalysisView
+	callOK(t, app, http.MethodGet, routeAnalysis, url.Values{
+		"api_key": {billing.CallerScope(apiKey)},
+	}, nil, http.StatusOK, &view)
+	if len(view.UsageDistribution.APIKeys) != 0 || len(view.UsageDistribution.Models) != 1 ||
+		view.UsageDistribution.Models[0].Requests != 1 {
+		t.Fatalf("analysis = %+v", view)
+	}
+	response := callManagement(t, app, http.MethodGet, routeAnalysis, url.Values{
+		"from": {"2026-09-01T02:00:00Z"}, "to": {"2026-09-01T01:00:00Z"},
+	}, nil)
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid analysis range status = %d, want 400", response.StatusCode)
+	}
+}
+
 func TestManagementRoutesWorkWhileDisabled(t *testing.T) {
 	app := newAppWithPrice(t, false)
-	if prices := readOverview(t, app).Prices; len(prices) != 1 {
+	if prices := readPrices(t, app); len(prices) != 1 {
 		t.Fatalf("prices = %+v", prices)
 	}
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
@@ -394,8 +404,6 @@ func TestModelGroupsRoundTripThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("group = %+v", created.Group)
 	}
 
-	// A key starts on every model, and says so rather than leaving a client to
-	// infer it from two empty arrays.
 	if key := keysByScope(t, app)[scope]; !key.AllModels {
 		t.Fatalf("key = %+v, want it unrestricted to begin with", key)
 	}
@@ -408,8 +416,6 @@ func TestModelGroupsRoundTripThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("key = %+v, want the selection recorded", key)
 	}
 
-	// The all-models group is exclusive wherever the request comes from, not
-	// just in the panel that draws the checkboxes.
 	callOK(t, app, http.MethodPost, routeKeysModels, nil, map[string]any{
 		"scope": scope, "groups": []string{billing.AllModelsGroupID, "fast-models"},
 		"models": []string{"claude-sonnet-4-5"},
@@ -422,7 +428,7 @@ func TestModelGroupsRoundTripThroughTheManagementAPI(t *testing.T) {
 	callOK(t, app, http.MethodPatch, routeModelGroups, nil, map[string]any{
 		"id": "fast-models", "name": name,
 	}, http.StatusOK, nil)
-	groups := readOverview(t, app).ModelGroups
+	groups := readAccess(t, app).ModelGroups
 	if len(groups) != 1 || groups[0].Name != name || len(groups[0].Models) != 2 {
 		t.Fatalf("groups = %+v, want only the name changed", groups)
 	}
@@ -439,18 +445,16 @@ func TestModelGroupsRoundTripThroughTheManagementAPI(t *testing.T) {
 	}
 }
 
-// The plugin log is where an operator sees what the plugin itself did, which is
-// otherwise invisible: a c-shared plugin has no console of its own.
 func TestPluginLogReportsStartupAndFailures(t *testing.T) {
 	app := newConfiguredApp(t)
 
 	var loaded struct {
-		Events []billing.Event `json:"events"`
+		Entries []billing.PluginLog `json:"entries"`
 	}
-	callOK(t, app, http.MethodGet, routeEvents, nil, nil, http.StatusOK, &loaded)
-	if len(loaded.Events) != 1 || loaded.Events[0].Level != billing.EventInfo ||
-		!strings.Contains(loaded.Events[0].Message, "已加载计费数据库") {
-		t.Fatalf("events = %+v, want the loaded database reported", loaded.Events)
+	callOK(t, app, http.MethodGet, routePluginLogs, nil, nil, http.StatusOK, &loaded)
+	if len(loaded.Entries) != 1 || loaded.Entries[0].Level != billing.PluginLogInfo ||
+		!strings.Contains(loaded.Entries[0].Message, "已加载计费数据库") {
+		t.Fatalf("plugin logs = %+v, want the loaded database reported", loaded.Entries)
 	}
 
 	if _, errHandle := app.HandleMethod(MethodPluginReconfigure, mustMarshal(t, LifecycleRequest{
@@ -458,9 +462,9 @@ func TestPluginLogReportsStartupAndFailures(t *testing.T) {
 	})); errHandle == nil {
 		t.Fatal("plugin.reconfigure accepted a malformed config")
 	}
-	callOK(t, app, http.MethodGet, routeEvents, nil, nil, http.StatusOK, &loaded)
-	if len(loaded.Events) != 2 || loaded.Events[0].Level != billing.EventError ||
-		!strings.Contains(loaded.Events[0].Message, "应用插件配置失败") {
-		t.Fatalf("events = %+v, want the rejected config reported first", loaded.Events)
+	callOK(t, app, http.MethodGet, routePluginLogs, nil, nil, http.StatusOK, &loaded)
+	if len(loaded.Entries) != 2 || loaded.Entries[0].Level != billing.PluginLogError ||
+		!strings.Contains(loaded.Entries[0].Message, "应用插件配置失败") {
+		t.Fatalf("plugin logs = %+v, want the rejected config reported first", loaded.Entries)
 	}
 }

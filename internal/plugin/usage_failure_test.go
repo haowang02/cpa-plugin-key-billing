@@ -30,3 +30,10 @@ func TestUsageFailureDetailsWrapPlainExecutorMessageWithoutInventingType(t *test
 		t.Fatalf("body = %q, want %q", details.Body, wantBody)
 	}
 }
+
+func TestUsageFailureDetailsPreserveInformationalStatus(t *testing.T) {
+	details := usageFailureDetails(UsageFailure{StatusCode: 308, Body: "redirect failed"})
+	if details.StatusCode != 308 {
+		t.Fatalf("status = %d, want 308", details.StatusCode)
+	}
+}

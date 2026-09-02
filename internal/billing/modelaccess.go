@@ -76,7 +76,7 @@ func (s *State) AllowedModels(key *KeyState) ([]string, bool) {
 }
 
 // ModelDecision is why a request was turned away. Model is the identity the
-// decision was made on, which is the string the billing log would have recorded
+// decision was made on, which is the string the request event records
 // for the request; Models is what the key may call instead.
 type ModelDecision struct {
 	Allowed bool

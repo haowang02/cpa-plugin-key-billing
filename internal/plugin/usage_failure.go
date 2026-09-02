@@ -27,7 +27,7 @@ type normalizedFailure struct {
 }
 
 // Keep only the error scalars exposed by usage.handle; unrelated response
-// fields must not enter the plugin log.
+// fields must not enter the stored error event.
 func usageFailureDetails(failure UsageFailure) usageFailureView {
 	statusCode := validFailureStatus(failure.StatusCode)
 	raw := strings.TrimSpace(failure.Body)
@@ -113,7 +113,7 @@ func marshalNormalizedFailure(failure normalizedFailure) string {
 }
 
 func validFailureStatus(status int) int {
-	if status < 400 || status > 599 {
+	if status < 100 || status > 599 {
 		return 0
 	}
 	return status

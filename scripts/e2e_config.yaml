@@ -21,11 +21,7 @@ plugins:
       enabled: true
       state_file: "__RUNTIME_DIR__/state.db"
 
-# One model served over two protocols: the chat-completions route publishes it
-# under its own name, and the Responses one under a codex/ prefix. That prefix is
-# the only thing telling the two apart, which is what a billing log has to get
-# right. force-model-prefix keeps the prefixed route from also answering to the
-# bare name, so each name has exactly one upstream.
+# Keep the prefixed and bare model routes on distinct upstreams.
 force-model-prefix: true
 
 # The OpenAI-shaped executors append their endpoint to a /v1 base URL, while the

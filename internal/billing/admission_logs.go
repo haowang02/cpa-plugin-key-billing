@@ -7,49 +7,6 @@ import (
 	"time"
 )
 
-func (s *Store) ReportRequestFailure(
-	scope, authIndex, provider, authType, account, model, reason string,
-	failure RequestFailure,
-) {
-	scope = strings.TrimSpace(scope)
-	if scope == "" {
-		return
-	}
-	var name, credential string
-	s.read(func(state *State) {
-		name = state.describeKey(scope)
-		credential = state.Credentials[strings.TrimSpace(authIndex)].Name()
-	})
-	if credential == "" {
-		credential = usageCredential(scope, provider, authType, account).Name()
-	}
-	failure.APIKey = name
-	failure.Model = strings.TrimSpace(model)
-	failure.Upstream = credential
-
-	var message strings.Builder
-	message.WriteString("请求失败：")
-	message.WriteString(name)
-	if model = failure.Model; model != "" {
-		message.WriteString("，模型 ")
-		message.WriteString(model)
-	}
-	if credential != "" {
-		message.WriteString("，凭据 ")
-		message.WriteString(credential)
-	}
-	message.WriteString("。")
-	if reason = strings.TrimSpace(reason); reason != "" {
-		message.WriteString("原因：")
-		message.WriteString(reason)
-	} else {
-		message.WriteString("宿主未提供错误内容。")
-	}
-	s.appendEvent(Event{
-		Level: EventError, Message: message.String(), RequestFailure: &failure,
-	})
-}
-
 // ReportQuotaBlock records that a key was turned away for an exhausted
 // subscription. It is the only trace such a request leaves: enforcement runs
 // before the request reaches an upstream, so nothing is billed and nothing is
@@ -85,7 +42,7 @@ func (s *Store) ReportQuotaBlock(scope, endpoint string, decision Decision) {
 	}
 	// Enforcement working as configured is not a fault of the plugin's, so this
 	// stays out of the level an operator reads to find one.
-	s.Event(EventInfo, "%s", message.String())
+	s.AddPluginLog(PluginLogInfo, "%s", message.String())
 }
 
 // ReportModelBlock records that a key asked for a model it may not call. Like a
@@ -116,7 +73,7 @@ func (s *Store) ReportModelBlock(scope, endpoint string, decision ModelDecision)
 	message.WriteString("。")
 	// Enforcement working as configured is not a fault of the plugin's, so this
 	// stays out of the level an operator reads to find one.
-	s.Event(EventInfo, "%s", message.String())
+	s.AddPluginLog(PluginLogInfo, "%s", message.String())
 }
 
 // blockedKeys remembers which subscription window a key was last reported

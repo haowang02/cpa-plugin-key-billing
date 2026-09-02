@@ -19,12 +19,19 @@ type UsageEvent struct {
 	RequestedAt     time.Time
 	Latency         time.Duration
 	TTFT            time.Duration
-	Failed          bool
 	Breakdown       TokenBreakdown
 	At              time.Time
 }
 
 func (s *Store) RecordUsage(event UsageEvent) {
+	s.recordUsage(event, nil)
+}
+
+func (s *Store) RecordUsageError(event UsageEvent, failure RequestError) {
+	s.recordUsage(event, &failure)
+}
+
+func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 	scope := strings.TrimSpace(event.Scope)
 	if scope == "" {
 		return
@@ -37,69 +44,56 @@ func (s *Store) RecordUsage(event UsageEvent) {
 	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.ensureKey(scope)
 
-		upstreamModel := modelWithoutSuffix(event.UpstreamModel)
+		upstreamModel := strings.TrimSpace(event.UpstreamModel)
 		if upstreamModel == "" {
-			upstreamModel = modelWithoutSuffix(event.RouteModel)
+			upstreamModel = strings.TrimSpace(event.RouteModel)
 		}
 		billingModel := state.ResolveBillingModel(event.UpstreamModel, event.RouteModel)
 		price := state.ResolvePrice(upstreamModel, billingModel)
 		cost := ComputeCost(price, event.Breakdown)
-		totals := Totals{
-			CostUSD:             cost.TotalUSD,
-			Requests:            1,
-			UncachedInputTokens: cost.UncachedInputTokens,
-			OutputTokens:        cost.BilledOutputTokens,
-			ReasoningTokens:     event.Breakdown.Output.ReasoningTokens,
-			CacheReadTokens:     cost.CacheReadTokens,
-			CacheCreationTokens: cost.CacheWriteTokens,
-		}
-		key.Lifetime.Add(totals)
-		key.addModelTotals(billingModel, totals)
-
+		failed := failure != nil
 		entryAt := event.RequestedAt
 		if entryAt.IsZero() {
 			entryAt = at
 		}
-		entry := LogEntry{
+		entry := RequestEvent{
 			At:                entryAt,
 			Scope:             scope,
 			AuthIndex:         event.AuthIndex,
+			Provider:          strings.TrimSpace(event.Provider),
 			ExecutorType:      event.ExecutorType,
 			ReasoningEffort:   event.ReasoningEffort,
 			ServiceTier:       event.ServiceTier,
 			UpstreamModel:     upstreamModel,
 			BillingModel:      billingModel,
-			Failed:            event.Failed,
-			LatencyMS:         durationMillis(event.Latency),
-			TTFTMS:            durationMillis(event.TTFT),
+			Failed:            failed,
+			LatencyMS:         event.Latency.Milliseconds(),
+			TTFTMS:            event.TTFT.Milliseconds(),
 			AccountingQuality: event.Breakdown.Quality,
 			PriceSource:       price.Source,
 			Cost:              cost,
 			ReasoningTokens:   event.Breakdown.Output.ReasoningTokens,
 		}
-		chargeCycle(key, event, cost.TotalUSD)
+		if !failed || usageBreakdownPresent(event.Breakdown) {
+			chargeCycle(key, event, cost.TotalUSD)
+		}
 		// A completion may arrive after its period ended. Close it now, but do
 		// not start the next period until another request is admitted.
 		if plan, hasPlan := state.FindPlan(key.PlanID); hasPlan {
 			settleExpiredCycle(key, plan, at)
 		}
-		return struct{}{}, Changes{
-			Keys:        []string{scope},
-			Credentials: learnCredential(state, scope, event.AuthIndex, event.Provider, event.AuthType, event.Account),
-			Log:         []LogEntry{entry},
-			LogCutoff:   at.Add(-LogRetention),
+		changes := Changes{
+			Keys:               []string{scope},
+			Credentials:        learnCredential(state, scope, event.AuthIndex, event.Provider, event.AuthType, event.Account),
+			RequestEventCutoff: at.Add(-RequestEventRetention),
 		}
+		if failure == nil {
+			changes.NormalRequestEvents = []RequestEvent{entry}
+		} else {
+			changes.RequestErrorEvents = []RequestErrorEvent{{Event: entry, Error: *failure}}
+		}
+		return struct{}{}, changes
 	})
-}
-
-func durationMillis(duration time.Duration) int64 {
-	if duration <= 0 {
-		return 0
-	}
-	if milliseconds := duration.Milliseconds(); milliseconds > 0 {
-		return milliseconds
-	}
-	return 1
 }
 
 // chargeCycle charges only a window opened when the request was admitted.
@@ -128,27 +122,13 @@ func (s *State) ensureKey(scope string) *KeyState {
 	}
 	key := s.Keys[scope]
 	if key == nil {
-		key = &KeyState{ByModel: make(map[string]*Totals)}
+		key = &KeyState{}
 		s.Keys[scope] = key
-	}
-	if key.ByModel == nil {
-		key.ByModel = make(map[string]*Totals)
 	}
 	return key
 }
 
-func (k *KeyState) addModelTotals(model string, totals Totals) {
-	if k.ByModel == nil {
-		k.ByModel = make(map[string]*Totals)
-	}
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return
-	}
-	entry := k.ByModel[model]
-	if entry == nil {
-		entry = &Totals{}
-		k.ByModel[model] = entry
-	}
-	entry.Add(totals)
+func usageBreakdownPresent(value TokenBreakdown) bool {
+	return value.TotalTokens != 0 || value.Input.TotalTokens != 0 || value.Output.TotalTokens != 0 ||
+		value.UnclassifiedTokens != 0 || value.Quality != ""
 }

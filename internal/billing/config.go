@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DefaultStateFile = "plugins/cpa-key-billing-state.db"
+const DefaultStateFile = "plugins/cpa-key-billing-state-v1.db"
 
 type Config struct {
 	Enabled   bool   `yaml:"enabled"`
@@ -33,7 +33,7 @@ func DefaultConfig() Config {
 
 func DecodeConfig(raw []byte) (Config, error) {
 	cfg := DefaultConfig()
-	if len(strings.TrimSpace(string(raw))) > 0 {
+	if len(bytes.TrimSpace(raw)) > 0 {
 		document := configDocument{Enabled: cfg.Enabled, StateFile: cfg.StateFile}
 		decoder := yaml.NewDecoder(bytes.NewReader(raw))
 		decoder.KnownFields(true)

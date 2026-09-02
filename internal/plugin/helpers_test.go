@@ -33,11 +33,11 @@ func billOneRequest(t *testing.T, app *App, apiKey string, outputTokens int64) {
 	})
 }
 
-func logEntries(t *testing.T, app *App) []billing.LogRow {
+func requestEventEntries(t *testing.T, app *App) []billing.RequestEventRow {
 	t.Helper()
-	view, errLogs := app.store.Logs(billing.LogQuery{})
-	if errLogs != nil {
-		t.Fatalf("Logs error = %v", errLogs)
+	view, err := app.store.RequestEvents(billing.RequestEventQuery{})
+	if err != nil {
+		t.Fatalf("RequestEvents error = %v", err)
 	}
 	return view.Entries
 }

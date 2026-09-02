@@ -3,8 +3,8 @@ package billing
 import "time"
 
 // State is the working set the store keeps in memory. It holds everything the
-// request path has to consult without touching the disk, and deliberately not
-// the billing log: that grows with traffic and is read one page at a time.
+// request path has to consult without touching disk. Request and error events
+// grow with traffic and are queried directly from the repository.
 type State struct {
 	Prices []PriceRule
 	Plans  []Plan
@@ -13,7 +13,7 @@ type State struct {
 	// all-models group is not among them: it is what an empty selection means.
 	ModelGroups []ModelGroup
 	// Credentials names the upstream credentials seen so far, keyed by the
-	// host's runtime auth index. The log stores that index and reads the name
+	// host's runtime auth index. Request events store that index and read the name
 	// from here, so a credential renamed upstream renames its history too.
 	Credentials map[string]Credential
 }
@@ -95,7 +95,7 @@ type KeyState struct {
 	//	                 retired by a CPA Key-list sync
 	//
 	// A deleted key is marked rather than dropped because the record is what
-	// gives billing history its identity: the log stores a scope and reads the
+	// gives request history its identity: each event stores a scope and reads the
 	// masked key and remark from here.
 	InConfig         bool      `json:"in_config,omitempty"`
 	DeletedAt        time.Time `json:"deleted_at,omitzero"`
@@ -104,13 +104,10 @@ type KeyState struct {
 	// ModelGroupIDs and Models together name what this key may call: the union
 	// of every bound group and every individually selected model. Both empty is
 	// the all-models grant every key starts with, which is also what makes a key
-	// nobody has configured — an upgraded record, or a principal first seen in
-	// traffic — unrestricted rather than locked out.
-	ModelGroupIDs []string           `json:"model_groups,omitempty"`
-	Models        []string           `json:"models,omitempty"`
-	Cycle         Cycle              `json:"cycle"`
-	Lifetime      Totals             `json:"lifetime"`
-	ByModel       map[string]*Totals `json:"by_model,omitempty"`
+	// first seen in traffic unrestricted rather than locked out.
+	ModelGroupIDs []string `json:"model_groups,omitempty"`
+	Models        []string `json:"models,omitempty"`
+	Cycle         Cycle    `json:"cycle"`
 }
 
 type Cycle struct {
@@ -120,32 +117,4 @@ type Cycle struct {
 	StartAt  time.Time `json:"start_at,omitzero"`
 	EndAt    time.Time `json:"end_at,omitzero"`
 	SpentUSD float64   `json:"spent_usd"`
-}
-
-// Token counts are stored post-normalization, which gives them the same meaning
-// for every provider:
-//
-//	total input  = UncachedInputTokens + CacheReadTokens + CacheCreationTokens
-//	OutputTokens is the full billed output and always includes ReasoningTokens
-//
-// Storing raw provider counters instead would make these sums meaningless,
-// since Anthropic reports cache outside input while OpenAI reports it inside.
-type Totals struct {
-	CostUSD             float64 `json:"cost_usd"`
-	Requests            int64   `json:"requests"`
-	UncachedInputTokens int64   `json:"uncached_input_tokens"`
-	OutputTokens        int64   `json:"output_tokens"`
-	ReasoningTokens     int64   `json:"reasoning_tokens"`
-	CacheReadTokens     int64   `json:"cache_read_tokens"`
-	CacheCreationTokens int64   `json:"cache_creation_tokens"`
-}
-
-func (t *Totals) Add(other Totals) {
-	t.CostUSD += other.CostUSD
-	t.Requests += other.Requests
-	t.UncachedInputTokens += other.UncachedInputTokens
-	t.OutputTokens += other.OutputTokens
-	t.ReasoningTokens += other.ReasoningTokens
-	t.CacheReadTokens += other.CacheReadTokens
-	t.CacheCreationTokens += other.CacheCreationTokens
 }

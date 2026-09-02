@@ -49,6 +49,18 @@ func TestUsageBreakdownMatchesCurrentHostSemantics(t *testing.T) {
 			},
 		},
 		{
+			name: "direct anthropic record with separate reasoning",
+			record: UsageRecord{Provider: "anthropic", Detail: UsageDetail{
+				InputTokens: 100, OutputTokens: 30, ReasoningTokens: 12,
+				CacheReadTokens: 40, CacheCreationTokens: 10, TotalTokens: 192,
+			}},
+			want: billing.TokenBreakdown{
+				Quality: billing.TokenAccountingComplete, TotalTokens: 192,
+				Input:  billing.TokenInputBreakdown{TotalTokens: 150, UncachedTokens: 100, CacheReadTokens: 40, CacheWriteTokens: 10},
+				Output: billing.TokenOutputBreakdown{TotalTokens: 42, NonReasoningTokens: 30, ReasoningTokens: 12},
+			},
+		},
+		{
 			name: "gemini separate reasoning",
 			record: UsageRecord{Provider: "gemini", ExecutorType: "GeminiExecutor", Detail: UsageDetail{
 				InputTokens: 15, OutputTokens: 2, ReasoningTokens: 3,
@@ -75,14 +87,13 @@ func TestUsageBreakdownHandlesUnknownOrContradictoryRecords(t *testing.T) {
 	unknown := usageBreakdown(UsageRecord{Provider: "future-provider", Detail: UsageDetail{
 		InputTokens: 100, OutputTokens: 20, TotalTokens: 120,
 	}})
-	if unknown.Quality != billing.TokenAccountingComplete || unknown.Input.UncachedTokens != 100 ||
-		unknown.Output.NonReasoningTokens != 20 || !unknown.Billable() {
+	if unknown.Quality != billing.TokenAccountingUnclassified || unknown.UnclassifiedTokens != 120 || unknown.Billable() {
 		t.Fatalf("unknown breakdown = %+v", unknown)
 	}
 	unknownRemainder := usageBreakdown(UsageRecord{Provider: "future-provider", Detail: UsageDetail{
 		InputTokens: 100, OutputTokens: 20, TotalTokens: 125,
 	}})
-	if unknownRemainder.Quality != billing.TokenAccountingUnclassified || unknownRemainder.UnclassifiedTokens != 5 ||
+	if unknownRemainder.Quality != billing.TokenAccountingUnclassified || unknownRemainder.UnclassifiedTokens != 125 ||
 		unknownRemainder.Billable() {
 		t.Fatalf("unknown breakdown with remainder = %+v", unknownRemainder)
 	}
@@ -92,6 +103,12 @@ func TestUsageBreakdownHandlesUnknownOrContradictoryRecords(t *testing.T) {
 	}})
 	if contradictory.Quality != billing.TokenAccountingInconsistent || contradictory.Billable() {
 		t.Fatalf("contradictory breakdown = %+v", contradictory)
+	}
+	contradictoryTotal := usageBreakdown(UsageRecord{Provider: "openai", Detail: UsageDetail{
+		InputTokens: 10, OutputTokens: 5, TotalTokens: 20,
+	}})
+	if contradictoryTotal.Quality != billing.TokenAccountingInconsistent || contradictoryTotal.Billable() {
+		t.Fatalf("contradictory total breakdown = %+v", contradictoryTotal)
 	}
 
 	if zero := usageBreakdown(UsageRecord{Provider: "openai"}); zero != (billing.TokenBreakdown{}) {

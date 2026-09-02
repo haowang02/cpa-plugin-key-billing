@@ -80,12 +80,6 @@ func (s *Store) ReleaseSlot(requestID string) bool {
 	return true
 }
 
-func (s *Store) ActiveRequestCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.activeRequests)
-}
-
 func (s *Store) SetConcurrencyLimit(scope string, limit int) error {
 	scope = normalizeScope(scope)
 	if scope == "" {

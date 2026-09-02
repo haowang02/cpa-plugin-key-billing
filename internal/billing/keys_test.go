@@ -143,7 +143,7 @@ func newSyncStore(t *testing.T, clock *time.Time) *Store {
 }
 
 // Deleting a key in CPA must not delete what it spent. The record is what gives
-// every billing log row its masked key and remark, so dropping it would leave
+// every request event its masked key and remark, so dropping it would leave
 // the history unreadable even where the entries survived.
 func TestSyncKeysRetiresAMissingKeyWithoutLosingItsHistory(t *testing.T) {
 	now := time.Date(2026, 8, 12, 15, 57, 0, 0, time.UTC)
@@ -156,8 +156,8 @@ func TestSyncKeysRetiresAMissingKeyWithoutLosingItsHistory(t *testing.T) {
 	if errSync != nil {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
-	if result.Removed != 1 || result.Matched != 1 || result.Added != 0 {
-		t.Fatalf("SyncResult = %+v, want one retirement and one match", result)
+	if result.Removed != 1 || result.Added != 0 {
+		t.Fatalf("SyncResult = %+v, want one retirement and no addition", result)
 	}
 
 	store.Read(func(state *State) {
@@ -171,22 +171,15 @@ func TestSyncKeysRetiresAMissingKeyWithoutLosingItsHistory(t *testing.T) {
 		if key.PlanID != "p" {
 			t.Fatalf("PlanID = %q, want the binding kept for a later re-add", key.PlanID)
 		}
-		if key.Preview != PreviewKey(deletedKeyPlaintext) || key.Lifetime.Requests != 1 {
-			t.Fatalf("key = %+v, want identity and totals kept", key)
+		if key.Preview != PreviewKey(deletedKeyPlaintext) {
+			t.Fatalf("key = %+v, want identity kept", key)
 		}
 	})
 
-	if rows := mustLogs(t, store, LogQuery{}).Entries; len(rows) != 1 || rows[0].Preview != PreviewKey(deletedKeyPlaintext) {
-		t.Fatalf("log rows = %+v, want the retired key still named", rows)
+	if rows := mustRequestEvents(t, store, RequestEventQuery{}).Entries; len(rows) != 1 || rows[0].Preview != PreviewKey(deletedKeyPlaintext) {
+		t.Fatalf("request events = %+v, want the retired key still named", rows)
 	}
 
-	stats := store.Stats()
-	if stats.Keys != 1 {
-		t.Fatalf("Stats.Keys = %d, want the retired key uncounted", stats.Keys)
-	}
-	if stats.Lifetime.Requests != 1 {
-		t.Fatalf("Stats.Lifetime = %+v, want the retired key's spend still counted", stats.Lifetime)
-	}
 }
 
 // The race this whole design exists for: a request admitted before the deletion
@@ -213,9 +206,6 @@ func TestUsageCommittedAfterRetirementDoesNotResurrectTheKey(t *testing.T) {
 		}
 		if key.DeletedAt.IsZero() || key.InConfig {
 			t.Fatalf("key = %+v, want it to stay retired", key)
-		}
-		if key.Lifetime.Requests != 1 {
-			t.Fatalf("Lifetime = %+v, want the late usage still charged", key.Lifetime)
 		}
 		// The window was live at admission, so the spend belongs to it.
 		if key.Cycle.SpentUSD == 0 {
@@ -253,10 +243,10 @@ func TestSyncKeysRestoresAReaddedKeyWithAFreshPeriod(t *testing.T) {
 		if key.Cycle != (Cycle{}) {
 			t.Fatalf("Cycle = %+v, want a period that starts on next use", key.Cycle)
 		}
-		if key.Lifetime.Requests != 1 {
-			t.Fatalf("Lifetime = %+v, want history kept across the round trip", key.Lifetime)
-		}
 	})
+	if len(mustRequestEvents(t, store, RequestEventQuery{}).Entries) != 1 {
+		t.Fatal("request history was not kept across the round trip")
+	}
 }
 
 func TestSyncKeysRetiresOnlyOnceAndSparesTrafficOnlyPrincipals(t *testing.T) {
@@ -295,17 +285,17 @@ func TestRetiredKeysAreDroppedOnceTheirLogExpired(t *testing.T) {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
 
-	clock = now.Add(LogRetention - time.Hour)
+	clock = now.Add(RequestEventRetention - time.Hour)
 	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
 	store.Read(func(state *State) {
 		if state.Keys[scope] == nil {
-			t.Fatal("a retired key was dropped while its billing log was still readable")
+			t.Fatal("a retired key was dropped while its request events were still readable")
 		}
 	})
 
-	clock = now.Add(LogRetention + time.Hour)
+	clock = now.Add(RequestEventRetention + time.Hour)
 	if !store.blocked.onset(scope, now) || !store.denied.onset(scope, "blocked-model") {
 		t.Fatal("failed to seed request-report suppression state")
 	}
@@ -314,7 +304,7 @@ func TestRetiredKeysAreDroppedOnceTheirLogExpired(t *testing.T) {
 	}
 	store.Read(func(state *State) {
 		if state.Keys[scope] != nil {
-			t.Fatal("a retired key outlived every log entry that could name it")
+			t.Fatal("a retired key outlived every request event that could name it")
 		}
 	})
 	if !store.blocked.onset(scope, now) || !store.denied.onset(scope, "blocked-model") {

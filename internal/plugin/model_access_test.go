@@ -27,9 +27,9 @@ func restrictApp(t *testing.T, models ...string) *App {
 	return app
 }
 
-func onlyModelBlockEvent(t *testing.T, app *App) billing.Event {
+func onlyModelBlockEvent(t *testing.T, app *App) billing.PluginLog {
 	t.Helper()
-	events, errEvents := app.store.Events()
+	events, errEvents := app.store.PluginLogs()
 	if errEvents != nil {
 		t.Fatalf("Events error = %v", errEvents)
 	}
@@ -39,7 +39,7 @@ func onlyModelBlockEvent(t *testing.T, app *App) billing.Event {
 		}
 	}
 	t.Fatalf("events = %+v, want a model block", events)
-	return billing.Event{}
+	return billing.PluginLog{}
 }
 
 func interceptModel(t *testing.T, app *App, clientFormat, model string) RequestInterceptResponse {
@@ -111,11 +111,11 @@ func TestForbiddenModelIsReportedAndNotBilled(t *testing.T) {
 	if response := interceptModel(t, app, "openai", flowModel); !response.Terminate {
 		t.Fatal("a model the key may not call was admitted")
 	}
-	if entries := logEntries(t, app); len(entries) != 0 {
-		t.Fatalf("billing log = %+v, want a refused request left out of it", entries)
+	if entries := requestEventEntries(t, app); len(entries) != 0 {
+		t.Fatalf("request events = %+v, want a refused request left out of them", entries)
 	}
 	event := onlyModelBlockEvent(t, app)
-	if event.Level != billing.EventInfo {
+	if event.Level != billing.PluginLogInfo {
 		t.Fatalf("level = %q, want information: enforcement working is not a fault", event.Level)
 	}
 	for _, want := range []string{"模型拦截：", "/v1/chat/completions", flowModel, "chat/fast"} {
@@ -153,8 +153,8 @@ func TestGrantedModelIsBilledNormally(t *testing.T) {
 	app := restrictApp(t, flowModel, "chat/fast")
 
 	billOneRequest(t, app, testAPIKey, 1_000)
-	entries := logEntries(t, app)
+	entries := requestEventEntries(t, app)
 	if len(entries) != 1 || entries[0].BillingModel != flowModel {
-		t.Fatalf("billing log = %+v, want the granted model billed", entries)
+		t.Fatalf("request events = %+v, want the granted model billed", entries)
 	}
 }

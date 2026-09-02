@@ -82,8 +82,7 @@ func TestAllowedModelsUnionsGroupsAndSingleModels(t *testing.T) {
 	})
 }
 
-// The identity enforcement tests is the one billing records, so what an operator
-// grants is what they read back in the log.
+// Enforcement and request events use the same normalized model identity.
 func TestAuthorizeModelUsesTheBillingIdentity(t *testing.T) {
 	store := newAccessStore(t)
 	group := mustCreateGroup(t, store, "基础", "CHAT/Fast")
@@ -124,8 +123,7 @@ func TestAuthorizeModelUsesTheBillingIdentity(t *testing.T) {
 			if decision.Allowed != testCase.want {
 				t.Fatalf("Allowed = %t, want %t (decision %+v)", decision.Allowed, testCase.want, decision)
 			}
-			// A refusal names the model the billing log would have named, which
-			// is the one without the request's thinking suffix.
+			// Refusals omit the request's thinking suffix, like request events.
 			if !decision.Allowed && strings.Contains(decision.Model, "(") {
 				t.Fatalf("Model = %q, want the suffix left out of it", decision.Model)
 			}

@@ -11,22 +11,17 @@ import (
 )
 
 const (
-	managementBase               = "/v0/management/plugins/" + PluginID
-	resourceBase                 = "/v0/resource/plugins/" + PluginID
-	resourceUIPath               = "/ui"
-	resourceAccountOverviewPath  = "/account/overview"
-	resourceAccountPricesPath    = "/account/prices"
-	resourceAccountLogsPath      = "/account/logs"
-	resourceAccountAuthFilesPath = "/account/auth-files"
-	resourceAccountAuthQuotaPath = "/account/auth-files/quota"
+	managementBase = "/v0/management/plugins/" + PluginID
+	resourceBase   = "/v0/resource/plugins/" + PluginID
+	resourceUIPath = "/ui"
 )
 
 //go:embed ui.html
 var uiHTML []byte
 
 const (
-	routeOverview        = "/overview"
 	routeStatus          = "/status"
+	routeAccess          = "/access"
 	routePrices          = "/prices"
 	routePriceCatalog    = "/prices/catalog"
 	routeCatalogRefresh  = "/prices/catalog/refresh"
@@ -42,74 +37,107 @@ const (
 	routeKeysLabel       = "/keys/label"
 	routeKeysConcurrency = "/keys/concurrency"
 	routeKeysSync        = "/keys/sync"
-	routeStats           = "/stats"
-	routeLogs            = "/logs"
 	routeEvents          = "/events"
+	routeErrors          = "/errors"
+	routeAnalysis        = "/analysis"
+	routePluginLogs      = "/plugin-logs"
 	routeAuthFiles       = "/auth-files"
 	routeAuthQuota       = "/auth-files/quota"
 )
 
-// Management routes must be exact paths because the host rejects ':' and '*'.
-// Only the UI resource declares a menu entry; account resources are direct
-// read-only endpoints.
+type managementEndpoint struct {
+	method, path, description string
+	handle                    func(*App, ManagementRequest) ManagementResponse
+}
+
+var managementEndpoints = []managementEndpoint{
+	{http.MethodGet, routeStatus, "查看插件运行状态。", func(a *App, _ ManagementRequest) ManagementResponse {
+		return JSONResponse(http.StatusOK, pluginStatus{Role: "management", Enabled: a.store.Enabled()})
+	}},
+	{http.MethodGet, routeAccess, "查看 API Key、订阅计划和模型分组。", func(a *App, _ ManagementRequest) ManagementResponse { return a.access() }},
+	{http.MethodGet, routePrices, "查看模型定价。", func(a *App, _ ManagementRequest) ManagementResponse { return a.listPrices(viewAccess{}) }},
+	{http.MethodGet, routePriceCatalog, "搜索模型参考价。", func(a *App, req ManagementRequest) ManagementResponse { return a.searchPriceCatalog(req) }},
+	{http.MethodPost, routeCatalogRefresh, "从 models.dev 更新参考价目录。", func(a *App, _ ManagementRequest) ManagementResponse { return a.refreshPriceCatalog() }},
+	{http.MethodPut, routePrices, "更新模型定价。", func(a *App, req ManagementRequest) ManagementResponse { return a.putPrices(req) }},
+	{http.MethodPost, routePricesReset, "恢复模型参考价。", func(a *App, _ ManagementRequest) ManagementResponse { return a.resetPrices() }},
+	{http.MethodPost, routePricesSync, "同步代理模型。", func(a *App, req ManagementRequest) ManagementResponse { return a.syncModels(req) }},
+	{http.MethodPost, routePlans, "新建订阅计划。", func(a *App, req ManagementRequest) ManagementResponse { return a.createPlan(req) }},
+	{http.MethodPatch, routePlans, "更新订阅计划。", func(a *App, req ManagementRequest) ManagementResponse { return a.updatePlan(req) }},
+	{http.MethodDelete, routePlans, "删除订阅计划并解除相关 Key 的绑定。", func(a *App, req ManagementRequest) ManagementResponse { return a.deletePlan(req) }},
+	{http.MethodPost, routeModelGroups, "新建模型分组。", func(a *App, req ManagementRequest) ManagementResponse { return a.createModelGroup(req) }},
+	{http.MethodPatch, routeModelGroups, "更新模型分组。", func(a *App, req ManagementRequest) ManagementResponse { return a.updateModelGroup(req) }},
+	{http.MethodDelete, routeModelGroups, "删除模型分组并解除相关 Key 的绑定。", func(a *App, req ManagementRequest) ManagementResponse { return a.deleteModelGroup(req) }},
+	{http.MethodPost, routeKeysModels, "设置 API Key 可用的模型分组和模型。", func(a *App, req ManagementRequest) ManagementResponse { return a.setKeyModels(req) }},
+	{http.MethodPost, routeKeysBind, "将 API Key 绑定到订阅计划。", func(a *App, req ManagementRequest) ManagementResponse { return a.bindKey(req) }},
+	{http.MethodPost, routeKeysUnbind, "解除 API Key 的订阅计划。", func(a *App, req ManagementRequest) ManagementResponse { return a.unbindKey(req) }},
+	{http.MethodPost, routeKeysReset, "重置 API Key 的订阅额度。", func(a *App, req ManagementRequest) ManagementResponse { return a.resetKey(req) }},
+	{http.MethodPost, routeKeysResetAll, "重置所有周期性计划 API Key 的订阅额度。", func(a *App, _ ManagementRequest) ManagementResponse { return a.resetAllKeys() }},
+	{http.MethodPost, routeKeysLabel, "设置 API Key 备注。", func(a *App, req ManagementRequest) ManagementResponse { return a.labelKey(req) }},
+	{http.MethodPost, routeKeysConcurrency, "设置 API Key 最大并发请求数。", func(a *App, req ManagementRequest) ManagementResponse { return a.setKeyConcurrency(req) }},
+	{http.MethodPost, routeKeysSync, "同步 CLIProxyAPI 中的 API Key 列表。", func(a *App, req ManagementRequest) ManagementResponse { return a.syncKeys(req) }},
+	{http.MethodGet, routeEvents, "分页查看请求事件。", func(a *App, req ManagementRequest) ManagementResponse {
+		return a.listRequestEvents(req, viewAccess{})
+	}},
+	{http.MethodGet, routeErrors, "分页查看错误事件。", func(a *App, req ManagementRequest) ManagementResponse {
+		return a.listRequestErrors(req, viewAccess{})
+	}},
+	{http.MethodGet, routeAnalysis, "查看用量分布。", func(a *App, req ManagementRequest) ManagementResponse { return a.analysis(req, viewAccess{}) }},
+	{http.MethodGet, routePluginLogs, "查看插件运行日志。", func(a *App, _ ManagementRequest) ManagementResponse { return a.listPluginLogs() }},
+	{http.MethodDelete, routePluginLogs, "清空插件运行日志。", func(a *App, _ ManagementRequest) ManagementResponse { return a.clearPluginLogs() }},
+	{http.MethodGet, routeAuthFiles, "查看认证文件。", func(a *App, _ ManagementRequest) ManagementResponse { return a.authFiles(viewAccess{}) }},
+	{http.MethodGet, routeAuthQuota, "按需查看认证文件限额。", func(a *App, req ManagementRequest) ManagementResponse { return a.authQuota(req, viewAccess{}) }},
+}
+
+type resourceEndpoint struct {
+	path   string
+	handle func(*App, ManagementRequest, viewAccess) ManagementResponse
+}
+
+var resourceEndpoints = []resourceEndpoint{
+	{routeStatus, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse {
+		return a.accountStatus(access)
+	}},
+	{routeAccess, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse {
+		return a.accountAccess(access)
+	}},
+	{routePrices, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse { return a.listPrices(access) }},
+	{routeAnalysis, func(a *App, req ManagementRequest, access viewAccess) ManagementResponse {
+		return a.analysis(req, access)
+	}},
+	{routeEvents, func(a *App, req ManagementRequest, access viewAccess) ManagementResponse {
+		return a.listRequestEvents(req, access)
+	}},
+	{routeErrors, func(a *App, req ManagementRequest, access viewAccess) ManagementResponse {
+		return a.listRequestErrors(req, access)
+	}},
+	{routeAuthFiles, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse { return a.authFiles(access) }},
+	{routeAuthQuota, func(a *App, req ManagementRequest, access viewAccess) ManagementResponse {
+		return a.authQuota(req, access)
+	}},
+}
+
 func managementRegistration() ManagementRegistrationResponse {
-	return ManagementRegistrationResponse{
-		Routes: []ManagementRoute{
-			{Method: http.MethodGet, Path: managementBase + routeOverview, Description: "查看运行状态、API Key、订阅计划、模型定价和用量汇总。"},
-			{Method: http.MethodGet, Path: managementBase + routeStatus, Description: "查看插件运行状态。"},
-
-			{Method: http.MethodGet, Path: managementBase + routePriceCatalog, Description: "搜索模型参考价。"},
-			{Method: http.MethodPost, Path: managementBase + routeCatalogRefresh, Description: "从 models.dev 更新参考价目录。"},
-			{Method: http.MethodPut, Path: managementBase + routePrices, Description: "更新模型定价。"},
-			{Method: http.MethodPost, Path: managementBase + routePricesReset, Description: "恢复模型参考价。"},
-			{Method: http.MethodPost, Path: managementBase + routePricesSync, Description: "同步代理模型。"},
-
-			{Method: http.MethodPost, Path: managementBase + routePlans, Description: "新建订阅计划。"},
-			{Method: http.MethodPatch, Path: managementBase + routePlans, Description: "更新订阅计划。"},
-			{Method: http.MethodDelete, Path: managementBase + routePlans, Description: "删除订阅计划并解除相关 Key 的绑定。"},
-
-			{Method: http.MethodPost, Path: managementBase + routeModelGroups, Description: "新建模型分组。"},
-			{Method: http.MethodPatch, Path: managementBase + routeModelGroups, Description: "更新模型分组。"},
-			{Method: http.MethodDelete, Path: managementBase + routeModelGroups, Description: "删除模型分组并解除相关 Key 的绑定。"},
-
-			{Method: http.MethodPost, Path: managementBase + routeKeysModels, Description: "设置 API Key 可用的模型分组和模型。"},
-			{Method: http.MethodPost, Path: managementBase + routeKeysBind, Description: "将 API Key 绑定到订阅计划。"},
-			{Method: http.MethodPost, Path: managementBase + routeKeysUnbind, Description: "解除 API Key 的订阅计划。"},
-			{Method: http.MethodPost, Path: managementBase + routeKeysReset, Description: "重置 API Key 的订阅额度。"},
-			{Method: http.MethodPost, Path: managementBase + routeKeysResetAll, Description: "重置所有周期性计划 API Key 的订阅额度。"},
-			{Method: http.MethodPost, Path: managementBase + routeKeysLabel, Description: "设置 API Key 备注。"},
-			{Method: http.MethodPost, Path: managementBase + routeKeysConcurrency, Description: "设置 API Key 最大并发请求数。"},
-			{Method: http.MethodPost, Path: managementBase + routeKeysSync, Description: "同步 CLIProxyAPI 中的 API Key 列表。"},
-
-			{Method: http.MethodGet, Path: managementBase + routeStats, Description: "查看全局用量汇总。"},
-			{Method: http.MethodGet, Path: managementBase + routeLogs, Description: "分页查看用量计费记录。"},
-			{Method: http.MethodDelete, Path: managementBase + routeLogs, Description: "清空计费日志。"},
-			{Method: http.MethodGet, Path: managementBase + routeEvents, Description: "查看插件运行日志。"},
-			{Method: http.MethodDelete, Path: managementBase + routeEvents, Description: "清空插件运行日志。"},
-			{Method: http.MethodGet, Path: managementBase + routeAuthFiles, Description: "查看认证文件。"},
-			{Method: http.MethodGet, Path: managementBase + routeAuthQuota, Description: "按需查看认证文件限额。"},
-		},
-		Resources: []ResourceRoute{
-			{Path: resourceBase + resourceUIPath, Menu: MenuLabel, Description: MenuDescription},
-			{Path: resourceBase + resourceAccountOverviewPath},
-			{Path: resourceBase + resourceAccountPricesPath},
-			{Path: resourceBase + resourceAccountLogsPath},
-			{Path: resourceBase + resourceAccountAuthFilesPath},
-			{Path: resourceBase + resourceAccountAuthQuotaPath},
-		},
+	registration := ManagementRegistrationResponse{
+		Routes:    make([]ManagementRoute, 0, len(managementEndpoints)),
+		Resources: make([]ResourceRoute, 1, len(resourceEndpoints)+1),
 	}
+	registration.Resources[0] = ResourceRoute{Path: resourceBase + resourceUIPath, Menu: MenuLabel, Description: MenuDescription}
+	for _, endpoint := range managementEndpoints {
+		registration.Routes = append(registration.Routes, ManagementRoute{
+			Method: endpoint.method, Path: managementBase + endpoint.path, Description: endpoint.description,
+		})
+	}
+	for _, endpoint := range resourceEndpoints {
+		registration.Resources = append(registration.Resources, ResourceRoute{Path: resourceBase + endpoint.path})
+	}
+	return registration
 }
 
 type pluginStatus struct {
-	Enabled bool `json:"enabled"`
+	Role    string `json:"role"`
+	Enabled bool   `json:"enabled"`
 }
 
-// CPA routes authenticated Management calls and unauthenticated resource GETs
-// through this same method.
-// Note that the host HTML-escapes every string in a JSON management response
-// (internal/pluginhost/management.go). Values that survive a round trip through
-// the UI must therefore be entity-decoded on read, or "A & B" becomes
-// "A &amp;amp; B" after two saves.
 func (a *App) handleManagement(raw []byte) ([]byte, error) {
 	var req ManagementRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
@@ -130,27 +158,15 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 				"Referrer-Policy":        []string{"no-referrer"},
 				"X-Content-Type-Options": []string{"nosniff"},
 				"Content-Security-Policy": []string{
-					"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; " +
+					"default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src 'self'; " +
 						"img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
 				},
 			},
 			Body: uiHTML,
 		})
 	}
-	if req.Method == http.MethodGet && path == resourceBase+resourceAccountOverviewPath {
-		return OKEnvelope(a.accountOverview(req))
-	}
-	if req.Method == http.MethodGet && path == resourceBase+resourceAccountPricesPath {
-		return OKEnvelope(a.accountPrices(req))
-	}
-	if req.Method == http.MethodGet && path == resourceBase+resourceAccountLogsPath {
-		return OKEnvelope(a.accountLogs(req))
-	}
-	if req.Method == http.MethodGet && path == resourceBase+resourceAccountAuthFilesPath {
-		return OKEnvelope(a.accountAuthFiles(req))
-	}
-	if req.Method == http.MethodGet && path == resourceBase+resourceAccountAuthQuotaPath {
-		return OKEnvelope(a.accountAuthQuota(req))
+	if path != resourceBase && strings.HasPrefix(path, resourceBase+"/") {
+		return OKEnvelope(a.routeResource(req, strings.TrimPrefix(path, resourceBase)))
 	}
 	if path != managementBase && !strings.HasPrefix(path, managementBase+"/") {
 		return OKEnvelope(JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path))
@@ -159,76 +175,14 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 }
 
 func (a *App) routeManagement(req ManagementRequest, suffix string) ManagementResponse {
-	switch req.Method + " " + suffix {
-	case http.MethodGet + " " + routeOverview:
-		return a.overview()
-	case http.MethodGet + " " + routeStatus:
-		return JSONResponse(http.StatusOK, pluginStatus{Enabled: a.store.Enabled()})
-
-	case http.MethodGet + " " + routePriceCatalog:
-		return a.searchPriceCatalog(req)
-	case http.MethodPost + " " + routeCatalogRefresh:
-		return a.refreshPriceCatalog()
-	case http.MethodPut + " " + routePrices:
-		return a.putPrices(req)
-	case http.MethodPost + " " + routePricesReset:
-		return a.resetPrices()
-	case http.MethodPost + " " + routePricesSync:
-		return a.syncModels(req)
-
-	case http.MethodPost + " " + routePlans:
-		return a.createPlan(req)
-	case http.MethodPatch + " " + routePlans:
-		return a.updatePlan(req)
-	case http.MethodDelete + " " + routePlans:
-		return a.deletePlan(req)
-
-	case http.MethodPost + " " + routeModelGroups:
-		return a.createModelGroup(req)
-	case http.MethodPatch + " " + routeModelGroups:
-		return a.updateModelGroup(req)
-	case http.MethodDelete + " " + routeModelGroups:
-		return a.deleteModelGroup(req)
-
-	case http.MethodPost + " " + routeKeysModels:
-		return a.setKeyModels(req)
-	case http.MethodPost + " " + routeKeysBind:
-		return a.bindKey(req)
-	case http.MethodPost + " " + routeKeysUnbind:
-		return a.unbindKey(req)
-	case http.MethodPost + " " + routeKeysReset:
-		return a.resetKey(req)
-	case http.MethodPost + " " + routeKeysResetAll:
-		return JSONResponse(http.StatusOK, struct {
-			Reset int `json:"reset"`
-		}{Reset: a.store.ResetAllCycles()})
-	case http.MethodPost + " " + routeKeysLabel:
-		return a.labelKey(req)
-	case http.MethodPost + " " + routeKeysConcurrency:
-		return a.setKeyConcurrency(req)
-	case http.MethodPost + " " + routeKeysSync:
-		return a.syncKeys(req)
-
-	case http.MethodGet + " " + routeStats:
-		return JSONResponse(http.StatusOK, a.store.Stats())
-	case http.MethodGet + " " + routeLogs:
-		return a.listLogs(req)
-	case http.MethodDelete + " " + routeLogs:
-		return a.clearLogs()
-	case http.MethodGet + " " + routeEvents:
-		return a.listEvents()
-	case http.MethodGet + " " + routeAuthFiles:
-		return a.authFiles(false)
-	case http.MethodGet + " " + routeAuthQuota:
-		return a.authQuota(req, false)
-	case http.MethodDelete + " " + routeEvents:
-		return a.clearEvents()
-	default:
-		return JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path)
+	for _, endpoint := range managementEndpoints {
+		if req.Method == endpoint.method && suffix == endpoint.path {
+			return endpoint.handle(a, req)
+		}
 	}
+	return JSONError(http.StatusNotFound, "not_found", "管理路由不存在："+req.Method+" "+req.Path)
 }
 
-// An unclassified domain error is a bug rather than bad input, so it reports 500.
 func errorResponse(err error) ManagementResponse {
 	switch billing.KindOf(err) {
 	case billing.KindInvalid:

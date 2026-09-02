@@ -92,45 +92,28 @@ type authQuotaResponse struct {
 	Quota                               []quotaRow `json:"quota"`
 }
 
-func (a *App) accountAuthFiles(req ManagementRequest) ManagementResponse {
-	if !a.trackedAccount(req) {
-		return accountUnauthorized()
+func (a *App) authFiles(access viewAccess) ManagementResponse {
+	if access.APIKey && !access.Tracked {
+		return apiKeyUnauthorized()
 	}
-	return a.authFiles(true)
-}
-
-func (a *App) accountAuthQuota(req ManagementRequest) ManagementResponse {
-	if !a.trackedAccount(req) {
-		return accountUnauthorized()
-	}
-	return a.authQuota(req, true)
-}
-
-func (a *App) trackedAccount(req ManagementRequest) bool {
-	scope, ok := accountScope(req.Headers)
-	if !ok {
-		return false
-	}
-	_, tracked := a.store.KeyViewForScope(scope)
-	return tracked
-}
-
-func (a *App) authFiles(account bool) ManagementResponse {
 	files, errList := a.listAuthFiles()
 	if errList != nil {
-		return authFileError(account, http.StatusBadGateway, "host_unavailable", errList.Error())
+		return viewJSONError(access, http.StatusBadGateway, "host_unavailable", errList.Error())
 	}
-	return authFileJSON(account, http.StatusOK, authFileListResponse{Files: files})
+	return viewJSON(access, http.StatusOK, authFileListResponse{Files: files})
 }
 
-func (a *App) authQuota(req ManagementRequest, account bool) ManagementResponse {
+func (a *App) authQuota(req ManagementRequest, access viewAccess) ManagementResponse {
+	if access.APIKey && !access.Tracked {
+		return apiKeyUnauthorized()
+	}
 	authIndex := strings.TrimSpace(req.Query.Get("auth_index"))
 	if authIndex == "" || len(authIndex) > 512 {
-		return authFileError(account, http.StatusBadRequest, "invalid", "auth_index 无效")
+		return viewJSONError(access, http.StatusBadRequest, "invalid", "auth_index 无效")
 	}
 	files, errList := a.listHostAuthFiles()
 	if errList != nil {
-		return authFileError(account, http.StatusBadGateway, "host_unavailable", errList.Error())
+		return viewJSONError(access, http.StatusBadGateway, "host_unavailable", errList.Error())
 	}
 	var selected *hostAuthFile
 	for i := range files {
@@ -140,40 +123,26 @@ func (a *App) authQuota(req ManagementRequest, account bool) ManagementResponse 
 		}
 	}
 	if selected == nil {
-		return authFileError(account, http.StatusNotFound, "not_found", "认证文件不存在")
+		return viewJSONError(access, http.StatusNotFound, "not_found", "认证文件不存在")
 	}
 	if strings.EqualFold(strings.TrimSpace(selected.AccountType), "api_key") {
-		return authFileError(account, http.StatusNotFound, "not_found", "认证文件不存在")
+		return viewJSONError(access, http.StatusNotFound, "not_found", "认证文件不存在")
 	}
 	if selected.Disabled {
-		return authFileError(account, http.StatusUnprocessableEntity, "disabled", "认证文件已停用")
+		return viewJSONError(access, http.StatusUnprocessableEntity, "disabled", "认证文件已停用")
 	}
 	provider := authCategory(selected.Type)
 	if authCategoryOrder(provider) == 5 {
-		return authFileError(account, http.StatusUnprocessableEntity, "unsupported", "该认证文件类型暂不支持限额查询")
+		return viewJSONError(access, http.StatusUnprocessableEntity, "unsupported", "该认证文件类型暂不支持限额查询")
 	}
 	if selected.RuntimeOnly {
-		return authFileError(account, http.StatusUnprocessableEntity, "unsupported", "运行时认证文件没有可读取的物理凭据")
+		return viewJSONError(access, http.StatusUnprocessableEntity, "unsupported", "运行时认证文件没有可读取的物理凭据")
 	}
 	result, errQuota := a.fetchAuthQuota(req.HostCallbackID, *selected, provider)
 	if errQuota != nil {
-		return authFileError(account, http.StatusBadGateway, "quota_failed", errQuota.Error())
+		return viewJSONError(access, http.StatusBadGateway, "quota_failed", errQuota.Error())
 	}
-	return authFileJSON(account, http.StatusOK, result)
-}
-
-func authFileJSON(account bool, status int, payload any) ManagementResponse {
-	if account {
-		return accountJSON(status, payload)
-	}
-	return JSONResponse(status, payload)
-}
-
-func authFileError(account bool, status int, code, message string) ManagementResponse {
-	if account {
-		return accountJSONError(status, code, message)
-	}
-	return JSONError(status, code, message)
+	return viewJSON(access, http.StatusOK, result)
 }
 
 func (a *App) listAuthFiles() ([]authFileView, error) {

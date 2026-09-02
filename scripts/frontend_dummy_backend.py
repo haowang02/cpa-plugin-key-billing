@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parents[1]
 UI_PATH = ROOT / "internal" / "plugin" / "ui.html"
 API_BASE = "/v0/management/plugins/cpa-key-billing"
-ACCOUNT_BASE = "/v0/resource/plugins/cpa-key-billing/account"
+RESOURCE_BASE = "/v0/resource/plugins/cpa-key-billing"
 NOW = datetime.now().astimezone().replace(hour=20, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
 
@@ -55,10 +55,13 @@ html[data-host=cpamp]{
   --app-input-bg:rgba(255,255,255,.62);--app-input-bg-focus:#fff;
   --app-input-border:var(--app-border-strong);--app-input-border-focus:#3b82f6;
   --color-primary:#3b82f6;--color-primary-light-3:#60a5fa;--color-primary-dark-2:#2563eb;
+  --color-success:#22c55e;--success-color:var(--color-success);
   --primary-color:var(--color-primary);--primary-hover:var(--color-primary-light-3);
   --primary-active:var(--color-primary-dark-2);--primary-solid:#2563eb;--primary-solid-hover:#3b82f6;
   --primary-ring:rgba(59,130,246,.22);--primary-contrast:#fff;
   --color-warning:#f59e0b;--color-danger:#ef4444;
+  --data-blue-base:#3b82f6;--data-green-base:#22c55e;--data-amber-base:#f59e0b;
+  --data-red-base:#ef4444;--data-violet-base:#8b5cf6;--data-cyan-base:#06b6d4;
   --data-badge-success-bg:#f0fdf4;--data-badge-success-text:#16a34a;--data-badge-success-border:#bbf7d0;
   --data-badge-warning-bg:#fffbeb;--data-badge-warning-text:#d97706;--data-badge-warning-border:#fde68a;
   --data-badge-danger-bg:#fef2f2;--data-badge-danger-text:#dc2626;--data-badge-danger-border:#fecaca;
@@ -79,7 +82,10 @@ html[data-host=cpamp][data-theme=dark]{
   --glass-bg:rgba(24,28,40,.72);--glass-border:rgba(255,255,255,.1);
   --app-input-bg:#1b1f2a;--app-input-bg-focus:#1b1f2a;--app-input-border-focus:#60a5fa;
   --color-primary:#60a5fa;--color-primary-light-3:#93c5fd;--color-primary-dark-2:#3b82f6;
+  --color-success:#4ade80;--success-color:var(--color-success);
   --primary-solid:#60a5fa;--primary-solid-hover:#3b82f6;--primary-ring:rgba(96,165,250,.22);
+  --data-blue-base:#60a5fa;--data-green-base:#4ade80;--data-amber-base:#fbbf24;
+  --data-red-base:#f87171;--data-violet-base:#a78bfa;--data-cyan-base:#22d3ee;
   --data-badge-success-bg:rgba(74,222,128,.14);--data-badge-success-text:#4ade80;--data-badge-success-border:rgba(74,222,128,.24);
   --data-badge-warning-bg:rgba(251,191,36,.14);--data-badge-warning-text:#fbbf24;--data-badge-warning-border:rgba(251,191,36,.24);
   --data-badge-danger-bg:rgba(248,113,113,.14);--data-badge-danger-text:#f87171;--data-badge-danger-border:rgba(248,113,113,.24);
@@ -489,7 +495,7 @@ def auth_file_quota(query):
 
 # Three shapes the picker has to put back on the screen: every model, a group
 # alone, and groups mixed with individually selected models.
-def key_models(index):
+def key_model_access(index):
     if index % 4 == 1:
         return ["basic"], []
     if index % 4 == 2:
@@ -502,9 +508,8 @@ def key_models(index):
 def make_key(index):
     plan_id = "team-monthly" if index <= 14 else "one-time" if index == 15 else ""
     plan_name = "研发团队" if plan_id == "team-monthly" else "一次性额度" if plan_id else ""
-    requests = 1200 + index * 37
     cost = round(7.5 + index * 0.83, 4)
-    groups, models = key_models(index)
+    groups, models = key_model_access(index)
     result = {
         "scope": f"{index:064x}",
         "preview": f"sk-demo…{index:04d}",
@@ -522,15 +527,13 @@ def make_key(index):
         "limit_usd": 500 if plan_id == "team-monthly" else 50 if plan_id else 0,
         "spent_usd": cost if plan_id else 0,
         "used_percent": cost / (500 if plan_id == "team-monthly" else 50) * 100 if plan_id else 0,
-        "lifetime": {"requests": requests, "cost_usd": cost},
     }
     if plan_id == "team-monthly":
         result["cycle_end_at"] = iso(NOW + timedelta(days=25))
     return result
 
 
-# A Key deleted from CPA: the panel keeps it out of the Key list and the plan
-# bindings, while its billing log rows still name it.
+# A deleted Key remains available to historical request events.
 DELETED_KEY = {
     **make_key(19),
     "in_config": False,
@@ -585,37 +588,6 @@ PRICES = [
     },
 ]
 
-MODEL_TOTALS = [
-    {
-        "billing_model": "gpt-5.6-sol",
-        "requests": 1832,
-        "uncached_input_tokens": 140000,
-        "cache_read_tokens": 19857,
-        "cache_creation_tokens": 1032,
-        "output_tokens": 4852,
-        "cost_usd": 1.050121,
-    },
-    {
-        "billing_model": "claude-sonnet-4-5",
-        "requests": 924,
-        "uncached_input_tokens": 4921000,
-        "cache_read_tokens": 2814000,
-        "cache_creation_tokens": 64000,
-        "output_tokens": 781000,
-        "cost_usd": 27.3904,
-    },
-    {
-        "billing_model": "deepseek-v4-flash",
-        "requests": 618,
-        "uncached_input_tokens": 882000,
-        "cache_read_tokens": 0,
-        "cache_creation_tokens": 0,
-        "output_tokens": 99000,
-        "cost_usd": 0.28854,
-    },
-]
-
-
 def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, long_context=False):
     input_price, read_price, write_price, output_price = rates
     parts = {
@@ -643,6 +615,7 @@ def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, lo
 
 LOG_CASES = [
     {
+        "provider": "codex",
         "source": "codex · demo@example.com",
         "executor_type": "CodexExecutor",
         "reasoning_effort": "high",
@@ -653,6 +626,7 @@ LOG_CASES = [
         "cost": make_cost(140000, 19857, 1032, 4852, (5, 0.5, 5, 30), True, False),
     },
     {
+        "provider": "xai",
         "source": "xai · demo@example.com",
         "executor_type": "XAIWebsocketsExecutor",
         "reasoning_effort": "xhigh",
@@ -663,6 +637,7 @@ LOG_CASES = [
         "cost": make_cost(280000, 19000, 1001, 20000, (10, 1, 10, 45), True, True),
     },
     {
+        "provider": "deepseek",
         # A provider configured in config.yaml, named by the masked API key
         # that separates it from the other keys of that provider.
         "source": "deepseek · sk-ups…0001",
@@ -675,6 +650,7 @@ LOG_CASES = [
         "cost": make_cost(160889, 0, 0, 12001, (0.28, 0.28, 0.28, 0.42)),
     },
     {
+        "provider": "claude",
         "source": "claude · sk-ups…0001",
         "executor_type": "ClaudeExecutor",
         "reasoning_effort": "medium",
@@ -685,6 +661,7 @@ LOG_CASES = [
         "cost": make_cost(38122, 9931, 2048, 7240, (3, 0.3, 3.75, 15)),
     },
     {
+        "provider": "codex",
         # A credential no usage record has named yet, so its source falls back
         # to the placeholder.
         "source": "",
@@ -697,6 +674,7 @@ LOG_CASES = [
         "cost": make_cost(160889, 0, 0, 4096, (2.5, 2.5, 2.5, 15), True, False),
     },
     {
+        "provider": "codex",
         # A normal usage event whose provider supplied no token detail.
         "source": "codex · ops@example.com",
         "executor_type": "CodexExecutor",
@@ -709,6 +687,7 @@ LOG_CASES = [
         "accounting_quality": "",
     },
     {
+        "provider": "future-provider",
         # The host reported a total that could not be split into billable
         # buckets. Zero-valued cost fields must render as unknown, not measured.
         "source": "future-provider",
@@ -722,6 +701,7 @@ LOG_CASES = [
         "accounting_quality": "unclassified",
     },
     {
+        "provider": "codex",
         "source": "codex · ops@example.com",
         "executor_type": "CodexExecutor",
         "reasoning_effort": "medium",
@@ -733,7 +713,7 @@ LOG_CASES = [
         "accounting_quality": "inconsistent",
     },
     {
-        # An upstream error after the provider had already reported its usage.
+        "provider": "xai",
         "source": "xai · ops@example.com",
         "executor_type": "XAIExecutor",
         "reasoning_effort": "high",
@@ -742,12 +722,11 @@ LOG_CASES = [
         "billing_model": "grok-4",
         "reasoning_tokens": 128,
         "cost": make_cost(4096, 0, 0, 256, (3, 0.75, 3, 15)),
-        "failed": True,
     },
 ]
 
 
-def make_logs(count=120):
+def make_request_events(count=120):
     entries = []
     for index in range(count):
         case = LOG_CASES[index % len(LOG_CASES)]
@@ -759,6 +738,7 @@ def make_logs(count=120):
                 "preview": key["preview"],
                 "label": key["label"],
                 "source": case["source"],
+                "provider": case["provider"],
                 "executor_type": case["executor_type"],
                 "reasoning_effort": case["reasoning_effort"],
                 "service_tier": case["service_tier"],
@@ -776,16 +756,18 @@ def make_logs(count=120):
     return entries
 
 
-LOGS = make_logs()
+REQUEST_EVENTS = make_request_events()
 
-def log_view(query):
-    selected_key = query.get("api_key", [""])[0]
+def request_event_view(query, scope=""):
+    selected_key = "" if scope else query.get("api_key", [""])[0]
     selected_model = query.get("model", [""])[0]
     selected_source = query.get("source", [""])[0]
+    selected_provider = query.get("provider", [""])[0]
+    selected_executor = query.get("executor", [""])[0]
     selected_status = query.get("status", [""])[0]
     offset = max(0, int(query.get("offset", ["0"])[0] or 0))
     limit = max(0, int(query.get("limit", ["0"])[0] or 0))
-    time_matched = filter_log_time(LOGS, query)
+    time_matched = filter_event_time([entry for entry in REQUEST_EVENTS if not scope or entry["scope"] == scope], query)
     keys = {}
     for entry in time_matched:
         keys[entry["scope"]] = {
@@ -797,6 +779,8 @@ def log_view(query):
         "models": sorted({entry.get("billing_model") or entry.get("upstream_model", "")
                           for entry in time_matched} - {""}, key=str.lower),
         "sources": sorted({entry.get("source", "") for entry in time_matched} - {""}, key=str.lower),
+        "providers": sorted({entry.get("provider", "") for entry in time_matched} - {""}, key=str.lower),
+        "executors": sorted({entry.get("executor_type", "") for entry in time_matched} - {""}, key=str.lower),
     }
     counts = {"all": 0, "normal": 0, "failed": 0}
     matched = []
@@ -807,6 +791,10 @@ def log_view(query):
             continue
         if selected_source and entry.get("source") != selected_source:
             continue
+        if selected_provider and entry.get("provider") != selected_provider:
+            continue
+        if selected_executor and entry.get("executor_type") != selected_executor:
+            continue
         status = "failed" if entry.get("failed") else "normal"
         counts["all"] += 1
         counts[status] = counts.get(status, 0) + 1
@@ -814,13 +802,17 @@ def log_view(query):
             continue
         matched.append(entry)
     page = matched[offset:offset + limit] if limit else matched[offset:]
+    if scope:
+        page = [{key: value for key, value in entry.items()
+                 if key not in {"scope", "auth_index", "preview", "label"}} for entry in page]
+        filter_options["api_keys"] = []
     result = {"entries": page, "total": len(matched), "offset": offset, "status_counts": counts}
     if offset == 0:
         result["filter_options"] = filter_options
     return result
 
 
-def filter_log_time(entries, query):
+def filter_event_time(entries, query):
     from_raw = query.get("from", [""])[0]
     to_raw = query.get("to", [""])[0]
     from_time = datetime.fromisoformat(from_raw.replace("Z", "+00:00")) if from_raw else None
@@ -830,96 +822,32 @@ def filter_log_time(entries, query):
             (not to_time or datetime.fromisoformat(entry["at"].replace("Z", "+00:00")) < to_time)]
 
 
-def account_log_view(query, scope):
-    scoped = filter_log_time([entry for entry in LOGS if entry["scope"] == scope], query)
-    filter_options = {
-        "models": sorted({entry.get("billing_model") or entry.get("upstream_model", "")
-                          for entry in scoped} - {""}, key=str.lower),
-        "sources": sorted({entry.get("source", "") for entry in scoped} - {""}, key=str.lower),
-    }
-    selected_model = query.get("model", [""])[0]
-    selected_source = query.get("source", [""])[0]
-    if selected_model:
-        scoped = [entry for entry in scoped if
-                  (entry.get("billing_model") or entry.get("upstream_model")) == selected_model]
-    if selected_source:
-        scoped = [entry for entry in scoped if entry.get("source", "") == selected_source]
-    selected_status = query.get("status", [""])[0]
-    counts = {
-        "all": len(scoped),
-        "normal": sum(not entry.get("failed") for entry in scoped),
-        "failed": sum(bool(entry.get("failed")) for entry in scoped),
-    }
-    matched = [entry for entry in scoped if not selected_status or
-               ("failed" if entry.get("failed") else "normal") == selected_status]
-    offset = max(0, int(query.get("offset", ["0"])[0] or 0))
-    limit = max(0, int(query.get("limit", ["0"])[0] or 0))
-    page = matched[offset:offset + limit] if limit else matched[offset:]
-    entries = []
-    for entry in page:
-        cost = entry["cost"]
-        entries.append({
-            "at": entry["at"],
-            "billing_model": entry["billing_model"],
-            "executor_type": entry["executor_type"],
-            "source": entry.get("source", ""),
-            "reasoning_effort": entry["reasoning_effort"],
-            "service_tier": entry["service_tier"],
-            "failed": entry["failed"],
-            "latency_ms": entry["latency_ms"],
-            "ttft_ms": entry["ttft_ms"],
-            "accounting_quality": entry["accounting_quality"],
-            "total_usd": cost["total_usd"],
-            "uncached_input_tokens": cost["uncached_input_tokens"],
-            "cache_read_tokens": cost["cache_read_tokens"],
-            "cache_write_tokens": cost["cache_write_tokens"],
-            "output_tokens": cost["billed_output_tokens"],
-            "reasoning_tokens": entry["reasoning_tokens"],
-        })
-    result = {"entries": entries, "total": len(matched), "status_counts": counts}
-    if offset == 0:
-        result["filter_options"] = filter_options
-    return result
-
-
-def account_overview(index):
+def account_status(index):
     key = LIVE_KEYS[index]
-    model_names = sorted(set(key["models"] + [model for group in MODEL_GROUPS
-                                              if group["id"] in key["model_groups"]
-                                              for model in group["models"]]))
     return {
+        "role": "api_key",
         "tracked": True,
         "identity": {"preview": key["preview"], "label": key["label"]},
         "subscription": {
             "name": key["plan_name"], "unlimited": key["unlimited"], "blocked": key["blocked"],
             "limit_usd": key["limit_usd"], "spent_usd": key["spent_usd"],
             "remaining_usd": max(0, key["limit_usd"] - key["spent_usd"]),
-            "used_percent": key["used_percent"], "period_kind": "monthly",
-            "cycle_end_at": key.get("cycle_end_at"),
+            "used_percent": key["used_percent"], "cycle_end_at": key.get("cycle_end_at"),
         },
         "concurrency": {"limit": key["concurrency_limit"], "current": key["current_concurrency"]},
-        "model_access": {"all_models": key["all_models"], "models": model_names},
-        "by_model": MODEL_TOTALS[:2],
     }
 
-
-def account_price_view(index):
-    def public_price(row):
-        return {key: value for key, value in row.items() if key != "source"}
-
+def account_access(index):
     key = LIVE_KEYS[index]
-    if key["all_models"]:
-        return [public_price(row) for row in PRICES]
-    allowed = sorted(set(key["models"] + [model for group in MODEL_GROUPS
-                                          if group["id"] in key["model_groups"]
-                                          for model in group["models"]]))
-    by_model = {row["pattern"]: row for row in PRICES}
-    return [public_price(by_model.get(model, {
-        "pattern": model, "input_per_1m": 0, "output_per_1m": 0,
-    })) for model in allowed]
+    model_names = sorted(set(key["models"] + [model for group in MODEL_GROUPS
+                                              if group["id"] in key["model_groups"]
+                                              for model in group["models"]]))
+    return {"role": "api_key", "all_models": key["all_models"], "models": model_names}
 
-def request_failure(at, key, model, message, label="", status=0, error_type="", code=""):
-    identity = f"{label} · {key}" if label else key
+
+def request_error(event_index, message, status=0, error_type="", code=""):
+    event = REQUEST_EVENTS[event_index]
+    event["failed"] = True
     error = {"message": message}
     if error_type:
         error["type"] = error_type
@@ -931,119 +859,246 @@ def request_failure(at, key, model, message, label="", status=0, error_type="", 
     if error_type:
         reason += f"（{error_type}）"
     return {
-        "at": iso(at),
-        "level": "error",
-        "message": (
-            f"请求失败：{identity}，模型 {model}，凭据 codex · demo@example.com。"
-            f"原因：{reason}"
-        ),
-        "request_failure": {
-            "api_key": identity,
-            "model": model,
-            "upstream": "codex · demo@example.com",
-            "status_code": status,
-            "error_type": error_type,
-            "body": json.dumps({"error": error}, ensure_ascii=False, separators=(",", ":")),
-        },
+        "at": event["at"],
+        "scope": event["scope"],
+        "preview": event["preview"],
+        "label": event["label"],
+        "source": event["source"],
+        "provider": event["provider"],
+        "executor_type": event["executor_type"],
+        "upstream_model": event["upstream_model"],
+        "billing_model": event["billing_model"],
+        "latency_ms": event["latency_ms"],
+        "ttft_ms": event["ttft_ms"],
+        "status_code": status,
+        "error_type": error_type,
+        "reason": reason,
+        "body": json.dumps({"error": error}, ensure_ascii=False, separators=(",", ":")),
     }
 
 
-EVENTS = [
-    request_failure(
-        datetime(2026, 9, 1, 11, 37, 49, tzinfo=timezone.utc),
-        "sk-demo…0001",
-        "gpt-5.6-sol",
+ERRORS = [
+    request_error(
+        0,
         (
             "This content was flagged for possible cybersecurity risk. "
             "If this seems wrong, try rephrasing your request. To get authorized for security work, "
             "join the Trusted Access for Cyber program: https://chatgpt.com/cyber"
         ),
-        label="演示 Key",
         status=400,
         error_type="invalid_request",
     ),
-    request_failure(
-        datetime(2026, 9, 1, 9, 39, 38, tzinfo=timezone.utc),
-        "sk-demo…0001",
-        "gpt-5.6-sol",
+    request_error(
+        19,
         "websocket: close 1006 (abnormal closure): unexpected EOF",
     ),
-    request_failure(
-        datetime(2026, 9, 1, 5, 37, 38, tzinfo=timezone.utc),
-        "sk-demo…0002",
-        "gpt-5.6-sol",
+    request_error(
+        1,
         "websocket: close 1006 (abnormal closure): unexpected EOF",
     ),
-    request_failure(
-        datetime(2026, 9, 1, 3, 5, 36, tzinfo=timezone.utc),
-        "sk-demo…0001",
-        "gpt-5.5",
+    request_error(
+        38,
         "upstream transport requires full HTTP replay",
         status=426,
         error_type="server_error",
         code="upstream_http_replay_required",
     ),
-    request_failure(
-        datetime(2026, 9, 1, 3, 5, 35, tzinfo=timezone.utc),
-        "sk-demo…0001",
-        "gpt-5.5",
+    request_error(
+        2,
         "read tcp 192.0.2.10:41740->192.0.2.20:1080: i/o timeout",
     ),
-    request_failure(
-        datetime(2026, 9, 1, 2, 23, 3, tzinfo=timezone.utc),
-        "sk-demo…0001",
-        "gpt-5.6-sol",
+    request_error(
+        3,
         "websocket: close 1006 (abnormal closure): unexpected EOF",
     ),
-    {
-        "at": iso(datetime(2026, 8, 31, 19, 49, 2, tzinfo=timezone.utc)),
-        "level": "info",
-        "message": (
-            "已加载计费数据库 /srv/cli-proxy-api/plugins/cpa-key-billing-state.db："
-            "9 个 API Key、1 个订阅计划、24097 条计费日志。已启用。"
-        ),
-    },
-    request_failure(
-        datetime(2026, 8, 31, 8, 33, 35, tzinfo=timezone.utc),
-        "sk-demo…0001",
-        "gpt-5.6-sol",
+    request_error(
+        4,
         "Our servers are currently overloaded. Please try again later.",
         status=502,
         error_type="service_unavailable_error",
     ),
+]
+
+PLUGIN_LOGS = [
     {
-        "at": iso(datetime(2026, 8, 31, 7, 20, 0, tzinfo=timezone.utc)),
+        "at": iso(NOW - timedelta(minutes=11)),
+        "level": "info",
+        "message": (
+            "已加载计费数据库 /srv/cli-proxy-api/plugins/cpa-key-billing-state-v1.db："
+            "9 个 API Key、1 个订阅计划、24097 条请求事件。已启用。"
+        ),
+    },
+    {
+        "at": iso(NOW - timedelta(hours=12, minutes=40)),
         "level": "info",
         "message": "已同步 CLIProxyAPI 的 API Key 列表：新增 2 个，移除 1 个。",
     },
 ]
 
 
-def payload_for(path, query):
-    # The panel reads everything but the two logs through this one route.
-    if path == f"{API_BASE}/overview":
-        return {
-            "status": {"enabled": True},
-            "keys": KEYS,
-            "plans": PLANS,
-            "prices": PRICES,
-            "model_groups": MODEL_GROUPS,
-            "stats": {
-                "keys": len(LIVE_KEYS),
-                "active_requests": sum(item["current_concurrency"] for item in LIVE_KEYS),
-                "lifetime": {
-                    "requests": sum(item["requests"] for item in MODEL_TOTALS),
-                    "cost_usd": sum(item["cost_usd"] for item in MODEL_TOTALS),
-                },
-                "by_model": MODEL_TOTALS,
-            },
+def error_view(query, scope=""):
+    rows = filter_event_time([entry for entry in ERRORS if not scope or entry["scope"] == scope], query)
+    rows.sort(key=lambda entry: entry["at"], reverse=True)
+    selected = {
+        "api_key": "" if scope else query.get("api_key", [""])[0],
+        "model": query.get("model", [""])[0],
+        "source": query.get("source", [""])[0],
+        "provider": query.get("provider", [""])[0],
+        "executor": query.get("executor", [""])[0],
+        "status_code": query.get("status_code", [""])[0],
+        "error_type": query.get("error_type", [""])[0],
+    }
+    filtered = []
+    for entry in rows:
+        if selected["api_key"] and entry["scope"] != selected["api_key"]:
+            continue
+        if selected["model"] and entry["billing_model"] != selected["model"]:
+            continue
+        if selected["source"] and entry["source"] != selected["source"]:
+            continue
+        if selected["provider"] and entry["provider"] != selected["provider"]:
+            continue
+        if selected["executor"] and entry["executor_type"] != selected["executor"]:
+            continue
+        if selected["status_code"] and str(entry["status_code"]) != selected["status_code"]:
+            continue
+        if selected["error_type"] and entry["error_type"] != selected["error_type"]:
+            continue
+        filtered.append(entry)
+    offset = max(0, int(query.get("offset", ["0"])[0] or 0))
+    limit = max(0, int(query.get("limit", ["0"])[0] or 0))
+    page = filtered[offset:offset + limit] if limit else filtered[offset:]
+    if scope:
+        page = [{key: value for key, value in entry.items()
+                 if key not in {"scope", "preview", "label", "auth_index"}} for entry in page]
+    result = {"entries": page, "total": len(filtered)}
+    if offset == 0:
+        keys = {}
+        for entry in rows:
+            keys[entry["scope"]] = {
+                "scope": entry["scope"],
+                "preview": entry["preview"],
+                "label": entry["label"],
+            }
+        result["filter_options"] = {
+            "api_keys": [] if scope else sorted(
+                keys.values(),
+                key=lambda item: (not item["label"], item["label"].lower(), item["preview"].lower()),
+            ),
+            "models": sorted({entry["billing_model"] for entry in rows}),
+            "sources": sorted({entry["source"] for entry in rows}),
+            "providers": sorted({entry["provider"] for entry in rows}),
+            "executors": sorted({entry["executor_type"] for entry in rows}),
+            "status_codes": sorted({entry["status_code"] for entry in rows if entry["status_code"]}),
+            "error_types": sorted({entry["error_type"] for entry in rows if entry["error_type"]}),
         }
+    return result
+
+
+def analysis_view(query, scope=""):
+    rows = filter_event_time([entry for entry in REQUEST_EVENTS if not scope or entry["scope"] == scope], query)
+    selected = query.get("api_key", [""])[0]
+    if selected and not scope:
+        rows = [entry for entry in rows if entry["scope"] == selected]
+
+    def distribution(field, label_field=None, unknown="未知"):
+        grouped = {}
+        for entry in rows:
+            key = entry.get(field, "") or unknown
+            label = entry.get(label_field, "") if label_field else key
+            if not label and field == "scope":
+                label = entry.get("preview", "")
+            item = grouped.setdefault(key, {"key": key, "label": label or key,
+                                            "total_tokens": 0, "requests": 0,
+                                            "cost_usd": 0, "cost_available": True})
+            cost = entry.get("cost", {})
+            item["total_tokens"] += sum(cost.get(name, 0) for name in (
+                "uncached_input_tokens", "cache_read_tokens", "cache_write_tokens", "billed_output_tokens"))
+            item["requests"] += 1
+            item["cost_usd"] += cost.get("total_usd", 0)
+        token_total = sum(item["total_tokens"] for item in grouped.values())
+        request_total = sum(item["requests"] for item in grouped.values())
+        for item in grouped.values():
+            denominator = token_total if token_total else request_total
+            numerator = item["total_tokens"] if token_total else item["requests"]
+            item["percent"] = numerator * 100 / max(1, denominator)
+        return sorted(grouped.values(), key=lambda item: (-item["total_tokens"], -item["requests"], item["label"]))
+
+    requests = len(rows)
+    failed = sum(int(entry.get("failed", False)) for entry in rows)
+    input_tokens = sum(
+        sum(entry.get("cost", {}).get(name, 0) for name in (
+            "uncached_input_tokens", "cache_read_tokens", "cache_write_tokens"
+        )) for entry in rows
+    )
+    cache_read_tokens = sum(entry.get("cost", {}).get("cache_read_tokens", 0) for entry in rows)
+    cache_write_tokens = sum(entry.get("cost", {}).get("cache_write_tokens", 0) for entry in rows)
+    output_tokens = sum(entry.get("cost", {}).get("billed_output_tokens", 0) for entry in rows)
+    cost_fields = {
+        "input": "uncached_input_usd",
+        "cache_read": "cache_read_usd",
+        "cache_write": "cache_write_usd",
+        "output": "output_usd",
+    }
+    cost_values = {
+        name: sum(entry.get("cost", {}).get(field, 0) for entry in rows)
+        for name, field in cost_fields.items()
+    }
+    total_usd = sum(cost_values.values())
+    cost = {
+        "available": all(
+            entry.get("price_source") != "none" or
+            sum(entry.get("cost", {}).get(name, 0) for name in (
+                "uncached_input_tokens", "cache_read_tokens", "cache_write_tokens", "billed_output_tokens"
+            )) == 0
+            for entry in rows
+        ),
+        "total_usd": total_usd,
+    }
+    for name, value in cost_values.items():
+        cost[name] = {"usd": value}
+
+    return {
+        "range": {
+            "from": query.get("from", [iso(NOW - timedelta(days=30))])[0],
+            "to": query.get("to", [iso(NOW)])[0],
+        },
+        "summary": {
+            "requests": requests,
+            "succeeded": requests - failed,
+            "failed": failed,
+            "success_rate": (requests - failed) * 100 / requests if requests else 0,
+            "total_tokens": input_tokens + output_tokens,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_write_tokens": cache_write_tokens,
+            "cache_rate": cache_read_tokens * 100 / input_tokens if input_tokens else 0,
+            "cost": cost,
+        },
+        "usage_distribution": {
+            "api_keys": [] if scope or selected else distribution("scope", "label"),
+            "models": distribution("billing_model", unknown="未知模型"),
+            "sources": distribution("source", unknown="未知来源"),
+        },
+    }
+
+
+def payload_for(path, query):
     if path == f"{API_BASE}/status":
-        return {"enabled": True}
-    if path == f"{API_BASE}/logs":
-        return log_view(query)
+        return {"role": "management", "enabled": True}
+    if path == f"{API_BASE}/access":
+        return {"role": "management", "keys": KEYS, "plans": PLANS, "model_groups": MODEL_GROUPS}
+    if path == f"{API_BASE}/prices":
+        return PRICES
     if path == f"{API_BASE}/events":
-        return {"events": EVENTS}
+        return request_event_view(query)
+    if path == f"{API_BASE}/errors":
+        return error_view(query)
+    if path == f"{API_BASE}/analysis":
+        return analysis_view(query)
+    if path == f"{API_BASE}/plugin-logs":
+        return {"entries": PLUGIN_LOGS}
     if path == f"{API_BASE}/auth-files":
         return {"files": AUTH_FILES}
     if path == f"{API_BASE}/auth-files/quota":
@@ -1110,22 +1165,31 @@ class Handler(BaseHTTPRequestHandler):
             if not authorization.startswith("Bearer ") or authorization[7:] not in api_keys:
                 self.send_json(401, {"error": {"message": "API Key 无效"}})
                 return
-        account_paths = {
-            f"{ACCOUNT_BASE}/overview",
-            f"{ACCOUNT_BASE}/prices",
-            f"{ACCOUNT_BASE}/logs",
-            f"{ACCOUNT_BASE}/auth-files",
-            f"{ACCOUNT_BASE}/auth-files/quota",
+        resource_paths = {
+            f"{RESOURCE_BASE}/status",
+            f"{RESOURCE_BASE}/access",
+            f"{RESOURCE_BASE}/prices",
+            f"{RESOURCE_BASE}/events",
+            f"{RESOURCE_BASE}/errors",
+            f"{RESOURCE_BASE}/analysis",
+            f"{RESOURCE_BASE}/auth-files",
+            f"{RESOURCE_BASE}/auth-files/quota",
         }
-        if parsed.path in account_paths:
+        if parsed.path in resource_paths:
             if not authorization.startswith("Bearer ") or authorization[7:] not in api_keys:
                 self.send_json(401, {"error": {"message": "API Key 无效"}})
                 return
             index = api_keys.index(authorization[7:])
-            if parsed.path.endswith("/overview"):
-                self.send_json(200, account_overview(index))
+            if parsed.path.endswith("/status"):
+                self.send_json(200, account_status(index))
+            elif parsed.path.endswith("/access"):
+                self.send_json(200, account_access(index))
             elif parsed.path.endswith("/prices"):
-                self.send_json(200, account_price_view(index))
+                self.send_json(200, PRICES)
+            elif parsed.path.endswith("/analysis"):
+                self.send_json(200, analysis_view(parse_qs(parsed.query), LIVE_KEYS[index]["scope"]))
+            elif parsed.path.endswith("/errors"):
+                self.send_json(200, error_view(parse_qs(parsed.query), LIVE_KEYS[index]["scope"]))
             elif parsed.path.endswith("/auth-files"):
                 self.send_json(200, {"files": AUTH_FILES})
             elif parsed.path.endswith("/auth-files/quota"):
@@ -1134,8 +1198,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(404, {"error": {"message": "认证文件不存在或不支持限额查询"}})
                 else:
                     self.send_json(200, payload)
-            else:
-                self.send_json(200, account_log_view(parse_qs(parsed.query), LIVE_KEYS[index]["scope"]))
+            elif parsed.path.endswith("/events"):
+                self.send_json(200, request_event_view(parse_qs(parsed.query), LIVE_KEYS[index]["scope"]))
             return
         payload = payload_for(parsed.path, parse_qs(parsed.query))
         if payload is None:
@@ -1162,10 +1226,10 @@ class Handler(BaseHTTPRequestHandler):
         if length:
             request_body = self.rfile.read(length)
         route = self.command, parsed.path
-        if route == ("DELETE", f"{API_BASE}/logs"):
-            self.send_json(200, {"cleared": len(LOGS)})
-        elif route == ("DELETE", f"{API_BASE}/events"):
-            self.send_json(200, {"cleared": len(EVENTS)})
+        if route == ("DELETE", f"{API_BASE}/plugin-logs"):
+            cleared = len(PLUGIN_LOGS)
+            PLUGIN_LOGS.clear()
+            self.send_json(200, {"cleared": cleared})
         elif route == ("POST", f"{API_BASE}/prices/catalog/refresh"):
             self.send_json(200, {"catalog": {"models": len(PRICES)}, "updated_models": 2})
         elif route == ("POST", f"{API_BASE}/prices/reset"):
@@ -1179,11 +1243,10 @@ class Handler(BaseHTTPRequestHandler):
                     key["concurrency_limit"] = body.get("concurrency_limit", 0)
                     break
             self.send_json(200, {"ok": True})
-        elif route in {
-            ("POST", f"{API_BASE}/keys/sync"),
-            ("POST", f"{API_BASE}/prices/sync"),
-        }:
-            self.send_json(200, {"added": 0, "removed": 0, "matched": len(LIVE_KEYS), "priced": len(PRICES)})
+        elif route == ("POST", f"{API_BASE}/keys/sync"):
+            self.send_json(200, {"added": 0, "removed": 0})
+        elif route == ("POST", f"{API_BASE}/prices/sync"):
+            self.send_json(200, {"added": 0, "removed": 0, "priced": len(PRICES)})
         elif route == ("DELETE", f"{API_BASE}/model-groups"):
             self.send_json(200, {"deleted": parse_qs(parsed.query).get("id", [""])[0], "released_keys": 2})
         elif route == ("POST", f"{API_BASE}/model-groups"):

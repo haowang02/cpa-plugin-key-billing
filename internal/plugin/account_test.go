@@ -47,22 +47,20 @@ func configuredAccountApp(t *testing.T) *App {
 	return app
 }
 
-func TestAccountOverviewAuthenticatesByAPIKeyScope(t *testing.T) {
+func TestAccountStatusAuthenticatesByAPIKeyScope(t *testing.T) {
 	app := configuredAccountApp(t)
 
-	response := callAccount(t, app, resourceAccountOverviewPath, accountTestKeyA, nil)
+	response := callAccount(t, app, routeStatus, accountTestKeyA, nil)
 	if response.StatusCode != http.StatusOK || response.Headers.Get("Cache-Control") != "private, no-store" ||
 		response.Headers.Get("Vary") != "Authorization" {
 		t.Fatalf("response = %+v", response)
 	}
-	var overview accountOverviewResponse
-	if errDecode := json.Unmarshal(response.Body, &overview); errDecode != nil {
+	var status accountStatusResponse
+	if errDecode := json.Unmarshal(response.Body, &status); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if !overview.Tracked || overview.Identity.Label != "Alice" || len(overview.ByModel) != 1 ||
-		overview.ByModel[0].OutputTokens != 20 || !overview.ModelAccess.AllModels ||
-		len(overview.ModelAccess.Models) != 0 {
-		t.Fatalf("overview = %+v", overview)
+	if !status.Tracked || status.Identity.Label != "Alice" {
+		t.Fatalf("status = %+v", status)
 	}
 	body := string(response.Body)
 	for _, forbidden := range []string{accountTestKeyA, accountTestKeyB, billing.CallerScope(accountTestKeyA), `"plan_id"`} {
@@ -71,21 +69,21 @@ func TestAccountOverviewAuthenticatesByAPIKeyScope(t *testing.T) {
 		}
 	}
 
-	unknown := callAccount(t, app, resourceAccountOverviewPath, "sk-valid-but-untracked-0003", nil)
-	if errDecode := json.Unmarshal(unknown.Body, &overview); errDecode != nil || overview.Tracked {
-		t.Fatalf("unknown overview = %+v, err = %v", overview, errDecode)
+	unknown := callAccount(t, app, routeStatus, "sk-valid-but-untracked-0003", nil)
+	if errDecode := json.Unmarshal(unknown.Body, &status); errDecode != nil || status.Tracked {
+		t.Fatalf("unknown status = %+v, err = %v", status, errDecode)
 	}
 }
 
 func TestAccountRoutesRejectMissingOrAmbiguousBearer(t *testing.T) {
 	app := configuredAccountApp(t)
-	if response := callAccount(t, app, resourceAccountOverviewPath, "", nil); response.StatusCode != http.StatusUnauthorized ||
+	if response := callAccount(t, app, routeStatus, "", nil); response.StatusCode != http.StatusUnauthorized ||
 		response.Headers.Get("WWW-Authenticate") == "" {
 		t.Fatalf("missing bearer response = %+v", response)
 	}
 
 	raw, errHandle := app.HandleMethod(MethodManagementHandle, mustMarshal(t, ManagementRequest{
-		Method: http.MethodGet, Path: resourceBase + resourceAccountOverviewPath,
+		Method: http.MethodGet, Path: resourceBase + routeStatus,
 		Headers: http.Header{"Authorization": {"Bearer " + accountTestKeyA, "Bearer " + accountTestKeyB}},
 	}))
 	if errHandle != nil {
@@ -98,41 +96,92 @@ func TestAccountRoutesRejectMissingOrAmbiguousBearer(t *testing.T) {
 	}
 }
 
-func TestAccountLogsCannotCrossScopesOrExposeAdminFields(t *testing.T) {
+func TestAccountRequestEventsUseSharedShapeWithoutCrossingScopes(t *testing.T) {
 	app := configuredAccountApp(t)
-	response := callAccount(t, app, resourceAccountLogsPath, accountTestKeyA, url.Values{"limit": {"10"}})
+	response := callAccount(t, app, routeEvents, accountTestKeyA, url.Values{"limit": {"10"}})
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("response = %+v", response)
 	}
-	var view accountLogView
+	var view billing.RequestEventView
 	if errDecode := json.Unmarshal(response.Body, &view); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if view.Total != 1 || len(view.Entries) != 1 || view.Entries[0].Output != 20 {
+	if view.Total != 1 || len(view.Entries) != 1 || view.Entries[0].Cost.BilledOutputTokens != 20 {
 		t.Fatalf("view = %+v", view)
 	}
 	if view.Filters == nil || len(view.Filters.Models) != 1 || view.Filters.Models[0] != "gpt-5.5" ||
 		len(view.Filters.Sources) != 0 {
-		t.Fatalf("account log filter options = %+v", view.Filters)
+		t.Fatalf("account request event filter options = %+v", view.Filters)
 	}
 	from := view.Entries[0].At.Format(time.RFC3339Nano)
 	to := view.Entries[0].At.Add(time.Second).Format(time.RFC3339Nano)
-	filtered := callAccount(t, app, resourceAccountLogsPath, accountTestKeyA, url.Values{
-		"model": {"gpt-5.5"}, "status": {"normal"}, "from": {from}, "to": {to},
+	filtered := callAccount(t, app, routeEvents, accountTestKeyA, url.Values{
+		"api_key": {billing.CallerScope(accountTestKeyB)},
+		"model":   {"gpt-5.5"}, "status": {"normal"}, "from": {from}, "to": {to},
 	})
 	if errDecode := json.Unmarshal(filtered.Body, &view); errDecode != nil || view.Total != 1 {
-		t.Fatalf("filtered account log = %+v, err = %v", view, errDecode)
+		t.Fatalf("filtered account request events = %+v, err = %v", view, errDecode)
 	}
 	body := string(response.Body)
-	for _, forbidden := range []string{accountTestKeyA, accountTestKeyB, billing.CallerScope(accountTestKeyA),
-		`"scope"`, `"auth_index"`, `"price_source"`, `"applied_output_per_1m"`} {
+	for _, forbidden := range []string{accountTestKeyA, accountTestKeyB,
+		billing.CallerScope(accountTestKeyA), billing.CallerScope(accountTestKeyB), `"auth_index":"`} {
 		if strings.Contains(body, forbidden) {
-			t.Fatalf("account log leaked %q: %s", forbidden, body)
+			t.Fatalf("account request events leaked %q: %s", forbidden, body)
 		}
 	}
 }
 
-func TestAccountLogsUseTheAdministratorSource(t *testing.T) {
+func TestAccountRequestErrorsCannotCrossScopes(t *testing.T) {
+	app := configuredAccountApp(t)
+	for _, apiKey := range []string{accountTestKeyA, accountTestKeyB} {
+		publishUsageRecord(t, app, UsageRecord{
+			Provider: "codex", Model: "gpt-5.5", Alias: "gpt-5.5", APIKey: apiKey,
+			Generate: true, Failed: true, Failure: UsageFailure{StatusCode: 502,
+				Body: `{"error":{"message":"bad gateway","type":"upstream_error"}}`},
+		})
+	}
+	response := callAccount(t, app, routeErrors, accountTestKeyA, url.Values{
+		"api_key":     {billing.CallerScope(accountTestKeyB)},
+		"status_code": {"502"},
+	})
+	var view billing.RequestErrorView
+	if err := json.Unmarshal(response.Body, &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Total != 1 || len(view.Entries) != 1 || view.Entries[0].StatusCode != 502 {
+		t.Fatalf("errors = %+v", view)
+	}
+	body := string(response.Body)
+	for _, forbidden := range []string{accountTestKeyA, accountTestKeyB,
+		billing.CallerScope(accountTestKeyA), billing.CallerScope(accountTestKeyB), `"auth_index"`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("account error response leaked %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestAccountAnalysisCannotCrossScopesOrExposeScope(t *testing.T) {
+	app := configuredAccountApp(t)
+	response := callAccount(t, app, routeAnalysis, accountTestKeyA, url.Values{
+		"api_key": {billing.CallerScope(accountTestKeyB)},
+	})
+	var view billing.AnalysisView
+	if err := json.Unmarshal(response.Body, &view); err != nil {
+		t.Fatal(err)
+	}
+	if len(view.UsageDistribution.APIKeys) != 0 || len(view.UsageDistribution.Models) != 1 ||
+		view.UsageDistribution.Models[0].Requests != 1 || view.UsageDistribution.Models[0].TotalTokens != 20 {
+		t.Fatalf("analysis = %+v", view)
+	}
+	body := string(response.Body)
+	for _, forbidden := range []string{billing.CallerScope(accountTestKeyA), billing.CallerScope(accountTestKeyB)} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("account analysis leaked scope %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestAccountRequestEventsUseTheAdministratorSource(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	if _, errSync := app.store.SyncKeys([]string{accountTestKeyA}, false); errSync != nil {
 		t.Fatal(errSync)
@@ -144,26 +193,26 @@ func TestAccountLogsUseTheAdministratorSource(t *testing.T) {
 		Detail: UsageDetail{OutputTokens: 20, TotalTokens: 20},
 	})
 
-	response := callAccount(t, app, resourceAccountLogsPath, accountTestKeyA, nil)
-	var view accountLogView
+	response := callAccount(t, app, routeEvents, accountTestKeyA, nil)
+	var view billing.RequestEventView
 	if errDecode := json.Unmarshal(response.Body, &view); errDecode != nil {
 		t.Fatal(errDecode)
 	}
 	if len(view.Entries) != 1 || view.Entries[0].ExecutorType != "CodexExecutor" ||
 		view.Entries[0].Source != "codex · private@example.com" {
-		t.Fatalf("account log = %+v", view)
+		t.Fatalf("account request event = %+v", view)
 	}
 	if view.Filters == nil || len(view.Filters.Sources) != 1 || view.Filters.Sources[0] != "codex · private@example.com" {
-		t.Fatalf("account source filters = %+v", view.Filters)
+		t.Fatalf("account request event source filters = %+v", view.Filters)
 	}
-	filtered := callAccount(t, app, resourceAccountLogsPath, accountTestKeyA,
+	filtered := callAccount(t, app, routeEvents, accountTestKeyA,
 		url.Values{"source": {"codex · private@example.com"}})
 	if errDecode := json.Unmarshal(filtered.Body, &view); errDecode != nil || view.Total != 1 {
-		t.Fatalf("source-filtered account log = %+v, err = %v", view, errDecode)
+		t.Fatalf("source-filtered account request events = %+v, err = %v", view, errDecode)
 	}
 }
 
-func TestAccountModelAccessExpandsGroupsAndLimitsPrices(t *testing.T) {
+func TestAccountModelAccessExpandsGroupsAndPricesReturnSharedCatalog(t *testing.T) {
 	app := configuredAccountApp(t)
 	scope := billing.CallerScope(accountTestKeyA)
 	if _, errPrice := app.store.UpsertPrice(billing.PriceRule{Pattern: "other-model", InputPer1M: 9, OutputPer1M: 18}); errPrice != nil {
@@ -176,26 +225,26 @@ func TestAccountModelAccessExpandsGroupsAndLimitsPrices(t *testing.T) {
 	if errModels := app.store.SetKeyModels(scope, []string{group.ID}, nil); errModels != nil {
 		t.Fatal(errModels)
 	}
-	response := callAccount(t, app, resourceAccountPricesPath, accountTestKeyA, nil)
-	var prices []billing.PriceRule
+	response := callAccount(t, app, routePrices, accountTestKeyA, nil)
+	var prices []billing.PriceRow
 	if errDecode := json.Unmarshal(response.Body, &prices); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if len(prices) != 2 || prices[0].Pattern != "gpt-5.5" || prices[1].Pattern != "missing-model" ||
-		prices[0].OutputPer1M != 2 || prices[1].InputPer1M != 0 || prices[1].OutputPer1M != 0 {
+	if len(prices) != 2 || prices[0].Pattern != "gpt-5.5" || prices[1].Pattern != "other-model" ||
+		prices[0].OutputPer1M != 2 || prices[1].InputPer1M != 9 || prices[1].OutputPer1M != 18 {
 		t.Fatalf("account prices = %+v", prices)
 	}
-	if strings.Contains(string(response.Body), "other-model") || strings.Contains(string(response.Body), `"source"`) {
-		t.Fatalf("account prices leaked unavailable model: %s", response.Body)
+	if !strings.Contains(string(response.Body), `"source"`) {
+		t.Fatalf("account prices did not use management response shape: %s", response.Body)
 	}
-	response = callAccount(t, app, resourceAccountOverviewPath, accountTestKeyA, nil)
-	var overview accountOverviewResponse
-	if errDecode := json.Unmarshal(response.Body, &overview); errDecode != nil {
+	response = callAccount(t, app, routeAccess, accountTestKeyA, nil)
+	var access accountModelAccess
+	if errDecode := json.Unmarshal(response.Body, &access); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if overview.ModelAccess.AllModels || len(overview.ModelAccess.Models) != 2 ||
-		overview.ModelAccess.Models[0] != "gpt-5.5" || overview.ModelAccess.Models[1] != "missing-model" {
-		t.Fatalf("overview model access = %+v", overview.ModelAccess)
+	if access.AllModels || len(access.Models) != 2 ||
+		access.Models[0] != "gpt-5.5" || access.Models[1] != "missing-model" {
+		t.Fatalf("model access = %+v", access)
 	}
 }
 
@@ -204,20 +253,20 @@ func TestDeletedAccountCannotReadItsHistory(t *testing.T) {
 	if _, errSync := app.store.SyncKeys([]string{accountTestKeyB}, false); errSync != nil {
 		t.Fatal(errSync)
 	}
-	response := callAccount(t, app, resourceAccountOverviewPath, accountTestKeyA, nil)
-	var overview accountOverviewResponse
-	if errDecode := json.Unmarshal(response.Body, &overview); errDecode != nil {
+	response := callAccount(t, app, routeStatus, accountTestKeyA, nil)
+	var status accountStatusResponse
+	if errDecode := json.Unmarshal(response.Body, &status); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if overview.Tracked {
-		t.Fatalf("deleted account remained readable: %+v", overview)
+	if status.Tracked {
+		t.Fatalf("deleted account remained readable: %+v", status)
 	}
-	logs := callAccount(t, app, resourceAccountLogsPath, accountTestKeyA, nil)
-	var view accountLogView
-	if errDecode := json.Unmarshal(logs.Body, &view); errDecode != nil {
+	events := callAccount(t, app, routeEvents, accountTestKeyA, nil)
+	var view billing.RequestEventView
+	if errDecode := json.Unmarshal(events.Body, &view); errDecode != nil {
 		t.Fatal(errDecode)
 	}
 	if view.Total != 0 || len(view.Entries) != 0 {
-		t.Fatalf("deleted account logs = %+v", view)
+		t.Fatalf("deleted account request events = %+v", view)
 	}
 }

@@ -2,6 +2,7 @@ package billing
 
 import (
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 )
@@ -13,9 +14,10 @@ import (
 // It shares the state document with the store rather than copying it, so a
 // mutation is visible here as soon as it is saved.
 type memoryRepository struct {
-	state  *State
-	log    []LogEntry
-	events []Event
+	state         *State
+	requestEvents []RequestEvent
+	requestErrors []RequestErrorEvent
+	pluginLogs    []PluginLog
 	// saves records the write set of every mutation, which is how a test asks
 	// what a store operation actually persisted.
 	saves []Changes
@@ -27,53 +29,59 @@ type memoryRepository struct {
 	closeFail error
 }
 
-func (r *memoryRepository) Load(cutoff time.Time) (Snapshot, error) {
+func (r *memoryRepository) Load(requestCutoff, pluginCutoff time.Time) (Snapshot, error) {
 	if r.state == nil {
 		r.state = NewState()
 	}
-	if !cutoff.IsZero() {
-		kept := r.log[:0]
-		for _, entry := range r.log {
-			if !entry.At.Before(cutoff) {
-				kept = append(kept, entry)
+	if !requestCutoff.IsZero() {
+		kept := r.requestEvents[:0]
+		for _, event := range r.requestEvents {
+			if !event.At.Before(requestCutoff) {
+				kept = append(kept, event)
 			}
 		}
-		r.log = kept
-		r.events = keptEvents(r.events, cutoff)
+		r.requestEvents = kept
+		keptErrors := r.requestErrors[:0]
+		for _, event := range r.requestErrors {
+			if !event.Event.At.Before(requestCutoff) {
+				keptErrors = append(keptErrors, event)
+			}
+		}
+		r.requestErrors = keptErrors
 	}
-	return Snapshot{State: r.state, LogEntries: len(r.log)}, nil
+	r.pluginLogs = keptPluginLogs(r.pluginLogs, pluginCutoff)
+	return Snapshot{State: r.state, RequestEventCount: len(r.requestEvents) + len(r.requestErrors)}, nil
 }
 
-func (r *memoryRepository) AppendEvent(event Event, cutoff time.Time) error {
-	r.events = keptEvents(append(r.events, event), cutoff)
+func (r *memoryRepository) AppendPluginLog(entry PluginLog, cutoff time.Time) error {
+	r.pluginLogs = keptPluginLogs(append(r.pluginLogs, entry), cutoff)
 	return nil
 }
 
-// Events answers newest first, the order the log is read in.
-func (r *memoryRepository) Events(since time.Time) ([]Event, error) {
-	events := []Event{}
-	for i := len(r.events) - 1; i >= 0; i-- {
-		if !r.events[i].At.Before(since) {
-			events = append(events, r.events[i])
+func (r *memoryRepository) PluginLogs(since time.Time) ([]PluginLog, error) {
+	entries := []PluginLog{}
+	for i := len(r.pluginLogs) - 1; i >= 0; i-- {
+		if !r.pluginLogs[i].At.Before(since) {
+			entries = append(entries, r.pluginLogs[i])
 		}
 	}
-	return events, nil
+	return entries, nil
 }
 
-func (r *memoryRepository) ClearEvents() (int, error) {
-	cleared := len(r.events)
-	r.events = nil
+func (r *memoryRepository) ClearPluginLogs() (int, error) {
+	cleared := len(r.pluginLogs)
+	r.pluginLogs = nil
 	return cleared, nil
 }
 
-func keptEvents(events []Event, cutoff time.Time) []Event {
+func keptPluginLogs(entries []PluginLog, cutoff time.Time) []PluginLog {
 	if cutoff.IsZero() {
-		return events
+		return entries
 	}
-	kept := events[:0]
-	for _, event := range events {
-		if !event.At.Before(cutoff) {
-			kept = append(kept, event)
+	kept := entries[:0]
+	for _, entry := range entries {
+		if !entry.At.Before(cutoff) {
+			kept = append(kept, entry)
 		}
 	}
 	return kept
@@ -84,32 +92,43 @@ func (r *memoryRepository) Save(_ *State, changes Changes) error {
 		return r.fail
 	}
 	r.saves = append(r.saves, changes)
-	r.log = append(r.log, changes.Log...)
-	if changes.LogCutoff.IsZero() {
+	r.requestEvents = append(r.requestEvents, changes.NormalRequestEvents...)
+	r.requestErrors = append(r.requestErrors, changes.RequestErrorEvents...)
+	if changes.RequestEventCutoff.IsZero() {
 		return nil
 	}
-	kept := r.log[:0]
-	for _, entry := range r.log {
-		if !entry.At.Before(changes.LogCutoff) {
-			kept = append(kept, entry)
+	kept := r.requestEvents[:0]
+	for _, event := range r.requestEvents {
+		if !event.At.Before(changes.RequestEventCutoff) {
+			kept = append(kept, event)
 		}
 	}
-	r.log = kept
+	r.requestEvents = kept
+	keptErrors := r.requestErrors[:0]
+	for _, event := range r.requestErrors {
+		if !event.Event.At.Before(changes.RequestEventCutoff) {
+			keptErrors = append(keptErrors, event)
+		}
+	}
+	r.requestErrors = keptErrors
 	return nil
 }
 
-// Filtering and paging are the database's job and are tested there;
-// what this package asks of the log is which entries a mutation produced and
-// whose identity they carry.
-func (r *memoryRepository) Logs(query LogQuery, since time.Time) (LogView, error) {
-	view := LogView{Entries: []LogRow{}}
-	for i := len(r.log) - 1; i >= 0; i-- {
-		entry := r.log[i]
+// Filtering and paging are covered by the SQLite repository tests.
+func (r *memoryRepository) RequestEvents(query RequestEventQuery, since time.Time) (RequestEventView, error) {
+	view := RequestEventView{Entries: []RequestEventRow{}}
+	events := append([]RequestEvent(nil), r.requestEvents...)
+	for _, failure := range r.requestErrors {
+		events = append(events, failure.Event)
+	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].At.After(events[j].At) })
+	for _, entry := range events {
 		if entry.At.Before(since) || (query.Scope != "" && entry.Scope != query.Scope) {
 			continue
 		}
 		credential := r.state.Credentials[entry.AuthIndex]
-		row := LogRow{LogEntry: entry, Source: credential.Name(), Provider: credential.Provider}
+		entry.Provider = credential.Provider
+		row := RequestEventRow{RequestEvent: entry, Source: credential.Name()}
 		if key := r.state.Keys[entry.Scope]; key != nil {
 			row.Preview, row.Label = key.Preview, key.Label
 		}
@@ -119,29 +138,47 @@ func (r *memoryRepository) Logs(query LogQuery, since time.Time) (LogView, error
 	return view, nil
 }
 
-func (r *memoryRepository) ClearLogs() (int, error) {
-	cleared := len(r.log)
-	r.log = nil
-	return cleared, nil
+func (r *memoryRepository) RequestErrors(query RequestErrorQuery, since time.Time) (RequestErrorView, error) {
+	view := RequestErrorView{Entries: []RequestErrorRow{}}
+	for i := len(r.requestErrors) - 1; i >= 0; i-- {
+		write := r.requestErrors[i]
+		if write.Event.At.Before(since) || query.Scope != "" && write.Event.Scope != query.Scope {
+			continue
+		}
+		row := RequestErrorRow{At: write.Event.At, Scope: write.Event.Scope, AuthIndex: write.Event.AuthIndex,
+			Provider: write.Event.Provider, ExecutorType: write.Event.ExecutorType, UpstreamModel: write.Event.UpstreamModel,
+			BillingModel: write.Event.BillingModel, LatencyMS: write.Event.LatencyMS, TTFTMS: write.Event.TTFTMS,
+			RequestError: write.Error}
+		if key := r.state.Keys[write.Event.Scope]; key != nil {
+			row.Preview, row.Label = key.Preview, key.Label
+		}
+		row.Source = r.state.Credentials[write.Event.AuthIndex].Name()
+		view.Entries = append(view.Entries, row)
+	}
+	view.Total = len(view.Entries)
+	return view, nil
 }
 
-func (r *memoryRepository) LoggedScopes(since time.Time) (map[string]struct{}, error) {
+func (r *memoryRepository) Analysis(query RequestEventQuery, since time.Time) (AnalysisView, error) {
+	return AnalysisView{}, nil
+}
+
+func (r *memoryRepository) RequestEventScopes(since time.Time) (map[string]struct{}, error) {
 	scopes := make(map[string]struct{})
-	for _, entry := range r.log {
-		if !entry.At.Before(since) {
-			scopes[entry.Scope] = struct{}{}
+	for _, event := range r.requestEvents {
+		if !event.At.Before(since) {
+			scopes[event.Scope] = struct{}{}
+		}
+	}
+	for _, event := range r.requestErrors {
+		if !event.Event.At.Before(since) {
+			scopes[event.Event.Scope] = struct{}{}
 		}
 	}
 	return scopes, nil
 }
 
 func (r *memoryRepository) Close() error { return r.closeFail }
-
-// statelessRepository answers no error and no working set, which the Repository
-// contract forbids and a future backend could still do.
-type statelessRepository struct{ memoryRepository }
-
-func (r *statelessRepository) Load(time.Time) (Snapshot, error) { return Snapshot{}, nil }
 
 func newStore(t *testing.T) *Store {
 	store, _ := newStoreWithRepository(t)
@@ -170,11 +207,11 @@ func (s *Store) Read(fn func(*State)) {
 	s.read(fn)
 }
 
-func mustLogs(t *testing.T, store *Store, query LogQuery) LogView {
+func mustRequestEvents(t *testing.T, store *Store, query RequestEventQuery) RequestEventView {
 	t.Helper()
-	view, errLogs := store.Logs(query)
-	if errLogs != nil {
-		t.Fatalf("Logs error = %v", errLogs)
+	view, err := store.RequestEvents(query)
+	if err != nil {
+		t.Fatalf("RequestEvents error = %v", err)
 	}
 	return view
 }

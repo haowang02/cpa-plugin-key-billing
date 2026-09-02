@@ -3,7 +3,6 @@ package billing
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -71,9 +70,9 @@ func (s *Store) Now() time.Time {
 // must be safe.
 func (s *Store) Configure(cfg Config) error {
 	normalized := cfg.normalized()
-	path, errPath := resolveStatePath(normalized.StateFile)
-	if errPath != nil {
-		return errPath
+	path, err := filepath.Abs(normalized.StateFile)
+	if err != nil {
+		return fmt.Errorf("解析计费数据库路径 %q：%w", normalized.StateFile, err)
 	}
 
 	s.cfgMu.Lock()
@@ -89,7 +88,7 @@ func (s *Store) Configure(cfg Config) error {
 		s.cfg = normalized
 		s.mu.Unlock()
 		if changed {
-			s.Event(EventInfo, "配置已更新：%s。", normalized.describe())
+			s.AddPluginLog(PluginLogInfo, "配置已更新：%s。", normalized.describe())
 		}
 		return nil
 	}
@@ -101,19 +100,12 @@ func (s *Store) Configure(cfg Config) error {
 	if errOpen != nil {
 		return errOpen
 	}
-	snapshot, errLoad := repo.Load(s.Now().Add(-LogRetention))
+	now := s.Now()
+	snapshot, errLoad := repo.Load(now.Add(-RequestEventRetention), now.Add(-PluginLogRetention))
 	if errLoad != nil {
 		s.closeRepository(repo)
 		return errLoad
 	}
-	// A repository that answers no error owes a working set. Accepting a nil one
-	// would defer the failure to the first host call, which reports it as a
-	// panic rather than as the configuration error it is.
-	if snapshot.State == nil {
-		s.closeRepository(repo)
-		return fmt.Errorf("读取计费数据库 %s：未返回计费状态", path)
-	}
-
 	s.mu.Lock()
 	previous := s.repo
 	s.state = snapshot.State
@@ -126,8 +118,8 @@ func (s *Store) Configure(cfg Config) error {
 		s.closeRepository(previous)
 	}
 
-	s.Event(EventInfo, "已加载计费数据库 %s：%d 个 API Key、%d 个订阅计划、%d 条计费日志。%s。",
-		path, len(snapshot.State.Keys), len(snapshot.State.Plans), snapshot.LogEntries, normalized.describe())
+	s.AddPluginLog(PluginLogInfo, "已加载计费数据库 %s：%d 个 API Key、%d 个订阅计划、%d 条请求事件。%s。",
+		path, len(snapshot.State.Keys), len(snapshot.State.Plans), snapshot.RequestEventCount, normalized.describe())
 	return nil
 }
 
@@ -149,13 +141,9 @@ func (s *Store) Close() {
 	}
 }
 
-// Closing is where the database checkpoints its write-ahead log back into
-// itself, so a failure there is the operator's warning that the tail of the
-// record may exist only beside it. On a reconfigure the report lands in a plugin
-// log that is still being read; at shutdown it is the last thing written.
 func (s *Store) closeRepository(repo Repository) {
 	if errClose := repo.Close(); errClose != nil {
-		s.Event(EventError, "关闭计费数据库失败：%v", errClose)
+		s.AddPluginLog(PluginLogError, "关闭计费数据库失败：%v", errClose)
 	}
 }
 
@@ -223,7 +211,7 @@ func (s *Store) recordWriteSuccess() {
 	s.lastError = ""
 	s.errMu.Unlock()
 	if recovered {
-		s.Event(EventInfo, "计费数据库恢复写入。")
+		s.AddPluginLog(PluginLogInfo, "计费数据库恢复写入。")
 	}
 }
 
@@ -236,7 +224,7 @@ func (s *Store) recordWriteError(err error) {
 	// that follows. Report the onset and then stay quiet until a write succeeds,
 	// so the log still shows what happened before the failure.
 	if first {
-		s.Event(EventError, "保存计费数据失败：%v", err)
+		s.AddPluginLog(PluginLogError, "保存计费数据失败：%v", err)
 	}
 }
 
@@ -255,18 +243,4 @@ func withRepository[T any](s *Store, fn func(Repository) (T, error)) (T, error) 
 		return zero, nil
 	}
 	return fn(s.repo)
-}
-
-func resolveStatePath(path string) (string, error) {
-	if path == "" {
-		path = DefaultStateFile
-	}
-	if extension := filepath.Ext(path); strings.EqualFold(extension, ".json") {
-		path = strings.TrimSuffix(path, extension) + ".db"
-	}
-	absolute, errAbs := filepath.Abs(path)
-	if errAbs != nil {
-		return "", fmt.Errorf("解析计费数据库路径 %q：%w", path, errAbs)
-	}
-	return absolute, nil
 }

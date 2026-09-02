@@ -29,7 +29,7 @@ func usageHasTokens(detail UsageDetail) bool {
 // usageBreakdown reconstructs the provider-specific accounting semantics
 // CLIProxyAPI applies before flattening its internal usage.Detail for plugins.
 // A zero detail means the provider reported no usage, not a measured zero, so
-// it deliberately keeps the zero-value quality used by the billing log.
+// it deliberately keeps the zero-value quality used by request events.
 func usageBreakdown(record UsageRecord) billing.TokenBreakdown {
 	detail := record.Detail
 	if !usageHasTokens(detail) {
@@ -75,16 +75,18 @@ func usageBreakdown(record UsageRecord) billing.TokenBreakdown {
 	case tokenSemanticsSubset:
 		return subsetBreakdown(input, cacheRead, cacheWrite, output, reasoning, total)
 	case tokenSemanticsIndependent:
-		if reasoning < 0 || reasoning > output {
-			return inconsistentBreakdown(total, 0)
-		}
-		return independentBreakdown(input, cacheRead, cacheWrite, output-reasoning, reasoning, total)
+		return providerIndependentBreakdown(input, cacheRead, cacheWrite, output, reasoning, total)
 	case tokenSemanticsSeparateReasoning:
 		return separateReasoningBreakdown(input, cacheRead, cacheWrite, output, reasoning, total)
 	default:
-		// Unknown child buckets may overlap their parents, so use only the
-		// top-level input and output counts.
-		return subsetBreakdown(input, 0, 0, output, 0, total)
+		lowerBound, okLowerBound := unclassifiedLowerBound(input, output, reasoning, cacheRead, cacheWrite, detail.CachedTokens)
+		if !okLowerBound {
+			return inconsistentBreakdown(total, 0)
+		}
+		if total == 0 {
+			total = lowerBound
+		}
+		return unclassifiedBreakdown(total)
 	}
 }
 
@@ -129,11 +131,29 @@ func subsetBreakdown(input, cacheRead, cacheWrite, output, reasoning, total int6
 	}
 	breakdown := completeBreakdown(input-cache, cacheRead, cacheWrite, output-reasoning, reasoning, expected)
 	if total > expected {
+		if input > 0 && output > 0 {
+			return inconsistentBreakdown(total, expected)
+		}
 		breakdown.Quality = billing.TokenAccountingUnclassified
 		breakdown.TotalTokens = total
 		breakdown.UnclassifiedTokens = total - expected
 	}
 	return breakdown
+}
+
+func providerIndependentBreakdown(input, cacheRead, cacheWrite, output, reasoning, total int64) billing.TokenBreakdown {
+	inputTotal, okInput := checkedTokenSum(input, cacheRead, cacheWrite)
+	separateTotal, okSeparate := checkedTokenSum(inputTotal, output, reasoning)
+	if !okInput || !okSeparate {
+		return inconsistentBreakdown(total, 0)
+	}
+	if total == separateTotal {
+		return independentBreakdown(input, cacheRead, cacheWrite, output, reasoning, total)
+	}
+	if reasoning < 0 || reasoning > output {
+		return inconsistentBreakdown(total, 0)
+	}
+	return independentBreakdown(input, cacheRead, cacheWrite, output-reasoning, reasoning, total)
 }
 
 func independentBreakdown(input, cacheRead, cacheWrite, output, reasoning, total int64) billing.TokenBreakdown {

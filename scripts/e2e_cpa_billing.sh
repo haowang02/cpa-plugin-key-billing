@@ -428,18 +428,18 @@ provider_source() {
   printf '%s · %s…%s' "$provider" "${upstream_api_key:0:6}" "${upstream_api_key: -4}"
 }
 
-wait_for_log_count() {
+wait_for_event_count() {
   local port="$1"
   local expected_count="$2"
-  local logs_file="$3"
+  local request_events_file="$3"
   local attempt=0 actual_count=0
 
   while (( attempt < 50 )); do
-    if ! management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"; then
-      echo "读取计费日志失败。" >&2
+    if ! management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$request_events_file"; then
+      echo "读取请求事件失败。" >&2
       return 1
     fi
-    actual_count="$(jq -er '.entries | length' "$logs_file")"
+    actual_count="$(jq -er '.entries | length' "$request_events_file")"
     if [[ "$actual_count" == "$expected_count" ]]; then
       return
     fi
@@ -449,7 +449,7 @@ wait_for_log_count() {
     attempt=$((attempt + 1))
     sleep 0.1
   done
-  echo "计费日志数量为 ${actual_count}，预期 ${expected_count}。" >&2
+  echo "请求事件数量为 ${actual_count}，预期 ${expected_count}。" >&2
   return 1
 }
 
@@ -460,7 +460,7 @@ assert_billing_entry() {
   local upstream="$4"
   local billing_model="$5"
   local upstream_models="$6"
-  local logs_file="$7"
+  local request_events_file="$7"
   local response_file="$8"
   local stream="$9"
   local expected_source expected_executor expected_uncached expected_cache_write usage input output entry_file
@@ -472,12 +472,12 @@ assert_billing_entry() {
     anthropic) expected_executor="ClaudeExecutor" ;;
     gemini) expected_executor="GeminiExecutor" ;;
   esac
-  entry_file="${logs_file%.json}-entry.json"
-  if ! wait_for_log_count "$port" "$expected_count" "$logs_file"; then
+  entry_file="${request_events_file%.json}-entry.json"
+  if ! wait_for_event_count "$port" "$expected_count" "$request_events_file"; then
     echo "用例：${client} → ${upstream}。" >&2
     return 1
   fi
-  jq -e '.entries[0]' "$logs_file" >"$entry_file"
+  jq -e '.entries[0]' "$request_events_file" >"$entry_file"
   if ! jq -e \
     --arg upstream_models "$upstream_models" \
     --arg billing_model "$billing_model" \
@@ -531,17 +531,17 @@ assert_billing_entry() {
 
 # assert_model_access grants the downstream key a group that does not hold the
 # route this suite calls, and asserts the request is refused before it can reach
-# an upstream: 403 in the client's own error shape, nothing in the billing log,
-# and one line in the plugin log, which is the only record such a request leaves.
+# an upstream: 403 in the client's own error shape, no request event, and one
+# line in the plugin log, which is the only record such a request leaves.
 assert_model_access() {
   local port="$1"
   local runtime_dir="$2"
   local expected_count="$3"
-  local scope group body http_status response_file logs_file events_file
+  local scope group body http_status response_file request_events_file plugin_logs_file
 
   response_file="$runtime_dir/responses/model-blocked.json"
-  logs_file="$runtime_dir/model-access-logs.json"
-  events_file="$runtime_dir/model-access-events.json"
+  request_events_file="$runtime_dir/model-access-request-events.json"
+  plugin_logs_file="$runtime_dir/model-access-plugin-logs.json"
 
   # Synchronize the Key list the way the panel does, so this holds whether or
   # not traffic has already created the record.
@@ -549,10 +549,10 @@ assert_model_access() {
     -H "Content-Type: application/json" \
     --data '{"keys":["e2e-downstream-key"]}' \
     >/dev/null
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$runtime_dir/overview.json"
-  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/overview.json")"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$runtime_dir/access.json"
+  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/access.json")"
   if ! jq -e --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)) | .all_models' \
-    "$runtime_dir/overview.json" >/dev/null; then
+    "$runtime_dir/access.json" >/dev/null; then
     echo "API Key 的默认可用模型不是全部模型。" >&2
     return 1
   fi
@@ -568,8 +568,7 @@ assert_model_access() {
     >/dev/null
 
   # A thinking suffix is a request option rather than a model of its own, so it
-  # is no way around the refusal — and the refusal names the model without it,
-  # which is the name the billing log would have carried.
+  # is no way around the refusal, and the refusal names the base model.
   for requested in "gpt-5.6-sol" "gpt-5.6-sol(high)" "gpt-5.6-sol(max)"; do
     http_status="$(curl -sS --max-time 30 \
       -H "Content-Type: application/json" \
@@ -590,16 +589,16 @@ assert_model_access() {
     fi
   done
 
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"
-  if [[ "$(jq -er '.entries | length' "$logs_file")" != "$expected_count" ]]; then
-    echo "被拦截的请求进入了计费日志。" >&2
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$request_events_file"
+  if [[ "$(jq -er '.entries | length' "$request_events_file")" != "$expected_count" ]]; then
+    echo "被拦截的请求进入了请求事件。" >&2
     return 1
   fi
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$events_file"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$plugin_logs_file"
   if ! jq -e --arg model "gpt-5.6-sol" '
-      [.events[] | select(.level == "info" and (.message | startswith("模型拦截：")) and (.message | contains($model)))]
-      | length == 1' "$events_file" >/dev/null; then
-    echo "插件日志缺少模型拦截记录：$(jq -c '.events' "$events_file")" >&2
+      [.entries[] | select(.level == "info" and (.message | startswith("模型拦截：")) and (.message | contains($model)))]
+      | length == 1' "$plugin_logs_file" >/dev/null; then
+    echo "插件日志缺少模型拦截记录：$(jq -c '.entries' "$plugin_logs_file")" >&2
     return 1
   fi
 
@@ -615,7 +614,7 @@ assert_model_access() {
   api_call "$port" "模型拦截解除后：OpenAI Chat → OpenAI Chat 非流式" \
     "/v1/chat/completions" "$body" chat "$runtime_dir/responses/model-restored.json"
   assert_billing_entry "$port" "$((expected_count + 1))" chat chat \
-    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/model-restored-logs.json" \
+    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/model-restored-request-events.json" \
     "$runtime_dir/responses/model-restored.json" false
 }
 
@@ -626,31 +625,31 @@ assert_concurrency_limit() {
   local runtime_dir="$2"
   local expected_count="$3"
   local scope body endpoint hold_pid attempt current http_status retry_after actual_count
-  local overview_file response_file blocked_file headers_file logs_file request_log
+  local access_file response_file blocked_file headers_file request_events_file request_log
 
-  overview_file="$runtime_dir/concurrency-overview.json"
+  access_file="$runtime_dir/concurrency-access.json"
   response_file="$runtime_dir/responses/concurrency-held.sse"
   blocked_file="$runtime_dir/responses/concurrency-blocked.json"
   headers_file="$runtime_dir/concurrency-blocked-headers.txt"
-  logs_file="$runtime_dir/concurrency-logs.json"
+  request_events_file="$runtime_dir/concurrency-request-events.json"
   request_log="$runtime_dir/responses/concurrency-held.log"
 
   management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/sync" \
     -H "Content-Type: application/json" \
     --data '{"keys":["e2e-downstream-key"]}' \
     >/dev/null
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$overview_file"
-  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$overview_file")"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$access_file"
+  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$access_file")"
   management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/concurrency" \
     -H "Content-Type: application/json" \
     --data "$(jq -nc --arg scope "$scope" '{scope: $scope, concurrency_limit: 1}')" \
     >/dev/null
 
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$overview_file"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$access_file"
   if ! jq -e --arg scope "$scope" '
       first(.keys[] | select(.scope == $scope)) |
       .concurrency_limit == 1 and .current_concurrency == 0
-    ' "$overview_file" >/dev/null; then
+    ' "$access_file" >/dev/null; then
     echo "API Key 并发数保存结果不正确。" >&2
     return 1
   fi
@@ -663,8 +662,8 @@ assert_concurrency_limit() {
 
   current=0
   for ((attempt = 0; attempt < 100; attempt++)); do
-    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$overview_file"
-    current="$(jq -er --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)).current_concurrency' "$overview_file")"
+    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$access_file"
+    current="$(jq -er --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)).current_concurrency' "$access_file")"
     if [[ "$current" == "1" ]]; then
       break
     fi
@@ -707,8 +706,8 @@ assert_concurrency_limit() {
   fi
   current=1
   for ((attempt = 0; attempt < 100; attempt++)); do
-    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$overview_file"
-    current="$(jq -er --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)).current_concurrency' "$overview_file")"
+    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$access_file"
+    current="$(jq -er --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)).current_concurrency' "$access_file")"
     if [[ "$current" == "0" ]]; then
       break
     fi
@@ -719,12 +718,12 @@ assert_concurrency_limit() {
     return 1
   fi
 
-  if ! wait_for_log_count "$port" "$((expected_count + 1))" "$logs_file"; then
+  if ! wait_for_event_count "$port" "$((expected_count + 1))" "$request_events_file"; then
     return 1
   fi
-  actual_count="$(jq -er '.entries | length' "$logs_file")"
+  actual_count="$(jq -er '.entries | length' "$request_events_file")"
   if [[ "$actual_count" != "$((expected_count + 1))" ]]; then
-    echo "并发拦截请求进入了计费日志。" >&2
+    echo "并发拦截请求进入了请求事件。" >&2
     return 1
   fi
 
@@ -737,24 +736,24 @@ assert_concurrency_limit() {
 # assert_quota_exhausted binds the downstream key to a plan one request is enough
 # to spend, and asserts every client format is then refused before it can reach
 # an upstream: 429 in the client's own error shape with a Retry-After hint,
-# nothing in the billing log, and one line in the plugin log — an exhausted key
+# no request event, and one line in the plugin log — an exhausted key
 # names itself once per cycle however often the client behind it retries.
 assert_quota_exhausted() {
   local port="$1"
   local runtime_dir="$2"
   local expected_count="$3"
   local scope plan client endpoint body header_line http_status retry_after actual_count
-  local response_file headers_file logs_file events_file
+  local response_file headers_file request_events_file plugin_logs_file
   local plan_name="e2e-额度计划"
   local -a headers
 
   response_file="$runtime_dir/responses/quota-blocked.json"
   headers_file="$runtime_dir/quota-blocked-headers.txt"
-  logs_file="$runtime_dir/quota-logs.json"
-  events_file="$runtime_dir/quota-events.json"
+  request_events_file="$runtime_dir/quota-request-events.json"
+  plugin_logs_file="$runtime_dir/quota-plugin-logs.json"
 
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/overview" >"$runtime_dir/overview.json"
-  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/overview.json")"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$runtime_dir/access.json"
+  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/access.json")"
 
   # A budget below what one request costs. Nothing has been spent when the
   # request below is admitted, which is what makes it the one that exhausts the
@@ -772,7 +771,7 @@ assert_quota_exhausted() {
     "/v1/chat/completions" "$body" chat "$runtime_dir/responses/quota-spend.json"
   expected_count=$((expected_count + 1))
   assert_billing_entry "$port" "$expected_count" chat chat \
-    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/quota-spend-logs.json" \
+    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/quota-spend-request-events.json" \
     "$runtime_dir/responses/quota-spend.json" false
 
   # The model stays one the key may call, so only the exhausted budget can be
@@ -815,16 +814,16 @@ assert_quota_exhausted() {
     fi
   done
 
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"
-  actual_count="$(jq -er '.entries | length' "$logs_file")"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$request_events_file"
+  actual_count="$(jq -er '.entries | length' "$request_events_file")"
   if [[ "$actual_count" != "$expected_count" ]]; then
-    echo "被额度拦截的请求进入了计费日志：${actual_count}，预期 ${expected_count}。" >&2
+    echo "被额度拦截的请求进入了请求事件：${actual_count}，预期 ${expected_count}。" >&2
     return 1
   fi
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$events_file"
-  if ! jq -e '[.events[] | select(.level == "info" and (.message | startswith("额度拦截：")))] | length == 1' \
-    "$events_file" >/dev/null; then
-    echo "插件日志的额度拦截记录数量不正确：$(jq -c '[.events[] | select(.message | startswith("额度拦截："))]' "$events_file")" >&2
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$plugin_logs_file"
+  if ! jq -e '[.entries[] | select(.level == "info" and (.message | startswith("额度拦截：")))] | length == 1' \
+    "$plugin_logs_file" >/dev/null; then
+    echo "插件日志的额度拦截记录数量不正确：$(jq -c '[.entries[] | select(.message | startswith("额度拦截："))]' "$plugin_logs_file")" >&2
     return 1
   fi
 
@@ -840,7 +839,7 @@ assert_quota_exhausted() {
   api_call "$port" "额度拦截解除后：OpenAI Chat → OpenAI Chat 非流式" \
     "/v1/chat/completions" "$body" chat "$runtime_dir/responses/quota-restored.json"
   assert_billing_entry "$port" "$((expected_count + 1))" chat chat \
-    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/quota-restored-logs.json" \
+    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/quota-restored-request-events.json" \
     "$runtime_dir/responses/quota-restored.json" false
 }
 
@@ -851,8 +850,8 @@ run_target() {
   local target_dir="$run_dir/target-$index"
   local host_dir="$target_dir/host"
   local runtime_dir="$target_dir/runtime"
-  local api_key_json plugins_file prompt account_overview_file account_prices_file account_logs_file
-  local client upstream stream endpoint body mode extension response_file logs_file
+  local api_key_json plugins_file prompt account_status_file account_access_file account_prices_file account_events_file
+  local client upstream stream endpoint body mode extension response_file request_events_file
   local client_label upstream_label mode_label request_number requested_model billing_model upstream_models model_id
   local model_case case_name actual_upstream_model expected_source expected_uncached expected_cache_write
   local request_index expected_requests actual_requests matrix_index matrix_failed matrix_logs_ok matches usage input output
@@ -976,9 +975,9 @@ run_target() {
   done
   sleep "$usage_settle_seconds"
 
-  logs_file="$runtime_dir/matrix-billing.json"
+  request_events_file="$runtime_dir/matrix-billing.json"
   matrix_logs_ok=1
-  if ! management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"; then
+  if ! management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$request_events_file"; then
     matrix_logs_ok=0
   fi
 
@@ -998,7 +997,7 @@ run_target() {
 
     billing_model="${matrix_models[$matrix_index]}"
     upstream="${matrix_upstreams[$matrix_index]}"
-    matches="$(jq -er --arg model "$billing_model" '[.entries[] | select(.billing_model == $model)] | length' "$logs_file")"
+    matches="$(jq -er --arg model "$billing_model" '[.entries[] | select(.billing_model == $model)] | length' "$request_events_file")"
     if [[ "$matches" == "0" ]]; then
       matrix_reasons[$matrix_index]="漏记"
       matrix_failed=$((matrix_failed + 1))
@@ -1029,7 +1028,7 @@ run_target() {
         (.latency_ms // 0) > 0 and
         (.ttft_ms // 0) > 0 and
         .ttft_ms <= .latency_ms
-      ' "$logs_file" >/dev/null; then
+      ' "$request_events_file" >/dev/null; then
       matrix_reasons[$matrix_index]="模型、来源或延迟不符"
       matrix_failed=$((matrix_failed + 1))
       continue
@@ -1046,7 +1045,7 @@ run_target() {
         .cache_write_tokens == $cache_write and
         .billed_output_tokens == $output and
         .total_usd > 0
-      ' "$logs_file" >/dev/null; then
+      ' "$request_events_file" >/dev/null; then
       matrix_reasons[$matrix_index]="usage 不符"
       matrix_failed=$((matrix_failed + 1))
       continue
@@ -1107,61 +1106,60 @@ run_target() {
     endpoint="$(client_endpoint "$client" "$requested_model" "$stream")"
     printf -v request_number '%02d' "$request_index"
     response_file="$runtime_dir/responses/${request_number}-${case_name}-${mode}.${extension}"
-    logs_file="$runtime_dir/responses/${request_number}-billing.json"
+    request_events_file="$runtime_dir/responses/${request_number}-billing.json"
     api_call "$port" "${case_name}：${client_label} → ${upstream_label} ${mode_label}" \
       "$endpoint" "$body" "$client" "$response_file"
     assert_billing_entry "$port" "$request_index" "$client" "$upstream" \
-      "$billing_model" "$upstream_models" "$logs_file" "$response_file" "$stream"
-    actual_upstream_model="$(jq -er '.entries[0].upstream_model' "$logs_file")"
+      "$billing_model" "$upstream_models" "$request_events_file" "$response_file" "$stream"
+    actual_upstream_model="$(jq -er '.entries[0].upstream_model' "$request_events_file")"
     printf '    [%d/3] %s：请求 %s；计费 %s；上游 %s\n' \
       "$((request_index - 32))" "$case_name" "$requested_model" "$billing_model" "$actual_upstream_model"
   done
 
-  logs_file="$runtime_dir/logs.json"
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/logs?limit=100" >"$logs_file"
+  request_events_file="$runtime_dir/request-events.json"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$request_events_file"
   # Four client protocols against four upstream protocols in both modes, plus
   # the three routing cases.
   expected_requests=35
-  actual_requests="$(jq -er '.entries | length' "$logs_file")"
+  actual_requests="$(jq -er '.entries | length' "$request_events_file")"
   if [[ "$actual_requests" != "$expected_requests" ]]; then
-    echo "CLIProxyAPI ${host_label} 计费日志数量为 ${actual_requests}，预期 ${expected_requests}。" >&2
+    echo "CLIProxyAPI ${host_label} 请求事件数量为 ${actual_requests}，预期 ${expected_requests}。" >&2
     return 1
   fi
-  account_overview_file="$runtime_dir/account-overview.json"
+  account_status_file="$runtime_dir/account-status.json"
+  account_access_file="$runtime_dir/account-access.json"
   account_prices_file="$runtime_dir/account-prices.json"
-  account_logs_file="$runtime_dir/account-logs.json"
-  account_call "$port" "/v0/resource/plugins/cpa-key-billing/account/overview" >"$account_overview_file"
-  account_call "$port" "/v0/resource/plugins/cpa-key-billing/account/prices" >"$account_prices_file"
-  account_call "$port" "/v0/resource/plugins/cpa-key-billing/account/logs?limit=100" >"$account_logs_file"
+  account_events_file="$runtime_dir/account-events.json"
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/status" >"$account_status_file"
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/access" >"$account_access_file"
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/prices" >"$account_prices_file"
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/events?limit=100" >"$account_events_file"
   if ! jq -e '
       .tracked == true and
-      .model_access.all_models == true and (.model_access.models | length) == 0 and
       (has("keys") | not) and (has("plans") | not) and (has("prices") | not)
-    ' "$account_overview_file" >/dev/null ||
-    ! jq -e 'length > 0 and all(.[]; has("pattern") and (has("source") | not) and (has("operation") | not))' \
+    ' "$account_status_file" >/dev/null ||
+    ! jq -e '.all_models == true and (.models | length) == 0' "$account_access_file" >/dev/null ||
+    ! jq -e 'length > 0 and all(.[]; has("pattern") and has("source") and (has("operation") | not))' \
       "$account_prices_file" >/dev/null ||
     ! jq -e --argjson expected "$expected_requests" '
       .total == $expected and (.entries | length) == $expected and
-      all(.entries[]; (has("scope") | not) and (has("auth_index") | not) and
-        (has("price_source") | not)) and
+      all(.entries[]; .scope == "" and (has("auth_index") | not) and has("cost")) and
       any(.entries[]; has("executor_type")) and any(.entries[]; has("source"))
-    ' "$account_logs_file" >/dev/null; then
+    ' "$account_events_file" >/dev/null; then
     echo "CLIProxyAPI ${host_label} 的 API Key 自助查询范围或响应字段不正确。" >&2
     return 1
   fi
-  log_step "API Key 自助查询已验证：仅返回当前 Key 的 35 条计费记录"
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/stats" >"$runtime_dir/stats.json"
-  # The matrix uses one billing model per request; the three routing cases use
-  # their stable normalized names.
+  log_step "API Key 自助查询已验证：仅返回当前 Key 的 35 条请求事件"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/analysis" >"$runtime_dir/analysis.json"
   if ! jq -e '
-      .by_model as $models |
-      [$models[] | select((.billing_model | startswith("e2e-")) or (.billing_model | startswith("codex/e2e-")))] as $matrix |
+      .usage_distribution.models as $models |
+      [$models[] | select((.key | startswith("e2e-")) or (.key | startswith("codex/e2e-")))] as $matrix |
       ($matrix | length) == 32 and
       all($matrix[]; .requests == 1) and
-      ([ $models[] | select(.billing_model == "gpt-5.6-sol") | .requests ] | add) == 1 and
-      ([ $models[] | select(.billing_model == "codex/gpt-5.6-sol") | .requests ] | add) == 1 and
-      ([ $models[] | select(.billing_model == "gpt-auto") | .requests ] | add) == 1
-    ' "$runtime_dir/stats.json" >/dev/null; then
+      ([ $models[] | select(.key == "gpt-5.6-sol") | .requests ] | add) == 1 and
+      ([ $models[] | select(.key == "codex/gpt-5.6-sol") | .requests ] | add) == 1 and
+      ([ $models[] | select(.key == "gpt-auto") | .requests ] | add) == 1
+    ' "$runtime_dir/analysis.json" >/dev/null; then
     echo "复杂模型路由的用量统计不正确。" >&2
     return 1
   fi
@@ -1175,10 +1173,10 @@ run_target() {
   log_step "订阅额度：消费、4 种协议拦截与恢复"
   assert_quota_exhausted "$port" "$runtime_dir" "$((expected_requests + 1))"
 
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events" >"$runtime_dir/events.json"
-  if ! jq -e '[.events[] | select(.level == "info" and (.message | contains("已加载计费数据库")))] | length == 1' \
-    "$runtime_dir/events.json" >/dev/null; then
-    echo "插件日志缺少启动记录：$(jq -c '.events' "$runtime_dir/events.json")" >&2
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$runtime_dir/plugin-logs.json"
+  if ! jq -e '[.entries[] | select(.level == "info" and (.message | contains("已加载计费数据库")))] | length == 1' \
+    "$runtime_dir/plugin-logs.json" >/dev/null; then
+    echo "插件日志缺少启动记录：$(jq -c '.entries' "$runtime_dir/plugin-logs.json")" >&2
     return 1
   fi
   log_step "插件启动事件已验证"

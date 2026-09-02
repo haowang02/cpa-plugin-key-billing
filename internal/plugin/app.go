@@ -37,7 +37,7 @@ func (a *App) HandleMethod(method string, request []byte) (response []byte, err 
 			response = nil
 			err = fmt.Errorf("插件处理 %s 时发生异常：%v", method, recovered)
 			if a != nil && a.store != nil {
-				a.store.Event(billing.EventError, "%v", err)
+				a.store.AddPluginLog(billing.PluginLogError, "%v", err)
 			}
 		}
 	}()
@@ -48,7 +48,7 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 	switch method {
 	case MethodPluginRegister, MethodPluginReconfigure:
 		if errConfigure := a.configure(request); errConfigure != nil {
-			a.store.Event(billing.EventError, "应用插件配置失败：%v", errConfigure)
+			a.store.AddPluginLog(billing.PluginLogError, "应用插件配置失败：%v", errConfigure)
 			return nil, errConfigure
 		}
 		return OKEnvelope(registration())
@@ -91,7 +91,7 @@ func (a *App) configure(raw []byte) error {
 		return errConfigure
 	}
 	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
-		a.store.Event(billing.EventError, "加载 models.dev 参考价目录失败：%v", errCatalog)
+		a.store.AddPluginLog(billing.PluginLogError, "加载 models.dev 参考价目录失败：%v", errCatalog)
 	}
 	return nil
 }

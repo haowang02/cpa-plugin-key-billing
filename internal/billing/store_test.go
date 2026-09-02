@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestConfigureLoadsTheDocumentBehindTheNewPath(t *testing.T) {
@@ -69,7 +70,7 @@ func TestConfigureKeepsTheLiveDocumentWhenTheNewPathFails(t *testing.T) {
 	if errConfigure := store.Configure(cfg); errConfigure != nil {
 		t.Fatalf("Configure error = %v", errConfigure)
 	}
-	store.ReplaceAll(func(state *State) { state.Keys["scope-a"] = &KeyState{Lifetime: Totals{CostUSD: 7}} })
+	store.ReplaceAll(func(state *State) { state.Keys["scope-a"] = &KeyState{Label: "live"} })
 
 	broken := cfg
 	broken.StateFile = filepath.Join(t.TempDir(), "broken.db")
@@ -77,26 +78,9 @@ func TestConfigureKeepsTheLiveDocumentWhenTheNewPathFails(t *testing.T) {
 		t.Fatal("Configure accepted an unusable path, want an error")
 	}
 
-	store.ReplaceAll(func(state *State) { state.Keys["scope-a"].Lifetime.CostUSD = 9 })
-	if repo.state.Keys["scope-a"].Lifetime.CostUSD != 9 {
+	store.ReplaceAll(func(state *State) { state.Keys["scope-a"].Label = "still-live" })
+	if repo.state.Keys["scope-a"].Label != "still-live" {
 		t.Fatalf("the rejected reconfigure stranded the original document: %+v", repo.state.Keys)
-	}
-}
-
-func TestConfigureResolvesJSONStatePathToDatabase(t *testing.T) {
-	var opened string
-	store := NewStore(func(path string) (Repository, error) {
-		opened = path
-		return &memoryRepository{state: NewState()}, nil
-	})
-	t.Cleanup(store.Close)
-
-	dir := t.TempDir()
-	if errConfigure := store.Configure(Config{Enabled: true, StateFile: filepath.Join(dir, "state.json")}); errConfigure != nil {
-		t.Fatalf("Configure error = %v", errConfigure)
-	}
-	if want := filepath.Join(dir, "state.db"); opened != want {
-		t.Fatalf("opened %q, want %q", opened, want)
 	}
 }
 
@@ -152,18 +136,6 @@ func TestSyncsWriteNothingWhenNothingMoved(t *testing.T) {
 	}
 }
 
-// A repository that answers no error owes a working set. Taking a nil one would
-// defer the failure to the first request, which reports it as a panic rather
-// than as the configuration error it is.
-func TestConfigureRefusesARepositoryWithoutAWorkingSet(t *testing.T) {
-	store := NewStore(func(string) (Repository, error) { return &statelessRepository{}, nil })
-	t.Cleanup(store.Close)
-
-	if errConfigure := store.Configure(testConfig(t)); errConfigure == nil {
-		t.Fatal("Configure accepted a repository that answered no working set")
-	}
-}
-
 // Closing is where the write-ahead log is folded back into the database, so a
 // failure there is the operator's warning that the tail of the record may exist
 // only beside it. A reconfigure has the incoming database to record that in.
@@ -184,14 +156,48 @@ func TestReconfigureReportsADatabaseThatFailsToClose(t *testing.T) {
 		}
 	}
 
-	events := mustEvents(t, store)
+	events := mustPluginLogs(t, store)
 	reported := false
 	for _, event := range events {
-		if event.Level == EventError && strings.Contains(event.Message, "磁盘已满") {
+		if event.Level == PluginLogError && strings.Contains(event.Message, "磁盘已满") {
 			reported = true
 		}
 	}
 	if !reported {
 		t.Fatalf("events = %+v, want the failing close reported", events)
+	}
+}
+
+func TestRecoveredWriteIncludesPendingRequestEvents(t *testing.T) {
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	store, repo := newAccountStoreWithRepository(t, now)
+	repo.fail = errors.New("disk full")
+	store.RecordUsage(subsetEvent("scope-a", now))
+	store.RecordUsage(subsetEvent("scope-a", now.Add(time.Minute)))
+	if len(repo.requestEvents) != 0 {
+		t.Fatalf("request events = %d while writes fail", len(repo.requestEvents))
+	}
+
+	repo.fail = nil
+	if err := store.SetLabel("scope-a", "Alice"); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.requestEvents) != 2 {
+		t.Fatalf("recovered request events = %d, want 2", len(repo.requestEvents))
+	}
+}
+
+func TestFailedWritesBoundPendingRequestEvents(t *testing.T) {
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	store, repo := newAccountStoreWithRepository(t, now)
+	repo.fail = errors.New("disk full")
+	for i := range maxPendingRequestRecords + 25 {
+		store.RecordUsage(subsetEvent("scope-a", now.Add(time.Duration(i)*time.Second)))
+	}
+	if len(store.dirty.NormalRequestEvents) != maxPendingRequestRecords {
+		t.Fatalf("pending request events = %d, want %d", len(store.dirty.NormalRequestEvents), maxPendingRequestRecords)
+	}
+	if want := now.Add(25 * time.Second); !store.dirty.NormalRequestEvents[0].At.Equal(want) {
+		t.Fatalf("oldest pending request event = %v, want %v", store.dirty.NormalRequestEvents[0].At, want)
 	}
 }

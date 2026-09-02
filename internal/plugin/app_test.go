@@ -87,75 +87,72 @@ func TestConfigureReportsCatalogPreloadFailure(t *testing.T) {
 	if requests != 1 {
 		t.Fatalf("catalog preload requests = %d, want 1", requests)
 	}
-	events, errEvents := app.store.Events()
+	events, errEvents := app.store.PluginLogs()
 	if errEvents != nil {
 		t.Fatal(errEvents)
 	}
-	if len(events) == 0 || events[0].Level != billing.EventError ||
+	if len(events) == 0 || events[0].Level != billing.PluginLogError ||
 		!strings.Contains(events[0].Message, "加载 models.dev 参考价目录失败") {
 		t.Fatalf("events = %+v, want the preload failure", events)
 	}
 }
 
-func TestManagementRegistrationDeclaresOneMenuResource(t *testing.T) {
-	app := newConfiguredApp(t)
-	raw, errHandle := app.HandleMethod(MethodManagementRegister, []byte(`{}`))
-	if errHandle != nil {
-		t.Fatalf("management.register error = %v", errHandle)
+func TestManagementRegistrationExposesOnlyCurrentEndpoints(t *testing.T) {
+	registration := managementRegistration()
+	wantRoutes := map[string]bool{}
+	for _, value := range []string{
+		"GET /status", "GET /access", "GET /prices", "GET /prices/catalog",
+		"POST /prices/catalog/refresh", "PUT /prices", "POST /prices/reset", "POST /prices/sync",
+		"POST /plans", "PATCH /plans", "DELETE /plans",
+		"POST /model-groups", "PATCH /model-groups", "DELETE /model-groups",
+		"POST /keys/models", "POST /keys/bind", "POST /keys/unbind", "POST /keys/reset",
+		"POST /keys/reset-all", "POST /keys/label", "POST /keys/concurrency", "POST /keys/sync",
+		"GET /analysis", "GET /events", "GET /errors",
+		"GET /plugin-logs", "DELETE /plugin-logs", "GET /auth-files", "GET /auth-files/quota",
+	} {
+		wantRoutes[value] = false
 	}
-	var registration ManagementRegistrationResponse
-	decodeResult(t, raw, &registration)
-
-	// The panel routes plugin pages by menu index, so exactly one resource may
-	// declare a menu even though the API Key JSON reads are also registered as
-	// browser resources.
-	var menuResources []ResourceRoute
-	for _, resource := range registration.Resources {
-		if resource.Menu != "" {
-			menuResources = append(menuResources, resource)
-		}
-	}
-	if len(menuResources) != 1 {
-		t.Fatalf("Resources = %+v, want exactly one menu entry", registration.Resources)
-	}
-	resource := menuResources[0]
-	if resource.Menu != MenuLabel {
-		t.Fatalf("Menu = %q, want %q", resource.Menu, MenuLabel)
-	}
-	if resource.Path != resourceBase+resourceUIPath {
-		t.Fatalf("Path = %q, want %q", resource.Path, resourceBase+resourceUIPath)
-	}
-	wantResources := map[string]bool{
-		resourceBase + resourceUIPath:               false,
-		resourceBase + resourceAccountOverviewPath:  false,
-		resourceBase + resourceAccountPricesPath:    false,
-		resourceBase + resourceAccountLogsPath:      false,
-		resourceBase + resourceAccountAuthFilesPath: false,
-		resourceBase + resourceAccountAuthQuotaPath: false,
-	}
-	for _, item := range registration.Resources {
-		if _, expected := wantResources[item.Path]; expected {
-			wantResources[item.Path] = true
-		}
-	}
-	for path, found := range wantResources {
-		if !found {
-			t.Errorf("resource %q is not registered", path)
-		}
-	}
-
-	// The host rejects ':' and '*' in route paths and resolves them under
-	// /v0/management, so every declared route must be an exact path there.
-	if len(registration.Routes) == 0 {
-		t.Fatal("Routes is empty")
+	if len(registration.Routes) != len(wantRoutes) {
+		t.Fatalf("routes = %d, want %d: %+v", len(registration.Routes), len(wantRoutes), registration.Routes)
 	}
 	for _, route := range registration.Routes {
-		if !strings.HasPrefix(route.Path, managementBase+"/") {
-			t.Fatalf("route %q is outside %q", route.Path, managementBase)
+		if !strings.HasPrefix(route.Path, managementBase+"/") || strings.ContainsAny(route.Path, ":*") {
+			t.Fatalf("invalid management route: %+v", route)
 		}
-		if strings.ContainsAny(route.Path, ":*") {
-			t.Fatalf("route %q uses a path parameter, which the host rejects", route.Path)
+		key := route.Method + " " + strings.TrimPrefix(route.Path, managementBase)
+		if _, ok := wantRoutes[key]; !ok {
+			t.Fatalf("unexpected management route %q", key)
 		}
+		if wantRoutes[key] {
+			t.Fatalf("duplicate management route %q", key)
+		}
+		wantRoutes[key] = true
+	}
+
+	wantResources := map[string]bool{
+		"/ui": false, "/status": false, "/access": false, "/prices": false,
+		"/analysis": false, "/events": false, "/errors": false,
+		"/auth-files": false, "/auth-files/quota": false,
+	}
+	if len(registration.Resources) != len(wantResources) {
+		t.Fatalf("resources = %d, want %d: %+v", len(registration.Resources), len(wantResources), registration.Resources)
+	}
+	menuCount := 0
+	for _, resource := range registration.Resources {
+		path := strings.TrimPrefix(resource.Path, resourceBase)
+		if _, ok := wantResources[path]; !ok {
+			t.Fatalf("unexpected resource route %q", path)
+		}
+		wantResources[path] = true
+		if resource.Menu != "" {
+			menuCount++
+			if path != "/ui" || resource.Menu != MenuLabel {
+				t.Fatalf("invalid menu resource: %+v", resource)
+			}
+		}
+	}
+	if menuCount != 1 {
+		t.Fatalf("menu resources = %d, want 1", menuCount)
 	}
 }
 

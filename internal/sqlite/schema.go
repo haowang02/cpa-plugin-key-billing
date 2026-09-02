@@ -1,14 +1,8 @@
 package sqlite
 
-// Money is REAL because the domain computes in float64 USD; rounding it on the
-// way to disk would make the stored totals disagree with the ones the plugin
-// enforces against. Instants are INTEGER Unix nanoseconds.
-//
-// Plans, prices and model groups carry an explicit position: all three are
-// ordered lists an operator reads back, and prices are additionally consulted in
-// order, globs last. Model membership keeps its position for the same reason.
+// Times are Unix nanoseconds. Ordered configuration uses explicit positions.
 const schema = `
-CREATE TABLE IF NOT EXISTS api_keys (
+CREATE TABLE api_keys (
 	scope                 TEXT    PRIMARY KEY,
 	preview               TEXT    NOT NULL DEFAULT '',
 	label                 TEXT    NOT NULL DEFAULT '',
@@ -19,62 +13,37 @@ CREATE TABLE IF NOT EXISTS api_keys (
 	cycle_plan_id         TEXT    NOT NULL DEFAULT '',
 	cycle_start_at        INTEGER NOT NULL DEFAULT 0,
 	cycle_end_at          INTEGER NOT NULL DEFAULT 0,
-	cycle_spent_usd       REAL    NOT NULL DEFAULT 0,
-	cost_usd              REAL    NOT NULL DEFAULT 0,
-	requests              INTEGER NOT NULL DEFAULT 0,
-	uncached_input_tokens INTEGER NOT NULL DEFAULT 0,
-	output_tokens         INTEGER NOT NULL DEFAULT 0,
-	reasoning_tokens      INTEGER NOT NULL DEFAULT 0,
-	cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
-	cache_creation_tokens INTEGER NOT NULL DEFAULT 0
+	cycle_spent_usd       REAL    NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS key_models (
-	scope                 TEXT    NOT NULL REFERENCES api_keys(scope) ON DELETE CASCADE,
-	billing_model         TEXT    NOT NULL,
-	cost_usd              REAL    NOT NULL DEFAULT 0,
-	requests              INTEGER NOT NULL DEFAULT 0,
-	uncached_input_tokens INTEGER NOT NULL DEFAULT 0,
-	output_tokens         INTEGER NOT NULL DEFAULT 0,
-	reasoning_tokens      INTEGER NOT NULL DEFAULT 0,
-	cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
-	cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-	PRIMARY KEY (scope, billing_model)
-);
-
--- The two tables a key's model grant lives in cascade with the key itself, the
--- way its per-model usage does. Neither they nor model_group_models reference
--- model_groups: that table is rewritten whole on every edit, so a cascade from
--- it would take every key's grant with it. A binding whose group is gone is
--- healed where the panel reads the key list instead.
-CREATE TABLE IF NOT EXISTS key_model_groups (
+CREATE TABLE key_model_groups (
 	scope    TEXT    NOT NULL REFERENCES api_keys(scope) ON DELETE CASCADE,
 	position INTEGER NOT NULL,
 	group_id TEXT    NOT NULL,
 	PRIMARY KEY (scope, group_id)
 );
 
-CREATE TABLE IF NOT EXISTS key_allowed_models (
+CREATE TABLE key_allowed_models (
 	scope    TEXT    NOT NULL REFERENCES api_keys(scope) ON DELETE CASCADE,
 	position INTEGER NOT NULL,
 	model    TEXT    NOT NULL,
 	PRIMARY KEY (scope, model)
 );
 
-CREATE TABLE IF NOT EXISTS model_groups (
+CREATE TABLE model_groups (
 	position INTEGER PRIMARY KEY,
 	id       TEXT    NOT NULL UNIQUE,
 	name     TEXT    NOT NULL DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS model_group_models (
+CREATE TABLE model_group_models (
 	group_id TEXT    NOT NULL,
 	position INTEGER NOT NULL,
 	model    TEXT    NOT NULL,
 	PRIMARY KEY (group_id, model)
 );
 
-CREATE TABLE IF NOT EXISTS plans (
+CREATE TABLE plans (
 	position       INTEGER PRIMARY KEY,
 	id             TEXT    NOT NULL UNIQUE,
 	name           TEXT    NOT NULL DEFAULT '',
@@ -83,7 +52,7 @@ CREATE TABLE IF NOT EXISTS plans (
 	period_seconds INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS prices (
+CREATE TABLE prices (
 	position                        INTEGER PRIMARY KEY,
 	pattern                         TEXT    NOT NULL,
 	input_per_1m                    REAL    NOT NULL DEFAULT 0,
@@ -97,18 +66,19 @@ CREATE TABLE IF NOT EXISTS prices (
 	long_context_cache_write_per_1m REAL
 );
 
-CREATE TABLE IF NOT EXISTS credentials (
+CREATE TABLE credentials (
 	auth_index TEXT PRIMARY KEY,
 	provider   TEXT NOT NULL DEFAULT '',
 	account    TEXT NOT NULL DEFAULT '',
 	name       TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS usage_log (
+CREATE TABLE request_events (
 	id                          INTEGER PRIMARY KEY AUTOINCREMENT,
 	at                          INTEGER NOT NULL,
 	scope                       TEXT    NOT NULL,
 	auth_index                  TEXT    NOT NULL DEFAULT '',
+	provider                    TEXT    NOT NULL DEFAULT '',
 	executor_type               TEXT    NOT NULL DEFAULT '',
 	reasoning_effort            TEXT    NOT NULL DEFAULT '',
 	service_tier                TEXT    NOT NULL DEFAULT '',
@@ -138,16 +108,29 @@ CREATE TABLE IF NOT EXISTS usage_log (
 	applied_cache_write_per_1m  REAL    NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS usage_log_at ON usage_log(at);
-CREATE INDEX IF NOT EXISTS usage_log_scope ON usage_log(scope);
+CREATE INDEX request_events_at ON request_events(at);
+CREATE INDEX request_events_scope_at ON request_events(scope, at);
+CREATE INDEX request_events_model_at ON request_events(billing_model, at);
+CREATE INDEX request_events_auth_at ON request_events(auth_index, at);
 
-CREATE TABLE IF NOT EXISTS plugin_log (
+CREATE TABLE request_errors (
+	request_event_id INTEGER PRIMARY KEY REFERENCES request_events(id) ON DELETE CASCADE,
+	status_code      INTEGER NOT NULL DEFAULT 0,
+	error_type       TEXT    NOT NULL DEFAULT '',
+	reason           TEXT    NOT NULL DEFAULT '',
+	body             TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE INDEX request_errors_status ON request_errors(status_code);
+CREATE INDEX request_errors_type ON request_errors(error_type);
+
+CREATE TABLE plugin_logs (
 	id      INTEGER PRIMARY KEY AUTOINCREMENT,
 	at      INTEGER NOT NULL,
 	level   TEXT    NOT NULL DEFAULT '',
-	message TEXT    NOT NULL DEFAULT '',
-	request_failure TEXT NOT NULL DEFAULT ''
+	message TEXT    NOT NULL DEFAULT ''
 );
 
-CREATE INDEX IF NOT EXISTS plugin_log_at ON plugin_log(at);
+CREATE INDEX plugin_logs_at ON plugin_logs(at);
+
 `

@@ -24,7 +24,7 @@ func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
 			{"auth_index":"cl-1","name":"claude.json","type":"claude"}
 		]}`), nil
 	})
-	response := app.authFiles(false)
+	response := app.authFiles(viewAccess{})
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.StatusCode, response.Body)
 	}
@@ -78,11 +78,15 @@ func TestAccountAuthFilesRequireTrackedAPIKey(t *testing.T) {
 	})
 
 	request := ManagementRequest{Headers: http.Header{"Authorization": {"Bearer " + accountTestKeyA}}}
-	if response := app.accountAuthFiles(request); response.StatusCode != http.StatusUnauthorized {
+	access, ok := app.apiKeyViewAccess(request)
+	if !ok {
+		t.Fatal("valid bearer was rejected")
+	}
+	if response := app.authFiles(access); response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("untracked status = %d, want %d", response.StatusCode, http.StatusUnauthorized)
 	}
 	request.Query = url.Values{"auth_index": {"codex-1"}}
-	if response := app.accountAuthQuota(request); response.StatusCode != http.StatusUnauthorized {
+	if response := app.authQuota(request, access); response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("untracked quota status = %d, want %d", response.StatusCode, http.StatusUnauthorized)
 	}
 	if hostCalls != 0 {
@@ -91,7 +95,8 @@ func TestAccountAuthFilesRequireTrackedAPIKey(t *testing.T) {
 	if _, errSync := app.store.SyncKeys([]string{accountTestKeyA}, false); errSync != nil {
 		t.Fatal(errSync)
 	}
-	if response := app.accountAuthFiles(request); response.StatusCode != http.StatusOK {
+	access, _ = app.apiKeyViewAccess(request)
+	if response := app.authFiles(access); response.StatusCode != http.StatusOK {
 		t.Fatalf("tracked status = %d, body = %s", response.StatusCode, response.Body)
 	}
 	if hostCalls != 1 {
@@ -132,7 +137,11 @@ func TestAccountAuthQuotaUsesPhysicalCredentialWithoutForwardingAPIKey(t *testin
 		Headers: http.Header{"Authorization": {"Bearer " + accountTestKeyA}},
 		Query:   url.Values{"auth_index": {"codex-1"}},
 	}
-	response := app.accountAuthQuota(request)
+	access, ok := app.apiKeyViewAccess(request)
+	if !ok {
+		t.Fatal("valid bearer was rejected")
+	}
+	response := app.authQuota(request, access)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.StatusCode, response.Body)
 	}
@@ -146,7 +155,7 @@ func TestRuntimeOnlyAuthFileDisablesQuotaWithoutLeakingDetails(t *testing.T) {
 		}
 		return json.RawMessage(`{"files":[{"auth_index":"runtime-1","name":"runtime","type":"codex","runtime_only":true,"path":"/secret/runtime"}]}`), nil
 	})
-	response := app.authFiles(false)
+	response := app.authFiles(viewAccess{})
 	var payload authFileListResponse
 	if errDecode := json.Unmarshal(response.Body, &payload); errDecode != nil {
 		t.Fatal(errDecode)
@@ -180,7 +189,7 @@ func TestAPIKeyAuthFileCannotBeQueried(t *testing.T) {
 			return nil, nil
 		}
 	})
-	response := app.authQuota(ManagementRequest{Query: url.Values{"auth_index": {"xai-1"}}}, false)
+	response := app.authQuota(ManagementRequest{Query: url.Values{"auth_index": {"xai-1"}}}, viewAccess{})
 	if response.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", response.StatusCode, response.Body)
 	}
@@ -239,7 +248,7 @@ func TestCodexQuotaPreservesAdditionalDynamicWindows(t *testing.T) {
 			return nil, nil
 		}
 	})
-	response := app.authQuota(ManagementRequest{Query: url.Values{"auth_index": {"codex-1"}}}, false)
+	response := app.authQuota(ManagementRequest{Query: url.Values{"auth_index": {"codex-1"}}}, viewAccess{})
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.StatusCode, response.Body)
 	}

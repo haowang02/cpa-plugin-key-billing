@@ -326,10 +326,9 @@ jobs:
       contents: write
 
     steps:
-      - name: Check out release history
+      - name: Check out release source
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
           ref: ${{ env.RELEASE_REF }}
 
       - name: Download release packages
@@ -344,33 +343,21 @@ jobs:
         run: |
           sha256sum cpa-key-billing_*.tar.gz cpa-key-billing_*.zip | sort > checksums.txt
 
-      - name: Generate changelog
+      - name: Extract release notes
         run: |
-          changelog="release-assets/CHANGELOG.md"
-          release_sha="$(git rev-list -n 1 "$RELEASE_TAG")"
-          if previous_tag="$(git describe --tags --abbrev=0 "${release_sha}^" 2>/dev/null)"; then
-            revision_range="${previous_tag}..${release_sha}"
-          else
-            revision_range="$release_sha"
-          fi
-
-          printf '### Changelog\n\n' > "$changelog"
-          git log --no-merges --extended-regexp --invert-grep \
-            --grep='^(build|chore|ci|docs|test)(\([^)]*\))?!?:' \
-            --pretty=tformat:'%s%x09%h%x09%H' "$revision_range" -- \
-            cmd internal go.mod go.sum \
-            ':(exclude,glob)**/*_test.go' \
-            ':(exclude,glob)**/testdata/**' \
-            | while IFS="$(printf '\t')" read -r subject short_sha full_sha; do
-                printf -- '- %s ([%s](https://github.com/%s/commit/%s))\n' \
-                  "$subject" "$short_sha" "$GITHUB_REPOSITORY" "$full_sha"
-              done >> "$changelog"
+          awk -v heading="## $RELEASE_TAG" '
+            $0 == heading { found = 1; print; next }
+            found && /^## / { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' Changelog.md > release-assets/RELEASE_NOTES.md
+          test -s release-assets/RELEASE_NOTES.md
 
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          body_path: release-assets/CHANGELOG.md
+          body_path: release-assets/RELEASE_NOTES.md
           files: |
             release-assets/*.tar.gz
             release-assets/*.zip

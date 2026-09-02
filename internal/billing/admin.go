@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -22,36 +21,6 @@ func (s *Store) PriceRows() []PriceRow {
 		}
 	})
 	return rows
-}
-
-// PricesForModels returns all rules for an unrestricted account, or
-// materializes wildcard rules under its concrete allowed models.
-func (s *Store) PricesForModels(models []string) []PriceRule {
-	models = dedupe(models)
-	if len(models) == 0 {
-		prices := []PriceRule{}
-		s.read(func(state *State) { prices = append(prices, state.Prices...) })
-		return prices
-	}
-	loaded := builtinCatalog()
-	sort.Strings(models)
-	prices := make([]PriceRule, 0, len(models))
-	s.read(func(state *State) {
-		for _, model := range models {
-			if rule, found := matchPriceRule(state.Prices, model, model); found {
-				rule.Pattern = model
-				prices = append(prices, rule)
-				continue
-			}
-			if rule, found := lookupCatalog(loaded, model, model); found {
-				rule.Pattern = model
-				prices = append(prices, rule)
-				continue
-			}
-			prices = append(prices, PriceRule{Pattern: model})
-		}
-	})
-	return prices
 }
 
 type CatalogRefreshResult struct {

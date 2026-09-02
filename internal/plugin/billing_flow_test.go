@@ -5,7 +5,6 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -68,14 +67,17 @@ func billUsage(t *testing.T, app *App, uncached, cacheRead, cacheWrite, output, 
 	})
 }
 
-func lifetimeCost(t *testing.T, app *App) (float64, int64) {
+func requestEventCost(t *testing.T, app *App) (float64, int64) {
 	t.Helper()
-	for _, key := range app.store.KeyViews() {
-		if key.Scope == flowScope() {
-			return key.Lifetime.CostUSD, key.Lifetime.Requests
+	var cost float64
+	var requests int64
+	for _, entry := range requestEventEntries(t, app) {
+		if entry.Scope == flowScope() && (!entry.Failed || entry.AccountingQuality != "") {
+			cost += entry.Cost.TotalUSD
+			requests++
 		}
 	}
-	return 0, 0
+	return cost, requests
 }
 
 func assertCostClose(t *testing.T, got, want float64) {
@@ -88,7 +90,7 @@ func assertCostClose(t *testing.T, got, want float64) {
 func TestUsageHandleBillsWithoutResponseOrCompletionHooks(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	billUsage(t, app, 500, 400, 100, 500, 200)
-	cost, requests := lifetimeCost(t, app)
+	cost, requests := requestEventCost(t, app)
 	assertCostClose(t, cost, 0.0005+0.00004+0.000125+0.001)
 	if requests != 1 {
 		t.Fatalf("Requests = %d, want 1", requests)
@@ -105,7 +107,7 @@ func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
 
-	entries := logEntries(t, app)
+	entries := requestEventEntries(t, app)
 	if len(entries) != 1 {
 		t.Fatalf("entries = %+v", entries)
 	}
@@ -135,37 +137,18 @@ func TestUsageHandleReportsZeroUsageFailureAndBillsReportedFailureUsage(t *testi
 			Body:       `{"error":{"message":"service overloaded","type":"service_unavailable_error"}}`,
 		},
 	})
-	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
+	if cost, requests := requestEventCost(t, app); cost != 0 || requests != 0 {
 		t.Fatalf("zero failure cost = %v, requests = %d", cost, requests)
 	}
-	events, errEvents := app.store.Events()
-	if errEvents != nil {
-		t.Fatalf("Events error = %v", errEvents)
+	errors, errErrors := app.store.RequestErrors(billing.RequestErrorQuery{})
+	if errErrors != nil || len(errors.Entries) != 1 {
+		t.Fatalf("RequestErrors = %+v, %v", errors, errErrors)
 	}
-	failureMessage := ""
-	var requestFailure *billing.RequestFailure
-	for _, event := range events {
-		if strings.HasPrefix(event.Message, "请求失败：") {
-			failureMessage = event.Message
-			requestFailure = event.RequestFailure
-			if event.Level != billing.EventError {
-				t.Fatalf("failure event level = %q", event.Level)
-			}
-		}
-	}
-	if requestFailure == nil || requestFailure.APIKey != "Alice · sk-tes…0001" ||
-		requestFailure.Model != flowModel || requestFailure.Upstream != "codex · billing@example.com" ||
-		requestFailure.StatusCode != 502 || requestFailure.ErrorType != "service_unavailable_error" ||
-		requestFailure.Body != `{"error":{"message":"service overloaded","type":"service_unavailable_error","status":502}}` {
-		t.Fatalf("request failure = %+v", requestFailure)
-	}
-	for _, want := range []string{
-		"Alice · sk-tes…0001", "模型 " + flowModel, "codex · billing@example.com",
-		"HTTP 502：service overloaded（service_unavailable_error）",
-	} {
-		if !strings.Contains(failureMessage, want) {
-			t.Fatalf("failure message = %q, want %q", failureMessage, want)
-		}
+	requestError := errors.Entries[0]
+	if requestError.Label != "Alice" || requestError.Provider != "codex" ||
+		requestError.Source != "codex · billing@example.com" || requestError.StatusCode != 502 ||
+		requestError.ErrorType != "service_unavailable_error" {
+		t.Fatalf("request error = %+v", requestError)
 	}
 
 	publishUsageRecord(t, app, UsageRecord{
@@ -173,10 +156,10 @@ func TestUsageHandleReportsZeroUsageFailureAndBillsReportedFailureUsage(t *testi
 		Generate: true, Failed: true, RequestedAt: app.store.Now(),
 		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
-	if cost, requests := lifetimeCost(t, app); cost <= 0 || requests != 1 {
+	if cost, requests := requestEventCost(t, app); cost <= 0 || requests != 1 {
 		t.Fatalf("reported failure cost = %v, requests = %d", cost, requests)
 	}
-	if entries := logEntries(t, app); len(entries) != 1 || !entries[0].Failed {
+	if entries := requestEventEntries(t, app); len(entries) != 2 || !entries[0].Failed {
 		t.Fatalf("entries = %+v", entries)
 	}
 }
@@ -195,22 +178,22 @@ func TestUsageHandleBillsTheSuccessfulRetryAttemptOnce(t *testing.T) {
 		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
 
-	if cost, requests := lifetimeCost(t, app); cost <= 0 || requests != 1 {
+	if cost, requests := requestEventCost(t, app); cost <= 0 || requests != 1 {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
-	if entries := logEntries(t, app); len(entries) != 1 || entries[0].AuthIndex != "auth-success" ||
+	if entries := requestEventEntries(t, app); len(entries) != 2 || entries[0].AuthIndex != "auth-success" ||
 		entries[0].Source != "codex · success@example.com" {
 		t.Fatalf("entries = %+v", entries)
 	}
 }
 
-func TestUsageHandleSkipsCountOnlyAndBillsUnknownProviderTotals(t *testing.T) {
+func TestUsageHandleSkipsCountOnlyAndDoesNotGuessUnknownProviderAccounting(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "openai", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		Generate: false, Detail: UsageDetail{InputTokens: 1000, TotalTokens: 1000},
 	})
-	if cost, requests := lifetimeCost(t, app); cost != 0 || requests != 0 {
+	if cost, requests := requestEventCost(t, app); cost != 0 || requests != 0 {
 		t.Fatalf("count-only cost = %v, requests = %d", cost, requests)
 	}
 
@@ -218,12 +201,12 @@ func TestUsageHandleSkipsCountOnlyAndBillsUnknownProviderTotals(t *testing.T) {
 		Provider: "future-provider", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		Generate: true, Detail: UsageDetail{InputTokens: 100, OutputTokens: 20, TotalTokens: 120},
 	})
-	cost, requests := lifetimeCost(t, app)
+	cost, requests := requestEventCost(t, app)
 	if requests != 1 {
 		t.Fatalf("unknown cost = %v, requests = %d", cost, requests)
 	}
-	assertCostClose(t, cost, 0.00014)
-	if entries := logEntries(t, app); len(entries) != 1 || entries[0].AccountingQuality != billing.TokenAccountingComplete {
+	assertCostClose(t, cost, 0)
+	if entries := requestEventEntries(t, app); len(entries) != 1 || entries[0].AccountingQuality != billing.TokenAccountingUnclassified {
 		t.Fatalf("entries = %+v", entries)
 	}
 }
@@ -244,12 +227,16 @@ func TestUsageHandlePersistsBillWithoutPlaintextKeys(t *testing.T) {
 		t.Fatalf("reopen persisted state: %v", errOpen)
 	}
 	defer database.Close()
-	snapshot, errLoad := database.Load(time.Time{})
+	snapshot, errLoad := database.Load(time.Time{}, time.Time{})
 	if errLoad != nil {
 		t.Fatalf("load persisted state: %v", errLoad)
 	}
-	if key := snapshot.State.Keys[flowScope()]; key == nil || key.Lifetime.CostUSD <= 0 {
+	if key := snapshot.State.Keys[flowScope()]; key == nil {
 		t.Fatalf("persisted key = %+v", key)
+	}
+	requests, errRequests := database.RequestEvents(billing.RequestEventQuery{Scope: flowScope(), Limit: 10}, time.Time{})
+	if errRequests != nil || len(requests.Entries) != 1 || requests.Entries[0].Cost.TotalUSD <= 0 {
+		t.Fatalf("persisted request events = %+v, err = %v", requests.Entries, errRequests)
 	}
 	if credential := snapshot.State.Credentials["auth-3"]; credential.Name() != "deepseek · sk-ups…0001" {
 		t.Fatalf("persisted credential = %+v", credential)

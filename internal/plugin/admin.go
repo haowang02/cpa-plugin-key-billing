@@ -6,17 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"cpa-key-billing/internal/billing"
-)
-
-const (
-	defaultLogPageSize = 50
-	maxLogPageSize     = 1000
 )
 
 func (a *App) putPrices(req ManagementRequest) ManagementResponse {
@@ -48,10 +41,7 @@ func (a *App) searchPriceCatalog(req ManagementRequest) ManagementResponse {
 	})
 }
 
-// The plugin cannot enumerate models itself: the host exposes no callback for
-// it, and /v1/models sits behind a downstream API key rather than the
-// management key. The browser holds both, so it does the read — the same
-// division of labour as the API key sync.
+// The UI supplies /v1/models because the plugin has no model-list callback.
 func (a *App) syncModels(req ManagementRequest) ManagementResponse {
 	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
 		return errorResponse(errCatalog)
@@ -69,43 +59,29 @@ func (a *App) syncModels(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, result)
 }
 
-// One reload, one round trip: every management call is separately authenticated
-// through the host. The two logs stay out of it because they grow with traffic
-// rather than with configuration, and each is scoped to its own tab and page.
-type overviewResponse struct {
-	Status pluginStatus       `json:"status"`
-	Keys   []billing.KeyView  `json:"keys"`
-	Plans  []billing.Plan     `json:"plans"`
-	Prices []billing.PriceRow `json:"prices"`
-	// The all-models group is not here: it holds no models, because it means
-	// every model there will ever be. The panel offers it as a checkbox of its
-	// own, and a key that selected it carries no groups at all.
+type accessResponse struct {
+	Role        string               `json:"role"`
+	Keys        []billing.KeyView    `json:"keys"`
+	Plans       []billing.Plan       `json:"plans"`
 	ModelGroups []billing.ModelGroup `json:"model_groups"`
-	Stats       billing.StatsView    `json:"stats"`
 }
 
-func (a *App) overview() ManagementResponse {
-	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
-		return errorResponse(errCatalog)
-	}
-	keys := a.store.KeyViews()
-	return JSONResponse(http.StatusOK, overviewResponse{
-		Status:      pluginStatus{Enabled: a.store.Enabled()},
-		Keys:        keys,
+func (a *App) access() ManagementResponse {
+	return JSONResponse(http.StatusOK, accessResponse{
+		Role:        "management",
+		Keys:        a.store.KeyViews(),
 		Plans:       a.store.Plans(),
-		Prices:      a.store.PriceRows(),
 		ModelGroups: a.store.ModelGroups(),
-		Stats:       billing.StatsFrom(keys, a.store.ActiveRequestCount()),
 	})
 }
 
 func (a *App) refreshPriceCatalog() ManagementResponse {
 	result, errRefresh := a.store.RefreshPriceCatalog()
 	if errRefresh != nil {
-		a.store.Event(billing.EventError, "更新 models.dev 参考价目录失败：%v", errRefresh)
+		a.store.AddPluginLog(billing.PluginLogError, "更新 models.dev 参考价目录失败：%v", errRefresh)
 		return errorResponse(errRefresh)
 	}
-	a.store.Event(billing.EventInfo, "已更新 models.dev 参考价目录，%d 条定价随之调整。", result.UpdatedModels)
+	a.store.AddPluginLog(billing.PluginLogInfo, "已更新 models.dev 参考价目录，%d 条定价随之调整。", result.UpdatedModels)
 	return JSONResponse(http.StatusOK, result)
 }
 
@@ -139,11 +115,7 @@ func (a *App) updatePlan(req ManagementRequest) ManagementResponse {
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	patch := body.PlanPatch
-	if strings.TrimSpace(patch.ID) == "" {
-		patch.ID = req.Query.Get("id")
-	}
-	stored, errUpdate := a.store.UpdatePlanWithBindings(patch, body.Scopes)
+	stored, errUpdate := a.store.UpdatePlanWithBindings(body.PlanPatch, body.Scopes)
 	if errUpdate != nil {
 		return errorResponse(errUpdate)
 	}
@@ -167,9 +139,6 @@ func (a *App) updateModelGroup(req ManagementRequest) ManagementResponse {
 	if errDecode := decodeStrict(req.Body, &patch); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	if strings.TrimSpace(patch.ID) == "" {
-		patch.ID = req.Query.Get("id")
-	}
 	stored, errUpdate := a.store.UpdateModelGroup(patch)
 	if errUpdate != nil {
 		return errorResponse(errUpdate)
@@ -186,8 +155,6 @@ func (a *App) deleteModelGroup(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, map[string]any{"deleted": id, "released_keys": released})
 }
 
-// An empty selection is the all-models grant, so a body naming neither groups
-// nor models is a valid request rather than a missing one.
 func (a *App) setKeyModels(req ManagementRequest) ManagementResponse {
 	var body struct {
 		Scope  string   `json:"scope"`
@@ -203,28 +170,26 @@ func (a *App) setKeyModels(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, struct{}{})
 }
 
-func (a *App) clearLogs() ManagementResponse {
-	cleared, errClear := a.store.ClearLogs()
+func (a *App) listPluginLogs() ManagementResponse {
+	entries, err := a.store.PluginLogs()
+	if err != nil {
+		return errorResponse(err)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"entries": entries})
+}
+
+func (a *App) clearPluginLogs() ManagementResponse {
+	cleared, errClear := a.store.ClearPluginLogs()
 	if errClear != nil {
 		return errorResponse(errClear)
 	}
 	return JSONResponse(http.StatusOK, map[string]any{"cleared": cleared})
 }
 
-func (a *App) listEvents() ManagementResponse {
-	events, errEvents := a.store.Events()
-	if errEvents != nil {
-		return errorResponse(errEvents)
-	}
-	return JSONResponse(http.StatusOK, map[string]any{"events": events})
-}
-
-func (a *App) clearEvents() ManagementResponse {
-	cleared, errClear := a.store.ClearEvents()
-	if errClear != nil {
-		return errorResponse(errClear)
-	}
-	return JSONResponse(http.StatusOK, map[string]any{"cleared": cleared})
+func (a *App) resetAllKeys() ManagementResponse {
+	return JSONResponse(http.StatusOK, struct {
+		Reset int `json:"reset"`
+	}{Reset: a.store.ResetAllCycles()})
 }
 
 func (a *App) deletePlan(req ManagementRequest) ManagementResponse {
@@ -304,10 +269,7 @@ func (a *App) setKeyConcurrency(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, struct{}{})
 }
 
-// The plugin never fetches it: doing so would mean holding a management
-// credential and a base URL, both of which are avoidable when the only client
-// that needs this is already authenticated in the operator's browser. The
-// plaintext is hashed into caller scopes and dropped; it is never persisted.
+// The UI supplies the configured keys; only their hashes and masks are retained.
 func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 	var body struct {
 		Keys       []string `json:"keys"`
@@ -321,81 +283,10 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 		return errorResponse(errSync)
 	}
 	if result.Added > 0 || result.Removed > 0 {
-		a.store.Event(billing.EventInfo, "已同步 CLIProxyAPI 的 API Key 列表：新增 %d 个，移除 %d 个。",
+		a.store.AddPluginLog(billing.PluginLogInfo, "已同步 CLIProxyAPI 的 API Key 列表：新增 %d 个，移除 %d 个。",
 			result.Added, result.Removed)
 	}
 	return JSONResponse(http.StatusOK, result)
-}
-
-func (a *App) listLogs(req ManagementRequest) ManagementResponse {
-	query := billing.LogQuery{
-		KeyScope: strings.TrimSpace(req.Query.Get("api_key")),
-		Model:    strings.TrimSpace(req.Query.Get("model")),
-		Source:   strings.TrimSpace(req.Query.Get("source")),
-		Status:   strings.TrimSpace(req.Query.Get("status")),
-		Limit:    defaultLogPageSize,
-	}
-	if !billing.ValidLogStatus(query.Status) {
-		return JSONError(http.StatusBadRequest, "invalid", "status 无效："+query.Status)
-	}
-	if errQuery := logPageParams(req.Query, &query); errQuery != nil {
-		return errorResponse(errQuery)
-	}
-	query.IncludeFilters = query.Offset == 0
-	view, errLogs := a.store.Logs(query)
-	if errLogs != nil {
-		return errorResponse(errLogs)
-	}
-	return JSONResponse(http.StatusOK, view)
-}
-
-func logPageParams(values url.Values, query *billing.LogQuery) error {
-	if errOffset := countParam(values, "offset", &query.Offset); errOffset != nil {
-		return errOffset
-	}
-	if errLimit := countParam(values, "limit", &query.Limit); errLimit != nil {
-		return errLimit
-	}
-	if errFrom := timeParam(values, "from", &query.From); errFrom != nil {
-		return errFrom
-	}
-	if errTo := timeParam(values, "to", &query.To); errTo != nil {
-		return errTo
-	}
-	if !query.From.IsZero() && !query.To.IsZero() && !query.From.Before(query.To) {
-		return &billing.Error{Kind: billing.KindInvalid, Msg: "from 必须早于 to"}
-	}
-	if query.Limit < 1 || query.Limit > maxLogPageSize {
-		return &billing.Error{Kind: billing.KindInvalid, Msg: "limit 必须是 1 到 1000 之间的整数"}
-	}
-	return nil
-}
-
-func timeParam(query url.Values, name string, target *time.Time) error {
-	raw := strings.TrimSpace(query.Get(name))
-	if raw == "" {
-		return nil
-	}
-	parsed, errParse := time.Parse(time.RFC3339Nano, raw)
-	if errParse != nil {
-		return &billing.Error{Kind: billing.KindInvalid, Msg: name + " 必须是 RFC3339 时间"}
-	}
-	*target = parsed
-	return nil
-}
-
-// An absent parameter leaves the target at whatever the query already means.
-func countParam(query url.Values, name string, target *int) error {
-	raw := strings.TrimSpace(query.Get(name))
-	if raw == "" {
-		return nil
-	}
-	parsed, errParse := strconv.Atoi(raw)
-	if errParse != nil || parsed < 0 {
-		return &billing.Error{Kind: billing.KindInvalid, Msg: name + " 必须是非负整数"}
-	}
-	*target = parsed
-	return nil
 }
 
 func decodeStrict(body []byte, target any) error {

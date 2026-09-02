@@ -42,23 +42,29 @@ func admittedEvent(store *Store, scope string, at time.Time) UsageEvent {
 
 const wantSubsetCost = 0.0005 + 0.00004 + 0.000125 + 0.001
 
-func TestRecordUsageCreatesAndAccumulatesAKey(t *testing.T) {
+func TestRecordUsageSeparatesNormalAndErrorEvents(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	store := newAccountStore(t, now)
+	store, repo := newAccountStoreWithRepository(t, now)
+	if _, err := store.ClearPluginLogs(); err != nil {
+		t.Fatal(err)
+	}
 	store.RecordUsage(subsetEvent("scope-a", now))
-	store.RecordUsage(subsetEvent("scope-a", now.Add(time.Hour)))
+	store.RecordUsageError(subsetEvent("scope-a", now.Add(time.Hour)), RequestError{StatusCode: 502})
 
-	store.Read(func(state *State) {
-		key := state.Keys["scope-a"]
-		if key == nil || key.Lifetime.Requests != 2 {
-			t.Fatalf("key = %+v", key)
-		}
-		assertClose(t, "CostUSD", key.Lifetime.CostUSD, 2*wantSubsetCost)
-		if key.Lifetime.UncachedInputTokens != 1000 || key.Lifetime.CacheReadTokens != 800 ||
-			key.Lifetime.CacheCreationTokens != 200 || key.Lifetime.OutputTokens != 1000 {
-			t.Fatalf("Lifetime tokens = %+v", key.Lifetime)
-		}
-	})
+	entries := mustRequestEvents(t, store, RequestEventQuery{}).Entries
+	if len(entries) != 2 || len(repo.requestEvents) != 1 || len(repo.requestErrors) != 1 {
+		t.Fatalf("request events = %d, normal writes = %d, error writes = %d", len(entries), len(repo.requestEvents), len(repo.requestErrors))
+	}
+	if !entries[0].Failed || entries[1].Failed {
+		t.Fatalf("request events = %+v", entries)
+	}
+	errors, err := store.RequestErrors(RequestErrorQuery{})
+	if err != nil || len(errors.Entries) != 1 || errors.Entries[0].StatusCode != 502 {
+		t.Fatalf("request errors = %+v, err = %v", errors.Entries, err)
+	}
+	if logs := mustPluginLogs(t, store); len(logs) != 0 {
+		t.Fatalf("usage events leaked into plugin logs: %+v", logs)
+	}
 }
 
 func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
@@ -73,16 +79,31 @@ func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 	event.RouteModel = "claude/gpt-latest"
 	store.RecordUsage(event)
 
-	store.Read(func(state *State) {
-		key := state.Keys["scope-a"]
-		if len(key.ByModel) != 1 || key.ByModel["claude/gpt-latest"] == nil {
-			t.Fatalf("ByModel = %+v", key.ByModel)
-		}
-		assertClose(t, "CostUSD", key.Lifetime.CostUSD, 0.0015+0.0012+0.0003+0.002)
-	})
-	entries := mustLogs(t, store, LogQuery{}).Entries
+	entries := mustRequestEvents(t, store, RequestEventQuery{}).Entries
 	if len(entries) != 1 || entries[0].UpstreamModel != "gpt-5.5" || entries[0].BillingModel != "claude/gpt-latest" {
-		t.Fatalf("log = %+v", entries)
+		t.Fatalf("request events = %+v", entries)
+	}
+	assertClose(t, "CostUSD", entries[0].Cost.TotalUSD, 0.0015+0.0012+0.0003+0.002)
+}
+
+func TestRecordUsagePreservesHostModelAndDurationValues(t *testing.T) {
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	store := newAccountStore(t, now)
+	event := subsetEvent("scope-a", now)
+	event.UpstreamModel = "gpt-5.5(high)"
+	event.RouteModel = "gpt-5.5(high)"
+	event.Latency = 999 * time.Microsecond
+	event.TTFT = 1500 * time.Microsecond
+	store.RecordUsage(event)
+
+	entries := mustRequestEvents(t, store, RequestEventQuery{}).Entries
+	if len(entries) != 1 {
+		t.Fatalf("request events = %+v", entries)
+	}
+	entry := entries[0]
+	if entry.UpstreamModel != "gpt-5.5(high)" || entry.BillingModel != "gpt-5.5" ||
+		entry.LatencyMS != 0 || entry.TTFTMS != 1 {
+		t.Fatalf("request event = %+v", entry)
 	}
 }
 
@@ -108,8 +129,10 @@ func TestConcurrentLateCompletionDoesNotChargeNewCycle(t *testing.T) {
 		if !key.Cycle.StartAt.Equal(newCycle.CycleStartAt) || key.Cycle.SpentUSD != 0 {
 			t.Fatalf("new cycle was charged: %+v", key.Cycle)
 		}
-		assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, wantSubsetCost)
 	})
+	if len(mustRequestEvents(t, store, RequestEventQuery{}).Entries) != 1 {
+		t.Fatal("late completion request event was not preserved")
+	}
 }
 
 func TestFutureRequestedAtDoesNotClearCurrentCycle(t *testing.T) {
@@ -133,7 +156,6 @@ func TestFutureRequestedAtDoesNotClearCurrentCycle(t *testing.T) {
 		if !key.Cycle.StartAt.Equal(cycle.CycleStartAt) || key.Cycle.SpentUSD != 4 {
 			t.Fatalf("cycle changed by request timestamp: %+v", key.Cycle)
 		}
-		assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, wantSubsetCost)
 	})
 }
 
@@ -170,8 +192,10 @@ func TestCompletionDoesNotOpenCycleAfterAdministrativeChange(t *testing.T) {
 				if key.PlanID != test.planID || key.Cycle != (Cycle{}) {
 					t.Fatalf("key = %+v, want plan %q with no active cycle", key, test.planID)
 				}
-				assertClose(t, "Lifetime.CostUSD", key.Lifetime.CostUSD, wantSubsetCost)
 			})
+			if len(mustRequestEvents(t, store, RequestEventQuery{}).Entries) != 1 {
+				t.Fatal("completion request event was not preserved")
+			}
 		})
 	}
 }

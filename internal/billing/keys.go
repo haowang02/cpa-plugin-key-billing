@@ -7,18 +7,11 @@ import (
 	"time"
 )
 
-type ModelTotals struct {
-	BillingModel string `json:"billing_model"`
-	Totals
-}
-
 type KeyView struct {
-	Scope    string `json:"scope"`
-	Preview  string `json:"preview,omitempty"`
-	Label    string `json:"label,omitempty"`
-	InConfig bool   `json:"in_config"`
-	// The UI leaves deleted keys out of the key list and the plan bindings,
-	// while the totals below still count them.
+	Scope     string    `json:"scope"`
+	Preview   string    `json:"preview,omitempty"`
+	Label     string    `json:"label,omitempty"`
+	InConfig  bool      `json:"in_config"`
 	DeletedAt time.Time `json:"deleted_at,omitzero"`
 
 	PlanID             string `json:"plan_id,omitempty"`
@@ -38,9 +31,6 @@ type KeyView struct {
 	SpentUSD    float64   `json:"spent_usd"`
 	UsedPercent float64   `json:"used_percent"`
 	CycleEndAt  time.Time `json:"cycle_end_at,omitzero"`
-
-	Lifetime Totals        `json:"lifetime"`
-	ByModel  []ModelTotals `json:"by_model,omitempty"`
 }
 
 // Listing rolls expired windows first, so what an operator reads is exactly
@@ -88,7 +78,6 @@ func keyView(scope string, key *KeyState, plans map[string]Plan, currentConcurre
 		Unlimited:     true,
 		SpentUSD:      key.Cycle.SpentUSD,
 		CycleEndAt:    key.Cycle.EndAt,
-		Lifetime:      key.Lifetime,
 	}
 	if plan, exists := plans[key.PlanID]; exists {
 		view.PlanName = plan.Name
@@ -103,13 +92,6 @@ func keyView(scope string, key *KeyState, plans map[string]Plan, currentConcurre
 			view.Blocked = true
 		}
 	}
-	for model, totals := range key.ByModel {
-		if totals == nil {
-			continue
-		}
-		view.ByModel = append(view.ByModel, ModelTotals{BillingModel: model, Totals: *totals})
-	}
-	sortModelTotals(view.ByModel)
 	return view
 }
 
@@ -161,19 +143,11 @@ func sortKeyViews(views []KeyView) {
 		if views[i].Blocked != views[j].Blocked {
 			return views[i].Blocked
 		}
-		if views[i].Lifetime.CostUSD != views[j].Lifetime.CostUSD {
-			return views[i].Lifetime.CostUSD > views[j].Lifetime.CostUSD
+		left, right := strings.ToLower(views[i].Label), strings.ToLower(views[j].Label)
+		if left != right {
+			return left < right
 		}
 		return views[i].Scope < views[j].Scope
-	})
-}
-
-func sortModelTotals(entries []ModelTotals) {
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].CostUSD != entries[j].CostUSD {
-			return entries[i].CostUSD > entries[j].CostUSD
-		}
-		return entries[i].BillingModel < entries[j].BillingModel
 	})
 }
 
@@ -297,7 +271,6 @@ func (s *State) liveKey(scope string) *KeyState {
 
 type SyncResult struct {
 	Added   int `json:"added"`
-	Matched int `json:"matched"`
 	Removed int `json:"removed"`
 }
 
@@ -327,10 +300,10 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 	}
 
 	now := s.Now()
-	// The log decides which retired records may finally go, and it is read
+	// Request events decide which retired records may finally go, and they are read
 	// before the mutation, which takes the same lock exclusively.
 	referenced, errScopes := withRepository(s, func(repo Repository) (map[string]struct{}, error) {
-		return repo.LoggedScopes(now.Add(-LogRetention))
+		return repo.RequestEventScopes(now.Add(-RequestEventRetention))
 	})
 	if errScopes != nil {
 		return SyncResult{}, errScopes
@@ -349,9 +322,7 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 				key.Preview = preview
 				changed = true
 			}
-			if key.InConfig {
-				result.Matched++
-			} else {
+			if !key.InConfig {
 				result.Added++
 			}
 			if !key.DeletedAt.IsZero() {
@@ -381,9 +352,6 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 			s.denied.forget(purged...)
 			changed = true
 		}
-		// The panel synchronizes on every session start, and a sync that moved
-		// nothing is the common case. Rewriting every key and its per-model rows
-		// to record that would be the largest write the plugin makes.
 		if !changed {
 			return struct{}{}, Changes{}
 		}
@@ -393,11 +361,11 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 }
 
 // A deleted key is kept for exactly as long as it can still be read: its own
-// billing history. Once the log holds nothing about it, the record is finally
+// request history. Once no request event names it, the record is finally
 // dropped, which bounds what an operator who rotates keys accumulates on disk.
 // The count says whether the sync that called this has anything to write.
 func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Time) []string {
-	cutoff := now.Add(-LogRetention)
+	cutoff := now.Add(-RequestEventRetention)
 	var purged []string
 	for scope, key := range state.Keys {
 		if key == nil || key.DeletedAt.IsZero() || key.DeletedAt.After(cutoff) {
@@ -410,47 +378,6 @@ func purgeDeletedKeys(state *State, referenced map[string]struct{}, now time.Tim
 		purged = append(purged, scope)
 	}
 	return purged
-}
-
-type StatsView struct {
-	Keys           int           `json:"keys"`
-	ActiveRequests int           `json:"active_requests"`
-	Lifetime       Totals        `json:"lifetime"`
-	ByModel        []ModelTotals `json:"by_model"`
-}
-
-func (s *Store) Stats() StatsView {
-	return StatsFrom(s.KeyViews(), s.ActiveRequestCount())
-}
-
-// Totals are derived from the listing rather than counted separately, so they
-// cannot disagree with the rows an operator is reading. Listing also settles
-// expired cycles, which is why a caller that needs both lists once and passes
-// the result here instead of asking for each.
-func StatsFrom(views []KeyView, activeRequests int) StatsView {
-	stats := StatsView{ActiveRequests: activeRequests, ByModel: []ModelTotals{}}
-	byModel := make(map[string]*Totals)
-	for _, view := range views {
-		// A deleted key still spent what it spent, and its billing log is still
-		// there to be read. It is no longer a key, so it is not counted as one.
-		stats.Lifetime.Add(view.Lifetime)
-		if view.DeletedAt.IsZero() {
-			stats.Keys++
-		}
-		for _, entry := range view.ByModel {
-			totals := byModel[entry.BillingModel]
-			if totals == nil {
-				totals = &Totals{}
-				byModel[entry.BillingModel] = totals
-			}
-			totals.Add(entry.Totals)
-		}
-	}
-	for model, totals := range byModel {
-		stats.ByModel = append(stats.ByModel, ModelTotals{BillingModel: model, Totals: *totals})
-	}
-	sortModelTotals(stats.ByModel)
-	return stats
 }
 
 // Scopes are hex digests, so case folding is safe for hand-typed input.
