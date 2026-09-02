@@ -1136,10 +1136,16 @@ let authKey = "";
 let currentRole = "";
 let loginMode = initialRoute.role;
 let loginModeRequest = 0;
-let state = { keys: [], plans: [], prices: [], groups: [], status: null, stats: null, logs: null, events: null,
-  authFiles: null, authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map() };
-let accountState = { overview: null, prices: null, logs: null, models: [], authFiles: null,
-  authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map() };
+function emptyAdminState() {
+  return { keys: [], plans: [], prices: [], groups: [], status: null, stats: null, logs: null, events: null,
+    authFiles: null, authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map() };
+}
+function emptyAccountState() {
+  return { overview: null, prices: null, logs: null, models: [], authFiles: null,
+    authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map() };
+}
+let state = emptyAdminState();
+let accountState = emptyAccountState();
 let authQuotaGeneration = { admin: 0, account: 0 };
 let authQuotaScope = { admin: "", account: "" };
 let accountTab = initialRoute.role === "account" ? initialRoute.tab : "usage";
@@ -1266,17 +1272,79 @@ const LOG_TIME_LABELS = {
   "8h": "最近 8 小时", "24h": "最近 24 小时", "7d": "最近 7 天", "30d": "最近 30 天",
   today: "今天", yesterday: "昨天",
 };
-let logRequest = 0;
-let logLoading = false;
-let logLoadingMore = false;
-let logHasMore = false;
-let logAutoLoadMore = true;
-let logLoadError = "";
+function emptyLoadState() {
+  return { promise: null, error: "", generation: 0 };
+}
+
+function emptyLogLoadState() {
+  return { request: 0, promise: null, requestKey: "", loading: false, loadingMore: false,
+    hasMore: false, autoLoadMore: true, error: "" };
+}
+
+const detailLoads = {
+  adminOverview: emptyLoadState(),
+  accountOverview: emptyLoadState(),
+  adminEvents: emptyLoadState(),
+  adminAuthFiles: emptyLoadState(),
+  accountPrices: emptyLoadState(),
+  accountAuthFiles: emptyLoadState(),
+};
+const logLoads = { admin: emptyLogLoadState(), account: emptyLogLoadState() };
 let logExporting = false;
 let logTimeRanges = {
   admin: naturalLogTimeRange("today"),
   account: naturalLogTimeRange("today"),
 };
+
+function resetLoadState(load) {
+  load.generation++;
+  load.promise = null;
+  load.error = "";
+}
+
+function resetRoleControls(role) {
+  const account = role === "account";
+  for (const id of LOG_FILTER_IDS[role]) $(id).value = "";
+  logTimeRanges[role] = naturalLogTimeRange("today");
+  updateLogFilterControls(account);
+  closeLogTimePopover(account);
+  const logScroller = $(account ? "account-logs" : "logs-body");
+  logScroller.scrollTop = 0;
+  logScroller.scrollLeft = 0;
+
+  const authPrefix = account ? "account-auth" : "auth";
+  $(authPrefix + "-enabled-only").checked = true;
+  $(authPrefix + "-provider").value = "";
+  $(authPrefix + "-search").value = "";
+  if (account) {
+    $("account-price-filter").value = "";
+  } else {
+    $("key-filter").value = "";
+    $("price-filter").value = "";
+    $("event-filter").value = "";
+    $("event-level").value = "";
+    $("events-body").scrollTop = 0;
+    $("events-body").scrollLeft = 0;
+  }
+}
+
+function resetRoleData(role) {
+  if (role === "account") accountState = emptyAccountState();
+  else state = emptyAdminState();
+  for (const name of role === "account"
+    ? ["accountOverview", "accountPrices", "accountAuthFiles"]
+    : ["adminOverview", "adminEvents", "adminAuthFiles"]) resetLoadState(detailLoads[name]);
+  const logs = logLoads[role];
+  logs.request++;
+  logs.promise = null;
+  logs.requestKey = "";
+  logs.loading = false;
+  logs.loadingMore = false;
+  logs.hasMore = false;
+  logs.autoLoadMore = true;
+  logs.error = "";
+  resetRoleControls(role);
+}
 
 // CLIProxyAPI HTML-escapes every string in a plugin management response, so a
 // label saved as "A & B" comes back as "A &amp; B". Left alone it would gain
@@ -1524,7 +1592,10 @@ async function setLoginMode(mode, preserveError) {
 
 function showGate(mode, error) {
   stopAutoRefresh();
-  if (currentRole) clearAuthQuotaCache(currentRole === "account");
+  if (currentRole) {
+    clearAuthQuotaCache(currentRole === "account");
+    resetRoleData(currentRole);
+  }
   authKey = "";
   currentRole = "";
   $("app").classList.add("hidden");
@@ -1536,6 +1607,80 @@ function showGate(mode, error) {
   setLoginMode(mode, true);
 }
 
+async function loadResource(load, request, apply, render, deferRender) {
+  if (load.promise) return load.promise;
+  load.error = "";
+  const generation = load.generation;
+  const task = (async () => {
+    const result = await request();
+    if (load.generation === generation) apply(result);
+  })();
+  load.promise = task;
+  if (!deferRender) render?.();
+  try {
+    return await task;
+  } catch (err) {
+    if (load.generation !== generation) return undefined;
+    load.error = err.message || String(err);
+    throw err;
+  } finally {
+    if (load.promise === task) load.promise = null;
+    if (!deferRender && load.generation === generation) render?.();
+  }
+}
+
+function loadAdminOverview(deferRender) {
+  return loadResource(detailLoads.adminOverview,
+    () => plugin("GET", "/overview"),
+    (overview) => {
+      state.status = overview.status;
+      // Deleted keys remain in reporting data but not in configurable lists.
+      state.keys = (overview.keys || []).filter((view) => !view.deleted_at);
+      state.plans = overview.plans || [];
+      state.prices = overview.prices || [];
+      state.groups = overview.model_groups || [];
+      state.stats = overview.stats;
+    },
+    () => currentRole === "admin" && renderAdminPage(), deferRender);
+}
+
+function loadAccountOverview(deferRender) {
+  return loadResource(detailLoads.accountOverview,
+    () => accountAPI("/overview"),
+    (overview) => { accountState.overview = overview; },
+    () => currentRole === "account" && renderAccount(), deferRender);
+}
+
+function loadAccountPrices(deferRender) {
+  return loadResource(detailLoads.accountPrices,
+    () => accountAPI("/prices"),
+    (prices) => { accountState.prices = prices; },
+    () => currentRole === "account" && accountTab === "prices" && renderAccount(), deferRender);
+}
+
+function activeAdminTab() {
+  return document.querySelector(".tabs button[data-tab].active")?.dataset.tab || "keys";
+}
+
+function ensureAdminViewInitialized() {
+  const tasks = [];
+  if (state.status === null) tasks.push(loadAdminOverview(false));
+  const tab = activeAdminTab();
+  if (tab === "logs" && state.logs === null) tasks.push(loadLogs(false, false));
+  if (tab === "events" && state.events === null) tasks.push(loadEvents());
+  if (tab === "auth-files" && state.authFiles === null) tasks.push(loadAuthFiles(false));
+  return Promise.all(tasks);
+}
+
+function ensureAccountViewInitialized() {
+  const tasks = [];
+  if (accountState.overview === null) tasks.push(loadAccountOverview(false));
+  if (accountTab === "prices" && accountState.prices === null) tasks.push(loadAccountPrices(false));
+  if (accountTab === "logs" && accountState.logs === null) tasks.push(loadLogs(false, true));
+  if (accountTab === "auth-files" && accountState.authFiles === null) tasks.push(loadAuthFiles(true));
+  return Promise.all(tasks);
+}
+
 async function startAdmin(key) {
   currentRole = "admin";
   authKey = key;
@@ -1543,12 +1688,12 @@ async function startAdmin(key) {
   await plugin("GET", "/status");
   await activateAuthQuotaCache(false, key);
   const route = pageRoute();
-  setAdminTab(route.role === "admin" ? route.tab : "keys", false);
+  setAdminTab(route.role === "admin" ? route.tab : "keys");
   $("gate").classList.add("hidden");
   $("account-app").classList.add("hidden");
   $("app").classList.remove("hidden");
   const summary = await autoSyncKeys();
-  await reloadAll();
+  await ensureAdminViewInitialized();
   if (summary) notify(summary);
   scheduleAutoRefresh();
 }
@@ -1565,54 +1710,24 @@ async function startAccount(key) {
   $("account-app").classList.remove("hidden");
   $("account-identity").textContent = previewCredential(key);
   const route = pageRoute();
-  setAccountTab(route.role === "account" ? route.tab : "usage", false);
-  await reloadAccount();
+  setAccountTab(route.role === "account" ? route.tab : "usage");
+  await ensureAccountViewInitialized();
   scheduleAutoRefresh();
 }
 
-async function reloadAll() {
-  // Everything the page renders outside the two log tabs arrives in one call:
-  // a reload happens on every tab switch and after every edit, and each call is
-  // a separate authenticated round trip.
-  //
-  // The two logs stay out of it. They are the payloads that grow with traffic
-  // rather than with configuration, so each is fetched only while its own tab
-  // is open, and the billing log arrives incrementally in bounded batches.
-  const authFilesActive = !!document.querySelector('[data-tab="auth-files"].active');
-  const [overview, events, , authFiles] = await Promise.all([
-    plugin("GET", "/overview"),
-    document.querySelector('[data-tab="events"].active') ? plugin("GET", "/events") : Promise.resolve(null),
-    document.querySelector('[data-tab="logs"].active') ? loadLogs() : Promise.resolve(null),
-    authFilesActive ? plugin("GET", "/auth-files") : Promise.resolve(null),
-  ]);
-  state.status = overview.status;
-  // Deleted keys stay in the directory so the summary still counts their spend
-  // and the billing log can still name them. Dropping them here is what keeps
-  // them out of the key list, the plan bindings and the plan editor alike.
-  state.keys = (overview.keys || []).filter((view) => !view.deleted_at);
-  state.plans = overview.plans || [];
-  state.prices = overview.prices || [];
-  state.groups = overview.model_groups || [];
-  state.stats = overview.stats;
-  if (events) state.events = events.events || [];
-  if (authFiles) updateAuthFiles(false, authFiles.files || []);
-  render();
+function settleRefresh(promise) {
+  return promise.then(
+    (value) => ({ value, error: null }),
+    (error) => ({ value: null, error }),
+  );
 }
 
-async function reloadAccount() {
-  accountState.overview = await accountAPI("/overview");
-  if (accountTab === "prices") {
-    accountState.prices = await accountAPI("/prices");
-  } else if (accountTab === "logs") {
-    await loadLogs(false, true);
-  } else if (accountTab === "auth-files") {
-    const authFiles = await accountAPI("/auth-files");
-    updateAuthFiles(true, authFiles.files || []);
-  }
-  renderAccount();
+function throwFirstRefreshError(...results) {
+  const failed = results.find((result) => result?.error);
+  if (failed) throw failed.error;
 }
 
-function setAccountTab(tab, reload) {
+function setAccountTab(tab) {
   accountTab = ACCOUNT_TAB_IDS.includes(tab) ? tab : "usage";
   writePageRoute("account", accountTab);
   document.querySelectorAll("[data-account-tab]").forEach((button) => {
@@ -1623,16 +1738,10 @@ function setAccountTab(tab, reload) {
   for (const name of ACCOUNT_TAB_IDS) {
     $("account-tab-" + name).classList.toggle("hidden", name !== accountTab);
   }
-  if (reload !== false && currentRole === "account") {
-    const wasRefreshing = !!refreshPromise;
-    const pending = refreshCurrentView(false);
-    if (wasRefreshing) pending.finally(() => {
-      if (currentRole === "account" && accountTab === tab) refreshCurrentView(false);
-    });
-  }
+  if (currentRole === "account" && accountState.overview) renderAccount();
 }
 
-function renderAccount() {
+function renderAccount(renderDetail = true) {
   const overview = accountState.overview || { tracked: false };
   const tracked = overview.tracked === true;
   $("account-untracked").classList.toggle("hidden", tracked);
@@ -1684,23 +1793,42 @@ function renderAccount() {
   replaceContent($("account-model-usage"), table(
     ["模型", { label: "请求", num: true }, { label: "输入", num: true },
       { label: "输出", num: true }, { label: "费用", num: true }], rows));
-  if (accountTab === "prices") {
-    renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false);
+  if (renderDetail && accountTab === "prices") {
+    renderAccountPrices();
   }
-  if (accountTab === "logs") renderAccountLogs();
-  if (accountTab === "auth-files") renderAuthFiles(true);
+  if (renderDetail && accountTab === "logs") renderAccountLogs();
+  if (renderDetail && accountTab === "auth-files") renderAuthFiles(true);
+}
+
+function renderAccountPrices() {
+  const target = $("account-prices-body");
+  if (accountState.prices === null) {
+    const load = detailLoads.accountPrices;
+    if (load.promise) {
+      replaceContent(target, el("div", { class: "empty", text: "加载中…" }));
+    } else if (load.error) {
+      replaceContent(target, el("div", { class: "empty" },
+        el("div", { text: "模型定价加载失败" }),
+        el("button", { style: "margin-top:10px", onclick: () => guard(() => loadAccountPrices(false)) }, "重试")));
+    } else {
+      replaceContent(target, el("div", { class: "empty", text: "暂无模型定价" }));
+    }
+    return;
+  }
+  renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false);
 }
 
 function renderAccountLogs() {
   hideCostTooltip();
   const view = accountState.logs;
+  const load = logLoads.account;
   const note = $("account-log-note");
   const scroller = $("account-logs");
   if (!view) {
     note.textContent = "";
-    if (logLoading) {
+    if (load.loading) {
       scroller.replaceChildren(el("div", { class: "empty", text: "加载中…" }));
-    } else if (logLoadError) {
+    } else if (load.error) {
       scroller.replaceChildren(el("div", { class: "empty" },
         el("div", { text: "计费日志加载失败" }),
         el("button", { style: "margin-top:10px", onclick: () => guard(() => loadLogs(false, true)) }, "重试")));
@@ -1765,9 +1893,9 @@ function renderAccountLogs() {
     ["时间", "模型", "执行器 / 来源", "推理 / 速度", "状态", { label: "TPS / 延迟", num: true },
       { label: "输入", num: true }, { label: "缓存读取", num: true }, { label: "缓存写入", num: true },
       { label: "输出", num: true }, { label: "费用", num: true }], rows)];
-  if (logLoadingMore) {
+  if (load.loadingMore) {
     content.push(el("div", { class: "log-load-state", role: "status", text: "正在加载更多…" }));
-  } else if (!logAutoLoadMore && logHasMore) {
+  } else if (!load.autoLoadMore && load.hasMore) {
     content.push(el("div", { class: "log-load-state" },
       el("button", { onclick: () => guard(() => loadLogs(true, true)) }, "重试加载")));
   }
@@ -1907,6 +2035,15 @@ async function activateAuthQuotaCache(account, credential) {
       owner.authQuotas.set(entry[0], entry[1]);
     }
   }
+}
+
+function loadAuthFiles(account, deferRender) {
+  account = account === true;
+  const load = account ? detailLoads.accountAuthFiles : detailLoads.adminAuthFiles;
+  return loadResource(load,
+    () => account ? accountAPI("/auth-files") : plugin("GET", "/auth-files"),
+    (result) => updateAuthFiles(account, result.files || []),
+    () => renderAuthFiles(account), deferRender);
 }
 
 function updateAuthFiles(account, files) {
@@ -2069,7 +2206,16 @@ function renderAuthFiles(account) {
   const ui = authUI(account);
   if (!ui.body) return;
   if (!ui.owner.authFiles) {
-    replaceContent(ui.body, el("div", { class: "empty", text: "加载中…" }));
+    const load = account ? detailLoads.accountAuthFiles : detailLoads.adminAuthFiles;
+    if (load.promise) {
+      replaceContent(ui.body, el("div", { class: "empty", text: "加载中…" }));
+    } else if (load.error) {
+      replaceContent(ui.body, el("div", { class: "empty" },
+        el("div", { text: "认证文件加载失败" }),
+        el("button", { style: "margin-top:10px", onclick: () => guard(() => loadAuthFiles(account)) }, "重试")));
+    } else {
+      replaceContent(ui.body, el("div", { class: "empty", text: "暂无认证文件" }));
+    }
     return;
   }
   const files = filteredAuthFiles(account);
@@ -2173,18 +2319,29 @@ async function refreshFilteredAuthQuotas(account) {
   }
 }
 
-function render() {
-  // Every row the picker is anchored to is about to be replaced.
-  closeModelPicker();
+function renderAdminTab(tab, preserveKeyPicker) {
+  if (tab === "keys") {
+    // Replacing the anchor row would close a picker the user is working in.
+    if (!preserveKeyPicker || !modelPicker.scope) renderKeys();
+    renderModels();
+  } else if (tab === "plans") {
+    renderPlans();
+  } else if (tab === "groups") {
+    renderGroups();
+  } else if (tab === "prices") {
+    renderPriceTable("prices-body", state.prices, $("price-filter").value, true);
+  } else if (tab === "logs") {
+    renderLogs();
+  } else if (tab === "auth-files") {
+    renderAuthFiles(false);
+  } else if (tab === "events") {
+    renderEvents();
+  }
+}
+
+function renderAdminPage(renderTab = true) {
   renderHeader();
-  renderKeys();
-  renderModels();
-  renderPlans();
-  renderGroups();
-  renderPriceTable("prices-body", state.prices, $("price-filter").value, true);
-  renderLogs();
-  renderAuthFiles(false);
-  renderEvents();
+  if (renderTab) renderAdminTab(activeAdminTab(), true);
 }
 
 function renderHeader() {
@@ -2217,7 +2374,7 @@ async function saveConcurrency(view, raw) {
   }
   await plugin("POST", "/keys/concurrency", { scope: view.scope, concurrency_limit: limit });
   notify(limit ? "并发数已更新为 " + limit : "已取消并发限制");
-  await reloadAll();
+  await refreshPage("foreground");
 }
 
 function renderKeys() {
@@ -2234,7 +2391,7 @@ function renderKeys() {
           if (planID) await plugin("POST", "/keys/bind", { scope: view.scope, plan_id: planID });
           else await plugin("POST", "/keys/unbind", { scope: view.scope });
           notify("订阅计划已更新");
-          await reloadAll();
+          await refreshPage("foreground");
         }),
       }, el("option", { value: "", text: "不限制" }),
          state.plans.map((plan) => el("option", { value: plan.id, selected: plan.id === view.plan_id }, plan.name || plan.id)));
@@ -2306,14 +2463,14 @@ function renderKeys() {
             onclick: () => guard(async () => {
               if (!await confirmAction("重置订阅额度？", "当前周期将结束，下一次请求会开启新周期；累计用量不受影响。")) return;
               await plugin("POST", "/keys/reset", { scope: view.scope });
-              notify("订阅额度已重置"); await reloadAll();
+              notify("订阅额度已重置"); await refreshPage("foreground");
             }) }),
           el("button", { class: "link", text: "设置备注",
             onclick: () => guard(async () => {
               const label = await ask("设置备注", keyName(view), view.label || "");
               if (label === null) return;
               await plugin("POST", "/keys/label", { scope: view.scope, label });
-              notify("已保存备注"); await reloadAll();
+              notify("已保存备注"); await refreshPage("foreground");
             }) }),
         ),
       );
@@ -2525,7 +2682,7 @@ function saveModelPicker() {
   guard(async () => {
     await plugin("POST", "/keys/models", body);
     notify(unrestricted ? "该 API Key 可以使用全部模型" : "可用模型已更新");
-    await reloadAll();
+    await refreshPage("foreground");
   });
 }
 
@@ -2567,7 +2724,7 @@ function renderPlans() {
           if (!await confirmAction("删除订阅计划「" + (plan.name || plan.id) + "」？",
             boundKeys.length ? ("已绑定的 " + boundKeys.length + " 个 API Key 将改为不限制。") : "")) return;
           await plugin("DELETE", "/plans?id=" + encodeURIComponent(plan.id));
-          notify("订阅计划已删除"); resetPlanForm(); await reloadAll();
+          notify("订阅计划已删除"); resetPlanForm(); await refreshPage("foreground");
         }) }),
       ),
     );
@@ -2615,7 +2772,7 @@ function renderGroups() {
               ? "已绑定的 " + boundKeys.length + " 个 API Key 将移除该分组；因此不再有任何选择的 Key 会恢复为全部模型。"
               : "")) return;
           await plugin("DELETE", "/model-groups?id=" + encodeURIComponent(group.id));
-          notify("模型分组已删除"); resetGroupForm(); await reloadAll();
+          notify("模型分组已删除"); resetGroupForm(); await refreshPage("foreground");
         }) }),
       ),
     );
@@ -3040,59 +3197,75 @@ function shouldLoadMoreLogs(scroller) {
   return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= LOG_LOAD_MORE_THRESHOLD_PX;
 }
 
+function logLoadState(account) {
+  return account ? logLoads.account : logLoads.admin;
+}
+
 function maybeLoadMoreLogs(account) {
   account = account === true;
   const role = account ? "account" : "admin";
   const tabActive = account ? accountTab === "logs" : !!document.querySelector('[data-tab="logs"].active');
   if (currentRole !== role || !tabActive) return;
   const scroller = $(account ? "account-logs" : "logs-body");
-  if (!logAutoLoadMore || !logHasMore || logLoading || logLoadingMore || !shouldLoadMoreLogs(scroller)) return;
+  const load = logLoadState(account);
+  if (!load.autoLoadMore || !load.hasMore || load.loading || load.loadingMore || !shouldLoadMoreLogs(scroller)) return;
   guard(() => loadLogs(true, account));
 }
 
-async function loadLogs(append, account) {
+async function loadLogs(append, account, options = {}) {
   account = account === true;
   append = append === true;
-  if (append && (!logHasMore || logLoading || logLoadingMore)) return;
+  const background = options.background === true;
+  const deferRender = options.deferRender === true;
+  const load = logLoadState(account);
+  if (append && (!load.hasMore || load.loading || load.loadingMore)) return;
   const owner = account ? accountState : state;
-  const scroller = $(account ? "account-logs" : "logs-body");
   const renderLogsNow = account ? renderAccountLogs : renderLogs;
   const existing = append && owner.logs ? (owner.logs.entries || []) : [];
   const offset = existing.length;
-  const ticket = ++logRequest;
+  const path = logPath(offset, LOG_BATCH_SIZE, account);
+  if (load.promise && load.requestKey === path) return load.promise;
+  const ticket = ++load.request;
   if (append) {
-    logLoadingMore = true;
+    load.loadingMore = true;
   } else {
-    logLoading = true;
-    logLoadingMore = false;
-    logHasMore = false;
-    logAutoLoadMore = true;
-    logLoadError = "";
+    load.loading = true;
+    load.loadingMore = false;
+    load.hasMore = false;
+    load.autoLoadMore = true;
+    load.error = "";
   }
-  if (!owner.logs || append) renderLogsNow();
-  try {
-    const path = logPath(offset, LOG_BATCH_SIZE, account);
+  if ((!owner.logs || append) && !deferRender) renderLogsNow();
+  const task = (async () => {
     const page = account ? await accountAPI(path) : await plugin("GET", path);
-    // Filter changes can overtake an older request. Only the newest generation
-    // may replace or append rows.
-    if (ticket !== logRequest) return;
+    // Filter changes can overtake an older request. Only the newest request
+    // for this role may replace or append rows.
+    if (ticket !== load.request) return;
+    // A background request that became ineligible while in flight is ignored.
+    if (background && !canBackgroundRefreshBillingLog(account)) return;
     const incoming = page.entries || [];
     const entries = existing.concat(incoming);
     owner.logs = { ...page, filter_options: page.filter_options || owner.logs?.filter_options, entries };
-    logHasMore = incoming.length > 0 && entries.length < Number(page.total || 0);
-    logAutoLoadMore = true;
-    logLoadError = "";
+    load.hasMore = incoming.length > 0 && entries.length < Number(page.total || 0);
+    load.autoLoadMore = true;
+    load.error = "";
+  })();
+  load.promise = task;
+  load.requestKey = path;
+  try {
+    return await task;
   } catch (err) {
-    if (ticket === logRequest) {
-      logLoadError = err.message || String(err);
-      if (append) logAutoLoadMore = false;
-    }
+    if (ticket !== load.request) return undefined;
+    load.error = err.message || String(err);
+    if (append) load.autoLoadMore = false;
     throw err;
   } finally {
-    if (ticket === logRequest) {
-      logLoading = false;
-      logLoadingMore = false;
-      renderLogsNow();
+    if (ticket === load.request) {
+      load.promise = null;
+      load.requestKey = "";
+      load.loading = false;
+      load.loadingMore = false;
+      if (!deferRender) renderLogsNow();
     }
   }
 }
@@ -3100,12 +3273,13 @@ async function loadLogs(append, account) {
 function renderLogs() {
   hideCostTooltip();
   const view = state.logs;
+  const load = logLoads.admin;
   const note = $("log-note");
   if (!view) {
     note.textContent = "";
-    if (logLoading) {
+    if (load.loading) {
       $("logs-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
-    } else if (logLoadError) {
+    } else if (load.error) {
       $("logs-body").replaceChildren(el("div", { class: "empty" },
         el("div", { text: "计费日志加载失败" }),
         el("button", { style: "margin-top:10px", onclick: () => guard(() => loadLogs(false)) }, "重试")));
@@ -3214,9 +3388,9 @@ function renderLogs() {
       { label: "输入", num: true }, { label: "缓存读取", num: true },
       { label: "缓存写入", num: true }, { label: "输出", num: true }, { label: "费用", num: true }],
     rows)];
-  if (logLoadingMore) {
+  if (load.loadingMore) {
     content.push(el("div", { class: "log-load-state", role: "status", text: "正在加载更多…" }));
-  } else if (!logAutoLoadMore && logHasMore) {
+  } else if (!load.autoLoadMore && load.hasMore) {
     content.push(el("div", { class: "log-load-state" },
       el("button", { onclick: () => guard(() => loadLogs(true)) }, "重试加载")));
   }
@@ -3250,10 +3424,31 @@ function eventField(label, value) {
     el("span", { class: "event-field-value mono", text: value }));
 }
 
+function loadEvents(options = {}) {
+  const background = options.background === true;
+  const deferRender = options.deferRender === true;
+  return loadResource(detailLoads.adminEvents,
+    () => plugin("GET", "/events"),
+    (result) => {
+      if (!background || canBackgroundRefreshEventLog()) state.events = result.events || [];
+    },
+    () => currentRole === "admin" && activeAdminTab() === "events" && renderEvents(), deferRender);
+}
+
 function renderEvents() {
   const events = state.events;
+  const load = detailLoads.adminEvents;
+  const scroller = $("events-body");
   if (!events) {
-    $("events-body").replaceChildren(el("div", { class: "empty", text: "加载中…" }));
+    if (load.promise) {
+      scroller.replaceChildren(el("div", { class: "empty", text: "加载中…" }));
+    } else if (load.error) {
+      scroller.replaceChildren(el("div", { class: "empty" },
+        el("div", { text: "插件日志加载失败" }),
+        el("button", { style: "margin-top:10px", onclick: () => guard(() => loadEvents()) }, "重试")));
+    } else {
+      scroller.replaceChildren(el("div", { class: "empty", text: "暂无插件日志" }));
+    }
     return;
   }
   const filter = $("event-filter").value.trim().toLowerCase();
@@ -3295,9 +3490,13 @@ function renderEvents() {
         el("div", { class: "event-message" }, event.message || ""),
       );
     });
-  replaceContent($("events-body"), entries.length
+  const previousScrollTop = scroller.scrollTop;
+  const previousScrollLeft = scroller.scrollLeft;
+  replaceContent(scroller, entries.length
     ? el("div", { class: "event-list", role: "list", "aria-label": "插件日志列表" }, entries)
     : el("div", { class: "empty", text: events.length ? "没有匹配的日志" : "暂无插件日志" }));
+  scroller.scrollTop = previousScrollTop;
+  scroller.scrollLeft = previousScrollLeft;
 }
 
 function syncPlanFields() {
@@ -3578,7 +3777,7 @@ function updateThemeButtons() {
 
 for (const button of document.querySelectorAll('[data-page-action="refresh"]')) {
   setActionIcon(button, "refresh", "刷新");
-  button.onclick = () => refreshCurrentView(false);
+  button.onclick = () => refreshPage("foreground");
 }
 for (const button of document.querySelectorAll('[data-page-action="logout"]')) {
   setActionIcon(button, "logout", "退出登录");
@@ -3590,8 +3789,6 @@ document.querySelectorAll('[data-page-action="logout"]').forEach((button) => {
   button.onclick = () => guard(async () => {
     const role = currentRole || loginMode;
     await deleteCredential(role);
-    accountState = { overview: null, prices: null, logs: null, models: [], authFiles: null,
-      authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map() };
     showGate(role, "");
   });
 });
@@ -3599,11 +3796,59 @@ window.addEventListener("billing-theme-change", updateThemeButtons);
 
 const AUTO_REFRESH_MS = 10000;
 let autoRefreshTimer = 0;
-let refreshPromise = null;
+let pageRefreshPromise = null;
+let queuedForegroundRefresh = null;
 
 function stopAutoRefresh() {
   clearTimeout(autoRefreshTimer);
   autoRefreshTimer = 0;
+}
+
+function canBackgroundRefreshBillingLog(account) {
+  const role = account ? "account" : "admin";
+  const tabActive = account
+    ? accountTab === "logs"
+    : activeAdminTab() === "logs";
+  return currentRole === role && tabActive && $(account ? "account-logs" : "logs-body").scrollTop <= 0;
+}
+
+function canBackgroundRefreshEventLog() {
+  return currentRole === "admin" && activeAdminTab() === "events" && $("events-body").scrollTop <= 0;
+}
+
+async function refreshAdminPage(reason) {
+  const background = reason === "background";
+  const tab = activeAdminTab();
+  const tasks = [loadAdminOverview(true)];
+  if (tab === "logs" && (!background || canBackgroundRefreshBillingLog(false))) {
+    tasks.push(loadLogs(false, false, { background, deferRender: true }));
+  } else if (tab === "events" && (!background || canBackgroundRefreshEventLog())) {
+    tasks.push(loadEvents({ background, deferRender: true }));
+  } else if (tab === "auth-files") {
+    tasks.push(loadAuthFiles(false, true));
+  }
+  const results = await Promise.all(tasks.map(settleRefresh));
+  const renderTab = activeAdminTab() === tab && (!background || (tab !== "logs" && tab !== "events") ||
+    (tab === "logs" ? canBackgroundRefreshBillingLog(false) : canBackgroundRefreshEventLog()));
+  renderAdminPage(renderTab);
+  throwFirstRefreshError(...results);
+}
+
+async function refreshAccountPage(reason) {
+  const background = reason === "background";
+  const tab = accountTab;
+  const tasks = [loadAccountOverview(true)];
+  if (tab === "prices") {
+    tasks.push(loadAccountPrices(true));
+  } else if (tab === "logs" && (!background || canBackgroundRefreshBillingLog(true))) {
+    tasks.push(loadLogs(false, true, { background, deferRender: true }));
+  } else if (tab === "auth-files") {
+    tasks.push(loadAuthFiles(true, true));
+  }
+  const results = await Promise.all(tasks.map(settleRefresh));
+  const renderDetail = accountTab === tab && (!background || tab !== "logs" || canBackgroundRefreshBillingLog(true));
+  renderAccount(renderDetail);
+  throwFirstRefreshError(...results);
 }
 
 function scheduleAutoRefresh() {
@@ -3611,49 +3856,68 @@ function scheduleAutoRefresh() {
   if (!currentRole || document.hidden) return;
   autoRefreshTimer = setTimeout(() => {
     autoRefreshTimer = 0;
-    refreshCurrentView(true);
+    refreshPage("background");
   }, AUTO_REFRESH_MS);
 }
 
-function refreshCurrentView(automatic) {
-  if (!currentRole || (automatic && document.hidden)) return Promise.resolve();
-  if (refreshPromise) return refreshPromise;
-  stopAutoRefresh();
-  if (!automatic) {
-    document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => { button.disabled = true; });
+function setRefreshButtonsDisabled(disabled) {
+  document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => {
+    button.disabled = disabled;
+  });
+}
+
+function refreshPage(reason) {
+  const background = reason === "background";
+  if (!currentRole || (background && document.hidden)) return Promise.resolve();
+  if (pageRefreshPromise) {
+    if (background) return pageRefreshPromise;
+    if (!queuedForegroundRefresh) {
+      setRefreshButtonsDisabled(true);
+      queuedForegroundRefresh = pageRefreshPromise.then(() => {
+        queuedForegroundRefresh = null;
+        if (!currentRole) {
+          setRefreshButtonsDisabled(false);
+          return undefined;
+        }
+        return refreshPage("foreground");
+      });
+    }
+    return queuedForegroundRefresh;
   }
-  refreshPromise = (async () => {
+  stopAutoRefresh();
+  if (!background) setRefreshButtonsDisabled(true);
+  pageRefreshPromise = (async () => {
     try {
-      if (currentRole === "account") await reloadAccount();
-      else await reloadAll();
+      if (currentRole === "account") await refreshAccountPage(reason);
+      else await refreshAdminPage(reason);
     } catch (err) {
       if (err instanceof AuthError) {
         await deleteCredential(currentRole);
         showGate(currentRole, err.message);
         return;
       }
-      const message = (automatic ? "自动刷新失败：" : "刷新失败：") + (err.message || err);
+      const message = (background ? "自动刷新失败：" : "刷新失败：") + (err.message || err);
       notify(message, "err");
     } finally {
-      refreshPromise = null;
-      if (!automatic) {
-        document.querySelectorAll('[data-page-action="refresh"]').forEach((button) => { button.disabled = false; });
-      }
-      scheduleAutoRefresh();
+      pageRefreshPromise = null;
+      if (!background && !queuedForegroundRefresh) setRefreshButtonsDisabled(false);
+      if (!queuedForegroundRefresh) scheduleAutoRefresh();
     }
   })();
-  return refreshPromise;
+  return pageRefreshPromise;
 }
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) stopAutoRefresh();
-  else if (currentRole) refreshCurrentView(true);
+  else if (currentRole) refreshPage("background");
 });
 document.querySelectorAll("[data-account-tab]").forEach((button) => {
-  button.onclick = () => setAccountTab(button.dataset.accountTab);
+  button.onclick = () => {
+    setAccountTab(button.dataset.accountTab);
+    guard(ensureAccountViewInitialized);
+  };
 });
-$("account-price-filter").addEventListener("input", () =>
-  renderPriceTable("account-prices-body", accountState.prices, $("account-price-filter").value, false));
+$("account-price-filter").addEventListener("input", renderAccountPrices);
 for (const account of [false, true]) {
   const ui = authUI(account);
   ui.enabledOnly.addEventListener("change", () => renderAuthFiles(account));
@@ -3667,17 +3931,23 @@ $("account-logs").addEventListener("scroll", () => {
 }, { passive: true });
 
 const TABS = Array.from(document.querySelectorAll(".tabs button[data-tab]"));
-function setAdminTab(name, reload) {
+function setAdminTab(name) {
   const selected = ADMIN_TAB_IDS.includes(name) ? name : "keys";
+  if (selected !== "keys") closeModelPicker();
   writePageRoute("admin", selected);
   for (const tab of TABS) {
     const active = tab.dataset.tab === selected;
     tab.classList.toggle("active", active);
     $("tab-" + tab.dataset.tab).classList.toggle("hidden", !active);
   }
-  if (reload !== false && currentRole === "admin") guard(reloadAll);
+  if (currentRole === "admin" && state.status) {
+    renderAdminTab(selected, selected === "keys" && !!modelPicker.scope);
+  }
 }
-for (const tab of TABS) tab.onclick = () => setAdminTab(tab.dataset.tab);
+for (const tab of TABS) tab.onclick = () => {
+  setAdminTab(tab.dataset.tab);
+  guard(ensureAdminViewInitialized);
+};
 
 $("key-filter").addEventListener("input", renderKeys);
 $("plan-kind").addEventListener("change", syncPlanFields);
@@ -3689,7 +3959,7 @@ $("plan-save").onclick = () => guard(async () => {
   else await plugin("POST", "/plans", plan);
   notify(id ? "订阅计划已保存" : "订阅计划已创建");
   resetPlanForm();
-  await reloadAll();
+  await refreshPage("foreground");
 });
 
 $("model-picker-search").addEventListener("input", renderModelPicker);
@@ -3730,7 +4000,7 @@ $("group-save").onclick = () => guard(async () => {
   else await plugin("POST", "/model-groups", { name, models });
   notify(id ? "模型分组已保存" : "模型分组已创建");
   resetGroupForm();
-  await reloadAll();
+  await refreshPage("foreground");
 });
 
 $("event-filter").addEventListener("input", renderEvents);
@@ -3739,7 +4009,7 @@ $("events-clear").onclick = () => guard(async () => {
   if (!await confirmAction("清空全部插件日志？", "该操作只清除插件自身的运行记录，不影响计费数据，且无法恢复。")) return;
   const result = await plugin("DELETE", "/events");
   notify("已清空 " + result.cleared + " 条插件日志");
-  await reloadAll();
+  await refreshPage("foreground");
 });
 for (const account of [false, true]) {
   const role = account ? "account" : "admin";
@@ -3777,13 +4047,13 @@ $("keys-reset-all").onclick = () => guard(async () => {
     "绑定周期性计划的 API Key 会结束当前周期，下一次请求开启新周期；不重置的计划和累计用量不受影响。")) return;
   const result = await plugin("POST", "/keys/reset-all");
   notify(result.reset ? "已重置 " + result.reset + " 个 API Key 的额度" : "没有需要重置的额度");
-  await reloadAll();
+  await refreshPage("foreground");
 });
 $("logs-clear").onclick = () => guard(async () => {
   if (!await confirmAction("清空全部计费日志？", "该操作不会修改累计用量、费用或订阅额度，且无法恢复。")) return;
   const result = await plugin("DELETE", "/logs");
   notify("已清空 " + result.cleared + " 条计费日志");
-  await reloadAll();
+  await refreshPage("foreground");
 });
 
 $("price-filter").addEventListener("input", () =>
@@ -3825,13 +4095,13 @@ $("price-save").onclick = () => guard(async () => {
   await plugin("PUT", "/prices", rule);
   $("price-dlg").close();
   notify("已保存 " + editingModel + " 的定价");
-  await reloadAll();
+  await refreshPage("foreground");
 });
 $("price-reset").onclick = () => guard(async () => {
   if (!await confirmAction("恢复全部参考价？", "自定义定价将被覆盖；没有参考价的模型将恢复为 0 USD。")) return;
   const result = await plugin("POST", "/prices/reset");
   notify("已恢复 " + result.restored + " 个模型的参考价");
-  await reloadAll();
+  await refreshPage("foreground");
 });
 $("price-catalog-refresh").onclick = () => guard(async () => {
   const button = $("price-catalog-refresh");
@@ -3839,7 +4109,7 @@ $("price-catalog-refresh").onclick = () => guard(async () => {
   try {
     const result = await plugin("POST", "/prices/catalog/refresh");
     notify("参考价目录已更新，共 " + int(result.catalog?.models) + " 个模型；同步更新 " + int(result.updated_models) + " 个当前价格");
-    await reloadAll();
+    await refreshPage("foreground");
   } finally {
     button.disabled = false;
   }
