@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UI_PATH = ROOT / "internal" / "plugin" / "ui.html"
 API_BASE = "/v0/management/plugins/cpa-key-billing"
 RESOURCE_BASE = "/v0/resource/plugins/cpa-key-billing"
-NOW = datetime.now().astimezone().replace(hour=20, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+NOW = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
 CALLER_SCOPE_SALT = b"cli-proxy-api:caller-scope:v1\0"
 
 
@@ -240,130 +240,92 @@ def iso(value):
 
 PLANS = [
     {
-        "id": "team-monthly",
+        "id": "engineering-monthly",
         "name": "研发团队",
-        "amount_usd": 500,
+        "amount_usd": 300,
         "period": {"kind": "monthly"},
     },
     {
-        "id": "one-time",
-        "name": "一次性额度",
-        "amount_usd": 50,
+        "id": "production-monthly",
+        "name": "生产服务",
+        "amount_usd": 1000,
+        "period": {"kind": "monthly"},
+    },
+    {
+        "id": "project-credit",
+        "name": "项目额度",
+        "amount_usd": 100,
         "period": {"kind": "never"},
-    },
-    {
-        "id": "long-name-plan",
-        "name": "面向跨区域研发测试与持续集成团队的超长名称订阅计划",
-        "amount_usd": 1200,
-        "period": {"kind": "monthly"},
     },
 ]
 
 
 CREDENTIALS = [
-    {"ref": "sha256:" + "a" * 64, "source": "auth-files", "provider": "codex", "display_name": "xxxyyyy4455@gmail.com", "status": "active", "disabled": False, "unavailable": False},
-    {"ref": "sha256:" + "b" * 64, "source": "auth-files", "provider": "claude", "display_name": "claude-team@example.com", "status": "active", "disabled": False, "unavailable": False},
-    {"ref": "sha256:" + "c" * 64, "source": "ai-providers", "provider": "codex", "display_name": "sk-dem…1234", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "a" * 64, "source": "auth-files", "provider": "codex", "display_name": "dev-team@example.com", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "b" * 64, "source": "auth-files", "provider": "claude", "display_name": "platform@example.com", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "c" * 64, "source": "ai-providers", "provider": "codex", "display_name": "sk-proxy…7f3a", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "d" * 64, "source": "ai-providers", "provider": "deepseek", "display_name": "sk-live…91b2", "status": "active", "disabled": False, "unavailable": False},
 ]
 
 ROUTES = [
-    {"id": "system:all", "name": "默认", "rule": {"models": [], "credential_ids": [], "credential_providers": []}, "bound_key_count": 5},
-    {"id": "codex-auth-files", "name": "Codex 认证文件", "rule": {"models": ["gpt-5.6-sol"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}, "bound_key_count": 6, "fully_unrestricted_keys": 1},
-    {"id": "codex-ai-provider", "name": "Codex AI 供应商", "rule": {"models": ["gpt-5.5"], "credential_ids": ["sha256:" + "c" * 64], "credential_providers": []}, "bound_key_count": 4, "fully_unrestricted_keys": 0},
-    {"id": "long-name-route", "name": "跨区域研发测试团队使用的超长名称 Codex 认证文件路由规则", "rule": {"models": ["claude/deepseek-v4-flash-vision-exp"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}, "bound_key_count": 0, "fully_unrestricted_keys": 0},
+    {"id": "system:all", "name": "默认", "rule": {"models": [], "credential_ids": [], "credential_providers": []}, "bound_key_count": 1},
+    {"id": "coding", "name": "代码开发", "rule": {"models": ["gpt-5.6-sol", "gpt-5.5"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}, "bound_key_count": 3, "fully_unrestricted_keys": 3},
+    {"id": "analytics", "name": "数据分析", "rule": {"models": ["claude/deepseek-v4-pro", "claude/deepseek-v4-flash"], "credential_ids": ["sha256:" + "b" * 64], "credential_providers": []}, "bound_key_count": 2, "fully_unrestricted_keys": 2},
+    {"id": "economy", "name": "轻量任务", "rule": {"models": ["gpt-5.6-luna"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}, "bound_key_count": 1, "fully_unrestricted_keys": 1},
 ]
 
 
 AUTH_FILES = [
     {
-        "auth_index": "auth-demo-xai-disabled",
-        "name": "xai-disabled@example.com.json",
-        "category": "xai",
-        "email": "xai-disabled@example.com",
-        "disabled": True,
-        "unavailable": False,
-        "quota_supported": False,
-        "quota_unavailable_reason": "认证文件已停用",
-    },
-    {
         "auth_index": "auth-demo-codex-plus",
-        "name": "codex-1dfbc38b-xxxyyyy4455@gmail.com-pro.json",
+        "name": "codex-dev-team@example.com.json",
         "category": "codex",
-        "email": "xxxyyyy4455@gmail.com",
+        "email": "dev-team@example.com",
         "disabled": False,
         "unavailable": False,
         "quota_supported": True,
     },
     {
         "auth_index": "auth-demo-claude",
-        "name": "claude-team@example.com.json",
+        "name": "claude-platform@example.com.json",
         "category": "claude",
-        "email": "claude-team@example.com",
+        "email": "platform@example.com",
         "disabled": False,
         "unavailable": False,
         "quota_supported": True,
-    },
-    {
-        "auth_index": "auth-demo-gemini",
-        "name": "gemini-cli@example.com.json",
-        "category": "gemini-cli",
-        "email": "gemini-cli@example.com",
-        "disabled": False,
-        "unavailable": False,
-        "quota_supported": False,
     },
     {
         "auth_index": "auth-demo-codex-pro",
-        "name": "codex-pro@example.com.json",
+        "name": "codex-automation@example.com.json",
         "category": "codex",
-        "email": "pro@example.com",
+        "email": "automation@example.com",
         "disabled": False,
         "unavailable": False,
         "quota_supported": True,
-    },
-    {
-        "auth_index": "auth-demo-codex-pro5x",
-        "name": "codex-pro-lite@example.com.json",
-        "category": "codex",
-        "email": "pro-lite@example.com",
-        "disabled": False,
-        "unavailable": False,
-        "quota_supported": True,
-    },
-    {
-        "auth_index": "auth-demo-codex-runtime",
-        "name": "codex-runtime-only.json",
-        "category": "codex",
-        "email": "runtime-only@example.com",
-        "disabled": False,
-        "unavailable": False,
-        "runtime_only": True,
-        "quota_supported": False,
-        "quota_unavailable_reason": "运行时认证文件没有可读取的物理凭据",
     },
     {
         "auth_index": "auth-demo-antigravity",
-        "name": "antigravity@example.com.json",
+        "name": "antigravity-ai-lab@example.com.json",
         "category": "antigravity",
-        "email": "antigravity@example.com",
+        "email": "ai-lab@example.com",
         "disabled": False,
         "unavailable": False,
         "quota_supported": True,
     },
     {
         "auth_index": "auth-demo-kimi",
-        "name": "kimi@example.com.json",
+        "name": "kimi-research@example.com.json",
         "category": "kimi",
-        "email": "kimi@example.com",
+        "email": "research@example.com",
         "disabled": False,
         "unavailable": True,
         "quota_supported": True,
     },
     {
         "auth_index": "auth-demo-xai-active",
-        "name": "xai-active@example.com.json",
+        "name": "xai-research@example.com.json",
         "category": "xai",
-        "email": "xai-active@example.com",
+        "email": "research@example.com",
         "disabled": False,
         "unavailable": False,
         "quota_supported": True,
@@ -419,14 +381,6 @@ AUTH_FILE_QUOTAS = {
             quota_row("周限额", 10, 518400),
         ],
     },
-    "auth-demo-codex-pro5x": {
-        "plan": "pro-5x",
-        "rate_limit_reset_credits_available_count": 1,
-        "quota": [
-            quota_row("5 小时限额", 44, 10800),
-            quota_row("周限额", 27, 259200),
-        ],
-    },
     "auth-demo-claude": {
         "plan": "Team",
         "quota": [
@@ -479,10 +433,6 @@ AUTH_FILE_QUOTAS = {
             },
         ],
     },
-    "auth-demo-xai-disabled": {
-        "plan": "Free",
-        "quota": [quota_row("周限额", 100, 86400)],
-    },
 }
 
 
@@ -499,53 +449,66 @@ def auth_file_quota(query):
     }
 
 
+KEY_PROFILES = [
+    {"label": "代码审查机器人", "plan_id": "engineering-monthly", "spent_usd": 128.64, "concurrency_limit": 5, "current_concurrency": 2, "cycle_days": 18, "route_bindings": [{"kind": "route", "value": "coding"}]},
+    {"label": "CI 构建服务", "plan_id": "engineering-monthly", "spent_usd": 84.27, "concurrency_limit": 10, "current_concurrency": 3, "cycle_days": 24, "route_bindings": [{"kind": "route", "value": "coding"}]},
+    {"label": "数据分析平台", "plan_id": "production-monthly", "spent_usd": 368.91, "concurrency_limit": 5, "current_concurrency": 1, "cycle_days": 12, "route_bindings": [{"kind": "route", "value": "analytics"}]},
+    {"label": "客服助手", "plan_id": "production-monthly", "spent_usd": 241.36, "concurrency_limit": 8, "current_concurrency": 2, "cycle_days": 7, "route_bindings": [{"kind": "route", "value": "analytics"}, {"kind": "model", "value": "gpt-5.5"}]},
+    {"label": "文档生成", "plan_id": "engineering-monthly", "spent_usd": 56.48, "concurrency_limit": 3, "current_concurrency": 0, "cycle_days": 21, "route_bindings": [{"kind": "route", "value": "coding"}]},
+    {"label": "预发布环境", "plan_id": "project-credit", "spent_usd": 43.72, "concurrency_limit": 2, "current_concurrency": 1, "route_bindings": [{"kind": "route", "value": "economy"}]},
+    {"label": "内部工具", "plan_id": "", "spent_usd": 0, "concurrency_limit": 0, "current_concurrency": 1, "route_bindings": []},
+    {"label": "临时测试", "plan_id": "project-credit", "spent_usd": 87.19, "concurrency_limit": 1, "current_concurrency": 0, "route_bindings": [{"kind": "credential", "value": "sha256:" + "c" * 64}, {"kind": "model", "value": "gpt-5.5"}]},
+]
+
+
 def make_key(index):
-    plan_id = "team-monthly" if index <= 14 else "one-time" if index == 15 else ""
-    plan_name = "研发团队" if plan_id == "team-monthly" else "一次性额度" if plan_id else ""
-    cost = round(7.5 + index * 0.83, 4)
-    bindings = [] if index % 4 == 0 else ([{"kind": "route", "value": "codex-auth-files"}] if index % 4 == 1 else ([{"kind": "credential", "value": "sha256:" + "c" * 64}, {"kind": "model", "value": "gpt-5.6-sol"}] if index % 4 == 2 else [{"kind": "route", "value": "codex-ai-provider"}, {"kind": "credential_provider", "value": "auth-files\u0000codex"}]))
+    profile = KEY_PROFILES[index - 1]
+    plan = next((item for item in PLANS if item["id"] == profile["plan_id"]), None)
+    limit = plan["amount_usd"] if plan else 0
     result = {
         "scope": hashlib.sha256(CALLER_SCOPE_SALT + f"sk-demo-{index:04d}".encode()).hexdigest(),
         "preview": f"sk-demo…{index:04d}",
-        "label": f"成员 {index:02d}" if index % 3 else "",
+        "label": profile["label"],
         "in_config": True,
-        "plan_id": plan_id,
-        "plan_name": plan_name,
-        "concurrency_limit": [0, 1, 2, 5, 10][index % 5],
-        "current_concurrency": index % 3,
-        "route_bindings": bindings,
-        "unlimited": not plan_id,
+        "plan_id": profile["plan_id"],
+        "plan_name": plan["name"] if plan else "",
+        "concurrency_limit": profile["concurrency_limit"],
+        "current_concurrency": profile["current_concurrency"],
+        "route_bindings": profile["route_bindings"],
+        "unlimited": plan is None,
         "blocked": False,
-        "limit_usd": 500 if plan_id == "team-monthly" else 50 if plan_id else 0,
-        "spent_usd": cost if plan_id else 0,
-        "used_percent": cost / (500 if plan_id == "team-monthly" else 50) * 100 if plan_id else 0,
+        "limit_usd": limit,
+        "spent_usd": profile["spent_usd"],
+        "used_percent": profile["spent_usd"] / limit * 100 if limit else 0,
     }
-    if plan_id == "team-monthly":
-        result["cycle_end_at"] = iso(NOW + timedelta(days=25))
+    if plan and plan["period"]["kind"] == "monthly":
+        result["cycle_end_at"] = iso(NOW + timedelta(days=profile["cycle_days"]))
     return result
 
 
-# A deleted Key remains available to historical request events.
-DELETED_KEY = {
-    **make_key(19),
-    "in_config": False,
-    "deleted_at": iso(NOW - timedelta(days=2)),
-    "plan_id": "team-monthly",
-    "plan_name": "研发团队",
-    "unlimited": False,
-    "limit_usd": 500,
-}
-
-KEYS = [make_key(index) for index in range(1, 19)] + [DELETED_KEY]
-LIVE_KEYS = [key for key in KEYS if not key.get("deleted_at")]
+KEYS = [make_key(index) for index in range(1, len(KEY_PROFILES) + 1)]
+LIVE_KEYS = KEYS
 
 PRICES = [
     {
         "pattern": "gpt-5.6-sol",
+        "input_per_1m": 4,
+        "output_per_1m": 20,
+        "cache_read_per_1m": 0.4,
+        "source": "custom",
+        "long_context": {
+            "threshold_input_tokens": 272000,
+            "input_per_1m": 8,
+            "output_per_1m": 30,
+            "cache_read_per_1m": 0.8,
+        },
+    },
+    {
+        "pattern": "gpt-5.5",
         "input_per_1m": 5,
         "output_per_1m": 30,
         "cache_read_per_1m": 0.5,
-        "source": "builtin",
+        "source": "custom",
         "long_context": {
             "threshold_input_tokens": 272000,
             "input_per_1m": 10,
@@ -554,26 +517,35 @@ PRICES = [
         },
     },
     {
-        "pattern": "gpt-5.5",
-        "input_per_1m": 2.5,
-        "output_per_1m": 15,
+        "pattern": "gpt-5.6-luna",
+        "input_per_1m": 0.2,
+        "output_per_1m": 1.2,
+        "cache_read_per_1m": 0.02,
         "source": "custom",
-        "long_context": {
-            "threshold_input_tokens": 272000,
-            "input_per_1m": 5,
-            "output_per_1m": 22.5,
-        },
     },
     {
-        "pattern": "claude-sonnet-4-5",
-        "input_per_1m": 3,
-        "output_per_1m": 15,
-        "cache_read_per_1m": 0.3,
-        "cache_write_per_1m": 3.75,
-        "source": "builtin",
+        "pattern": "gpt-5.6-terra",
+        "input_per_1m": 2,
+        "output_per_1m": 12,
+        "cache_read_per_1m": 0.2,
+        "source": "custom",
     },
     {
-        "pattern": "deepseek-v4-flash",
+        "pattern": "gpt-image-2",
+        "input_per_1m": 5,
+        "output_per_1m": 30,
+        "cache_read_per_1m": 1.25,
+        "source": "custom",
+    },
+    {
+        "pattern": "claude/deepseek-v4-pro",
+        "input_per_1m": 0.435,
+        "output_per_1m": 0.87,
+        "cache_read_per_1m": 0.003625,
+        "source": "custom",
+    },
+    {
+        "pattern": "claude/deepseek-v4-flash",
         "input_per_1m": 0.28,
         "output_per_1m": 0.42,
         "source": "custom",
@@ -605,146 +577,91 @@ def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, lo
     }
 
 
-LOG_CASES = [
-    {
-        "provider": "codex",
-        "source": "codex · xxxyyyy4455@gmail.com",
-        "executor_type": "CodexExecutor",
-        "reasoning_effort": "high",
-        "service_tier": "auto",
-        "upstream_model": "gpt-5.6-sol",
-        "billing_model": "team/gpt-5.6-sol",
-        "reasoning_tokens": 2100,
-        "cost": make_cost(140000, 19857, 1032, 4852, (5, 0.5, 5, 30), True, False),
-    },
-    {
-        "provider": "xai",
-        "source": "xai · demo@example.com",
-        "executor_type": "XAIWebsocketsExecutor",
-        "reasoning_effort": "xhigh",
-        "service_tier": "priority",
-        "upstream_model": "gpt-5.6-sol",
-        "billing_model": "gpt-5.6-sol",
-        "reasoning_tokens": 8000,
-        "cost": make_cost(280000, 19000, 1001, 20000, (10, 1, 10, 45), True, True),
-    },
-    {
-        "provider": "deepseek",
-        # A provider configured in config.yaml, named by the masked API key
-        # that separates it from the other keys of that provider.
-        "source": "deepseek · sk-ups…0001",
-        "executor_type": "OpenAICompatExecutor",
-        "reasoning_effort": "low",
-        "service_tier": "default",
-        "upstream_model": "deepseek-v4-flash",
-        "billing_model": "deepseek-v4-flash",
-        "reasoning_tokens": 0,
-        "cost": make_cost(160889, 0, 0, 12001, (0.28, 0.28, 0.28, 0.42)),
-    },
-    {
-        "provider": "claude",
-        "source": "claude · sk-ups…0001",
-        "executor_type": "ClaudeExecutor",
-        "reasoning_effort": "medium",
-        "service_tier": "standard",
-        "upstream_model": "claude-sonnet-4-5",
-        "billing_model": "claude-sonnet-4-5",
-        "reasoning_tokens": 0,
-        "cost": make_cost(38122, 9931, 2048, 7240, (3, 0.3, 3.75, 15)),
-    },
-    {
-        "provider": "codex",
-        # A credential no usage record has named yet, so its source falls back
-        # to the placeholder.
-        "source": "",
-        "executor_type": "CodexExecutor",
-        "reasoning_effort": "",
-        "service_tier": "",
-        "upstream_model": "gpt-5.5",
-        "billing_model": "gpt-5.5",
-        "reasoning_tokens": 400,
-        "cost": make_cost(160889, 0, 0, 4096, (2.5, 2.5, 2.5, 15), True, False),
-    },
-    {
-        "provider": "codex",
-        # A normal usage event whose provider supplied no token detail.
-        "source": "codex · ops@example.com",
-        "executor_type": "CodexExecutor",
-        "reasoning_effort": "high",
-        "service_tier": "auto",
-        "upstream_model": "gpt-5.5",
-        "billing_model": "gpt-5.5",
-        "reasoning_tokens": 0,
-        "cost": make_cost(0, 0, 0, 0, (0, 0, 0, 0)),
-        "accounting_quality": "",
-    },
-    {
-        "provider": "future-provider",
-        # The host reported a total that could not be split into billable
-        # buckets. Zero-valued cost fields must render as unknown, not measured.
-        "source": "future-provider",
-        "executor_type": "FutureExecutor",
-        "reasoning_effort": "",
-        "service_tier": "",
-        "upstream_model": "future-model",
-        "billing_model": "future-model",
-        "reasoning_tokens": 120,
-        "cost": make_cost(0, 0, 0, 0, (0, 0, 0, 0)),
-        "accounting_quality": "unclassified",
-    },
-    {
-        "provider": "codex",
-        "source": "codex · ops@example.com",
-        "executor_type": "CodexExecutor",
-        "reasoning_effort": "medium",
-        "service_tier": "flex",
-        "upstream_model": "gpt-5.5",
-        "billing_model": "gpt-5.5",
-        "reasoning_tokens": 0,
-        "cost": make_cost(0, 0, 0, 0, (0, 0, 0, 0)),
-        "accounting_quality": "inconsistent",
-    },
-    {
-        "provider": "xai",
-        "source": "xai · ops@example.com",
-        "executor_type": "XAIExecutor",
-        "reasoning_effort": "high",
-        "service_tier": "priority",
-        "upstream_model": "grok-4",
-        "billing_model": "grok-4",
-        "reasoning_tokens": 128,
-        "cost": make_cost(4096, 0, 0, 256, (3, 0.75, 3, 15)),
-    },
+def event_sample(
+    key_index,
+    source,
+    provider,
+    model,
+    executor,
+    effort,
+    tier,
+    latency_ms,
+    ttft_ms,
+    reasoning_tokens,
+    tokens,
+    rates,
+    *,
+    billing_model="",
+    long_context=False,
+    failed=False,
+):
+    uncached, cache_read, cache_write, output = tokens
+    if failed:
+        uncached = cache_read = cache_write = output = 0
+    return {
+        "key_index": key_index,
+        "source": source,
+        "provider": provider,
+        "executor_type": executor,
+        "reasoning_effort": effort,
+        "service_tier": tier,
+        "upstream_model": model,
+        "billing_model": billing_model or model,
+        "failed": failed,
+        "latency_ms": latency_ms,
+        "ttft_ms": ttft_ms,
+        "accounting_quality": "" if failed else "complete",
+        "price_source": "override",
+        "cost": make_cost(
+            uncached,
+            cache_read,
+            cache_write,
+            output,
+            rates,
+            model.startswith("gpt-5."),
+            long_context,
+        ),
+        "reasoning_tokens": 0 if failed else reasoning_tokens,
+    }
+
+
+# Numeric usage and timing values are sampled from a real export. All identities
+# below are synthetic and intentionally unrelated to the source records.
+SUCCESS_EVENT_SAMPLES = [
+    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "auto", 11513, 8209, 266, (712, 91648, 0, 425), (4, 0.4, 5, 20)),
+    event_sample(5, "codex · dev-team@example.com", "codex", "gpt-5.6-luna", "CodexWebsocketsExecutor", "low", "auto", 2516, 1431, 10, (1030, 49920, 0, 75), (0.2, 0.02, 0.25, 1.2)),
+    event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "medium", "auto", 2417, 1103, 0, (1194, 95616, 0, 73), (5, 0.5, 5, 30)),
+    event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 5306, 2121, 21, (798, 169984, 0, 201), (4, 0.4, 5, 20)),
+    event_sample(2, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 10061, 637, 0, (38049, 0, 0, 474), (0.435, 0.003625, 0.435, 0.87), billing_model="claude/deepseek-v4-pro"),
+    event_sample(7, "codex · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7288, 4130, 188, (8502, 45440, 0, 309), (5, 0.5, 5, 30)),
+    event_sample(6, "codex · dev-team@example.com", "codex", "gpt-5.6-terra", "CodexWebsocketsExecutor", "medium", "auto", 10120, 3379, 81, (1300, 69376, 0, 477), (2, 0.2, 2.5, 12)),
+    event_sample(4, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 2609, 1881, 6, (1368, 237824, 0, 46), (4, 0.4, 5, 20)),
+    event_sample(5, "codex · dev-team@example.com", "codex", "gpt-5.6-luna", "CodexWebsocketsExecutor", "low", "auto", 5002, 2464, 61, (1261, 149248, 0, 147), (0.2, 0.02, 0.25, 1.2)),
+    event_sample(7, "codex · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7634, 4412, 94, (24196, 19840, 0, 275), (5, 0.5, 5, 30)),
+    event_sample(6, "codex · dev-team@example.com", "codex", "gpt-image-2", "CodexExecutor", "", "auto", 43679, 43476, 0, (1658, 0, 0, 915), (5, 1.25, 5, 30)),
+    event_sample(3, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 16431, 909, 0, (66079, 32768, 0, 535), (0.435, 0.003625, 0.435, 0.87), billing_model="claude/deepseek-v4-pro"),
+    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "auto", 19542, 17836, 681, (835, 282752, 0, 802), (8, 0.8, 10, 30), long_context=True),
+    event_sample(6, "codex · dev-team@example.com", "codex", "gpt-5.6-luna", "CodexWebsocketsExecutor", "low", "auto", 5074, 3149, 49, (28615, 31488, 0, 124), (0.2, 0.02, 0.25, 1.2)),
 ]
 
+FAILURE_EVENT_SAMPLES = [
+    event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 4338, 237, 0, (0, 0, 0, 0), (5, 0.5, 5, 30), failed=True),
+]
 
-def make_request_events(count=120):
+EVENT_SAMPLES = SUCCESS_EVENT_SAMPLES * 2 + FAILURE_EVENT_SAMPLES
+
+
+def make_request_events():
     entries = []
-    for index in range(count):
-        case = LOG_CASES[index % len(LOG_CASES)]
-        key = KEYS[index % len(KEYS)]
-        entries.append(
-            {
-                "at": iso(NOW - timedelta(hours=index * 6)),
-                "scope": key["scope"],
-                "preview": key["preview"],
-                "label": key["label"],
-                "source": case["source"],
-                "provider": case["provider"],
-                "executor_type": case["executor_type"],
-                "reasoning_effort": case["reasoning_effort"],
-                "service_tier": case["service_tier"],
-                "upstream_model": case["upstream_model"],
-                "billing_model": case["billing_model"],
-                "failed": case.get("failed", False),
-                "latency_ms": 780 + (index % 5) * 610,
-                "ttft_ms": 120 + (index % 4) * 95,
-                "accounting_quality": case.get("accounting_quality", "complete"),
-                "price_source": "builtin" if index % 4 else "override",
-                "cost": case["cost"],
-                "reasoning_tokens": case["reasoning_tokens"],
-            }
-        )
+    for index, sample in enumerate(EVENT_SAMPLES):
+        key = LIVE_KEYS[sample["key_index"]]
+        entries.append({
+            "at": iso(NOW - timedelta(hours=index * 22, minutes=(index % 4) * 11)),
+            "scope": key["scope"],
+            "preview": key["preview"],
+            "label": key["label"],
+            **{name: value for name, value in sample.items() if name != "key_index"},
+        })
     return entries
 
 
@@ -831,14 +748,52 @@ def account_status(index):
 
 def account_access(index):
     key = LIVE_KEYS[index]
-    unrestricted = not key["route_bindings"]
+    if not key["route_bindings"]:
+        return {
+            "role": "api_key",
+            "models": [],
+            "credentials": [],
+            "routing_valid": True,
+            "warnings": [],
+        }
+
+    models = set()
+    credential_refs = set()
+    credential_providers = set()
+    for binding in key["route_bindings"]:
+        kind = binding["kind"]
+        value = binding["value"]
+        if kind == "model":
+            models.add(value)
+        elif kind == "credential":
+            credential_refs.add(value)
+        elif kind == "credential_provider":
+            credential_providers.add(tuple(value.split("\0", 1)))
+        elif kind == "route":
+            route = next((item for item in ROUTES if item["id"] == value), None)
+            if route:
+                models.update(route["rule"]["models"])
+                credential_refs.update(route["rule"]["credential_ids"])
+                credential_providers.update(
+                    (item["source"], item["provider"])
+                    for item in route["rule"]["credential_providers"]
+                )
+
+    credentials = [
+        {
+            "source": credential["source"],
+            "provider": credential["provider"],
+            "name": credential["display_name"],
+            "status": credential["status"],
+        }
+        for credential in CREDENTIALS
+        if credential["ref"] in credential_refs
+        or (credential["source"], credential["provider"]) in credential_providers
+    ]
     return {
         "role": "api_key",
-        "models": [] if unrestricted else ["gpt-5.6-sol"],
-        "credentials": [] if unrestricted else [{
-            "source": "auth-files", "provider": "codex",
-            "name": "xxxyyyy4455@gmail.com", "status": "active",
-        }],
+        "models": sorted(models),
+        "credentials": credentials,
         "routing_valid": True,
         "warnings": [],
     }
@@ -893,43 +848,11 @@ def request_error(event_index, message, status=0, error_type="", code=""):
 
 ERRORS = [
     request_error(
-        0,
-        (
-            "This content was flagged for possible cybersecurity risk. "
-            "If this seems wrong, try rephrasing your request. To get authorized for security work, "
-            "join the Trusted Access for Cyber program: https://chatgpt.com/cyber"
-        ),
-        status=400,
-        error_type="invalid_request",
-    ),
-    request_error(
-        19,
-        "websocket: close 1006 (abnormal closure): unexpected EOF",
-    ),
-    request_error(
-        1,
-        "websocket: close 1006 (abnormal closure): unexpected EOF",
-    ),
-    request_error(
-        38,
-        "upstream transport requires full HTTP replay",
-        status=426,
-        error_type="server_error",
-        code="upstream_http_replay_required",
-    ),
-    request_error(
-        2,
-        "read tcp 192.0.2.10:41740->192.0.2.20:1080: i/o timeout",
-    ),
-    request_error(
-        3,
-        "websocket: close 1006 (abnormal closure): unexpected EOF",
-    ),
-    request_error(
-        4,
-        "Our servers are currently overloaded. Please try again later.",
-        status=502,
-        error_type="service_unavailable_error",
+        28,
+        "upstream request timed out",
+        status=504,
+        error_type="timeout_error",
+        code="upstream_timeout",
     ),
 ]
 
@@ -938,7 +861,7 @@ PLUGIN_LOGS = [
         "id": 3,
         "at": iso(NOW - timedelta(minutes=2)),
         "level": "debug",
-        "message": "route " + json.dumps({"key": "成员 01 · sk-demo…0001", "model": "gpt-5.6-sol", "model_policy": "restricted", "model_result": "allow", "credential_policy": "restricted", "credential_result": "selected", "selected_credential": "codex · xxxyyyy4455@gmail.com", "outcome": "succeeded", "status": 200}, ensure_ascii=False, separators=(",", ":")),
+        "message": "route " + json.dumps({"key": "代码审查机器人 · sk-demo…0001", "model": "gpt-5.6-sol", "model_policy": "restricted", "model_result": "allow", "credential_policy": "restricted", "credential_result": "selected", "selected_credential": "codex · dev-team@example.com", "outcome": "succeeded", "status": 200}, ensure_ascii=False, separators=(",", ":")),
     },
     {
         "id": 2,
@@ -946,14 +869,14 @@ PLUGIN_LOGS = [
         "level": "info",
         "message": (
             "已加载计费数据库 /srv/cli-proxy-api/plugins/cpa-key-billing-state-v1.db："
-            "9 个 API Key、1 个订阅计划、24097 条请求事件。已启用。"
+            "8 个 API Key、3 个订阅计划、29 条请求事件。已启用。"
         ),
     },
     {
         "id": 1,
         "at": iso(NOW - timedelta(hours=12, minutes=40)),
         "level": "info",
-        "message": "已同步 CLIProxyAPI 的 API Key 列表：新增 2 个，移除 1 个。",
+        "message": "已同步 CLIProxyAPI 的 API Key 列表：新增 1 个。",
     },
 ]
 
