@@ -346,7 +346,7 @@ jobs:
       - name: Extract release notes
         run: |
           awk -v heading="## $RELEASE_TAG" '
-            $0 == heading { found = 1; print; next }
+            $0 == heading { found = 1; next }
             found && /^## / { exit }
             found { print }
             END { if (!found) exit 1 }
