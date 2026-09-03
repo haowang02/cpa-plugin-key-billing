@@ -18,7 +18,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "1.1.0"
+	Version    = "1.1.1"
 
 	MenuLabel       = "API Key 计费"
 	MenuDescription = "管理下游 API Key 的路由、计费、并发限制、订阅额度和用量"
@@ -50,6 +50,8 @@ const (
 	MetadataSource         = "source"
 	MetadataRequestPath    = "request_path"
 	MetadataRequestedModel = "requested_model"
+	MetadataSelectedAuth   = "selected_auth_id"
+	MetadataSelectedIndex  = "selected_auth_index"
 	// SourcePluginHostModelCallback is the MetadataSource value for nested
 	// plugin-initiated executions, which bypass client model and quota checks.
 	SourcePluginHostModelCallback = "plugin_host_model_callback"
@@ -120,10 +122,10 @@ type SchedulerPickResponse struct {
 }
 
 type RequestCompletion struct {
-	RequestID  string         `json:"RequestID"`
-	Outcome    string         `json:"Outcome"`
-	StatusCode int            `json:"StatusCode"`
-	Metadata   map[string]any `json:"Metadata"`
+	RequestID  string `json:"RequestID"`
+	Outcome    string `json:"Outcome"`
+	StatusCode int    `json:"StatusCode"`
+	Error      string `json:"Error"`
 }
 
 type RequestInterceptRequest struct {

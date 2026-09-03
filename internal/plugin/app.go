@@ -11,14 +11,15 @@ import (
 )
 
 type App struct {
-	store              *billing.Store
-	hostCaller         HostCaller
-	routingMu          sync.Mutex
-	credentials        map[string]credentialView
-	credentialsByRawID map[string]string
-	scheduler          subsetScheduler
-	pending            map[string]pendingRouteLog
-	pendingSequence    uint64
+	store                 *billing.Store
+	hostCaller            HostCaller
+	routingMu             sync.Mutex
+	credentials           map[string]credentialView
+	credentialsByRawID    map[string]string
+	credentialRefsByIndex map[string]string
+	scheduler             subsetScheduler
+	pending               map[string]pendingRouteLog
+	pendingSequence       uint64
 }
 
 func (a *App) SetHostCaller(caller HostCaller) {
@@ -27,10 +28,11 @@ func (a *App) SetHostCaller(caller HostCaller) {
 
 func NewApp() *App {
 	return &App{
-		store:              billing.NewStore(openRepository),
-		credentials:        make(map[string]credentialView),
-		credentialsByRawID: make(map[string]string),
-		pending:            make(map[string]pendingRouteLog),
+		store:                 billing.NewStore(openRepository),
+		credentials:           make(map[string]credentialView),
+		credentialsByRawID:    make(map[string]string),
+		credentialRefsByIndex: make(map[string]string),
+		pending:               make(map[string]pendingRouteLog),
 	}
 }
 
@@ -65,7 +67,7 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 	case MethodRequestInterceptBefore:
 		return a.interceptBeforeAuth(request)
 	case MethodRequestInterceptAfter:
-		return OKEnvelope(RequestInterceptResponse{})
+		return a.interceptAfterAuth(request)
 	case MethodRequestComplete:
 		return a.completeRequest(request)
 	case MethodSchedulerPick:

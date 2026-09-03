@@ -264,7 +264,7 @@ CREDENTIALS = [
     {"ref": "sha256:" + "a" * 64, "source": "auth-files", "provider": "codex", "display_name": "dev-team@example.com", "status": "active", "disabled": False, "unavailable": False},
     {"ref": "sha256:" + "b" * 64, "source": "auth-files", "provider": "claude", "display_name": "platform@example.com", "status": "active", "disabled": False, "unavailable": False},
     {"ref": "sha256:" + "c" * 64, "source": "ai-providers", "provider": "codex", "display_name": "sk-proxy…7f3a", "status": "active", "disabled": False, "unavailable": False},
-    {"ref": "sha256:" + "d" * 64, "source": "ai-providers", "provider": "deepseek", "display_name": "sk-live…91b2", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "d" * 64, "source": "ai-providers", "provider": "deepseek", "display_name": "sk-live…91b2", "status": "disabled", "disabled": True, "unavailable": False},
 ]
 
 ROUTES = [
@@ -1054,6 +1054,24 @@ def payload_for(path, query):
         return {"models": [row for row in PRICES if term in row["pattern"].lower()]}
     if path == "/v0/management/api-keys":
         return {"api-keys": [f"sk-demo-{index:04d}" for index in range(1, len(LIVE_KEYS) + 1)]}
+    if path in {
+        "/v0/management/gemini-api-key",
+        "/v0/management/interactions-api-key",
+        "/v0/management/xai-api-key",
+        "/v0/management/vertex-api-key",
+    }:
+        field = path.rsplit("/", 1)[-1]
+        return {field: []}
+    if path == "/v0/management/codex-api-key":
+        return {"codex-api-key": [{"api-key": "sk-dummy-codex", "prefix": "codex"}]}
+    if path == "/v0/management/claude-api-key":
+        return {"claude-api-key": [{"api-key": "sk-dummy-claude", "prefix": "claude"}]}
+    if path == "/v0/management/openai-compatibility":
+        return {"openai-compatibility": [{
+            "name": "DeepSeek",
+            "disabled": False,
+            "api-key-entries": [{"api-key": "sk-dummy-deepseek"}],
+        }]}
     if path == "/v1/models":
         return {"data": [{"id": row["pattern"]} for row in PRICES]}
     return None

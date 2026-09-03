@@ -17,6 +17,7 @@ type pendingRouteLog struct {
 	ModelAllowed         bool
 	CredentialRestricted bool
 	ConfigurationError   bool
+	SelectedCredentialID string
 }
 
 func boundedLogValue(value string, limit int) string {
@@ -37,7 +38,7 @@ func credentialLogName(credential credentialView) string {
 		}
 		return credential.Provider + " · " + value
 	}
-	return boundedLogValue(sourceLabel(credential.Source)+" · "+credential.Provider+" · "+credential.DisplayName, 512)
+	return boundedLogValue(credential.Provider+" · "+credential.DisplayName, 512)
 }
 
 func (a *App) beginRouteLog(requestID, scope string, decision billing.RoutingDecision) {
@@ -61,6 +62,29 @@ func (a *App) beginRouteLog(requestID, scope string, decision billing.RoutingDec
 	}
 	a.pendingSequence++
 	a.pending[requestID] = pendingRouteLog{Sequence: a.pendingSequence, Key: keyDescription, Model: boundedLogValue(decision.Model, 512), ModelRestricted: decision.ModelRestricted, ModelAllowed: decision.ModelAllowed, CredentialRestricted: decision.CredentialRestricted, ConfigurationError: decision.ConfigurationError != ""}
+}
+
+func (a *App) observeRouteCredential(requestID, credentialID, credentialIndex string) {
+	requestID = strings.TrimSpace(requestID)
+	credentialID = strings.TrimSpace(credentialID)
+	credentialIndex = strings.TrimSpace(credentialIndex)
+	if credentialID == "" {
+		return
+	}
+	a.routingMu.Lock()
+	defer a.routingMu.Unlock()
+	if ref := a.credentialsByRawID[credentialID]; ref != "" && credentialIndex != "" {
+		a.credentialRefsByIndex[credentialIndex] = ref
+	}
+	if requestID == "" {
+		return
+	}
+	pending, ok := a.pending[requestID]
+	if !ok {
+		return
+	}
+	pending.SelectedCredentialID = credentialID
+	a.pending[requestID] = pending
 }
 
 func (a *App) finishRouteLog(completion RequestCompletion) {
@@ -91,7 +115,8 @@ func (a *App) finishRouteLog(completion RequestCompletion) {
 	} else if !pending.ModelAllowed {
 		row["credential_result"] = "not_reached"
 	} else if pending.CredentialRestricted {
-		if id := metadataString(completion.Metadata, "selected_auth_id"); id != "" {
+		id := pending.SelectedCredentialID
+		if id != "" {
 			if credential, found := a.credentialByRawID(id); found {
 				row["credential_result"] = "selected"
 				row["selected_credential"] = credentialLogName(credential)
@@ -100,6 +125,8 @@ func (a *App) finishRouteLog(completion RequestCompletion) {
 				row["credential_result"] = "selected"
 				row["selected_credential"] = "未知上游凭证 · " + shortCredentialRef(ref)
 			}
+		} else if completion.StatusCode == 503 && strings.Contains(completion.Error, noRoutedCredentialMessage) {
+			row["credential_result"] = "no_match"
 		}
 	}
 	if completion.StatusCode > 0 {

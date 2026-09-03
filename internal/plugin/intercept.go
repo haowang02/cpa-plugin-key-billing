@@ -85,6 +85,21 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	return OKEnvelope(RequestInterceptResponse{})
 }
 
+func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
+	var req RequestInterceptRequest
+	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
+		return nil, fmt.Errorf("解析凭证选择后请求拦截参数：%w", errUnmarshal)
+	}
+	if a != nil {
+		a.observeRouteCredential(
+			req.RequestID,
+			metadataString(req.Metadata, MetadataSelectedAuth),
+			metadataString(req.Metadata, MetadataSelectedIndex),
+		)
+	}
+	return OKEnvelope(RequestInterceptResponse{})
+}
+
 func (a *App) completeRequest(raw []byte) ([]byte, error) {
 	var completion RequestCompletion
 	if errUnmarshal := json.Unmarshal(raw, &completion); errUnmarshal != nil {
@@ -142,6 +157,7 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 	} else {
 		a.store.RecordUsage(event)
 	}
+	a.observeCredentialUsage(record.AuthIndex, record.AuthType, record.Source, scope)
 	return OKEnvelope(struct{}{})
 }
 

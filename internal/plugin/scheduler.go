@@ -16,6 +16,7 @@ import (
 
 const maxPoolsPerKey = 256
 const maxCredentialsPerPool = 1024
+const noRoutedCredentialMessage = "当前没有符合路由规则且可用的上游凭证"
 
 type subsetScheduleState struct {
 	Current map[string]int64
@@ -186,14 +187,14 @@ func (a *App) pickCredential(raw []byte) ([]byte, error) {
 		}
 	}
 	if len(allowed) == 0 {
-		return ErrorEnvelope("no_routed_credential", "当前没有符合路由规则且可用的上游凭证", http.StatusServiceUnavailable), nil
+		return ErrorEnvelope("no_routed_credential", noRoutedCredentialMessage, http.StatusServiceUnavailable), nil
 	}
 	if len(allowed) == len(req.Candidates) {
 		return OKEnvelope(SchedulerPickResponse{Handled: false})
 	}
 	id := a.scheduler.pick(scope, routingPoolKey(decision.Model, decision), allowed)
 	if id == "" {
-		return ErrorEnvelope("no_routed_credential", "当前没有符合路由规则且可用的上游凭证", http.StatusServiceUnavailable), nil
+		return ErrorEnvelope("no_routed_credential", noRoutedCredentialMessage, http.StatusServiceUnavailable), nil
 	}
 	return OKEnvelope(SchedulerPickResponse{AuthID: id, Handled: true})
 }

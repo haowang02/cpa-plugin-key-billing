@@ -659,6 +659,13 @@ assert_route_credential_policy() {
   # scheduler.pick has now observed both config-backed candidates, so the safe
   # inventory contains the opaque reference needed to test an exact binding.
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$access_file"
+  if ! jq -e '
+      first(.credentials[] | select(.source == "ai-providers" and .provider == "openai-compatible-route-allowed-e2e")) |
+      .display_name == "e2e-ro…1111"
+    ' "$access_file" >/dev/null; then
+    echo "配置型上游凭证未显示安全的 API Key 掩码：$(jq -c '.credentials' "$access_file")" >&2
+    return 1
+  fi
   allowed_ref="$(jq -er 'first(.credentials[] | select(.source == "ai-providers" and .provider == "openai-compatible-route-allowed-e2e")).ref' "$access_file")"
   management_call PATCH "$port" "/v0/management/plugins/cpa-key-billing/routes" \
     -H "Content-Type: application/json" \
@@ -709,11 +716,11 @@ assert_route_credential_policy() {
         | select(.model == "e2e-credential-route")] as $rows |
       ($rows | length) == 3 and
       ([ $rows[] | select(.status == 200) ] | length) == 2 and
-      ([ $rows[] | select(.status == 503 and .credential_result == "not_observed") ] | length) == 1 and
+      ([ $rows[] | select(.status == 503 and .credential_result == "no_match") ] | length) == 1 and
       all($rows[] | select(.status == 200);
-        .model_result == "allow" and
-        ((.credential_result == "not_observed" and (has("selected_credential") | not)) or
-         (.credential_result == "selected" and (.selected_credential | contains("route-allowed-e2e")))))
+        .model_result == "allow" and .credential_result == "selected" and
+        ((.selected_credential // "") | length) > 0 and
+        ((.selected_credential // "") | contains("上游凭证") | not))
     ' "$plugin_logs_file" >/dev/null; then
     echo "插件日志缺少凭证路由选择结果：$(jq -c '.entries' "$plugin_logs_file")" >&2
     return 1

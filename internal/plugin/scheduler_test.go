@@ -33,7 +33,7 @@ func TestRoutedRequestWritesOneCombinedDebugLog(t *testing.T) {
 	if intercept.Terminate {
 		t.Fatalf("intercept=%+v", intercept)
 	}
-	if _, err = app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "request-1", Outcome: "succeeded", StatusCode: 200, Metadata: map[string]any{"selected_auth_id": "auth-a"}})); err != nil {
+	if _, err = app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "request-1", Outcome: "succeeded", StatusCode: 200})); err != nil {
 		t.Fatal(err)
 	}
 	page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug}, Limit: 10})
@@ -63,6 +63,54 @@ func TestUnrestrictedRouteWritesNoRoutingDebugLog(t *testing.T) {
 	page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug}, Limit: 10})
 	if err != nil || len(page.Entries) != 0 {
 		t.Fatalf("entries=%+v err=%v", page.Entries, err)
+	}
+}
+
+func TestAfterAuthSelectionIsRecordedForTheSameRequest(t *testing.T) {
+	app, scope := configuredRoutingApp(t, billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAuthFiles, Provider: "codex"}}})
+	app.observeCandidates([]SchedulerAuthCandidate{{ID: "codex-auth", Provider: "codex", Attributes: map[string]string{"path": "/auth/codex.json"}}})
+	if _, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{RequestID: "selected-request", Model: "gpt-5.6", RequestedModel: "gpt-5.6", Metadata: map[string]any{MetadataCallerScope: scope}})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.HandleMethod(MethodRequestInterceptAfter, mustMarshal(t, RequestInterceptRequest{RequestID: "selected-request", Metadata: map[string]any{MetadataSelectedAuth: "codex-auth"}})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "selected-request", Outcome: "succeeded", StatusCode: 200})); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug}, Limit: 10})
+	if err != nil || len(page.Entries) != 1 {
+		t.Fatalf("entries=%+v err=%v", page.Entries, err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(page.Entries[0].Message, "route ")), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row["credential_result"] != "selected" || row["selected_credential"] != "codex · 未提供邮箱" {
+		t.Fatalf("row=%+v", row)
+	}
+}
+
+func TestMissingRoutedCredentialIsExplicitInLog(t *testing.T) {
+	app, scope := configuredRoutingApp(t, billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAuthFiles, Provider: "codex"}}})
+	if _, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{RequestID: "no-match", Model: "codex/deepseek", RequestedModel: "codex/deepseek", Metadata: map[string]any{MetadataCallerScope: scope}})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "no-match", Outcome: "failed", StatusCode: 503, Error: noRoutedCredentialMessage})); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug}, Limit: 10})
+	if err != nil || len(page.Entries) != 1 {
+		t.Fatalf("entries=%+v err=%v", page.Entries, err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(page.Entries[0].Message, "route ")), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row["credential_result"] != "no_match" {
+		t.Fatalf("row=%+v", row)
 	}
 }
 
@@ -167,6 +215,27 @@ func TestCredentialLogNameKeepsAuthFileEmailAndMasksAIProvider(t *testing.T) {
 	got := credentialLogName(credentialView{Source: billing.CredentialSourceAIProviders, Provider: "codex", DisplayName: secret})
 	if strings.Contains(got, secret) {
 		t.Fatalf("AI Provider log name leaked secret: %q", got)
+	}
+}
+
+func TestAIProviderCredentialLearnsMaskedAPIKeyFromUsage(t *testing.T) {
+	app := newConfiguredApp(t)
+	const upstreamKey = "sk-dummy-upstream-secret-1234"
+	app.observeCandidates([]SchedulerAuthCandidate{{ID: "config-codex", Provider: "codex", Attributes: map[string]string{"source": "config:codex[abc]"}}})
+	app.observeRouteCredential("", "config-codex", "auth-index")
+	app.observeCredentialUsage("auth-index", "apikey", upstreamKey, "downstream-scope")
+
+	credentials := app.credentialInventory()
+	if len(credentials) != 1 || credentials[0].DisplayName != billing.PreviewKey(upstreamKey) {
+		t.Fatalf("credentials=%+v", credentials)
+	}
+	if strings.Contains(credentials[0].DisplayName, upstreamKey) {
+		t.Fatalf("credential display name leaked upstream key: %q", credentials[0].DisplayName)
+	}
+
+	app.observeCredentialUsage("auth-index", "apikey", "downstream-key", billing.CallerScope("downstream-key"))
+	if got := app.credentialInventory()[0].DisplayName; got != billing.PreviewKey(upstreamKey) {
+		t.Fatalf("downstream key fallback replaced credential display name: %q", got)
 	}
 }
 

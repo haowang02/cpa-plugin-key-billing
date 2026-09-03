@@ -402,9 +402,11 @@
         color: var(--text-secondary);
       }
       label.field > input,
-      label.field > select { font-weight: 400; }
+      label.field > select,
+      label.field > .native-select > select { font-weight: 400; }
       :root:not([data-cpamp-plugin-host="true"]) label.field > input,
-      :root:not([data-cpamp-plugin-host="true"]) label.field > select { font-size: 14px; line-height: 1.5; }
+      :root:not([data-cpamp-plugin-host="true"]) label.field > select,
+      :root:not([data-cpamp-plugin-host="true"]) label.field > .native-select > select { font-size: 14px; line-height: 1.5; }
       .table-scroll {
         width: 100%;
         max-width: 100%;
@@ -553,7 +555,8 @@
         input:not([type="checkbox"]):not([type="radio"]),
       :root[data-cpamp-plugin-host="true"] select { padding-block: 5px; }
       :root[data-cpamp-plugin-host="true"] label.field > input,
-      :root[data-cpamp-plugin-host="true"] label.field > select { font-size: 13px; line-height: 1.5; }
+      :root[data-cpamp-plugin-host="true"] label.field > select,
+      :root[data-cpamp-plugin-host="true"] label.field > .native-select > select { font-size: 13px; line-height: 1.5; }
       :root[data-cpamp-plugin-host="true"] input:focus,
       :root[data-cpamp-plugin-host="true"] select:focus,
       :root[data-cpamp-plugin-host="true"] textarea:focus {
@@ -585,12 +588,16 @@
         border-color: var(--app-input-border, var(--app-border));
         background: var(--app-input-bg, var(--app-surface-strong));
       }
+      :root[data-cpamp-plugin-host="true"] .toggle-filter.compact-toggle {
+        border-color: transparent;
+        background: transparent;
+      }
       :root[data-cpamp-plugin-host="true"]
         button:not(
           .link,
           .icon-action,
           .auth-refresh-icon-button,
-          .route-picker-group
+          .route-picker-group-toggle
         ) {
         min-height: 34px;
         padding: 0 12px;
@@ -601,7 +608,7 @@
         line-height: 1.2;
       }
       :root[data-cpamp-plugin-host="true"]
-        button:not(.link):hover:not(:disabled) {
+        button:not(.link):not(.route-picker-group-toggle):hover:not(:disabled) {
         border-color: var(--border-hover);
         background: var(--app-accent-soft, var(--bg-hover));
         color: var(--primary-color);
@@ -978,7 +985,7 @@
       .details-summary-icon { display: grid; place-items: center; flex: 0 0 14px; height: 1.55em; }
       .details-summary-icon .lucide-chevron-icon { margin: 0; }
       details[open] > .details-summary .lucide-chevron-icon,
-      .route-picker-group[aria-expanded="true"] .lucide-chevron-icon { transform: rotate(90deg); }
+      .route-picker-group-toggle[aria-expanded="true"] .lucide-chevron-icon { transform: rotate(90deg); }
       .account-access-warnings { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
       .account-model-card {
         display: grid;
@@ -1092,6 +1099,21 @@
         box-shadow: 0 0 0 3px
           color-mix(in srgb, var(--primary-color) 18%, transparent);
       }
+      .toggle-filter.compact-toggle {
+        gap: 5px;
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--text-tertiary);
+        font-size: 10px;
+        line-height: 1;
+      }
+      .compact-toggle .toggle-track { width: 24px; height: 14px; }
+      .compact-toggle .toggle-track::after { width: 10px; height: 10px; }
+      .compact-toggle input:checked + .toggle-track::after { transform: translateX(10px); }
+      .toggle-filter.compact-toggle:focus-within { border-color: transparent; box-shadow: none; }
       .auth-file-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
@@ -1345,6 +1367,8 @@
       }
       .route-editor-section { display: grid; align-content: start; gap: 6px; min-width: 0; }
       .route-editor-section > .small { padding-inline: 2px; }
+      .route-editor-title { display: flex; align-items: center; gap: 8px; min-height: 16px; padding-inline: 2px; }
+      .route-editor-title > .small { white-space: nowrap; }
       .dialog-input { width: 100%; }
       .dialog-actions { justify-content: flex-end; margin-top: 14px; }
       .retry-button { margin-top: 10px; }
@@ -1481,9 +1505,7 @@
         gap: 5px;
         width: 100%;
         min-height: 0;
-        text-align: left;
         background: transparent;
-        border: 0;
         border-top: 1px solid var(--border-color);
         border-radius: 6px;
         padding: 7px 2px 7px 7px;
@@ -1492,6 +1514,26 @@
         line-height: 1.5;
         color: var(--text-tertiary);
         margin-top: 4px;
+      }
+      .route-picker-group:hover { background: var(--bg-hover); }
+      .route-picker-group-toggle {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        white-space: nowrap;
+      }
+      .route-picker-group-toggle:hover:not(:disabled) {
+        border-color: transparent;
+        background: transparent;
+        color: inherit;
       }
       .route-picker-chevron {
         display: grid;
@@ -1506,7 +1548,7 @@
         height: 14px;
         margin: 0;
       }
-      .route-picker-section-count { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
+      .route-picker-section-count { margin-left: auto; padding-right: 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
       .route-picker-list > .route-picker-section:first-child > .route-picker-group { border-top: none; margin-top: 0; }
       .route-picker-option {
         display: flex;
@@ -2326,7 +2368,10 @@
                 <div id="route-model-list" class="key-picker route-rule-list settings-picker-list"></div>
               </div>
               <div class="route-editor-section">
-                <span class="small muted">凭证（<span id="route-credential-count">全部</span>）</span>
+                <div class="route-editor-title">
+                  <span class="small muted">凭证（<span id="route-credential-count">全部</span>）</span>
+                  <label class="toggle-filter compact-toggle"><input id="route-credential-enabled-only" type="checkbox" checked /><span class="toggle-track" aria-hidden="true"></span><span>仅启用</span></label>
+                </div>
                 <div id="route-credential-list" class="key-picker route-rule-list settings-picker-list"></div>
               </div>
             </div>
@@ -2783,6 +2828,7 @@
           prices: null,
           routes: [],
           credentials: [],
+          credentialProviders: null,
           status: null,
           access: null,
           requestEvents: null,
@@ -3539,16 +3585,105 @@
         );
       }
 
+      const CONFIGURED_CREDENTIAL_ENDPOINTS = [
+        ["gemini-api-key", "gemini"],
+        ["interactions-api-key", "gemini-interactions"],
+        ["claude-api-key", "claude"],
+        ["codex-api-key", "codex"],
+        ["xai-api-key", "xai"],
+        ["vertex-api-key", "vertex"],
+      ];
+
+      function configuredEntryEnabled(entry) {
+        if (!entry || entry.disabled === true) return false;
+        const weight = Number(entry.weight ?? 1);
+        return !Number.isFinite(weight) || weight > 0;
+      }
+
+      function openAICompatibleProvider(name) {
+        const value = String(name || "").trim().toLowerCase();
+        if (!value || value === "openai-compatibility")
+          return "openai-compatibility";
+        return value.startsWith("openai-compatible-")
+          ? value
+          : "openai-compatible-" + value;
+      }
+
+      async function configuredCredentialEntries(field) {
+        try {
+          const payload = await api(
+            "GET",
+            "/v0/management/" + field,
+            null,
+            { raw: true, timeoutMS: 5000 },
+          );
+          return Array.isArray(payload?.[field]) ? payload[field] : [];
+        } catch (err) {
+          if (err instanceof AuthError) throw err;
+          return [];
+        }
+      }
+
+      async function loadConfiguredCredentialProviders() {
+        const requests = CONFIGURED_CREDENTIAL_ENDPOINTS.map(
+          async ([field, provider]) => {
+            const entries = await configuredCredentialEntries(field);
+            return entries.length
+              ? { provider, enabled: entries.some(configuredEntryEnabled) }
+              : null;
+          },
+        );
+        requests.push(
+          configuredCredentialEntries("openai-compatibility").then((entries) =>
+            entries.map((entry) => ({
+              provider: openAICompatibleProvider(entry?.name),
+              enabled:
+                entry?.disabled !== true &&
+                (!Array.isArray(entry?.["api-key-entries"]) ||
+                  !entry["api-key-entries"].length ||
+                  entry["api-key-entries"].some(configuredEntryEnabled)),
+            })),
+          ),
+        );
+
+        // These management responses contain upstream keys. Reduce them to
+        // provider availability immediately and never retain the payloads.
+        const providers = new Map();
+        const add = (item) => {
+          if (!item?.provider) return;
+          const existing = providers.get(item.provider);
+          providers.set(item.provider, {
+            source: "ai-providers",
+            provider: item.provider,
+            available: !!item.enabled || !!existing?.available,
+          });
+        };
+        for (const result of await Promise.all(requests)) {
+          if (Array.isArray(result)) result.forEach(add);
+          else add(result);
+        }
+        return [...providers.values()].sort((a, b) =>
+          a.provider.localeCompare(b.provider),
+        );
+      }
+
       function loadAdminAccess(deferRender) {
         return loadResource(
           detailLoads.adminAccess,
-          () => plugin("GET", "/access"),
-          (access) => {
+          async () => {
+            const access = await plugin("GET", "/access");
+            const credentialProviders =
+              state.credentialProviders ||
+              (await loadConfiguredCredentialProviders());
+            return { access, credentialProviders };
+          },
+          ({ access, credentialProviders }) => {
             state.access = access;
             state.keys = (access.keys || []).filter((view) => !view.deleted_at);
             state.plans = access.plans || [];
             state.routes = access.routes || [];
             state.credentials = access.credentials || [];
+            state.credentialProviders = credentialProviders;
           },
           () => currentRole === "admin" && renderAdminPage(),
           deferRender,
@@ -3932,14 +4067,11 @@
 
       function renderAccountAccess(access) {
         const routingValid = access.routing_valid !== false;
-        const sourceLabel = (source) => source === "auth-files" ? "认证文件" : "AI 供应商";
         const accountCredentialLabel = (item) => item.provider_wide
-          ? { text: sourceLabel(item.source) + " · " + item.provider, tag: "整类" }
+          ? { text: credentialSourceLabel(item.source) + " · " + item.provider, tag: "整类" }
           : item.status === "missing"
             ? { text: item.name || "指定上游凭证当前不可用", tag: "" }
-            : { text: item.source === "auth-files"
-            ? item.provider + " · " + (item.name || "未提供邮箱")
-            : sourceLabel(item.source) + " · " + item.provider + " · " + (item.name || "凭证不可用"), tag: "" };
+            : { text: item.provider + " · " + (item.name || (item.source === "auth-files" ? "未提供邮箱" : "凭证不可用")), tag: "" };
 
         const chips = (values, fallback) => el(
           "div",
@@ -4542,151 +4674,19 @@
         xai: "xAI",
         kimi: "Kimi",
       };
+      function iconSVG(markup) {
+        const template = document.createElement("template");
+        template.innerHTML = markup;
+        return template.content.firstElementChild;
+      }
+
       const AUTH_PROVIDER_ICONS = {
-        claude: {
-          viewBox: "0 0 24 24",
-          paths: [
-            {
-              fill: "currentColor",
-              d: "M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z",
-            },
-          ],
-        },
-        antigravity: {
-          viewBox: "0 0 64 59",
-          paths: [
-            {
-              fill: "#3789F9",
-              transform: "translate(28,0)",
-              d: "M0 0h8l6 4 5 10 8 26 5 10 4 4-1 5h-5l-8-7-11-17-5-2-7 1-5 5-8 13-8 7h-6l1-6 5-6 5-13 7-22 5-9z",
-            },
-            {
-              fill: "#6D80D8",
-              transform: "translate(28,0)",
-              d: "M0 0h8l6 4 5 10 6 21-4-1-5-5-5-3-4-6v-2l-5-2-5-1-5 3-4 1 3-10 5-7z",
-            },
-            {
-              fill: "#D78240",
-              transform: "translate(28,0)",
-              d: "M0 0h8l6 4 5 10 1 5-7-4-3-3-7-2-4-2-6-1 3-5z",
-            },
-            {
-              fill: "#3294CC",
-              transform: "translate(25,14)",
-              d: "M0 0l5 1 5 3 2 5-11-1-6 5-5 8-3 5h-3l7-21 5-3z",
-            },
-            {
-              fill: "#E45C49",
-              transform: "translate(36,1)",
-              d: "M0 0l5 2 5 8 2 8-7-4-4-4-1-6-3-1 3-1z",
-            },
-            {
-              fill: "#90AE64",
-              transform: "translate(21,7)",
-              d: "M0 0l9 1 3 2v2l-5 1-3 2-5 3-4 1 3-10z",
-            },
-            {
-              fill: "#53A89A",
-              transform: "translate(25,14)",
-              d: "M0 0l5 1v3l-7 3-5 4-4-1 2-5 5-3z",
-            },
-            {
-              fill: "#B5677D",
-              transform: "translate(33,11)",
-              d: "M0 0h5l11 9 1 4-5-1-4-3V7L4 5 0 2z",
-            },
-            {
-              fill: "#778998",
-              transform: "translate(27,12)",
-              d: "M0 0h6l8 6 5 5 4 1-1 3-7-3-5-4V6L4 5z",
-            },
-            {
-              fill: "#3390DF",
-              transform: "translate(26,21)",
-              d: "M0 0l4 2-15 15-1-3 7-10z",
-            },
-            {
-              fill: "#3FA1B7",
-              transform: "translate(27,18)",
-              d: "M0 0l2 1-6 4-5 4-4 4-1-3 1-3 7-3 3-3z",
-            },
-            {
-              fill: "#8277BB",
-              transform: "translate(37,18)",
-              d: "M0 0h4l5 5 4 1-1 3-7-3-5-4z",
-            },
-            {
-              fill: "#4989CF",
-              transform: "translate(30,17)",
-              d: "M0 0l5 1 2 5-9-1z",
-            },
-            {
-              fill: "#71B774",
-              transform: "translate(23,12)",
-              d: "M0 0l5 1-3 2-5 3-4 1 1-4z",
-            },
-            {
-              fill: "#6687E9",
-              transform: "translate(44,28)",
-              d: "M0 0l7 1 2 6-4-1-5-5z",
-            },
-            {
-              fill: "#C7AF38",
-              transform: "translate(23,3)",
-              d: "M0 0h7l-2 1v2l3 1-4 1-6-1z",
-            },
-            {
-              fill: "#EF842A",
-              transform: "translate(28,0)",
-              d: "M0 0h8v3L4 4l-8-1z",
-            },
-            {
-              fill: "#F35241",
-              transform: "translate(36,1)",
-              d: "M0 0l5 2 4 6-1 3-6-8-2-1z",
-            },
-          ],
-        },
-        codex: {
-          viewBox: "0 0 24 24",
-          paths: [
-            {
-              fill: "#5965e8",
-              d: "M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275a.09.09 0 00.08.021 4.55 4.55 0 013.046.275l.163.079a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00-.021-.104 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388zm3.482 10.565a.637.637 0 000 1.272h3.636a.637.637 0 100-1.272h-3.636zM8.462 9.23a.637.637 0 00-1.106.631l1.272 2.224-1.266 2.136a.636.636 0 101.095.649l1.454-2.455a.636.636 0 00.005-.64L8.462 9.23z",
-            },
-          ],
-        },
-        gemini: {
-          viewBox: "0 0 24 24",
-          paths: [
-            {
-              fill: "#3186FF",
-              d: "M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z",
-            },
-          ],
-        },
-        kimi: {
-          viewBox: "0 0 24 24",
-          paths: [
-            {
-              fill: "#1783FF",
-              d: "M21.846 0a1.923 1.923 0 110 3.846H20.15a.226.226 0 01-.227-.226V1.923C19.923.861 20.784 0 21.846 0z",
-            },
-            {
-              fill: "#fff",
-              d: "M11.065 11.199l7.257-7.2c.137-.136.06-.41-.116-.41H14.3a.164.164 0 00-.117.051l-7.82 7.756c-.122.12-.302.013-.302-.179V3.82c0-.127-.083-.23-.185-.23H3.186c-.103 0-.186.103-.186.23V19.77c0 .128.083.23.186.23h2.69c.103 0 .186-.102.186-.23v-3.25c0-.069.025-.135.069-.178l2.424-2.406a.158.158 0 01.205-.023l6.484 4.772a7.677 7.677 0 003.453 1.283c.108.012.2-.095.2-.23v-3.06c0-.117-.07-.212-.164-.227a5.028 5.028 0 01-2.027-.807l-5.613-4.064c-.117-.078-.132-.279-.028-.381z",
-            },
-          ],
-        },
-        xai: {
-          viewBox: "0 0 24 24",
-          paths: [
-            {
-              fill: "currentColor",
-              d: "M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383L24 .5l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815",
-            },
-          ],
-        },
+        claude: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg>`,
+        antigravity: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 59" aria-hidden="true"><path fill="#3789F9" transform="translate(28,0)" d="M0 0h8l6 4 5 10 8 26 5 10 4 4-1 5h-5l-8-7-11-17-5-2-7 1-5 5-8 13-8 7h-6l1-6 5-6 5-13 7-22 5-9z"/><path fill="#6D80D8" transform="translate(28,0)" d="M0 0h8l6 4 5 10 6 21-4-1-5-5-5-3-4-6v-2l-5-2-5-1-5 3-4 1 3-10 5-7z"/><path fill="#D78240" transform="translate(28,0)" d="M0 0h8l6 4 5 10 1 5-7-4-3-3-7-2-4-2-6-1 3-5z"/><path fill="#3294CC" transform="translate(25,14)" d="M0 0l5 1 5 3 2 5-11-1-6 5-5 8-3 5h-3l7-21 5-3z"/><path fill="#E45C49" transform="translate(36,1)" d="M0 0l5 2 5 8 2 8-7-4-4-4-1-6-3-1 3-1z"/><path fill="#90AE64" transform="translate(21,7)" d="M0 0l9 1 3 2v2l-5 1-3 2-5 3-4 1 3-10z"/><path fill="#53A89A" transform="translate(25,14)" d="M0 0l5 1v3l-7 3-5 4-4-1 2-5 5-3z"/><path fill="#B5677D" transform="translate(33,11)" d="M0 0h5l11 9 1 4-5-1-4-3V7L4 5 0 2z"/><path fill="#778998" transform="translate(27,12)" d="M0 0h6l8 6 5 5 4 1-1 3-7-3-5-4V6L4 5z"/><path fill="#3390DF" transform="translate(26,21)" d="M0 0l4 2-15 15-1-3 7-10z"/><path fill="#3FA1B7" transform="translate(27,18)" d="M0 0l2 1-6 4-5 4-4 4-1-3 1-3 7-3 3-3z"/><path fill="#8277BB" transform="translate(37,18)" d="M0 0h4l5 5 4 1-1 3-7-3-5-4z"/><path fill="#4989CF" transform="translate(30,17)" d="M0 0l5 1 2 5-9-1z"/><path fill="#71B774" transform="translate(23,12)" d="M0 0l5 1-3 2-5 3-4 1 1-4z"/><path fill="#6687E9" transform="translate(44,28)" d="M0 0l7 1 2 6-4-1-5-5z"/><path fill="#C7AF38" transform="translate(23,3)" d="M0 0h7l-2 1v2l3 1-4 1-6-1z"/><path fill="#EF842A" transform="translate(28,0)" d="M0 0h8v3L4 4l-8-1z"/><path fill="#F35241" transform="translate(36,1)" d="M0 0l5 2 4 6-1 3-6-8-2-1z"/></svg>`,
+        codex: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5965e8" d="M9.064 3.344a4.578 4.578 0 012.285-.312c1 .115 1.891.54 2.673 1.275a.09.09 0 00.08.021 4.55 4.55 0 013.046.275l.163.079a4.581 4.581 0 012.188 2.399c.209.51.313 1.041.315 1.595a4.24 4.24 0 01-.134 1.223.123.123 0 00.03.115c.594.607.988 1.33 1.183 2.17.289 1.425-.007 2.71-.887 3.854l-.136.166a4.548 4.548 0 01-2.201 1.388.123.123 0 00-.081.076c-.191.551-.383 1.023-.74 1.494-.9 1.187-2.222 1.846-3.711 1.838-1.187-.006-2.239-.44-3.157-1.302a.107.107 0 00-.105-.024c-.388.125-.78.143-1.204.138a4.441 4.441 0 01-1.945-.466 4.544 4.544 0 01-1.61-1.335c-.152-.202-.303-.392-.414-.617a5.81 5.81 0 01-.37-.961 4.582 4.582 0 01-.014-2.298.124.124 0 00-.021-.104 4.467 4.467 0 01-1.034-1.651 3.896 3.896 0 01-.251-1.192 5.189 5.189 0 01.141-1.6c.337-1.112.982-1.985 1.933-2.618.212-.141.413-.251.601-.33.215-.089.43-.164.646-.227a.098.098 0 00.065-.066 4.51 4.51 0 01.829-1.615 4.535 4.535 0 011.837-1.388zm3.482 10.565a.637.637 0 000 1.272h3.636a.637.637 0 100-1.272h-3.636zM8.462 9.23a.637.637 0 00-1.106.631l1.272 2.224-1.266 2.136a.636.636 0 101.095.649l1.454-2.455a.636.636 0 00.005-.64L8.462 9.23z"/></svg>`,
+        gemini: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="#3186FF" d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z"/></svg>`,
+        kimi: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="#1783FF" d="M21.846 0a1.923 1.923 0 110 3.846H20.15a.226.226 0 01-.227-.226V1.923C19.923.861 20.784 0 21.846 0z"/><path fill="#fff" d="M11.065 11.199l7.257-7.2c.137-.136.06-.41-.116-.41H14.3a.164.164 0 00-.117.051l-7.82 7.756c-.122.12-.302.013-.302-.179V3.82c0-.127-.083-.23-.185-.23H3.186c-.103 0-.186.103-.186.23V19.77c0 .128.083.23.186.23h2.69c.103 0 .186-.102.186-.23v-3.25c0-.069.025-.135.069-.178l2.424-2.406a.158.158 0 01.205-.023l6.484 4.772a7.677 7.677 0 003.453 1.283c.108.012.2-.095.2-.23v-3.06c0-.117-.07-.212-.164-.227a5.028 5.028 0 01-2.027-.807l-5.613-4.064c-.117-.078-.132-.279-.028-.381z"/></svg>`,
+        xai: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383L24 .5l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"/></svg>`,
       };
 
       function authProviderIcon(category) {
@@ -4694,21 +4694,8 @@
           category === "gemini-cli" || category === "gemini-interactions"
             ? "gemini"
             : category;
-        const icon = AUTH_PROVIDER_ICONS[key];
-        if (!icon) return null;
-        const svg = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "svg",
-        );
-        svg.setAttribute("viewBox", icon.viewBox);
-        svg.setAttribute("aria-hidden", "true");
-        for (const item of icon.paths) {
-          const path = document.createElementNS(svg.namespaceURI, "path");
-          for (const [name, value] of Object.entries(item))
-            if (name !== "d") path.setAttribute(name, value);
-          path.setAttribute("d", item.d);
-          svg.append(path);
-        }
+        const markup = AUTH_PROVIDER_ICONS[key];
+        if (!markup) return null;
         return el(
           "span",
           {
@@ -4716,7 +4703,7 @@
             "data-provider": key,
             "aria-hidden": "true",
           },
-          svg,
+          iconSVG(markup),
         );
       }
 
@@ -5732,7 +5719,33 @@
 
       function credentialLabel(item) {
         if (item.source === "auth-files") return item.provider + " · " + (item.display_name || "未提供邮箱");
-        return "AI 供应商 · " + item.provider + " · " + item.display_name;
+        return item.provider + " · " + item.display_name;
+      }
+
+      function credentialSourceLabel(source) {
+        return source === "auth-files" ? "认证文件" : "AI 供应商";
+      }
+
+      function credentialIcon(item) {
+        return item.source === "auth-files" ? "file-key" : "key";
+      }
+
+      function credentialSourceRank(item) {
+        return item.source === "auth-files" ? 0 : 1;
+      }
+
+      function compareCredentialProviders(a, b) {
+        return (
+          credentialSourceRank(a) - credentialSourceRank(b) ||
+          a.provider.localeCompare(b.provider)
+        );
+      }
+
+      function compareCredentials(a, b) {
+        return (
+          credentialSourceRank(a) - credentialSourceRank(b) ||
+          credentialLabel(a).localeCompare(credentialLabel(b), "zh-CN")
+        );
       }
 
       function credentialProviderFromValue(value) {
@@ -5742,7 +5755,7 @@
       }
 
       function credentialProviderLabel(item) {
-        return (item.source === "auth-files" ? "认证文件" : "AI 供应商") + " · " + item.provider;
+        return credentialSourceLabel(item.source) + " · " + item.provider;
       }
 
       function bindingKey(binding) { return binding.kind + "\u0000" + binding.value; }
@@ -5807,6 +5820,7 @@
         all: true,
         bindings: new Map(),
         expanded: { routes: true, credentials: true, models: true },
+        enabledOnly: true,
         searching: false,
         beforeSearch: null,
         anchor: null,
@@ -5818,6 +5832,7 @@
           all: !(view.route_bindings || []).length,
           bindings: new Map((view.route_bindings || []).map((binding) => [bindingKey(binding), binding])),
           expanded: { routes: true, credentials: true, models: true },
+          enabledOnly: true,
           searching: false,
           beforeSearch: null,
           anchor,
@@ -5927,11 +5942,12 @@
           if (selectedProviderValues.has(providerKey(item))) routePicker.bindings.delete(bindingKey({ kind: "credential", value: item.ref }));
         }
         const credentialOptions = routeProviderChoices(selectedProviderValues)
+          .filter((item) => !routePicker.enabledOnly || item.available)
           .filter((item) => matchesTerm(credentialProviderLabel(item) + " 整类 类别", term))
           .map((item) => {
             const binding = { kind: "credential_provider", value: providerKey(item) };
             const label = credentialProviderLabel(item);
-            const available = state.credentials.some((credential) => credential.source === item.source && credential.provider.toLowerCase() === item.provider.toLowerCase());
+            const available = item.available;
             return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), routePicker.all, "credential-provider", label, available ? "" : "暂无凭证", (checked) => {
               if (checked) {
                 routePicker.bindings.set(bindingKey(binding), binding);
@@ -5940,15 +5956,15 @@
                 }
               } else routePicker.bindings.delete(bindingKey(binding));
               renderRoutePicker();
-            }, "layers", null, "整类");
+            }, credentialIcon(item), null, "整类");
           });
-        credentialOptions.push(...state.credentials.filter((item) => matchesTerm(credentialLabel(item), term)).map((item) => {
+        credentialOptions.push(...state.credentials.filter((item) => (!routePicker.enabledOnly || !item.disabled) && matchesTerm(credentialLabel(item), term)).sort(compareCredentials).map((item) => {
           const binding = { kind: "credential", value: item.ref };
           const providerBinding = { kind: "credential_provider", value: providerKey(item) };
           const covered = routePicker.bindings.has(bindingKey(providerBinding));
           const disabled = routePicker.all || covered;
           const disabledReason = covered ? "已选择「" + credentialProviderLabel(item) + "」整类，该类别下的单个凭证无需重复选择。" : "";
-          return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), disabled, "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.bindings.set(bindingKey(binding), binding); else routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "key", disabledReason);
+          return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), disabled, "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.bindings.set(bindingKey(binding), binding); else routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, credentialIcon(item), disabledReason);
         }));
         for (const binding of routePicker.bindings.values()) if (binding.kind === "credential" && !state.credentials.some((item) => item.ref === binding.value) && matchesTerm(binding.value, term)) credentialOptions.push(pickerOption(true, routePicker.all, "credential", "上游凭证已不存在", binding.value.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "key"));
         sections.push(pickerSection("credentials", "上游凭证", credentialOptions, term ? "没有匹配的上游凭证" : "暂无上游凭证"));
@@ -5982,12 +5998,23 @@
         const selected = [...routePicker.bindings.values()].filter((binding) => bindingKinds.includes(binding.kind)).length + (kind === "routes" && routePicker.all ? 1 : 0);
         const expanded = !!routePicker.expanded[kind];
         return el("div", { class: "route-picker-section" },
-          el("button", { type: "button", class: "route-picker-group", "aria-label": (expanded ? "收起" : "展开") + title, "aria-expanded": String(expanded), onclick: () => { routePicker.expanded[kind] = !expanded; renderRoutePicker(); } },
-            el("span", { class: "route-picker-chevron", "aria-hidden": "true" }, actionIcon("chevron")),
-            el("span", { text: title }),
+          el("div", { class: "route-picker-group" },
+            el("button", { type: "button", class: "route-picker-group-toggle", "aria-label": (expanded ? "收起" : "展开") + title, "aria-expanded": String(expanded), onclick: () => { routePicker.expanded[kind] = !expanded; renderRoutePicker(); } },
+              el("span", { class: "route-picker-chevron", "aria-hidden": "true" }, actionIcon("chevron")),
+              el("span", { text: title }),
+            ),
+            kind === "credentials" ? compactEnabledToggle(routePicker.enabledOnly, (checked) => { routePicker.enabledOnly = checked; renderRoutePicker(); }, "仅显示启用的上游凭证") : null,
             el("span", { class: "route-picker-section-count", text: selected + "/" + options.length }),
           ),
           expanded ? el("div", {}, ...(options.length ? options : [el("div", { class: "empty", text: emptyText })])) : null,
+        );
+      }
+
+      function compactEnabledToggle(checked, onChange, title) {
+        return el("label", { class: "toggle-filter compact-toggle", title },
+          el("input", { type: "checkbox", checked: checked || undefined, onchange: (event) => onChange(event.target.checked) }),
+          el("span", { class: "toggle-track", "aria-hidden": "true" }),
+          el("span", { text: "仅启用" }),
         );
       }
 
@@ -6084,7 +6111,7 @@
           const rule = route.rule || {};
           const models = rule.models || [];
           const credentials = (rule.credential_providers || [])
-            .map((item) => ({ text: (item.source === "auth-files" ? "认证文件" : "AI 供应商") + " · " + item.provider, tag: "整类" }))
+            .map((item) => ({ text: credentialProviderLabel(item), tag: "整类" }))
             .concat((rule.credential_ids || []).map((ref) => {
               const credential = state.credentials.find((item) => item.ref === ref);
               return { text: credential ? credentialLabel(credential) : "凭证已不存在" };
@@ -6133,9 +6160,6 @@
             ? [el("div", { class: "notice warn show", text: "凭证信息暂时无法加载：" + state.access.credential_inventory_error })]
             : []),
           el("div", { class: "event-list settings-card-list", role: "list" }, cards),
-          ...(state.routes.some((route) => route.id !== ALL_ROUTE_ID)
-            ? []
-            : [el("div", { class: "empty", text: "暂无自定义路由规则" })]),
         );
         if ($("route-dialog").open) {
           renderRouteModelList();
@@ -6156,9 +6180,25 @@
 
       function routeProviderChoices(selected = routeProviders) {
         const providers = new Map();
-        for (const item of state.credentials) providers.set(providerKey(item), { source: item.source, provider: item.provider });
-        for (const key of selected) if (!providers.has(key)) { const item = credentialProviderFromValue(key); if (item) providers.set(key, item); }
-        return [...providers.values()];
+        const add = (item, available) => {
+          const key = providerKey(item);
+          const existing = providers.get(key);
+          providers.set(key, {
+            source: item.source,
+            provider: item.provider,
+            available: !!available || !!existing?.available,
+          });
+        };
+        for (const item of state.credentialProviders || [])
+          add(item, item.available);
+        for (const item of state.credentials)
+          add(item, !item.disabled && !item.unavailable);
+        for (const key of selected) {
+          if (providers.has(key)) continue;
+          const item = credentialProviderFromValue(key);
+          if (item) add(item, false);
+        }
+        return [...providers.values()].sort(compareCredentialProviders);
       }
 
       function renderRouteCredentialList() {
@@ -6166,10 +6206,10 @@
           if (routeProviders.has(providerKey(item))) routeCredentialIDs.delete(item.ref);
         }
         const term = routeRuleSearchTerm();
-        const options = routeProviderChoices().filter((item) => matchesTerm((item.source === "auth-files" ? "认证文件" : "AI 供应商") + " " + item.provider + " 整类", term)).map((item) => {
-          const source = item.source === "auth-files" ? "认证文件" : "AI 供应商";
-          const available = state.credentials.some((credential) => credential.source === item.source && credential.provider.toLowerCase() === item.provider.toLowerCase());
-          const label = source + " · " + item.provider;
+        const enabledOnly = $("route-credential-enabled-only").checked;
+        const options = routeProviderChoices().filter((item) => (!enabledOnly || item.available) && matchesTerm(credentialProviderLabel(item) + " 整类", term)).map((item) => {
+          const available = item.available;
+          const label = credentialProviderLabel(item);
           return el("label", {}, el("input", { type: "checkbox", checked: routeProviders.has(providerKey(item)) || undefined, onchange: (event) => {
             if (event.target.checked) {
               routeProviders.add(providerKey(item));
@@ -6178,13 +6218,13 @@
               }
             } else routeProviders.delete(providerKey(item));
             renderRouteCredentialList();
-          } }), actionIcon("layers"), el("span", { title: label + " · 整类" }, label), el("span", { class: "tag warn settings-item-chip", text: "整类" }), !available ? el("span", { class: "muted small", text: "暂无凭证" }) : null);
+          } }), actionIcon(credentialIcon(item)), el("span", { title: label + " · 整类" }, label), el("span", { class: "tag warn settings-item-chip", text: "整类" }), !available ? el("span", { class: "muted small", text: "暂无凭证" }) : null);
         });
-        const credentials = state.credentials.filter((item) => matchesTerm(credentialLabel(item), term));
+        const credentials = state.credentials.filter((item) => (!enabledOnly || !item.disabled) && matchesTerm(credentialLabel(item), term)).sort(compareCredentials);
         for (const item of credentials) {
           const label = credentialLabel(item);
           const covered = routeProviders.has(providerKey(item));
-          options.push(el("label", { class: covered ? "disabled" : "" }, el("input", { type: "checkbox", checked: routeCredentialIDs.has(item.ref) || undefined, disabled: covered || undefined, onchange: (event) => { if (event.target.checked) routeCredentialIDs.add(item.ref); else routeCredentialIDs.delete(item.ref); renderRouteCredentialList(); } }), actionIcon("key"), el("span", { title: label }, label)));
+          options.push(el("label", { class: covered ? "disabled" : "" }, el("input", { type: "checkbox", checked: routeCredentialIDs.has(item.ref) || undefined, disabled: covered || undefined, onchange: (event) => { if (event.target.checked) routeCredentialIDs.add(item.ref); else routeCredentialIDs.delete(item.ref); renderRouteCredentialList(); } }), actionIcon(credentialIcon(item)), el("span", { title: label }, label)));
         }
         for (const ref of routeCredentialIDs) if (!state.credentials.some((item) => item.ref === ref) && matchesTerm(ref, term)) options.push(el("label", {}, el("input", { type: "checkbox", checked: true, onchange: (event) => { if (!event.target.checked) routeCredentialIDs.delete(ref); renderRouteCredentialList(); } }), actionIcon("key"), el("span", { title: ref }, "凭证已不存在")));
         $("route-credential-list").replaceChildren(...(options.length ? options : [el("div", { class: "empty", text: "没有匹配项" })]));
@@ -6262,6 +6302,7 @@
         $("route-id").value = "";
         $("route-name").value = "";
         $("route-rule-search").value = "";
+        $("route-credential-enabled-only").checked = true;
         routeModels = new Set();
         routeCredentialIDs = new Set();
         routeProviders = new Set();
@@ -6276,6 +6317,7 @@
         $("route-save").textContent = "保存";
         $("route-name").value = route.name || "";
         $("route-rule-search").value = "";
+        $("route-credential-enabled-only").checked = true;
         routeModels = new Set(route.rule?.models || []);
         routeCredentialIDs = new Set(route.rule?.credential_ids || []);
         routeProviders = new Set((route.rule?.credential_providers || []).map(providerKey));
@@ -7340,7 +7382,7 @@
         try {
           const row = JSON.parse(message.slice(6));
           const model = row.model_result === "deny" ? "模型：拒绝" : row.model_result === "configuration_error" ? "模型：配置错误" : "模型：允许";
-          const credential = row.credential_result === "selected" ? "上游凭证：" + row.selected_credential : row.credential_result === "not_reached" ? "上游凭证：未进入选择阶段" : row.credential_result === "not_observed" ? "上游凭证：未观察到选择结果" : row.credential_result === "configuration_error" ? "上游凭证：配置错误" : "上游凭证：全部上游凭证";
+          const credential = row.credential_result === "selected" ? "上游凭证：" + row.selected_credential : row.credential_result === "no_match" ? "上游凭证：无符合条件的可用凭证" : row.credential_result === "not_reached" ? "上游凭证：未进入选择阶段" : row.credential_result === "not_observed" ? "上游凭证：未观察到选择结果" : row.credential_result === "configuration_error" ? "上游凭证：配置错误" : "上游凭证：全部上游凭证";
           const id = String(pluginLog.id || "");
           return el("details", {
             class: "plugin-log-message",
@@ -7707,119 +7749,28 @@
       $("gate-mode-admin").onclick = () => setLoginMode("admin");
       $("gate-mode-account").onclick = () => setLoginMode("account");
 
-      // @license Lucide Icons v1.40.0 - ISC; SVG nodes are embedded locally.
+      // @license Lucide Icons v1.40.0 - ISC; SVG assets are embedded locally.
       const LUCIDE_ICONS = {
-        refresh: {
-          name: "rotate-cw",
-          nodes: [
-            ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" }],
-            ["path", { d: "M21 3v5h-5" }],
-          ],
-        },
-        sun: {
-          name: "sun",
-          nodes: [
-            ["circle", { cx: "12", cy: "12", r: "4" }],
-            ["path", { d: "M12 2v2" }],
-            ["path", { d: "M12 20v2" }],
-            ["path", { d: "m4.93 4.93 1.41 1.41" }],
-            ["path", { d: "m17.66 17.66 1.41 1.41" }],
-            ["path", { d: "M2 12h2" }],
-            ["path", { d: "M20 12h2" }],
-            ["path", { d: "m6.34 17.66-1.41 1.41" }],
-            ["path", { d: "m19.07 4.93-1.41 1.41" }],
-          ],
-        },
-        moon: {
-          name: "moon",
-          nodes: [
-            ["path", { d: "M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" }],
-          ],
-        },
-        logout: {
-          name: "log-out",
-          nodes: [
-            ["path", { d: "m16 17 5-5-5-5" }],
-            ["path", { d: "M21 12H9" }],
-            ["path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }],
-          ],
-        },
-        download: {
-          name: "download",
-          nodes: [
-            ["path", { d: "M12 15V3" }],
-            ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }],
-            ["path", { d: "m7 10 5 5 5-5" }],
-          ],
-        },
-        copy: {
-          name: "copy",
-          nodes: [
-            ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" }],
-            ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }],
-          ],
-        },
-        check: {
-          name: "check",
-          nodes: [["path", { d: "M20 6 9 17l-5-5" }]],
-        },
-        chevron: {
-          name: "chevron-right",
-          nodes: [["path", { d: "m9 18 6-6-6-6" }]],
-        },
-        "chevron-down": {
-          name: "chevron-down",
-          nodes: [["path", { d: "m6 9 6 6 6-6" }]],
-        },
-        clock: {
-          name: "clock",
-          nodes: [
-            ["circle", { cx: "12", cy: "12", r: "10" }],
-            ["path", { d: "M12 6v6l4 2" }],
-          ],
-        },
-        layers: {
-          name: "layers",
-          nodes: [
-            ["path", { d: "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" }],
-            ["path", { d: "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" }],
-            ["path", { d: "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" }],
-          ],
-        },
-        key: {
-          name: "key-round",
-          nodes: [
-            ["path", { d: "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" }],
-            ["circle", { cx: "16.5", cy: "7.5", r: ".5", fill: "currentColor" }],
-          ],
-        },
+        refresh: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-cw"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>`,
+        sun: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>`,
+        moon: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-moon"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>`,
+        logout: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-log-out"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>`,
+        download: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>`,
+        copy: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`,
+        check: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg>`,
+        chevron: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right"><path d="m9 18 6-6-6-6"/></svg>`,
+        "chevron-down": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down"><path d="m6 9 6 6 6-6"/></svg>`,
+        clock: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clock"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
+        key: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-key-round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>`,
+        "file-key": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-key-icon lucide-file-key"><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M4 12v6"/><path d="M4 14h2"/><path d="M9.65 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v4"/><circle cx="4" cy="20" r="2"/></svg>`,
       };
 
       function actionIcon(name, className = "") {
-        const icon = LUCIDE_ICONS[name];
-        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        const classes = [
-          "lucide-icon",
-          "lucide-" + icon.name,
-          name === "chevron" ? "lucide-chevron-icon" : "",
-          className,
-        ].filter(Boolean);
-        for (const [attribute, value] of Object.entries({
-          class: classes.join(" "),
-          viewBox: "0 0 24 24",
-          fill: "none",
-          stroke: "currentColor",
-          "stroke-width": "2",
-          "stroke-linecap": "round",
-          "stroke-linejoin": "round",
-          "aria-hidden": "true",
-        })) svg.setAttribute(attribute, value);
-        for (const [tag, attributes] of icon.nodes) {
-          const child = document.createElementNS(svg.namespaceURI, tag);
-          for (const [attribute, value] of Object.entries(attributes))
-            child.setAttribute(attribute, value);
-          svg.append(child);
-        }
+        const svg = iconSVG(LUCIDE_ICONS[name]);
+        svg.classList.add("lucide-icon");
+        if (name === "chevron") svg.classList.add("lucide-chevron-icon");
+        if (className) svg.classList.add(...className.split(/\s+/).filter(Boolean));
+        svg.setAttribute("aria-hidden", "true");
         return svg;
       }
 
@@ -7939,6 +7890,7 @@
         return (
           currentRole === "admin" &&
           activeAdminTab() === "settings" &&
+          expandedPluginLogIDs.size === 0 &&
           scrollerAtTop("plugin-logs-body")
         );
       }
@@ -8245,6 +8197,10 @@
         renderRouteModelList();
         renderRouteCredentialList();
       });
+      $("route-credential-enabled-only").addEventListener(
+        "change",
+        renderRouteCredentialList,
+      );
       $("route-rule-all").onclick = () => {
         routeModels = new Set(catalogModels());
         routeCredentialIDs = new Set();

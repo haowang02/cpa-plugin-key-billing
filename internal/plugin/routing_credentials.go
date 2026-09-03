@@ -152,7 +152,7 @@ func (a *App) observeCandidates(candidates []SchedulerAuthCandidate) {
 			continue
 		}
 		provider := strings.ToLower(strings.TrimSpace(candidate.Provider))
-		name := provider + " 上游凭证 " + shortCredentialRef(ref)
+		name := "配置凭证 " + shortCredentialRef(ref)
 		if source == billing.CredentialSourceAuthFiles {
 			name = "未提供邮箱"
 		}
@@ -162,6 +162,28 @@ func (a *App) observeCandidates(candidates []SchedulerAuthCandidate) {
 		a.credentials[ref] = credentialView{Ref: ref, Source: source, Provider: provider, DisplayName: name, Status: candidate.Status}
 		a.credentialsByRawID[id] = ref
 	}
+}
+
+func (a *App) observeCredentialUsage(authIndex, authType, source, scope string) {
+	if !strings.EqualFold(strings.TrimSpace(authType), "apikey") {
+		return
+	}
+	if billing.CallerScope(source) == strings.TrimSpace(scope) {
+		return
+	}
+	name := billing.PreviewKey(source)
+	if name == "" {
+		return
+	}
+	a.routingMu.Lock()
+	defer a.routingMu.Unlock()
+	ref := a.credentialRefsByIndex[strings.TrimSpace(authIndex)]
+	credential, ok := a.credentials[ref]
+	if !ok || credential.Source != billing.CredentialSourceAIProviders {
+		return
+	}
+	credential.DisplayName = name
+	a.credentials[ref] = credential
 }
 
 func shortCredentialRef(ref string) string {
