@@ -3483,7 +3483,7 @@
             owner.access === null
           )
             tasks.push(loadAdminAccess(false));
-          if (tab === "settings" && owner.prices === null)
+          if (["keys", "settings"].includes(tab) && owner.prices === null)
             tasks.push(loadAdminPrices(false));
           if (tab === "settings" && owner.pluginLogs === null)
             tasks.push(loadPluginLogs());
