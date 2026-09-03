@@ -25,6 +25,14 @@
 - Never persist or log plaintext downstream or upstream API keys. Mask API-key credentials, omit uncertain account values, and use dummy credentials in tests; do not copy real credentials into the workspace.
 - Perform catalog downloads and parsing outside the billing store lock and the request-admission path. Request admission must never block on network I/O.
 
+## Changelog
+
+- Edit `Changelog.md` only when the user explicitly requests preparation for a tag or release. Ordinary code, documentation, and commit tasks do not authorize a changelog update.
+- Prepend one `## vX.Y.Z` section directly below `# Changelog`; never append releases or add an unreleased placeholder.
+- Treat sections for tags that already exist as immutable history. Do not edit, move, merge, or delete them unless the user explicitly requests changes to that tag's entry.
+- Use concise Chinese bullets that describe released behavior, not the development process. Include only relevant sections, ordered as `### 升级须知`, `### 后端`, then `### 前端`.
+- Put breaking changes, migration requirements, and operator actions in `### 升级须知`. Omit implementation details unless they affect users or operators.
+
 ## Commit Messages
 
 Follow Conventional Commits:
