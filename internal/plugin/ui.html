@@ -4,9 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>API Key 计费</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css" />
+    <script>
+      if (window.parent === window) {
+        document.documentElement.setAttribute("data-cpamp-plugin-host", "true");
+        document.documentElement.setAttribute("data-cpamp-standalone", "true");
+      }
+    </script>
     <style>
-      /* CPAMC theme fallbacks; CPAMP overrides them with injected host tokens. */
+      /* CPAMC fallbacks; standalone uses local CPAMP tokens and CPAMP overrides them from the host. */
       :root {
         --bg-secondary: #faf9f5;
         --bg-primary: #f0eee8;
@@ -116,6 +121,70 @@
         --shadow: 0 1px 3px 0 #0000004d;
         --event-code-bg: var(--bg-secondary);
         --event-code-border: var(--border-primary);
+      }
+      :root[data-cpamp-standalone="true"] {
+        --app-bg-gradient: linear-gradient(120deg, #f0f7ff 0%, #e7f2ff 50%, #edf7ff 100%);
+        --app-surface: rgb(255 255 255 / 0.94);
+        --app-surface-strong: #fff;
+        --app-surface-muted: rgb(255 255 255 / 0.68);
+        --app-border: rgb(15 23 42 / 0.08);
+        --app-border-strong: rgb(15 23 42 / 0.12);
+        --app-accent-soft: rgb(59 130 246 / 0.12);
+        --surface-subtle: #f6faff;
+        --glass-bg: #fff;
+        --glass-border: rgb(255 255 255 / 0.6);
+        --app-input-bg: rgb(255 255 255 / 0.62);
+        --app-input-bg-focus: #fff;
+        --app-input-border: var(--app-border-strong);
+        --color-success: #22c55e;
+        --primary-solid: #2563eb;
+        --primary-solid-hover: #3b82f6;
+        --primary-ring: rgb(59 130 246 / 0.22);
+        --data-cyan-base: #06b6d4;
+      }
+      :root[data-cpamp-standalone="true"][data-theme="dark"] {
+        --app-bg: #0a0a0a;
+        --app-bg-gradient: linear-gradient(120deg, #0b1324 0%, #0a1426 50%, #091521 100%);
+        --app-surface: rgb(24 28 40 / 0.9);
+        --app-surface-strong: #1b1f2a;
+        --app-surface-muted: rgb(255 255 255 / 0.08);
+        --app-border: rgb(255 255 255 / 0.08);
+        --app-border-strong: rgb(255 255 255 / 0.12);
+        --app-text-primary: #e5e5e5;
+        --app-text-regular: #a3a3a3;
+        --app-text-muted: #7a7a7a;
+        --app-accent-soft: rgb(96 165 250 / 0.18);
+        --surface-subtle: rgb(255 255 255 / 0.06);
+        --glass-bg: rgb(24 28 40 / 0.72);
+        --glass-border: rgb(255 255 255 / 0.1);
+        --app-input-bg: #1b1f2a;
+        --app-input-bg-focus: #1b1f2a;
+        --color-primary: #60a5fa;
+        --color-primary-light-3: #93c5fd;
+        --color-primary-dark-2: #3b82f6;
+        --color-success: #4ade80;
+        --primary-solid: #60a5fa;
+        --primary-ring: rgb(96 165 250 / 0.22);
+        --data-blue-base: #60a5fa;
+        --data-green-base: #4ade80;
+        --data-amber-base: #fbbf24;
+        --data-red-base: #f87171;
+        --data-violet-base: #a78bfa;
+        --data-cyan-base: #22d3ee;
+        --data-badge-success-bg: rgb(74 222 128 / 0.14);
+        --data-badge-success-text: #4ade80;
+        --data-badge-success-border: rgb(74 222 128 / 0.24);
+        --data-badge-warning-bg: rgb(251 191 36 / 0.14);
+        --data-badge-warning-text: #fbbf24;
+        --data-badge-warning-border: rgb(251 191 36 / 0.24);
+        --data-badge-danger-bg: rgb(248 113 113 / 0.14);
+        --data-badge-danger-text: #f87171;
+        --data-badge-danger-border: rgb(248 113 113 / 0.24);
+        --data-badge-info-bg: rgb(96 165 250 / 0.14);
+        --data-badge-info-text: #60a5fa;
+        --data-badge-info-border: rgb(96 165 250 / 0.24);
+        --data-badge-neutral-bg: rgb(148 163 184 / 0.12);
+        --data-badge-neutral-text: #94a3b8;
       }
       :root[data-cpamp-plugin-host="true"] {
         /* Resolve plugin components from CPAMP's injected semantic tokens. */
@@ -306,21 +375,24 @@
       .native-select::after {
         content: "";
         position: absolute;
-        right: 13px;
+        right: 8px;
         top: 50%;
-        width: 8px;
-        height: 8px;
-        border-right: 2px solid currentColor;
-        border-bottom: 2px solid currentColor;
-        transform: translateY(-70%) rotate(45deg);
+        width: 20px;
+        height: 20px;
+        background: currentColor;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+        transform: translateY(-50%);
         pointer-events: none;
       }
       .native-select > select {
         -webkit-appearance: none;
         appearance: none;
-        padding-right: 34px;
+        padding-right: 36px;
         color: var(--text-primary);
       }
+      label.field > .native-select,
+      label.field > .native-select > select { width: 100%; }
       label.field {
         display: flex;
         flex-direction: column;
@@ -394,7 +466,37 @@
         gap: 12px;
         margin-bottom: 16px;
       }
-      .page-tabs-row > .tabs { min-width: 0; margin-bottom: 0; }
+      .tabs-scroll {
+        --tabs-fade-surface: var(--bg-secondary);
+        position: relative;
+        width: max-content;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .tabs-scroll > .tabs { margin-bottom: 0; }
+      .tabs-scroll::before,
+      .tabs-scroll::after {
+        content: "";
+        position: absolute;
+        z-index: 2;
+        top: 1px;
+        bottom: 1px;
+        width: 32px;
+        border-radius: 13px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+      .tabs-scroll::before {
+        left: 1px;
+        background: linear-gradient(to right, var(--tabs-fade-surface) 20%, transparent);
+      }
+      .tabs-scroll::after {
+        right: 1px;
+        background: linear-gradient(to left, var(--tabs-fade-surface) 20%, transparent);
+      }
+      .tabs-scroll.can-scroll-left::before,
+      .tabs-scroll.can-scroll-right::after { opacity: 1; }
       .tag {
         display: inline-flex;
         align-items: center;
@@ -483,7 +585,13 @@
         border-color: var(--app-input-border, var(--app-border));
         background: var(--app-input-bg, var(--app-surface-strong));
       }
-      :root[data-cpamp-plugin-host="true"] button:not(.link) {
+      :root[data-cpamp-plugin-host="true"]
+        button:not(
+          .link,
+          .icon-action,
+          .auth-refresh-icon-button,
+          .route-picker-group
+        ) {
         min-height: 34px;
         padding: 0 12px;
         border-color: var(--app-border, var(--border-color));
@@ -544,6 +652,13 @@
         );
         box-shadow: inset 0 1px 2px #0f17210d;
         scrollbar-width: none;
+      }
+      :root[data-cpamp-plugin-host="true"] .tabs-scroll {
+        --tabs-fade-surface: color-mix(
+          in srgb,
+          var(--surface-subtle, var(--bg-tertiary)) 78%,
+          var(--bg-primary)
+        );
       }
       :root[data-cpamp-plugin-host="true"] .tabs::-webkit-scrollbar { display: none; }
       :root[data-cpamp-plugin-host="true"] .tabs button[data-tab],
@@ -623,8 +738,10 @@
         .quota-fill,
         .account-model-card,
         .auth-file-card,
-        .fa-chevron-icon { transition: none; }
-        .auth-refresh-icon-button.loading i { animation: none; }
+        .lucide-chevron-icon,
+        .tabs-scroll::before,
+        .tabs-scroll::after { transition: none; }
+        .auth-refresh-icon-button.loading .lucide-icon { animation: none; }
       }
       .concurrency-editor { display: flex; align-items: center; gap: 7px; min-width: 172px; }
       .concurrency-editor .native-select,
@@ -659,7 +776,7 @@
         min-height: 22px;
         padding: 0;
       }
-      .key-copy-button i { width: 12px; font-size: 12px; text-align: center; }
+      .key-copy-button .lucide-icon { width: 12px; height: 12px; }
       .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
       .notice {
         padding: 10px 14px;
@@ -722,6 +839,41 @@
         color: var(--text-primary);
         box-shadow: var(--shadow);
       }
+      :root[data-cpamp-plugin-host="true"] .access-switch {
+        border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+        border-radius: 14px;
+        background: color-mix(
+          in srgb,
+          var(--surface-subtle, var(--bg-tertiary)) 78%,
+          var(--bg-primary)
+        );
+      }
+      :root[data-cpamp-plugin-host="true"] .access-switch button {
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--text-secondary);
+        box-shadow: none;
+      }
+      :root[data-cpamp-plugin-host="true"]
+        .access-switch
+        button:hover:not(:disabled) {
+        background: color-mix(
+          in srgb,
+          var(--primary-color) 6%,
+          var(--bg-primary)
+        );
+        color: var(--primary-active);
+      }
+      :root[data-cpamp-plugin-host="true"] .access-switch button.active,
+      :root[data-cpamp-plugin-host="true"]
+        .access-switch
+        button.active:hover:not(:disabled) {
+        background: var(--app-accent-soft, var(--bg-hover));
+        color: var(--primary-color);
+        box-shadow: inset 0 0 0 1px
+          color-mix(in srgb, var(--primary-color) 30%, transparent);
+      }
       .gate .field { gap: 6px; color: var(--text-primary); font-size: 13px; font-weight: 600; }
       .gate .field input { width: 100%; min-height: 42px; padding: 8px 11px; font-size: 14px; }
       .remember-row {
@@ -761,6 +913,7 @@
         border-color: transparent;
         background: transparent;
         color: var(--text-secondary);
+        line-height: 0;
       }
       .standalone-actions .icon-action:hover:not(:disabled) {
         border-color: transparent;
@@ -772,7 +925,25 @@
         box-shadow: 0 0 0 2px
           color-mix(in srgb, var(--primary-color) 26%, transparent);
       }
-      .icon-action i { width: 16px; font-size: 16px; text-align: center; }
+      .gate .standalone-actions {
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+      .gate .standalone-actions .icon-action { border-radius: 50%; }
+      :root[data-cpamp-standalone="true"]
+        .app-header
+        .standalone-actions
+        .icon-action:hover:not(:disabled) {
+        border-color: transparent;
+        background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+        color: var(--text-primary);
+      }
+      .icon-action .lucide-icon { width: 16px; height: 16px; }
       body.embedded .standalone-actions { display: none; }
       .account-subscription-stats { margin-bottom: 16px; }
       .account-plan { display: grid; gap: 10px; margin: 0; }
@@ -804,10 +975,10 @@
       .account-access-chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
       .plugin-log-message summary::-webkit-details-marker { display: none; }
       .details-summary { display: flex; align-items: flex-start; gap: 7px; list-style: none; cursor: pointer; }
-      .details-summary-icon { display: grid; place-items: center; flex: 0 0 12px; height: 1.55em; }
-      .details-summary-icon .fa-chevron-icon { margin: 0; }
-      details[open] > .details-summary .fa-chevron-icon,
-      .route-picker-group[aria-expanded="true"] .fa-chevron-icon { transform: rotate(90deg); }
+      .details-summary-icon { display: grid; place-items: center; flex: 0 0 14px; height: 1.55em; }
+      .details-summary-icon .lucide-chevron-icon { margin: 0; }
+      details[open] > .details-summary .lucide-chevron-icon,
+      .route-picker-group[aria-expanded="true"] .lucide-chevron-icon { transform: rotate(90deg); }
       .account-access-warnings { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
       .account-model-card {
         display: grid;
@@ -878,6 +1049,7 @@
       .account-empty { padding: 40px 20px; text-align: center; }
       .empty { padding: 26px; text-align: center; color: var(--text-tertiary); }
       .auth-filter-bar { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+      .auth-filter-bar .native-select,
       .auth-filter-bar select { min-width: 150px; }
       .auth-filter-bar input[type="search"] { flex: 0 1 240px; width: 240px; min-width: 140px; }
       .toggle-filter {
@@ -1017,15 +1189,16 @@
       .auth-refresh-icon-button {
         display: grid;
         place-items: center;
-        width: 34px;
-        min-width: 34px;
-        min-height: 34px;
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        min-height: 30px;
         padding: 0;
+        border-radius: 50%;
         line-height: 0;
       }
-      .auth-refresh-icon-button i { display: block; width: 14px; font-size: 13px; transform-origin: center; }
-      :root[data-cpamp-plugin-host="true"] button.auth-refresh-icon-button { padding: 0; line-height: 0; }
-      .auth-refresh-icon-button.loading i { animation: auth-refresh-spin 0.8s linear infinite; }
+      .auth-refresh-icon-button .lucide-icon { width: 14px; height: 14px; transform-origin: center; }
+      .auth-refresh-icon-button.loading .lucide-icon { animation: auth-refresh-spin 0.8s linear infinite; }
       @keyframes auth-refresh-spin {
         to { transform: rotate(360deg); }
       }
@@ -1101,6 +1274,7 @@
         gap: 14px;
       }
       .settings-form-grid .field,
+      .settings-form-grid .native-select,
       .settings-form-grid input,
       .settings-form-grid select { width: 100%; }
       .settings-picker-section { display: grid; gap: 8px; margin-top: 20px; }
@@ -1222,11 +1396,17 @@
       .settings-entry-value { flex: 1; min-width: 0; color: var(--text-primary); }
       .settings-chip-list { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; }
       .settings-item-chip { flex: none; }
-      .fa-chevron-icon {
+      .lucide-icon {
         display: block;
-        width: 10px;
-        font-size: 11px;
-        text-align: center;
+        flex: none;
+        width: 1em;
+        height: 1em;
+      }
+      .lucide-chevron-icon {
+        display: block;
+        width: 14px;
+        height: 14px;
+        stroke-width: 2.5;
         transition: transform 0.15s ease;
       }
       .settings-chip {
@@ -1297,7 +1477,7 @@
       }
       .route-picker .route-picker-group {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         gap: 5px;
         width: 100%;
         min-height: 0;
@@ -1305,23 +1485,13 @@
         background: transparent;
         border: 0;
         border-top: 1px solid var(--border-color);
-        border-radius: 0;
-        padding: 8px 2px 5px 7px;
+        border-radius: 6px;
+        padding: 7px 2px 7px 7px;
         font-size: 12px;
         font-weight: 400;
         line-height: 1.5;
         color: var(--text-tertiary);
         margin-top: 4px;
-      }
-      :root[data-cpamp-plugin-host="true"] .route-picker .route-picker-group {
-        min-height: 0;
-        padding: 8px 2px 5px 7px;
-        border: 0;
-        border-top: 1px solid var(--border-color);
-        border-radius: 0;
-        background: transparent;
-        font-weight: 400;
-        line-height: 1.5;
       }
       .route-picker-chevron {
         display: grid;
@@ -1331,11 +1501,10 @@
         height: 1.5em;
         color: var(--text-secondary);
       }
-      .route-picker-chevron .fa-chevron-icon {
-        width: 1em;
+      .route-picker-chevron .lucide-chevron-icon {
+        width: 14px;
+        height: 14px;
         margin: 0;
-        font-size: inherit;
-        line-height: 1;
       }
       .route-picker-section-count { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
       .route-picker-list > .route-picker-section:first-child > .route-picker-group { border-top: none; margin-top: 0; }
@@ -1348,6 +1517,8 @@
         border-radius: 6px;
         cursor: pointer;
       }
+      .route-picker-option > .lucide-icon,
+      .key-picker label > .lucide-icon { width: 14px; height: 14px; }
       .route-picker-option.model > span {
         font-family:
           ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
@@ -1401,17 +1572,17 @@
       }
       .time-range-icon {
         width: 15px;
+        height: 15px;
         flex: none;
         color: var(--text-tertiary);
-        font-size: 14px;
-        text-align: center;
       }
       .time-range-icon + span { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; }
       .time-range-chevron {
-        width: 10px;
+        width: 20px;
+        height: 20px;
         margin-left: 3px;
-        font-size: 10px;
-        text-align: center;
+        color: var(--text-secondary);
+        stroke-width: 2;
         transition: transform 0.15s ease;
       }
       .time-range-trigger[aria-expanded="true"] .time-range-chevron { transform: rotate(180deg); }
@@ -1423,7 +1594,7 @@
         width: min(320px, calc(100vw - 24px));
         padding: 12px;
         border: 1px solid var(--floating-border, var(--border-color));
-        border-radius: var(--radius-md);
+        border-radius: 12px;
         background: var(--floating-surface);
         box-shadow: var(--floating-shadow);
         transform-origin: top right;
@@ -1437,10 +1608,10 @@
       .time-range-presets button {
         min-width: 0;
         min-height: 34px;
-        padding: 0 9px;
-        border: 1px solid transparent;
+        padding: 0 12px;
+        border: 1px solid var(--border-color);
         border-radius: 8px;
-        background: transparent;
+        background: var(--bg-secondary);
         color: var(--text-secondary);
         font-size: 12px;
         font-weight: 500;
@@ -1448,30 +1619,33 @@
         white-space: nowrap;
       }
       .time-range-presets button:hover {
-        border-color: var(--border-color);
-        background: var(--bg-secondary);
+        border-color: var(--border-hover);
+        background: var(--bg-hover);
         color: var(--text-primary);
       }
       .time-range-presets button.active {
-        border-color: color-mix(
-          in srgb,
-          var(--primary-color) 34%,
-          var(--border-color)
-        );
-        background: color-mix(
-          in srgb,
-          var(--primary-color) 9%,
-          var(--bg-primary)
-        );
+        border-color: var(--border-hover);
+        background: var(--bg-tertiary);
         color: var(--text-primary);
+        box-shadow: none;
       }
       .time-range-presets button.active::after {
-        content: "✓";
+        content: "";
+        display: block;
         float: right;
+        width: 14px;
+        height: 14px;
+        margin-top: 2px;
+        background: currentColor;
         color: var(--primary-color);
-        font-weight: 700;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
       }
       .time-range-presets button:last-child { grid-column: 1/-1; }
+      :root:not([data-cpamp-plugin-host="true"])
+        .time-range-presets button.active::after {
+        color: var(--text-secondary);
+      }
       .time-range-custom {
         display: grid;
         grid-template-columns: 1fr;
@@ -1661,20 +1835,24 @@
         :root:not([data-cpamp-plugin-host="true"]) body.embedded .wrap { padding-top: 90px; }
         .section-toolbar { align-items: flex-start; }
         .page-tabs-row { align-items: stretch; flex-direction: column; }
-        .page-tabs-row > .tabs { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
+        .page-tabs-row > .tabs-scroll { width: 100%; }
+        .tabs-scroll > .tabs { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
         .shared-time-filter { width: 100%; }
-        .shared-time-filter select { flex: 1 1 0; min-width: 0; }
+        .shared-time-filter > .native-select { flex: 1 1 0; min-width: 0; }
+        .shared-time-filter > .native-select > select { width: 100%; min-width: 0; }
         .section-toolbar > .section-actions { flex: 1 1 100%; width: 100%; }
         .section-actions .wide-search,
         #price-filter,
         .section-actions #request-event-note { flex: 1 0 100%; }
         .auth-filter-bar { display: grid; grid-template-columns: 1fr 1fr; }
         .auth-filter-bar input[type="search"] { width: 100%; min-width: 0; }
+        .auth-filter-bar .native-select,
         .auth-filter-bar select,
         .toggle-filter { width: 100%; min-width: 0; }
         .auth-file-grid { grid-template-columns: 1fr; }
         .event-list-card { height: clamp(560px, calc(100dvh - 20px), 760px); }
         .event-card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .event-card-actions .native-select,
         .event-card-actions select { width: 100%; min-width: 0; }
         .usage-distribution-layout { grid-template-columns: 1fr; }
         .usage-distribution-chart { width: min(220px, 72vw); }
@@ -1747,7 +1925,7 @@
         white-space: nowrap;
       }
       .export-button.hidden { display: none; }
-      .labeled-icon-button i { width: 15px; color: var(--text-tertiary); font-size: 14px; text-align: center; }
+      .labeled-icon-button .lucide-icon { width: 15px; height: 15px; color: var(--text-tertiary); }
       .usage-distribution-card { min-height: 360px; }
       .analysis-summary-grid {
         display: grid;
@@ -2024,22 +2202,26 @@
         <div id="notice" class="notice" popover="manual"></div>
 
         <div class="page-tabs-row">
-          <div class="tabs">
-            <button data-tab="keys" class="active">API Key</button>
-            <button data-tab="analysis">分析</button>
-            <button data-tab="request-events">请求事件</button>
-            <button data-tab="errors">错误事件</button>
-            <button data-tab="auth-files">认证文件</button>
-            <button data-tab="settings">设置</button>
+          <div class="tabs-scroll">
+            <div class="tabs">
+              <button data-tab="keys" class="active">API Key</button>
+              <button data-tab="analysis">分析</button>
+              <button data-tab="request-events">请求事件</button>
+              <button data-tab="errors">错误事件</button>
+              <button data-tab="auth-files">认证文件</button>
+              <button data-tab="settings">设置</button>
+            </div>
           </div>
           <div id="shared-time-filter" class="shared-time-filter hidden">
-            <select id="analysis-key" aria-label="按 API Key 筛选">
-              <option value="">全部 API Key</option>
-            </select>
+            <span class="native-select">
+              <select id="analysis-key" aria-label="按 API Key 筛选">
+                <option value="">全部 API Key</option>
+              </select>
+            </span>
             <div class="time-range-control">
               <button id="shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
-                <i class="fa-regular fa-clock time-range-icon" aria-hidden="true"></i>
-                <span id="shared-time-label">最近 30 天</span><i class="fa-solid fa-chevron-down time-range-chevron" aria-hidden="true"></i>
+                <span class="time-range-icon" data-lucide-icon="clock" aria-hidden="true"></span>
+                <span id="shared-time-label">最近 30 天</span><span class="time-range-chevron" data-lucide-icon="chevron-down" aria-hidden="true"></span>
               </button>
               <div id="shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择时间范围">
                 <div class="time-range-heading">时间范围</div>
@@ -2099,13 +2281,15 @@
               <label class="field">名称<input id="plan-name" placeholder="团队 30 天额度" /></label>
               <label class="field">额度（USD）<input id="plan-amount" type="number" step="any" min="0.000001" /></label>
               <label class="field">周期
-                <select id="plan-kind">
-                  <option value="daily">24 小时</option>
-                  <option value="weekly">7 天</option>
-                  <option value="monthly">30 天</option>
-                  <option value="custom">自定义周期</option>
-                  <option value="never">不重置</option>
-                </select>
+                <span class="native-select">
+                  <select id="plan-kind">
+                    <option value="daily">24 小时</option>
+                    <option value="weekly">7 天</option>
+                    <option value="monthly">30 天</option>
+                    <option value="custom">自定义周期</option>
+                    <option value="never">不重置</option>
+                  </select>
+                </span>
               </label>
               <label class="field hidden" id="plan-seconds-field">时长（秒）<input id="plan-seconds" type="number" min="1" value="3600" /></label>
             </div>
@@ -2176,17 +2360,17 @@
             <div class="row spread section-toolbar event-list-title-row">
               <h2>请求事件</h2>
               <div class="row section-actions event-card-actions">
-                <select id="request-event-model" aria-label="按模型筛选">
-                  <option value="">全部模型</option>
-                </select>
-                <select id="request-event-source" aria-label="按来源筛选">
-                  <option value="">全部来源</option>
-                </select>
-                <select id="request-event-status" aria-label="按状态筛选">
-                  <option value="">全部状态</option>
-                  <option value="normal">正常</option>
-                  <option value="failed">失败</option>
-                </select>
+                <span class="native-select"><select id="request-event-model" aria-label="按模型筛选">
+                    <option value="">全部模型</option>
+                  </select></span>
+                <span class="native-select"><select id="request-event-source" aria-label="按来源筛选">
+                    <option value="">全部来源</option>
+                  </select></span>
+                <span class="native-select"><select id="request-event-status" aria-label="按状态筛选">
+                    <option value="">全部状态</option>
+                    <option value="normal">正常</option>
+                    <option value="failed">失败</option>
+                  </select></span>
                 <button id="request-events-filter-clear" class="link" type="button">清除筛选</button>
               </div>
             </div>
@@ -2202,12 +2386,12 @@
             <div class="row spread section-toolbar">
               <h2>错误事件</h2>
               <div class="row section-actions event-card-actions">
-                <select id="error-model" aria-label="按模型筛选">
-                  <option value="">全部模型</option>
-                </select>
-                <select id="error-source" aria-label="按来源筛选">
-                  <option value="">全部来源</option>
-                </select>
+                <span class="native-select"><select id="error-model" aria-label="按模型筛选">
+                    <option value="">全部模型</option>
+                  </select></span>
+                <span class="native-select"><select id="error-source" aria-label="按来源筛选">
+                    <option value="">全部来源</option>
+                  </select></span>
                 <button id="errors-filter-clear" class="link" type="button">清除筛选</button>
               </div>
             </div>
@@ -2224,14 +2408,14 @@
               <h2>认证文件</h2>
               <div class="row section-actions auth-filter-bar">
                 <label class="toggle-filter"><input id="auth-enabled-only" type="checkbox" checked /><span class="toggle-track" aria-hidden="true"></span><span>仅启用</span></label>
-                <select id="auth-provider" aria-label="按认证文件类别筛选">
-                  <option value="">全部类别</option>
-                  <option value="claude">Claude</option>
-                  <option value="antigravity">Antigravity</option>
-                  <option value="codex">Codex</option>
-                  <option value="xai">xAI</option>
-                  <option value="kimi">Kimi</option>
-                </select>
+                <span class="native-select"><select id="auth-provider" aria-label="按认证文件类别筛选">
+                    <option value="">全部类别</option>
+                    <option value="claude">Claude</option>
+                    <option value="antigravity">Antigravity</option>
+                    <option value="codex">Codex</option>
+                    <option value="xai">xAI</option>
+                    <option value="kimi">Kimi</option>
+                  </select></span>
                 <input id="auth-search" type="search" placeholder="搜索认证文件" autocomplete="off" />
                 <button id="auth-refresh-filtered" class="labeled-icon-button" type="button">更新限额</button>
               </div>
@@ -2245,12 +2429,12 @@
             <div class="row spread section-toolbar">
               <h2>插件日志</h2>
               <div class="row section-actions">
-                <select id="plugin-log-level" aria-label="按级别筛选">
-                  <option value="all">全部级别</option>
-                  <option value="debug">调试</option>
-                  <option value="info">信息</option>
-                  <option value="error">错误</option>
-                </select>
+                <span class="native-select"><select id="plugin-log-level" aria-label="按级别筛选">
+                    <option value="all">全部级别</option>
+                    <option value="debug">调试</option>
+                    <option value="info">信息</option>
+                    <option value="error">错误</option>
+                  </select></span>
                 <input id="plugin-log-filter" placeholder="搜索日志内容" class="wide-search" />
                 <button id="plugin-logs-clear" class="danger">清空日志</button>
               </div>
@@ -2283,18 +2467,20 @@
         </section>
         <section id="account-content">
           <div class="page-tabs-row">
-            <nav class="tabs" aria-label="API Key 查询功能">
-              <button type="button" class="active" data-account-tab="subscription">订阅</button>
-              <button type="button" data-account-tab="analysis">分析</button>
-              <button type="button" data-account-tab="request-events">请求事件</button>
-              <button type="button" data-account-tab="errors">错误事件</button>
-              <button type="button" data-account-tab="auth-files">认证文件</button>
-            </nav>
+            <div class="tabs-scroll">
+              <nav class="tabs" aria-label="API Key 查询功能">
+                <button type="button" class="active" data-account-tab="subscription">订阅</button>
+                <button type="button" data-account-tab="analysis">分析</button>
+                <button type="button" data-account-tab="request-events">请求事件</button>
+                <button type="button" data-account-tab="errors">错误事件</button>
+                <button type="button" data-account-tab="auth-files">认证文件</button>
+              </nav>
+            </div>
             <div id="account-shared-time-filter" class="shared-time-filter hidden">
               <div class="time-range-control">
                 <button id="account-shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
-                  <i class="fa-regular fa-clock time-range-icon" aria-hidden="true"></i>
-                  <span id="account-shared-time-label">最近 30 天</span><i class="fa-solid fa-chevron-down time-range-chevron" aria-hidden="true"></i>
+                  <span class="time-range-icon" data-lucide-icon="clock" aria-hidden="true"></span>
+                  <span id="account-shared-time-label">最近 30 天</span><span class="time-range-chevron" data-lucide-icon="chevron-down" aria-hidden="true"></span>
                 </button>
                 <div id="account-shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择时间范围">
                   <div class="time-range-heading">时间范围</div>
@@ -2359,17 +2545,17 @@
               <div class="row spread section-toolbar event-list-title-row">
                 <h2>请求事件</h2>
                 <div class="row section-actions event-card-actions">
-                  <select id="account-request-event-model" aria-label="按模型筛选">
-                    <option value="">全部模型</option>
-                  </select>
-                  <select id="account-request-event-source" aria-label="按来源筛选">
-                    <option value="">全部来源</option>
-                  </select>
-                  <select id="account-request-event-status" aria-label="按状态筛选">
-                    <option value="">全部状态</option>
-                    <option value="normal">正常</option>
-                    <option value="failed">失败</option>
-                  </select>
+                  <span class="native-select"><select id="account-request-event-model" aria-label="按模型筛选">
+                      <option value="">全部模型</option>
+                    </select></span>
+                  <span class="native-select"><select id="account-request-event-source" aria-label="按来源筛选">
+                      <option value="">全部来源</option>
+                    </select></span>
+                  <span class="native-select"><select id="account-request-event-status" aria-label="按状态筛选">
+                      <option value="">全部状态</option>
+                      <option value="normal">正常</option>
+                      <option value="failed">失败</option>
+                    </select></span>
                   <button id="account-request-events-filter-clear" class="link" type="button">清除筛选</button>
                 </div>
               </div>
@@ -2384,12 +2570,12 @@
               <div class="row spread section-toolbar">
                 <h2>错误事件</h2>
                 <div class="row section-actions event-card-actions">
-                  <select id="account-error-model">
-                    <option value="">全部模型</option>
-                  </select>
-                  <select id="account-error-source">
-                    <option value="">全部来源</option>
-                  </select>
+                  <span class="native-select"><select id="account-error-model">
+                      <option value="">全部模型</option>
+                    </select></span>
+                  <span class="native-select"><select id="account-error-source">
+                      <option value="">全部来源</option>
+                    </select></span>
                   <button id="account-errors-filter-clear" class="link" type="button">清除筛选</button>
                 </div>
               </div>
@@ -2405,14 +2591,14 @@
                 <h2>认证文件</h2>
                 <div class="row section-actions auth-filter-bar">
                   <label class="toggle-filter"><input id="account-auth-enabled-only" type="checkbox" checked /><span class="toggle-track" aria-hidden="true"></span><span>仅启用</span></label>
-                  <select id="account-auth-provider" aria-label="按认证文件类别筛选">
-                    <option value="">全部类别</option>
-                    <option value="claude">Claude</option>
-                    <option value="antigravity">Antigravity</option>
-                    <option value="codex">Codex</option>
-                    <option value="xai">xAI</option>
-                    <option value="kimi">Kimi</option>
-                  </select>
+                  <span class="native-select"><select id="account-auth-provider" aria-label="按认证文件类别筛选">
+                      <option value="">全部类别</option>
+                      <option value="claude">Claude</option>
+                      <option value="antigravity">Antigravity</option>
+                      <option value="codex">Codex</option>
+                      <option value="xai">xAI</option>
+                      <option value="kimi">Kimi</option>
+                    </select></span>
                   <input id="account-auth-search" type="search" placeholder="搜索认证文件" autocomplete="off" />
                   <button id="account-auth-refresh-filtered" class="labeled-icon-button" type="button">更新限额</button>
                 </div>
@@ -3517,6 +3703,39 @@
         );
       }
 
+      const TAB_BARS = Array.from(
+        document.querySelectorAll(".tabs-scroll > .tabs"),
+      );
+
+      function updateTabScrollHint(tabBar) {
+        const maxScrollLeft = tabBar.scrollWidth - tabBar.clientWidth;
+        const frame = tabBar.parentElement;
+        frame.classList.toggle("can-scroll-left", tabBar.scrollLeft > 2);
+        frame.classList.toggle(
+          "can-scroll-right",
+          tabBar.scrollLeft < maxScrollLeft - 2,
+        );
+      }
+
+      function revealTab(tab) {
+        requestAnimationFrame(() => {
+          const tabBar = tab.parentElement;
+          tabBar.scrollTo({
+            left: tab.offsetLeft - (tabBar.clientWidth - tab.offsetWidth) / 2,
+            behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+              ? "auto"
+              : "smooth",
+          });
+          updateTabScrollHint(tabBar);
+        });
+      }
+
+      for (const tabBar of TAB_BARS) {
+        tabBar.addEventListener("scroll", () => updateTabScrollHint(tabBar), {
+          passive: true,
+        });
+      }
+
       function ensureViewInitialized(account) {
         const tasks = [];
         const owner = account ? accountState : state;
@@ -3617,6 +3836,9 @@
           closeSharedTimePopover(true);
         }
         if (currentRole === "account" && accountState.status) renderAccount();
+        revealTab(
+          document.querySelector(`[data-account-tab="${accountTab}"]`),
+        );
       }
 
       function renderAccount(renderDetail = true) {
@@ -5634,7 +5856,7 @@
         node.style.top = Math.round(top) + "px";
       }
 
-      function pickerOption(checked, disabled, kind, label, note, onToggle, icon, disabledReason, tag) {
+      function pickerOption(checked, disabled, kind, label, note, onToggle, iconName, disabledReason, tag) {
         return el(
           "label",
           {
@@ -5650,7 +5872,7 @@
             disabled: disabled || undefined,
             onchange: (event) => onToggle(event.target.checked),
           }),
-          icon ? el("i", { class: icon + " fa-fw", "aria-hidden": "true" }) : null,
+          iconName ? actionIcon(iconName) : null,
           el("span", { title: label }, label),
           tag ? el("span", { class: "tag warn settings-item-chip", text: tag }) : null,
           note ? el("span", { class: "count" }, note) : null,
@@ -5718,7 +5940,7 @@
                 }
               } else routePicker.bindings.delete(bindingKey(binding));
               renderRoutePicker();
-            }, "fa-solid fa-layer-group", null, "整类");
+            }, "layers", null, "整类");
           });
         credentialOptions.push(...state.credentials.filter((item) => matchesTerm(credentialLabel(item), term)).map((item) => {
           const binding = { kind: "credential", value: item.ref };
@@ -5726,9 +5948,9 @@
           const covered = routePicker.bindings.has(bindingKey(providerBinding));
           const disabled = routePicker.all || covered;
           const disabledReason = covered ? "已选择「" + credentialProviderLabel(item) + "」整类，该类别下的单个凭证无需重复选择。" : "";
-          return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), disabled, "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.bindings.set(bindingKey(binding), binding); else routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "fa-solid fa-key", disabledReason);
+          return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), disabled, "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.bindings.set(bindingKey(binding), binding); else routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "key", disabledReason);
         }));
-        for (const binding of routePicker.bindings.values()) if (binding.kind === "credential" && !state.credentials.some((item) => item.ref === binding.value) && matchesTerm(binding.value, term)) credentialOptions.push(pickerOption(true, routePicker.all, "credential", "上游凭证已不存在", binding.value.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "fa-solid fa-key"));
+        for (const binding of routePicker.bindings.values()) if (binding.kind === "credential" && !state.credentials.some((item) => item.ref === binding.value) && matchesTerm(binding.value, term)) credentialOptions.push(pickerOption(true, routePicker.all, "credential", "上游凭证已不存在", binding.value.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "key"));
         sections.push(pickerSection("credentials", "上游凭证", credentialOptions, term ? "没有匹配的上游凭证" : "暂无上游凭证"));
 
         const modelOptions = catalogModels()
@@ -5956,15 +6178,15 @@
               }
             } else routeProviders.delete(providerKey(item));
             renderRouteCredentialList();
-          } }), el("i", { class: "fa-solid fa-layer-group fa-fw", "aria-hidden": "true" }), el("span", { title: label + " · 整类" }, label), el("span", { class: "tag warn settings-item-chip", text: "整类" }), !available ? el("span", { class: "muted small", text: "暂无凭证" }) : null);
+          } }), actionIcon("layers"), el("span", { title: label + " · 整类" }, label), el("span", { class: "tag warn settings-item-chip", text: "整类" }), !available ? el("span", { class: "muted small", text: "暂无凭证" }) : null);
         });
         const credentials = state.credentials.filter((item) => matchesTerm(credentialLabel(item), term));
         for (const item of credentials) {
           const label = credentialLabel(item);
           const covered = routeProviders.has(providerKey(item));
-          options.push(el("label", { class: covered ? "disabled" : "" }, el("input", { type: "checkbox", checked: routeCredentialIDs.has(item.ref) || undefined, disabled: covered || undefined, onchange: (event) => { if (event.target.checked) routeCredentialIDs.add(item.ref); else routeCredentialIDs.delete(item.ref); renderRouteCredentialList(); } }), el("i", { class: "fa-solid fa-key fa-fw", "aria-hidden": "true" }), el("span", { title: label }, label)));
+          options.push(el("label", { class: covered ? "disabled" : "" }, el("input", { type: "checkbox", checked: routeCredentialIDs.has(item.ref) || undefined, disabled: covered || undefined, onchange: (event) => { if (event.target.checked) routeCredentialIDs.add(item.ref); else routeCredentialIDs.delete(item.ref); renderRouteCredentialList(); } }), actionIcon("key"), el("span", { title: label }, label)));
         }
-        for (const ref of routeCredentialIDs) if (!state.credentials.some((item) => item.ref === ref) && matchesTerm(ref, term)) options.push(el("label", {}, el("input", { type: "checkbox", checked: true, onchange: (event) => { if (!event.target.checked) routeCredentialIDs.delete(ref); renderRouteCredentialList(); } }), el("i", { class: "fa-solid fa-key fa-fw", "aria-hidden": "true" }), el("span", { title: ref }, "凭证已不存在")));
+        for (const ref of routeCredentialIDs) if (!state.credentials.some((item) => item.ref === ref) && matchesTerm(ref, term)) options.push(el("label", {}, el("input", { type: "checkbox", checked: true, onchange: (event) => { if (!event.target.checked) routeCredentialIDs.delete(ref); renderRouteCredentialList(); } }), actionIcon("key"), el("span", { title: ref }, "凭证已不存在")));
         $("route-credential-list").replaceChildren(...(options.length ? options : [el("div", { class: "empty", text: "没有匹配项" })]));
         const credentialCount = routeCredentialIDs.size + routeProviders.size;
         $("route-credential-count").textContent = credentialCount ? String(credentialCount) : "全部";
@@ -7485,18 +7707,120 @@
       $("gate-mode-admin").onclick = () => setLoginMode("admin");
       $("gate-mode-account").onclick = () => setLoginMode("account");
 
-      function actionIcon(name) {
-        const icons = {
-          refresh: "fa-rotate-right",
-          sun: "fa-sun",
-          moon: "fa-moon",
-          logout: "fa-right-from-bracket",
-          download: "fa-download",
-          copy: "fa-copy",
-          check: "fa-check",
-          chevron: "fa-chevron-right",
-        };
-        return el("i", { class: "fa-solid " + (icons[name] || "fa-circle") + (name === "chevron" ? " fa-chevron-icon" : ""), "aria-hidden": "true" });
+      // @license Lucide Icons v1.40.0 - ISC; SVG nodes are embedded locally.
+      const LUCIDE_ICONS = {
+        refresh: {
+          name: "rotate-cw",
+          nodes: [
+            ["path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" }],
+            ["path", { d: "M21 3v5h-5" }],
+          ],
+        },
+        sun: {
+          name: "sun",
+          nodes: [
+            ["circle", { cx: "12", cy: "12", r: "4" }],
+            ["path", { d: "M12 2v2" }],
+            ["path", { d: "M12 20v2" }],
+            ["path", { d: "m4.93 4.93 1.41 1.41" }],
+            ["path", { d: "m17.66 17.66 1.41 1.41" }],
+            ["path", { d: "M2 12h2" }],
+            ["path", { d: "M20 12h2" }],
+            ["path", { d: "m6.34 17.66-1.41 1.41" }],
+            ["path", { d: "m19.07 4.93-1.41 1.41" }],
+          ],
+        },
+        moon: {
+          name: "moon",
+          nodes: [
+            ["path", { d: "M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" }],
+          ],
+        },
+        logout: {
+          name: "log-out",
+          nodes: [
+            ["path", { d: "m16 17 5-5-5-5" }],
+            ["path", { d: "M21 12H9" }],
+            ["path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }],
+          ],
+        },
+        download: {
+          name: "download",
+          nodes: [
+            ["path", { d: "M12 15V3" }],
+            ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }],
+            ["path", { d: "m7 10 5 5 5-5" }],
+          ],
+        },
+        copy: {
+          name: "copy",
+          nodes: [
+            ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" }],
+            ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }],
+          ],
+        },
+        check: {
+          name: "check",
+          nodes: [["path", { d: "M20 6 9 17l-5-5" }]],
+        },
+        chevron: {
+          name: "chevron-right",
+          nodes: [["path", { d: "m9 18 6-6-6-6" }]],
+        },
+        "chevron-down": {
+          name: "chevron-down",
+          nodes: [["path", { d: "m6 9 6 6 6-6" }]],
+        },
+        clock: {
+          name: "clock",
+          nodes: [
+            ["circle", { cx: "12", cy: "12", r: "10" }],
+            ["path", { d: "M12 6v6l4 2" }],
+          ],
+        },
+        layers: {
+          name: "layers",
+          nodes: [
+            ["path", { d: "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" }],
+            ["path", { d: "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" }],
+            ["path", { d: "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" }],
+          ],
+        },
+        key: {
+          name: "key-round",
+          nodes: [
+            ["path", { d: "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" }],
+            ["circle", { cx: "16.5", cy: "7.5", r: ".5", fill: "currentColor" }],
+          ],
+        },
+      };
+
+      function actionIcon(name, className = "") {
+        const icon = LUCIDE_ICONS[name];
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        const classes = [
+          "lucide-icon",
+          "lucide-" + icon.name,
+          name === "chevron" ? "lucide-chevron-icon" : "",
+          className,
+        ].filter(Boolean);
+        for (const [attribute, value] of Object.entries({
+          class: classes.join(" "),
+          viewBox: "0 0 24 24",
+          fill: "none",
+          stroke: "currentColor",
+          "stroke-width": "2",
+          "stroke-linecap": "round",
+          "stroke-linejoin": "round",
+          "aria-hidden": "true",
+        })) svg.setAttribute(attribute, value);
+        for (const [tag, attributes] of icon.nodes) {
+          const child = document.createElementNS(svg.namespaceURI, tag);
+          for (const [attribute, value] of Object.entries(attributes))
+            child.setAttribute(attribute, value);
+          svg.append(child);
+        }
+        return svg;
       }
 
       function setActionIcon(button, name, label) {
@@ -7855,6 +8179,7 @@
         if (currentRole === "admin" && state.status) {
           renderAdminTab(selected, selected === "keys" && !!routePicker.scope);
         }
+        revealTab(document.querySelector(`[data-tab="${selected}"]`));
       }
       for (const tab of TABS)
         tab.onclick = () => {
@@ -7895,7 +8220,10 @@
         passive: true,
         capture: true,
       });
-      addEventListener("resize", positionRoutePicker);
+      addEventListener("resize", () => {
+        positionRoutePicker();
+        for (const tabBar of TAB_BARS) updateTabScrollHint(tabBar);
+      });
       addEventListener(
         "pointerdown",
         (event) => {
@@ -8133,6 +8461,11 @@
 
       (async function () {
         const panelKey = readPanelKey();
+        document.querySelectorAll("[data-lucide-icon]").forEach((placeholder) =>
+          placeholder.replaceWith(
+            actionIcon(placeholder.dataset.lucideIcon, placeholder.className),
+          ),
+        );
         updateThemeButtons();
         try {
           if (embedded && panelKey && initialRoute.role !== "account") {
