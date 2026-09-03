@@ -529,19 +529,19 @@ assert_billing_entry() {
   fi
 }
 
-# assert_model_access grants the downstream key a group that does not hold the
-# route this suite calls, and asserts the request is refused before it can reach
+# assert_route_model_policy binds a route that does not allow the model this
+# suite calls, and asserts the request is refused before it can reach
 # an upstream: 403 in the client's own error shape, no request event, and one
 # line in the plugin log, which is the only record such a request leaves.
-assert_model_access() {
+assert_route_model_policy() {
   local port="$1"
   local runtime_dir="$2"
   local expected_count="$3"
-  local scope group body http_status response_file request_events_file plugin_logs_file
+  local scope route body http_status response_file request_events_file plugin_logs_file
 
   response_file="$runtime_dir/responses/model-blocked.json"
-  request_events_file="$runtime_dir/model-access-request-events.json"
-  plugin_logs_file="$runtime_dir/model-access-plugin-logs.json"
+  request_events_file="$runtime_dir/route-policy-request-events.json"
+  plugin_logs_file="$runtime_dir/route-policy-plugin-logs.json"
 
   # Synchronize the Key list the way the panel does, so this holds whether or
   # not traffic has already created the record.
@@ -551,20 +551,20 @@ assert_model_access() {
     >/dev/null
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$runtime_dir/access.json"
   scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/access.json")"
-  if ! jq -e --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)) | .all_models' \
+  if ! jq -e --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)) | (.route_bindings | length) == 0' \
     "$runtime_dir/access.json" >/dev/null; then
-    echo "API Key 的默认可用模型不是全部模型。" >&2
+    echo "API Key 的默认路由不是全部模型、全部凭证。" >&2
     return 1
   fi
 
-  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/model-groups" \
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/routes" \
     -H "Content-Type: application/json" \
-    --data "{\"name\":\"e2e-限定分组\",\"models\":[\"codex/gpt-5.6-sol\"]}" \
-    >"$runtime_dir/model-group.json"
-  group="$(jq -er '.model_group.id' "$runtime_dir/model-group.json")"
-  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/models" \
+    --data '{"name":"e2e-限定路由","rule":{"models":["codex/gpt-5.6-sol"],"credential_ids":[],"credential_providers":[]}}' \
+	>"$runtime_dir/route.json"
+  route="$(jq -er '.route.id' "$runtime_dir/route.json")"
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg scope "$scope" --arg group "$group" '{scope: $scope, groups: [$group], models: []}')" \
+    --data "$(jq -nc --arg scope "$scope" --arg route "$route" '{scope: $scope, bindings: [{kind:"route",value:$route},{kind:"credential_provider",value:"ai-providers\u0000openai-compatible-dummy-chat-e2e"}]}')" \
     >/dev/null
 
   # A thinking suffix is a request option rather than a model of its own, so it
@@ -594,21 +594,24 @@ assert_model_access() {
     echo "被拦截的请求进入了请求事件。" >&2
     return 1
   fi
-  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$plugin_logs_file"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs?level=debug" >"$plugin_logs_file"
   if ! jq -e --arg model "gpt-5.6-sol" '
-      [.entries[] | select(.level == "info" and (.message | startswith("模型拦截：")) and (.message | contains($model)))]
-      | length == 1' "$plugin_logs_file" >/dev/null; then
-    echo "插件日志缺少模型拦截记录：$(jq -c '.entries' "$plugin_logs_file")" >&2
+      [.entries[]
+        | select(.level == "debug" and (.message | startswith("route ")))
+        | (.message | gsub("&#34;"; "\"") | ltrimstr("route ") | fromjson)
+        | select(.model == $model and .model_result == "deny" and .credential_result == "not_reached")]
+      | length == 3' "$plugin_logs_file" >/dev/null; then
+    echo "插件日志缺少合并后的模型路由记录：$(jq -c '.entries' "$plugin_logs_file")" >&2
     return 1
   fi
 
-  # Back to every model, which is what selecting the all-models group means: the
+  # Back to every model and Credential, which is what selecting system:all means: the
   # request that follows has to be billed exactly like any other.
-  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/models" \
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, groups: ["all"], models: []}')" \
+    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, bindings: [{kind:"route",value:"system:all"}]}')" \
     >/dev/null
-  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/model-groups?id=$group" >/dev/null
+  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/routes?id=$route" >/dev/null
 
   body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
   api_call "$port" "模型拦截解除后：OpenAI Chat → OpenAI Chat 非流式" \
@@ -616,6 +619,111 @@ assert_model_access() {
   assert_billing_entry "$port" "$((expected_count + 1))" chat chat \
     "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/model-restored-request-events.json" \
     "$runtime_dir/responses/model-restored.json" false
+}
+
+# Verify that a source-qualified Provider rule and an exact-Credential rule both
+# narrow CPA's candidate set instead of merely changing what the UI displays.
+assert_route_credential_policy() {
+  local port="$1"
+  local runtime_dir="$2"
+  local expected_count="$3"
+  local scope route allowed_ref body http_status response_file
+  local access_file events_file plugin_logs_file
+
+  access_file="$runtime_dir/credential-route-access.json"
+  events_file="$runtime_dir/credential-route-events.json"
+  plugin_logs_file="$runtime_dir/credential-route-plugin-logs.json"
+
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$access_file"
+  scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$access_file")"
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{name:"e2e-凭证路由",rule:{models:["e2e-credential-route"],credential_ids:[],credential_providers:[{source:"ai-providers",provider:"openai-compatible-route-allowed-e2e"}]},scopes:[$scope]}')" \
+    >"$runtime_dir/credential-route.json"
+  route="$(jq -er '.route.id' "$runtime_dir/credential-route.json")"
+
+  body="$(request_body chat "e2e-credential-route" false "Reply with exactly OK.")"
+  api_call "$port" "凭证类别路由：仅允许 route-allowed-e2e" \
+    "/v1/chat/completions" "$body" chat "$runtime_dir/responses/credential-provider-route.json"
+  wait_for_event_count "$port" "$((expected_count + 1))" "$events_file"
+  if ! jq -e '
+      .entries[0] |
+      .provider == "openai-compatible-route-allowed-e2e" and
+      .billing_model == "e2e-credential-route" and
+      .executor_type == "OpenAICompatExecutor" and .failed == false
+    ' "$events_file" >/dev/null; then
+    echo "凭证类别路由选择了错误的 Provider：$(jq -c '.entries[0]' "$events_file")" >&2
+    return 1
+  fi
+
+  # scheduler.pick has now observed both config-backed candidates, so the safe
+  # inventory contains the opaque reference needed to test an exact binding.
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$access_file"
+  allowed_ref="$(jq -er 'first(.credentials[] | select(.source == "ai-providers" and .provider == "openai-compatible-route-allowed-e2e")).ref' "$access_file")"
+  management_call PATCH "$port" "/v0/management/plugins/cpa-key-billing/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg id "$route" --arg ref "$allowed_ref" '{id:$id,rule:{models:["e2e-credential-route"],credential_ids:[$ref],credential_providers:[]}}')" \
+    >/dev/null
+
+  api_call "$port" "指定凭证路由：仅允许 route-allowed-e2e" \
+    "/v1/chat/completions" "$body" chat "$runtime_dir/responses/credential-exact-route.json"
+  wait_for_event_count "$port" "$((expected_count + 2))" "$events_file"
+  if ! jq -e '
+      [.entries[] | select(.billing_model == "e2e-credential-route")] as $rows |
+      ($rows | length) == 2 and all($rows[]; .provider == "openai-compatible-route-allowed-e2e")
+    ' "$events_file" >/dev/null; then
+    echo "指定凭证路由未稳定限制候选集：$(jq -c '.entries' "$events_file")" >&2
+    return 1
+  fi
+
+  management_call PATCH "$port" "/v0/management/plugins/cpa-key-billing/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg id "$route" '{id:$id,rule:{models:["e2e-credential-route"],credential_ids:[],credential_providers:[{source:"ai-providers",provider:"openai-compatible-route-missing-e2e"}]}}')" \
+    >/dev/null
+  response_file="$runtime_dir/responses/credential-route-blocked.json"
+  http_status="$(curl -sS --max-time 30 \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer e2e-downstream-key" \
+    --data "$body" \
+    --output "$response_file" \
+    --write-out '%{http_code}' \
+    "http://127.0.0.1:$port/v1/chat/completions")"
+  if [[ "$http_status" != "503" ]] || ! jq -e '
+      .error.type == "server_error" and .error.code == "internal_server_error" and
+      (.error.message | contains("当前没有符合路由规则且可用的上游凭证"))
+    ' "$response_file" >/dev/null; then
+    echo "没有合格凭证时未按预期返回 503：HTTP $http_status $(jq -c '.' "$response_file")" >&2
+    return 1
+  fi
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$events_file"
+  if [[ "$(jq -er '.entries | length' "$events_file")" != "$((expected_count + 2))" ]]; then
+    echo "凭证路由拦截进入了请求事件。" >&2
+    return 1
+  fi
+
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs?level=debug" >"$plugin_logs_file"
+  if ! jq -e '
+      [.entries[]
+        | select(.level == "debug" and (.message | startswith("route ")))
+        | (.message | gsub("&#34;"; "\"") | ltrimstr("route ") | fromjson)
+        | select(.model == "e2e-credential-route")] as $rows |
+      ($rows | length) == 3 and
+      ([ $rows[] | select(.status == 200) ] | length) == 2 and
+      ([ $rows[] | select(.status == 503 and .credential_result == "not_observed") ] | length) == 1 and
+      all($rows[] | select(.status == 200);
+        .model_result == "allow" and
+        ((.credential_result == "not_observed" and (has("selected_credential") | not)) or
+         (.credential_result == "selected" and (.selected_credential | contains("route-allowed-e2e")))))
+    ' "$plugin_logs_file" >/dev/null; then
+    echo "插件日志缺少凭证路由选择结果：$(jq -c '.entries' "$plugin_logs_file")" >&2
+    return 1
+  fi
+
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{scope:$scope,bindings:[{kind:"route",value:"system:all"}]}')" \
+    >/dev/null
+  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/routes?id=$route" >/dev/null
 }
 
 # Hold one SSE request open, verify a second request is refused, then verify the
@@ -1138,7 +1246,11 @@ run_target() {
       .tracked == true and
       (has("keys") | not) and (has("plans") | not) and (has("prices") | not)
     ' "$account_status_file" >/dev/null ||
-    ! jq -e '.all_models == true and (.models | length) == 0' "$account_access_file" >/dev/null ||
+    ! jq -e '
+      (.models | length) == 0 and (.credentials | length) == 0 and
+      .routing_valid == true and (.warnings | length) == 0 and
+      (has("routing") | not) and (has("bindings") | not)
+    ' "$account_access_file" >/dev/null ||
     ! jq -e 'length > 0 and all(.[]; has("pattern") and has("source") and (has("operation") | not))' \
       "$account_prices_file" >/dev/null ||
     ! jq -e --argjson expected "$expected_requests" '
@@ -1168,10 +1280,14 @@ run_target() {
   log_step "并发限制：SSE 占槽、HTTP 拦截与完成释放"
   assert_concurrency_limit "$port" "$runtime_dir" "$expected_requests"
   expected_requests=$((expected_requests + 1))
-  log_step "模型权限：默认权限、3 次拦截与恢复"
-  assert_model_access "$port" "$runtime_dir" "$expected_requests"
+  log_step "路由模型规则：默认规则、3 次拦截与恢复"
+  assert_route_model_policy "$port" "$runtime_dir" "$expected_requests"
+  expected_requests=$((expected_requests + 1))
+  log_step "路由凭证规则：整类与指定凭证均限制真实候选集"
+  assert_route_credential_policy "$port" "$runtime_dir" "$expected_requests"
+  expected_requests=$((expected_requests + 2))
   log_step "订阅额度：消费、4 种协议拦截与恢复"
-  assert_quota_exhausted "$port" "$runtime_dir" "$((expected_requests + 1))"
+  assert_quota_exhausted "$port" "$runtime_dir" "$expected_requests"
 
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$runtime_dir/plugin-logs.json"
   if ! jq -e '[.entries[] | select(.level == "info" and (.message | contains("已加载计费数据库")))] | length == 1' \
@@ -1184,7 +1300,7 @@ run_target() {
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  log_ok "${host_label}：39 个上游请求，1 次并发拦截，3 次模型拦截，4 次额度拦截"
+  log_ok "${host_label}：41 个上游请求，1 次并发拦截，3 次模型拦截，2 次凭证路由，1 次凭证拦截，4 次额度拦截"
 }
 
 log_stage "启动 dummy provider"

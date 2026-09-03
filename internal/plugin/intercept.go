@@ -46,9 +46,13 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	// refusal is permanent rather than temporal, so reporting it as an exhausted
 	// budget would send the client back to retry; it also must not open a
 	// subscription period that the request was never admitted into.
-	if access := a.store.AuthorizeModel(scope, req.Model, req.RequestedModel); !access.Allowed {
-		a.store.ReportModelBlock(scope, endpoint, access)
-		return OKEnvelope(modelForbiddenResponse(req.SourceFormat, access))
+	routing := a.store.ResolveRouting(scope, req.Model, req.RequestedModel)
+	a.beginRouteLog(req.RequestID, scope, routing)
+	if routing.ConfigurationError != "" {
+		return OKEnvelope(routingConfigurationResponse(req.SourceFormat, routing.ConfigurationError))
+	}
+	if routing.ModelRestricted && !routing.ModelAllowed {
+		return OKEnvelope(modelForbiddenResponse(req.SourceFormat, routing))
 	}
 
 	generate := true
@@ -82,16 +86,19 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 }
 
 func (a *App) completeRequest(raw []byte) ([]byte, error) {
-	var completion struct {
-		RequestID string `json:"RequestID"`
-	}
+	var completion RequestCompletion
 	if errUnmarshal := json.Unmarshal(raw, &completion); errUnmarshal != nil {
 		return nil, fmt.Errorf("解析请求完成事件：%w", errUnmarshal)
 	}
 	if a != nil && a.store != nil {
 		a.store.ReleaseSlot(completion.RequestID)
+		a.finishRouteLog(completion)
 	}
 	return OKEnvelope(struct{}{})
+}
+
+func routingConfigurationResponse(sourceFormat, message string) RequestInterceptResponse {
+	return RequestInterceptResponse{Terminate: true, StatusCode: http.StatusServiceUnavailable, ResponseHeaders: http.Header{"Content-Type": []string{"application/json; charset=utf-8"}}, ResponseBody: refusalBody(sourceFormat, refusal{anthropicType: "api_error", openaiType: "server_error", openaiCode: "routing_configuration_error"}, message)}
 }
 
 func (a *App) handleUsage(raw []byte) ([]byte, error) {
@@ -187,7 +194,7 @@ func concurrencyLimitResponse(sourceFormat string, decision billing.SlotDecision
 
 // A refused model carries no Retry-After: waiting changes nothing, and only an
 // operator can.
-func modelForbiddenResponse(sourceFormat string, decision billing.ModelDecision) RequestInterceptResponse {
+func modelForbiddenResponse(sourceFormat string, decision billing.RoutingDecision) RequestInterceptResponse {
 	message := modelForbiddenMessage(decision)
 	return RequestInterceptResponse{
 		Terminate:  true,
@@ -227,10 +234,11 @@ func quotaExhaustedMessage(decision billing.Decision) string {
 
 // The refusal names what the key may call instead, so the client can correct the
 // request rather than probe for a model that works.
-func modelForbiddenMessage(decision billing.ModelDecision) string {
-	shown, omitted := decision.Sample()
+func modelForbiddenMessage(decision billing.RoutingDecision) string {
+	shown := min(len(decision.ModelScope), 5)
+	omitted := len(decision.ModelScope) - shown
 	message := "API key is not allowed to use model " + strconv.Quote(decision.Model) +
-		". Allowed models: " + strings.Join(shown, ", ")
+		". Allowed models: " + strings.Join(decision.ModelScope[:shown], ", ")
 	if omitted > 0 {
 		message += fmt.Sprintf(" and %d more", omitted)
 	}

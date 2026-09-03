@@ -16,15 +16,13 @@ func mustAppendPluginLog(t *testing.T, database *DB, at time.Time, level billing
 	}
 }
 
-// A zero cutoff reads the log whole, which is what a test asking what was
-// stored wants.
 func mustPluginLogs(t *testing.T, database *DB, since time.Time) []billing.PluginLog {
 	t.Helper()
-	events, errEvents := database.PluginLogs(since)
+	page, errEvents := database.PluginLogsPage(billing.PluginLogQuery{Since: since, Limit: 500})
 	if errEvents != nil {
-		t.Fatalf("PluginLogs error = %v", errEvents)
+		t.Fatalf("PluginLogsPage error = %v", errEvents)
 	}
-	return events
+	return page.Entries
 }
 
 // The plugin log outlives the process, which is the whole of why it is stored:

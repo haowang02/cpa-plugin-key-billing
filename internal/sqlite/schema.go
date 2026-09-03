@@ -13,35 +13,19 @@ CREATE TABLE api_keys (
 	cycle_plan_id         TEXT    NOT NULL DEFAULT '',
 	cycle_start_at        INTEGER NOT NULL DEFAULT 0,
 	cycle_end_at          INTEGER NOT NULL DEFAULT 0,
-	cycle_spent_usd       REAL    NOT NULL DEFAULT 0
+	cycle_spent_usd       REAL    NOT NULL DEFAULT 0,
+	route_bindings_json   TEXT    NOT NULL DEFAULT '[]'
 );
 
-CREATE TABLE key_model_groups (
-	scope    TEXT    NOT NULL REFERENCES api_keys(scope) ON DELETE CASCADE,
-	position INTEGER NOT NULL,
-	group_id TEXT    NOT NULL,
-	PRIMARY KEY (scope, group_id)
-);
-
-CREATE TABLE key_allowed_models (
-	scope    TEXT    NOT NULL REFERENCES api_keys(scope) ON DELETE CASCADE,
-	position INTEGER NOT NULL,
-	model    TEXT    NOT NULL,
-	PRIMARY KEY (scope, model)
-);
-
-CREATE TABLE model_groups (
+CREATE TABLE routes (
 	position INTEGER PRIMARY KEY,
 	id       TEXT    NOT NULL UNIQUE,
-	name     TEXT    NOT NULL DEFAULT ''
+	name     TEXT    NOT NULL DEFAULT '',
+	rule_json TEXT   NOT NULL DEFAULT '{}'
 );
 
-CREATE TABLE model_group_models (
-	group_id TEXT    NOT NULL,
-	position INTEGER NOT NULL,
-	model    TEXT    NOT NULL,
-	PRIMARY KEY (group_id, model)
-);
+INSERT INTO routes (position, id, name, rule_json)
+VALUES (0, 'system:all', '默认', '{"models":[],"credential_ids":[],"credential_providers":[]}');
 
 CREATE TABLE plans (
 	position       INTEGER PRIMARY KEY,

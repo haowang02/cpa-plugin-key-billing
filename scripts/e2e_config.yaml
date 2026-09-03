@@ -47,6 +47,18 @@ openai-compatibility:
         alias: "gpt-auto"
       - name: "gpt-5.5"
         alias: "gpt-auto"
+  - name: "route-allowed-e2e"
+    base-url: "__UPSTREAM_ORIGIN__/v1"
+    api-key-entries:
+      - api-key: "e2e-route-allowed-1111"
+    models:
+      - name: "e2e-credential-route"
+  - name: "route-denied-e2e"
+    base-url: "__UPSTREAM_ORIGIN__/v1"
+    api-key-entries:
+      - api-key: "e2e-route-denied-2222"
+    models:
+      - name: "e2e-credential-route"
 codex-api-key:
   - api-key: __UPSTREAM_API_KEY__
     prefix: "codex"

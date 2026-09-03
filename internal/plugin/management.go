@@ -28,8 +28,8 @@ const (
 	routePricesReset     = "/prices/reset"
 	routePricesSync      = "/prices/sync"
 	routePlans           = "/plans"
-	routeModelGroups     = "/model-groups"
-	routeKeysModels      = "/keys/models"
+	routeRoutes          = "/routes"
+	routeKeysRoutes      = "/keys/routes"
 	routeKeysBind        = "/keys/bind"
 	routeKeysUnbind      = "/keys/unbind"
 	routeKeysReset       = "/keys/reset"
@@ -54,27 +54,27 @@ var managementEndpoints = []managementEndpoint{
 	{http.MethodGet, routeStatus, "查看插件运行状态。", func(a *App, _ ManagementRequest) ManagementResponse {
 		return JSONResponse(http.StatusOK, pluginStatus{Role: "management", Enabled: a.store.Enabled()})
 	}},
-	{http.MethodGet, routeAccess, "查看 API Key、订阅计划和模型分组。", func(a *App, _ ManagementRequest) ManagementResponse { return a.access() }},
+	{http.MethodGet, routeAccess, "查看 API Key、订阅计划和路由规则。", func(a *App, _ ManagementRequest) ManagementResponse { return a.access() }},
 	{http.MethodGet, routePrices, "查看模型定价。", func(a *App, _ ManagementRequest) ManagementResponse { return a.listPrices(viewAccess{}) }},
-	{http.MethodGet, routePriceCatalog, "搜索模型参考价。", func(a *App, req ManagementRequest) ManagementResponse { return a.searchPriceCatalog(req) }},
+	{http.MethodGet, routePriceCatalog, "搜索模型参考价。", (*App).searchPriceCatalog},
 	{http.MethodPost, routeCatalogRefresh, "从 models.dev 更新参考价目录。", func(a *App, _ ManagementRequest) ManagementResponse { return a.refreshPriceCatalog() }},
-	{http.MethodPut, routePrices, "更新模型定价。", func(a *App, req ManagementRequest) ManagementResponse { return a.putPrices(req) }},
+	{http.MethodPut, routePrices, "更新模型定价。", (*App).putPrices},
 	{http.MethodPost, routePricesReset, "恢复模型参考价。", func(a *App, _ ManagementRequest) ManagementResponse { return a.resetPrices() }},
-	{http.MethodPost, routePricesSync, "同步代理模型。", func(a *App, req ManagementRequest) ManagementResponse { return a.syncModels(req) }},
-	{http.MethodPost, routePlans, "新建订阅计划。", func(a *App, req ManagementRequest) ManagementResponse { return a.createPlan(req) }},
-	{http.MethodPatch, routePlans, "更新订阅计划。", func(a *App, req ManagementRequest) ManagementResponse { return a.updatePlan(req) }},
-	{http.MethodDelete, routePlans, "删除订阅计划并解除相关 Key 的绑定。", func(a *App, req ManagementRequest) ManagementResponse { return a.deletePlan(req) }},
-	{http.MethodPost, routeModelGroups, "新建模型分组。", func(a *App, req ManagementRequest) ManagementResponse { return a.createModelGroup(req) }},
-	{http.MethodPatch, routeModelGroups, "更新模型分组。", func(a *App, req ManagementRequest) ManagementResponse { return a.updateModelGroup(req) }},
-	{http.MethodDelete, routeModelGroups, "删除模型分组并解除相关 Key 的绑定。", func(a *App, req ManagementRequest) ManagementResponse { return a.deleteModelGroup(req) }},
-	{http.MethodPost, routeKeysModels, "设置 API Key 可用的模型分组和模型。", func(a *App, req ManagementRequest) ManagementResponse { return a.setKeyModels(req) }},
-	{http.MethodPost, routeKeysBind, "将 API Key 绑定到订阅计划。", func(a *App, req ManagementRequest) ManagementResponse { return a.bindKey(req) }},
-	{http.MethodPost, routeKeysUnbind, "解除 API Key 的订阅计划。", func(a *App, req ManagementRequest) ManagementResponse { return a.unbindKey(req) }},
-	{http.MethodPost, routeKeysReset, "重置 API Key 的订阅额度。", func(a *App, req ManagementRequest) ManagementResponse { return a.resetKey(req) }},
+	{http.MethodPost, routePricesSync, "同步模型价格目录。", (*App).syncPriceCatalog},
+	{http.MethodPost, routePlans, "新建订阅计划。", (*App).createPlan},
+	{http.MethodPatch, routePlans, "更新订阅计划。", (*App).updatePlan},
+	{http.MethodDelete, routePlans, "删除订阅计划并解除相关 Key 的绑定。", (*App).deletePlan},
+	{http.MethodPost, routeRoutes, "新建路由规则。", (*App).createRoute},
+	{http.MethodPatch, routeRoutes, "更新路由规则。", (*App).updateRoute},
+	{http.MethodDelete, routeRoutes, "删除路由规则并移除相关绑定。", (*App).deleteRoute},
+	{http.MethodPut, routeKeysRoutes, "替换一个 API Key 的路由绑定。", (*App).setKeyRoutes},
+	{http.MethodPost, routeKeysBind, "将 API Key 绑定到订阅计划。", (*App).bindKey},
+	{http.MethodPost, routeKeysUnbind, "解除 API Key 的订阅计划。", (*App).unbindKey},
+	{http.MethodPost, routeKeysReset, "重置 API Key 的订阅额度。", (*App).resetKey},
 	{http.MethodPost, routeKeysResetAll, "重置所有周期性计划 API Key 的订阅额度。", func(a *App, _ ManagementRequest) ManagementResponse { return a.resetAllKeys() }},
-	{http.MethodPost, routeKeysLabel, "设置 API Key 备注。", func(a *App, req ManagementRequest) ManagementResponse { return a.labelKey(req) }},
-	{http.MethodPost, routeKeysConcurrency, "设置 API Key 最大并发请求数。", func(a *App, req ManagementRequest) ManagementResponse { return a.setKeyConcurrency(req) }},
-	{http.MethodPost, routeKeysSync, "同步 CLIProxyAPI 中的 API Key 列表。", func(a *App, req ManagementRequest) ManagementResponse { return a.syncKeys(req) }},
+	{http.MethodPost, routeKeysLabel, "设置 API Key 备注。", (*App).labelKey},
+	{http.MethodPost, routeKeysConcurrency, "设置 API Key 最大并发请求数。", (*App).setKeyConcurrency},
+	{http.MethodPost, routeKeysSync, "同步 CLIProxyAPI 中的 API Key 列表。", (*App).syncKeys},
 	{http.MethodGet, routeEvents, "分页查看请求事件。", func(a *App, req ManagementRequest) ManagementResponse {
 		return a.listRequestEvents(req, viewAccess{})
 	}},
@@ -82,7 +82,7 @@ var managementEndpoints = []managementEndpoint{
 		return a.listRequestErrors(req, viewAccess{})
 	}},
 	{http.MethodGet, routeAnalysis, "查看用量分布。", func(a *App, req ManagementRequest) ManagementResponse { return a.analysis(req, viewAccess{}) }},
-	{http.MethodGet, routePluginLogs, "查看插件运行日志。", func(a *App, _ ManagementRequest) ManagementResponse { return a.listPluginLogs() }},
+	{http.MethodGet, routePluginLogs, "分页查看插件运行日志。", (*App).listPluginLogs},
 	{http.MethodDelete, routePluginLogs, "清空插件运行日志。", func(a *App, _ ManagementRequest) ManagementResponse { return a.clearPluginLogs() }},
 	{http.MethodGet, routeAuthFiles, "查看认证文件。", func(a *App, _ ManagementRequest) ManagementResponse { return a.authFiles(viewAccess{}) }},
 	{http.MethodGet, routeAuthQuota, "按需查看认证文件限额。", func(a *App, req ManagementRequest) ManagementResponse { return a.authQuota(req, viewAccess{}) }},
@@ -101,19 +101,11 @@ var resourceEndpoints = []resourceEndpoint{
 		return a.accountAccess(access)
 	}},
 	{routePrices, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse { return a.listPrices(access) }},
-	{routeAnalysis, func(a *App, req ManagementRequest, access viewAccess) ManagementResponse {
-		return a.analysis(req, access)
-	}},
-	{routeEvents, func(a *App, req ManagementRequest, access viewAccess) ManagementResponse {
-		return a.listRequestEvents(req, access)
-	}},
-	{routeErrors, func(a *App, req ManagementRequest, access viewAccess) ManagementResponse {
-		return a.listRequestErrors(req, access)
-	}},
+	{routeAnalysis, (*App).analysis},
+	{routeEvents, (*App).listRequestEvents},
+	{routeErrors, (*App).listRequestErrors},
 	{routeAuthFiles, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse { return a.authFiles(access) }},
-	{routeAuthQuota, func(a *App, req ManagementRequest, access viewAccess) ManagementResponse {
-		return a.authQuota(req, access)
-	}},
+	{routeAuthQuota, (*App).authQuota},
 }
 
 func managementRegistration() ManagementRegistrationResponse {
@@ -158,8 +150,8 @@ func (a *App) handleManagement(raw []byte) ([]byte, error) {
 				"Referrer-Policy":        []string{"no-referrer"},
 				"X-Content-Type-Options": []string{"nosniff"},
 				"Content-Security-Policy": []string{
-					"default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src 'self'; " +
-						"img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+					"default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.jsdelivr.net; " +
+						"font-src https://cdn.jsdelivr.net; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
 				},
 			},
 			Body: uiHTML,

@@ -14,16 +14,11 @@ type KeyView struct {
 	InConfig  bool      `json:"in_config"`
 	DeletedAt time.Time `json:"deleted_at,omitzero"`
 
-	PlanID             string `json:"plan_id,omitempty"`
-	PlanName           string `json:"plan_name,omitempty"`
-	ConcurrencyLimit   int    `json:"concurrency_limit"`
-	CurrentConcurrency int    `json:"current_concurrency"`
-	// Reported as stored rather than resolved into the models they add up to:
-	// the editor puts the same boxes back on the screen, and the panel already
-	// holds the groups to expand them with.
-	ModelGroupIDs []string `json:"model_groups"`
-	Models        []string `json:"models"`
-	AllModels     bool     `json:"all_models"`
+	PlanID             string         `json:"plan_id,omitempty"`
+	PlanName           string         `json:"plan_name,omitempty"`
+	ConcurrencyLimit   int            `json:"concurrency_limit"`
+	CurrentConcurrency int            `json:"current_concurrency"`
+	RouteBindings      []RouteBinding `json:"route_bindings"`
 	// Keys without a plan are still fully accounted for.
 	Unlimited   bool      `json:"unlimited"`
 	Blocked     bool      `json:"blocked"`
@@ -69,15 +64,10 @@ func keyView(scope string, key *KeyState, plans map[string]Plan, currentConcurre
 		PlanID:             key.PlanID,
 		ConcurrencyLimit:   key.ConcurrencyLimit,
 		CurrentConcurrency: currentConcurrency,
-		// Copied rather than shared: a view outlives the lock it was built
-		// under, and the selection it names is a slice the store rewrites in
-		// place when an operator changes it.
-		ModelGroupIDs: slices.Clone(key.ModelGroupIDs),
-		Models:        slices.Clone(key.Models),
-		AllModels:     len(key.ModelGroupIDs) == 0 && len(key.Models) == 0,
-		Unlimited:     true,
-		SpentUSD:      key.Cycle.SpentUSD,
-		CycleEndAt:    key.Cycle.EndAt,
+		RouteBindings:      slices.Clone(key.RouteBindings),
+		Unlimited:          true,
+		SpentUSD:           key.Cycle.SpentUSD,
+		CycleEndAt:         key.Cycle.EndAt,
 	}
 	if plan, exists := plans[key.PlanID]; exists {
 		view.PlanName = plan.Name
@@ -349,7 +339,6 @@ func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 		purged := purgeDeletedKeys(state, referenced, now)
 		if len(purged) > 0 {
 			s.blocked.forget(purged...)
-			s.denied.forget(purged...)
 			changed = true
 		}
 		if !changed {

@@ -212,18 +212,24 @@ func TestAccountRequestEventsUseTheAdministratorSource(t *testing.T) {
 	}
 }
 
-func TestAccountModelAccessExpandsGroupsAndPricesReturnSharedCatalog(t *testing.T) {
+func TestAccountAccessAggregatesRoutesAndPricesReturnSharedCatalog(t *testing.T) {
 	app := configuredAccountApp(t)
+	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+		if method != hostAuthList {
+			t.Fatalf("host method=%q", method)
+		}
+		return json.RawMessage(`{"files":[{"id":"auth-codex","provider":"codex","source":"file","path":"/auth/codex.json","email":"user@example.com"}]}`), nil
+	})
 	scope := billing.CallerScope(accountTestKeyA)
 	if _, errPrice := app.store.UpsertPrice(billing.PriceRule{Pattern: "other-model", InputPer1M: 9, OutputPer1M: 18}); errPrice != nil {
 		t.Fatal(errPrice)
 	}
-	group, errGroup := app.store.CreateModelGroup(billing.ModelGroup{Name: "可用模型", Models: []string{"gpt-5.5", "missing-model"}})
-	if errGroup != nil {
-		t.Fatal(errGroup)
-	}
-	if errModels := app.store.SetKeyModels(scope, []string{group.ID}, nil); errModels != nil {
-		t.Fatal(errModels)
+	_, errRoute := app.store.CreateRoute(billing.Route{Name: "Codex", Rule: billing.RouteRule{
+		Models:              []string{"gpt-5.5", "missing-model"},
+		CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAuthFiles, Provider: "codex"}},
+	}}, []string{scope})
+	if errRoute != nil {
+		t.Fatal(errRoute)
 	}
 	response := callAccount(t, app, routePrices, accountTestKeyA, nil)
 	var prices []billing.PriceRow
@@ -238,13 +244,19 @@ func TestAccountModelAccessExpandsGroupsAndPricesReturnSharedCatalog(t *testing.
 		t.Fatalf("account prices did not use management response shape: %s", response.Body)
 	}
 	response = callAccount(t, app, routeAccess, accountTestKeyA, nil)
-	var access accountModelAccess
+	var access accountAccessResponse
 	if errDecode := json.Unmarshal(response.Body, &access); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if access.AllModels || len(access.Models) != 2 ||
+	if len(access.Models) != 2 ||
 		access.Models[0] != "gpt-5.5" || access.Models[1] != "missing-model" {
-		t.Fatalf("model access = %+v", access)
+		t.Fatalf("route access = %+v", access)
+	}
+	if !access.RoutingValid || len(access.Credentials) != 1 || access.Credentials[0].Name != "user@example.com" {
+		t.Fatalf("credential access = %+v", access)
+	}
+	if strings.Contains(string(response.Body), `"bindings"`) || strings.Contains(string(response.Body), `"kind"`) {
+		t.Fatalf("account access exposed route internals: %s", response.Body)
 	}
 }
 

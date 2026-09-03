@@ -20,7 +20,7 @@ func (d *DB) Load(requestEventCutoff, pluginLogCutoff time.Time) (billing.Snapsh
 		d.loadKeys,
 		d.loadPlans,
 		d.loadPrices,
-		d.loadModelGroups,
+		d.loadRoutes,
 		d.loadCredentials,
 	} {
 		if err := load(state); err != nil {
@@ -76,8 +76,8 @@ func saveStateTables(tx *sql.Tx, state *billing.State, changes billing.Changes) 
 			return err
 		}
 	}
-	if changes.ModelGroups {
-		if err := replaceModelGroups(tx, state); err != nil {
+	if changes.Routes {
+		if err := replaceRoutes(tx, state); err != nil {
 			return err
 		}
 	}

@@ -120,16 +120,16 @@ func TestSyncsWriteNothingWhenNothingMoved(t *testing.T) {
 	if _, errKeys := store.SyncKeys([]string{"sk-live-000000001"}, false); errKeys != nil {
 		t.Fatalf("SyncKeys error = %v", errKeys)
 	}
-	if _, errModels := store.SyncModels([]string{"gpt-5.5"}); errModels != nil {
-		t.Fatalf("SyncModels error = %v", errModels)
+	if _, errModels := store.SyncPriceCatalog([]string{"gpt-5.5"}); errModels != nil {
+		t.Fatalf("SyncPriceCatalog error = %v", errModels)
 	}
 
 	repo.saves = nil
 	if _, errKeys := store.SyncKeys([]string{"sk-live-000000001"}, false); errKeys != nil {
 		t.Fatalf("SyncKeys error = %v", errKeys)
 	}
-	if _, errModels := store.SyncModels([]string{"gpt-5.5"}); errModels != nil {
-		t.Fatalf("SyncModels error = %v", errModels)
+	if _, errModels := store.SyncPriceCatalog([]string{"gpt-5.5"}); errModels != nil {
+		t.Fatalf("SyncPriceCatalog error = %v", errModels)
 	}
 	if len(repo.saves) != 0 {
 		t.Fatalf("saves = %+v, want a sync that moved nothing to write nothing", repo.saves)

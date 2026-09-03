@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>API Key 计费</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css" />
     <style>
       /* CPAMC theme fallbacks; CPAMP overrides them with injected host tokens. */
       :root {
@@ -468,7 +469,7 @@
         box-shadow: var(--glass-shadow, none);
       }
       :root[data-cpamp-plugin-host="true"] .key-picker,
-      :root[data-cpamp-plugin-host="true"] .model-picker-list {
+      :root[data-cpamp-plugin-host="true"] .route-picker-list {
         background: var(--app-surface-strong, var(--bg-primary));
       }
       :root[data-cpamp-plugin-host="true"] .account-model-card,
@@ -622,13 +623,22 @@
         .quota-fill,
         .account-model-card,
         .auth-file-card,
-        .row-expand-button::before { transition: none; }
-        .auth-refresh-icon-button.loading svg { animation: none; }
+        .fa-chevron-icon { transition: none; }
+        .auth-refresh-icon-button.loading i { animation: none; }
       }
       .concurrency-editor { display: flex; align-items: center; gap: 7px; min-width: 172px; }
       .concurrency-editor .native-select,
       .concurrency-editor select { width: 96px; min-width: 96px; }
       .concurrency-editor .small { white-space: nowrap; }
+      .key-plan-select { width: 150px; max-width: 150px; }
+      .key-plan-select > select {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .key-identity { display: flex; align-items: center; gap: 4px; }
       button.key-copy-button {
         display: grid;
@@ -637,24 +647,19 @@
         min-width: 22px;
         min-height: 22px;
         padding: 0;
-        color: var(--text-secondary);
+        color: var(--text-tertiary);
+        opacity: 0.58;
       }
-      button.key-copy-button:hover:not(:disabled) { color: var(--text-primary); }
+      button.key-copy-button:hover:not(:disabled),
+      button.key-copy-button:focus-visible { color: var(--text-secondary); opacity: 1; }
+      button.key-copy-button.link:hover { text-decoration: none; }
       button.key-copy-button.copied,
-      button.key-copy-button.copied:hover { color: var(--primary-color); }
+      button.key-copy-button.copied:hover { color: var(--primary-color); opacity: 1; }
       :root[data-cpamp-plugin-host="true"] button.key-copy-button {
         min-height: 22px;
         padding: 0;
       }
-      .key-copy-button svg {
-        width: 14px;
-        height: 14px;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.8;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
+      .key-copy-button i { width: 12px; font-size: 12px; text-align: center; }
       .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
       .notice {
         padding: 10px 14px;
@@ -767,15 +772,7 @@
         box-shadow: 0 0 0 2px
           color-mix(in srgb, var(--primary-color) 26%, transparent);
       }
-      .icon-action svg {
-        width: 16px;
-        height: 16px;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 2;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
+      .icon-action i { width: 16px; font-size: 16px; text-align: center; }
       body.embedded .standalone-actions { display: none; }
       .account-subscription-stats { margin-bottom: 16px; }
       .account-plan { display: grid; gap: 10px; margin: 0; }
@@ -792,6 +789,26 @@
         gap: 12px;
         align-items: start;
       }
+      .account-access-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 14px;
+      }
+      .account-access-scope-label {
+        margin-bottom: 8px;
+        color: var(--text-tertiary);
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .account-access-chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+      .plugin-log-message summary::-webkit-details-marker { display: none; }
+      .details-summary { display: flex; align-items: flex-start; gap: 7px; list-style: none; cursor: pointer; }
+      .details-summary-icon { display: grid; place-items: center; flex: 0 0 12px; height: 1.55em; }
+      .details-summary-icon .fa-chevron-icon { margin: 0; }
+      details[open] > .details-summary .fa-chevron-icon,
+      .route-picker-group[aria-expanded="true"] .fa-chevron-icon { transform: rotate(90deg); }
+      .account-access-warnings { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
       .account-model-card {
         display: grid;
         align-content: start;
@@ -1006,20 +1023,9 @@
         padding: 0;
         line-height: 0;
       }
-      .auth-refresh-icon-button svg {
-        display: block;
-        width: 16px;
-        height: 16px;
-        overflow: visible;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.9;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-        transform-origin: center;
-      }
+      .auth-refresh-icon-button i { display: block; width: 14px; font-size: 13px; transform-origin: center; }
       :root[data-cpamp-plugin-host="true"] button.auth-refresh-icon-button { padding: 0; line-height: 0; }
-      .auth-refresh-icon-button.loading svg { animation: auth-refresh-spin 0.8s linear infinite; }
+      .auth-refresh-icon-button.loading i { animation: auth-refresh-spin 0.8s linear infinite; }
       @keyframes auth-refresh-spin {
         to { transform: rotate(360deg); }
       }
@@ -1094,7 +1100,6 @@
           );
         gap: 14px;
       }
-      .settings-form-grid-single { grid-template-columns: minmax(0, 1fr); }
       .settings-form-grid .field,
       .settings-form-grid input,
       .settings-form-grid select { width: 100%; }
@@ -1148,6 +1153,24 @@
       .price-fields .field { min-width: 0; }
       .price-fields input[type="number"] { width: 100%; }
       .price-dialog-actions { justify-content: flex-end; margin-top: 20px; }
+      .route-dialog { width: min(820px, calc(100vw - 32px)); }
+      .route-form-toolbar {
+        display: grid;
+        grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.1fr) auto;
+        gap: 14px;
+        align-items: end;
+      }
+      .route-form-toolbar .field { min-width: 0; }
+      .route-form-toolbar .field input { width: 100%; }
+      .route-form-toolbar > .row { align-self: end; gap: 0; padding-bottom: 6px; white-space: nowrap; }
+      .route-editor-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .route-editor-section { display: grid; align-content: start; gap: 6px; min-width: 0; }
+      .route-editor-section > .small { padding-inline: 2px; }
       .dialog-input { width: 100%; }
       .dialog-actions { justify-content: flex-end; margin-top: 14px; }
       .retry-button { margin-top: 10px; }
@@ -1176,51 +1199,36 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 6px;
+        min-height: 28px;
+        padding: 4px 6px;
         border-radius: 6px;
         cursor: pointer;
       }
-      .key-picker label span { min-width: 0; overflow-wrap: anywhere; }
-      .key-picker label:hover { background: var(--bg-hover); }
-      .key-picker input { width: auto; }
+      .key-picker label span,
+      .route-picker-option > span:not(.count) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .key-picker label:hover,
+      .route-picker-option:hover { background: var(--bg-hover); }
+      .key-picker input[type="checkbox"],
+      .route-picker-option input[type="checkbox"] { flex: none; width: 14px; height: 14px; min-height: 0; }
       .key-picker label.disabled { cursor: not-allowed; opacity: 0.55; }
-      .key-picker label.disabled:hover { background: transparent; }
-      .settings-chip-list { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 180px; }
-      .settings-expand-cell { width: 34px; min-width: 34px; padding-right: 2px; text-align: center; }
-      .settings-row-name { min-width: 140px; white-space: nowrap; }
-      button.row-expand-button.link {
-        display: grid;
-        place-items: center;
-        flex: none;
-        width: 24px;
-        min-width: 24px;
-        height: 24px;
-        min-height: 24px;
-        padding: 0;
-        color: var(--text-tertiary);
-        text-decoration: none;
-      }
-      .row-expand-button::before {
-        content: "";
-        width: 7px;
-        height: 7px;
-        border-right: 1.5px solid currentColor;
-        border-bottom: 1.5px solid currentColor;
-        transform: rotate(-45deg);
+      .key-picker label.disabled:hover,
+      .route-picker-option.disabled:hover { background: transparent; }
+      .settings-card-list { padding-bottom: 0; }
+      .settings-entry-header { align-items: flex-start; margin-bottom: 10px; }
+      .settings-entry-title { min-width: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+      .settings-entry-actions { flex: none; gap: 2px; white-space: nowrap; }
+      .settings-entry-fields { display: grid; gap: 9px; }
+      .settings-entry-field { align-items: flex-start; }
+      .settings-entry-value { flex: 1; min-width: 0; color: var(--text-primary); }
+      .settings-chip-list { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; }
+      .settings-item-chip { flex: none; }
+      .fa-chevron-icon {
+        display: block;
+        width: 10px;
+        font-size: 11px;
+        text-align: center;
         transition: transform 0.15s ease;
       }
-      .row-expand-button[aria-expanded="true"]::before { transform: rotate(45deg); }
-      .settings-detail { min-width: 0; color: var(--text-secondary); }
-      .settings-detail .settings-chip-list { min-width: 0; max-width: none; }
-      .settings-detail.collapsed .settings-chip-list { flex-wrap: nowrap; overflow: hidden; }
-      .settings-item-chip { flex: none; }
-      .settings-detail.collapsed .settings-item-chip { white-space: nowrap; }
-      .settings-detail [hidden] { display: none; }
-      .settings-overflow-chip { flex: none; min-width: 28px; padding-inline: 7px; text-align: center; }
-      .settings-data-row.expanded td { vertical-align: top; }
-      .plan-key-list { width: clamp(320px, 44vw, 720px); }
-      .group-models { width: clamp(240px, 22vw, 420px); }
-      .group-key-list { width: clamp(300px, 28vw, 520px); }
       .settings-chip {
         display: inline-block;
         padding: 2px 8px;
@@ -1236,7 +1244,21 @@
         white-space: normal;
         overflow-wrap: anywhere;
       }
-      .model-trigger {
+      .settings-chip.has-tag {
+        display: inline-flex;
+        align-items: stretch;
+        padding: 0 0 0 8px;
+        overflow: hidden;
+      }
+      .settings-chip.has-tag > .settings-chip-label { align-self: center; padding-block: 2px; }
+      .settings-chip.has-tag > .tag {
+        flex: none;
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-width: 0 0 0 1px;
+        border-radius: 0;
+      }
+      .route-trigger {
         display: block;
         width: 100%;
         min-width: 104px;
@@ -1248,9 +1270,9 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      .model-trigger .mono { font-size: 12px; }
-      .model-trigger .tag { margin-right: 5px; }
-      .model-picker {
+      .route-trigger .mono { font-size: 12px; }
+      .route-trigger .tag { margin-right: 5px; }
+      .route-picker {
         position: fixed;
         z-index: 1100;
         display: flex;
@@ -1263,8 +1285,8 @@
         background: var(--floating-surface);
         box-shadow: var(--floating-shadow);
       }
-      .model-picker input[type="search"] { width: 100%; }
-      .model-picker-list {
+      .route-picker input[type="search"] { width: 100%; }
+      .route-picker-list {
         max-height: min(320px, 50vh);
         overflow: auto;
         overscroll-behavior: contain;
@@ -1273,48 +1295,79 @@
         background: var(--bg-secondary);
         padding: 5px;
       }
-      .model-picker-group {
-        padding: 8px 7px 3px;
-        font-size: 11px;
-        color: var(--text-tertiary);
+      .route-picker .route-picker-group {
+        display: flex;
+        align-items: flex-start;
+        gap: 5px;
+        width: 100%;
+        min-height: 0;
+        text-align: left;
+        background: transparent;
+        border: 0;
         border-top: 1px solid var(--border-color);
+        border-radius: 0;
+        padding: 8px 2px 5px 7px;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1.5;
+        color: var(--text-tertiary);
         margin-top: 4px;
       }
-      .model-picker-list > .model-picker-group:first-child { border-top: none; margin-top: 0; }
-      .model-picker-option {
+      :root[data-cpamp-plugin-host="true"] .route-picker .route-picker-group {
+        min-height: 0;
+        padding: 8px 2px 5px 7px;
+        border: 0;
+        border-top: 1px solid var(--border-color);
+        border-radius: 0;
+        background: transparent;
+        font-weight: 400;
+        line-height: 1.5;
+      }
+      .route-picker-chevron {
+        display: grid;
+        place-items: center;
+        flex: 0 0 18px;
+        width: 18px;
+        height: 1.5em;
+        color: var(--text-secondary);
+      }
+      .route-picker-chevron .fa-chevron-icon {
+        width: 1em;
+        margin: 0;
+        font-size: inherit;
+        line-height: 1;
+      }
+      .route-picker-section-count { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
+      .route-picker-list > .route-picker-section:first-child > .route-picker-group { border-top: none; margin-top: 0; }
+      .route-picker-option {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 6px 7px;
+        min-height: 28px;
+        padding: 4px 7px 4px 5px;
         border-radius: 6px;
         cursor: pointer;
       }
-      .model-picker-option.model > span {
+      .route-picker-option.model > span {
         font-family:
           ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
           "Liberation Mono", "Courier New", monospace;
         font-size: 12px;
       }
-      .model-picker-option:hover { background: var(--bg-hover); }
-      .model-picker-option input { width: auto; flex: none; }
-      .model-picker-option > span { min-width: 0; overflow-wrap: anywhere; }
-      .model-picker-option .count {
+      .route-picker-option .count {
         margin-left: auto;
         color: var(--text-tertiary);
         font-size: 11px;
         white-space: nowrap;
       }
-      .model-picker-option.disabled { cursor: not-allowed; opacity: 0.5; }
-      .model-picker-option.disabled:hover { background: transparent; }
-      .model-picker-hint { padding: 0 2px; color: var(--text-tertiary); font-size: 11px; }
-      .model-picker-actions { justify-content: flex-end; }
-      .group-model-picker { max-height: 260px; }
-      .group-model-actions .link { display: inline-flex; align-items: center; align-self: stretch; padding-block: 0; }
+      .route-picker-option.disabled { cursor: not-allowed; opacity: 0.5; }
+      .route-picker-actions { justify-content: flex-end; }
+      .route-rule-list { height: 210px; max-height: 210px; }
       @media (max-width: 768px) {
         /* Anchoring a popover to a cell inside a horizontally scrolling table stops
      making sense once the table is wider than the screen, so it becomes a sheet. */
-        .model-picker { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; }
-        .model-trigger { max-width: none; }
+        .route-picker { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; }
+        .route-trigger { max-width: none; }
       }
       .wide-search { width: 360px; max-width: 100%; }
       .section-toolbar,
@@ -1322,9 +1375,6 @@
       .section-toolbar h2,
       .settings-section-header h2,
       .account-plan h2 { margin: 0; }
-      .group-model-header { margin-bottom: 8px; }
-      .group-model-actions { gap: 4px; }
-      #group-model-search { max-width: 200px; }
       #price-filter { max-width: 220px; }
       .section-actions { min-width: 0; }
       .event-list-card {
@@ -1351,25 +1401,20 @@
       }
       .time-range-icon {
         width: 15px;
-        height: 15px;
         flex: none;
         color: var(--text-tertiary);
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.7;
-        stroke-linecap: round;
-        stroke-linejoin: round;
+        font-size: 14px;
+        text-align: center;
       }
       .time-range-icon + span { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; }
       .time-range-chevron {
-        width: 7px;
-        height: 7px;
-        margin: -3px 1px 0 3px;
-        border-right: 1.5px solid currentColor;
-        border-bottom: 1.5px solid currentColor;
-        transform: rotate(45deg);
+        width: 10px;
+        margin-left: 3px;
+        font-size: 10px;
+        text-align: center;
+        transition: transform 0.15s ease;
       }
-      .time-range-trigger[aria-expanded="true"] .time-range-chevron { margin-top: 3px; transform: rotate(225deg); }
+      .time-range-trigger[aria-expanded="true"] .time-range-chevron { transform: rotate(180deg); }
       .time-range-popover {
         position: absolute;
         z-index: 1200;
@@ -1622,7 +1667,6 @@
         .section-toolbar > .section-actions { flex: 1 1 100%; width: 100%; }
         .section-actions .wide-search,
         #price-filter,
-        #account-price-filter { flex: 1 0 100%; width: 100% !important; max-width: none !important; min-width: 0; }
         .section-actions #request-event-note { flex: 1 0 100%; }
         .auth-filter-bar { display: grid; grid-template-columns: 1fr 1fr; }
         .auth-filter-bar input[type="search"] { width: 100%; min-width: 0; }
@@ -1703,16 +1747,7 @@
         white-space: nowrap;
       }
       .export-button.hidden { display: none; }
-      .labeled-icon-button svg {
-        width: 15px;
-        height: 15px;
-        color: var(--text-tertiary);
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.8;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
+      .labeled-icon-button i { width: 15px; color: var(--text-tertiary); font-size: 14px; text-align: center; }
       .usage-distribution-card { min-height: 360px; }
       .analysis-summary-grid {
         display: grid;
@@ -1815,6 +1850,14 @@
         dialog { width: calc(100vw - 24px); max-width: none; padding: 16px; }
         .settings-form-grid { grid-template-columns: 1fr; }
         .price-dialog { padding: 18px; }
+        .route-form-toolbar,
+        .route-editor-grid { grid-template-columns: 1fr; }
+        .settings-entry-title {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .account-access-summary { grid-template-columns: 1fr; }
         .price-fields { grid-template-columns: 1fr; }
         .price-reference-option { grid-template-columns: 1fr; gap: 2px; }
         .price-reference-prices { text-align: left; }
@@ -1995,10 +2038,8 @@
             </select>
             <div class="time-range-control">
               <button id="shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
-                <svg class="time-range-icon" viewBox="0 0 24 24" aria-hidden="true"> <circle cx="12" cy="12" r="8.5"></circle>
-                  <path d="M12 7.5v5l3.25 2"></path>
-                </svg>
-                <span id="shared-time-label">最近 30 天</span><span class="time-range-chevron" aria-hidden="true"></span>
+                <i class="fa-regular fa-clock time-range-icon" aria-hidden="true"></i>
+                <span id="shared-time-label">最近 30 天</span><i class="fa-solid fa-chevron-down time-range-chevron" aria-hidden="true"></i>
               </button>
               <div id="shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择时间范围">
                 <div class="time-range-heading">时间范围</div>
@@ -2079,34 +2120,39 @@
           </dialog>
         </section>
 
-        <section id="tab-groups" class="hidden">
+        <section id="tab-routes" class="hidden">
           <div class="card">
             <div class="row spread settings-section-header">
-              <h2>模型分组</h2>
-              <button id="group-new" type="button">新建模型分组</button>
+              <h2>路由规则</h2>
+              <button id="route-new" type="button">新建路由规则</button>
             </div>
-            <div id="groups-body"></div>
+            <div id="routes-body"></div>
           </div>
-          <dialog id="group-dialog" class="price-dialog">
-            <h2 id="group-form-title">新建模型分组</h2>
-            <input id="group-id" type="hidden" />
-            <div class="settings-form-grid settings-form-grid-single">
-              <label class="field">名称<input id="group-name" placeholder="基础模型" /></label>
+          <dialog id="route-dialog" class="price-dialog route-dialog">
+            <h2 id="route-form-title">新建路由规则</h2>
+            <input id="route-id" type="hidden" />
+            <div class="route-form-toolbar">
+              <label class="field">规则名称<input id="route-name" placeholder="Codex 认证文件" /></label>
+              <label class="field">筛选<input id="route-rule-search" type="search" placeholder="搜索模型或凭证" /></label>
+              <div class="row"><button id="route-rule-all" type="button" class="link">全选</button><button id="route-rule-none" type="button" class="link">清空</button></div>
+            </div>
+            <div class="route-editor-grid">
+              <div class="route-editor-section">
+                <span class="small muted">模型（<span id="route-model-count">全部</span>）</span>
+                <div id="route-model-list" class="key-picker route-rule-list settings-picker-list"></div>
+              </div>
+              <div class="route-editor-section">
+                <span class="small muted">凭证（<span id="route-credential-count">全部</span>）</span>
+                <div id="route-credential-list" class="key-picker route-rule-list settings-picker-list"></div>
+              </div>
             </div>
             <div class="settings-picker-section">
-              <div class="row spread group-model-header">
-                <span class="small muted">包含模型（<span id="group-model-count">0</span>）</span>
-                <span class="row group-model-actions">
-                  <input id="group-model-search" type="search" placeholder="搜索模型" />
-                  <button id="group-model-all" class="link">全选</button>
-                  <button id="group-model-none" class="link">清空</button>
-                </span>
-              </div>
-              <div id="group-model-picker" class="key-picker group-model-picker settings-picker-list"></div>
+              <div class="small muted">绑定 API Key</div>
+              <div id="route-key-list" class="key-picker settings-picker-list"></div>
             </div>
             <div class="row price-dialog-actions">
-              <button id="group-cancel" type="button">取消</button>
-              <button id="group-save" class="primary" type="button">保存</button>
+              <button id="route-cancel" type="button">取消</button>
+              <button id="route-save" class="primary" type="button">保存</button>
             </div>
           </dialog>
         </section>
@@ -2200,15 +2246,17 @@
               <h2>插件日志</h2>
               <div class="row section-actions">
                 <select id="plugin-log-level" aria-label="按级别筛选">
-                  <option value="">全部级别</option>
-                  <option value="error">错误</option>
+                  <option value="all">全部级别</option>
+                  <option value="debug">调试</option>
                   <option value="info">信息</option>
+                  <option value="error">错误</option>
                 </select>
                 <input id="plugin-log-filter" placeholder="搜索日志内容" class="wide-search" />
                 <button id="plugin-logs-clear" class="danger">清空日志</button>
               </div>
             </div>
             <div id="plugin-logs-body" class="event-list-region plugin-log-region"></div>
+            <div class="event-list-footer"><button id="plugin-logs-more" class="link hidden" type="button">加载更多</button></div>
           </div>
         </section>
       </main>
@@ -2245,10 +2293,8 @@
             <div id="account-shared-time-filter" class="shared-time-filter hidden">
               <div class="time-range-control">
                 <button id="account-shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
-                  <svg class="time-range-icon" viewBox="0 0 24 24" aria-hidden="true"> <circle cx="12" cy="12" r="8.5"></circle>
-                    <path d="M12 7.5v5l3.25 2"></path>
-                  </svg>
-                  <span id="account-shared-time-label">最近 30 天</span><span class="time-range-chevron" aria-hidden="true"></span>
+                  <i class="fa-regular fa-clock time-range-icon" aria-hidden="true"></i>
+                  <span id="account-shared-time-label">最近 30 天</span><i class="fa-solid fa-chevron-down time-range-chevron" aria-hidden="true"></i>
                 </button>
                 <div id="account-shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择时间范围">
                   <div class="time-range-heading">时间范围</div>
@@ -2296,8 +2342,12 @@
                 </div>
               </div>
             </div>
+            <div class="card" id="account-access-card">
+              <h2>访问权限</h2>
+              <div id="account-access"></div>
+            </div>
             <div class="card">
-              <h2>可用模型</h2>
+              <h2>模型价格</h2>
               <div id="account-models" class="account-models"></div>
             </div>
           </section>
@@ -2416,13 +2466,12 @@
 
     <div id="cost-tooltip" class="cost-tooltip" role="tooltip" aria-hidden="true"></div>
 
-    <div id="model-picker" class="model-picker hidden" role="dialog" aria-label="选择可用模型">
-      <input id="model-picker-search" type="search" placeholder="搜索分组或模型" autocomplete="off" />
-      <div id="model-picker-list" class="model-picker-list"></div>
-      <div id="model-picker-hint" class="model-picker-hint"></div>
-      <div class="row model-picker-actions">
-        <button id="model-picker-cancel">取消</button>
-        <button id="model-picker-save" class="primary">保存</button>
+    <div id="route-picker" class="route-picker hidden" role="dialog" aria-label="设置路由规则">
+      <input id="route-picker-search" type="search" placeholder="搜索路由规则、上游凭证或模型" autocomplete="off" />
+      <div id="route-picker-list" class="route-picker-list"></div>
+      <div class="row route-picker-actions">
+        <button id="route-picker-cancel">取消</button>
+        <button id="route-picker-save" class="primary">保存</button>
       </div>
     </div>
 
@@ -2536,6 +2585,7 @@
       }
 
       const initialRoute = pageRoute();
+      const expandedPluginLogIDs = new Set();
       let authKey = "";
       let currentRole = "";
       let loginMode = initialRoute.role;
@@ -2545,13 +2595,15 @@
           keys: [],
           plans: [],
           prices: null,
-          groups: [],
+          routes: [],
+          credentials: [],
           status: null,
           access: null,
           requestEvents: null,
           errors: null,
           analysis: null,
           pluginLogs: null,
+          pluginLogsNext: 0,
           authFiles: null,
           authQuotas: new Map(),
           authQuotaLoading: new Set(),
@@ -2694,9 +2746,9 @@
         }
       }
 
-      // An empty persisted model selection means every model.
-      const ALL_GROUP_ID = "all";
-      const ALL_GROUP_NAME = "全部模型";
+      // The built-in empty route leaves both routing dimensions unrestricted.
+      const ALL_ROUTE_ID = "system:all";
+      const ALL_ROUTE_NAME = "默认";
       const CONCURRENCY_OPTIONS = [0, 1, 2, 3, 5, 10, 20, 50];
       const CUSTOM_CONCURRENCY = "__custom__";
       const REQUEST_EVENT_BATCH_SIZE = 50;
@@ -2808,7 +2860,6 @@
         admin: emptyRequestEventLoadState(),
         account: emptyRequestEventLoadState(),
       };
-      const expandedSettingsRows = { plans: new Set(), groups: new Set() };
       let requestEventExporting = false;
       let sharedTimeRanges = {
         admin: { mode: "30d" },
@@ -2841,13 +2892,11 @@
         $(authPrefix + "-provider").value = "";
         $(authPrefix + "-search").value = "";
         if (!account) {
-          expandedSettingsRows.plans.clear();
-          expandedSettingsRows.groups.clear();
           $("analysis-key").value = "";
           $("key-filter").value = "";
           $("price-filter").value = "";
           $("plugin-log-filter").value = "";
-          $("plugin-log-level").value = "";
+          $("plugin-log-level").value = "all";
           $("plugin-logs-body").scrollTop = 0;
           $("plugin-logs-body").scrollLeft = 0;
         }
@@ -3312,7 +3361,8 @@
             state.access = access;
             state.keys = (access.keys || []).filter((view) => !view.deleted_at);
             state.plans = access.plans || [];
-            state.groups = access.model_groups || [];
+            state.routes = access.routes || [];
+            state.credentials = access.credentials || [];
           },
           () => currentRole === "admin" && renderAdminPage(),
           deferRender,
@@ -3631,12 +3681,15 @@
             "%）";
 
         const access = accountState.access || {};
-        const allowedModels = new Set(access.models || []);
+        const routingValid = access.routing_valid !== false;
+        const modelScope = new Set((access.models || []).map((model) => model.toLowerCase()));
         const models = (
-          access.all_models
+          !routingValid
+            ? []
+            : !modelScope.size
             ? accountState.models
             : accountState.models.length
-              ? accountState.models.filter((model) => allowedModels.has(model))
+              ? accountState.models.filter((model) => modelScope.has(model.toLowerCase()))
               : access.models || []
         )
           .slice()
@@ -3645,13 +3698,44 @@
           $("account-models"),
           ...(models.length
             ? models.map((model) => renderAccountModel(model))
-            : [el("span", { class: "muted", text: "暂无可用模型" })]),
+            : [el("span", { class: "muted", text: "暂无模型价格" })]),
         );
+        renderAccountAccess(access);
         if (renderDetail && accountTab === "analysis") renderAnalysis(true);
         if (renderDetail && accountTab === "request-events")
           renderRequestEvents(true);
         if (renderDetail && accountTab === "errors") renderErrors(true);
         if (renderDetail && accountTab === "auth-files") renderAuthFiles(true);
+      }
+
+      function renderAccountAccess(access) {
+        const routingValid = access.routing_valid !== false;
+        const sourceLabel = (source) => source === "auth-files" ? "认证文件" : "AI 供应商";
+        const accountCredentialLabel = (item) => item.provider_wide
+          ? { text: sourceLabel(item.source) + " · " + item.provider, tag: "整类" }
+          : item.status === "missing"
+            ? { text: item.name || "指定上游凭证当前不可用", tag: "" }
+            : { text: item.source === "auth-files"
+            ? item.provider + " · " + (item.name || "未提供邮箱")
+            : sourceLabel(item.source) + " · " + item.provider + " · " + (item.name || "凭证不可用"), tag: "" };
+
+        const chips = (values, fallback) => el(
+          "div",
+          { class: "account-access-chips" },
+          ...((values.length ? values : [fallback]).map((value) => typeof value === "string"
+            ? el("span", { class: "settings-chip", text: value })
+            : value.tag
+              ? el("span", { class: "settings-chip has-tag" }, el("span", { class: "settings-chip-label", text: value.text }), el("span", { class: "tag warn", text: value.tag }))
+              : el("span", { class: "settings-chip", text: value.text }))),
+        );
+        const nodes = [el(
+          "div",
+          { class: "account-access-summary" },
+          el("div", { class: "auth-file-card" }, el("div", { class: "account-access-scope-label", text: "允许的模型" }), chips((access.models || []).slice().sort(compareModelId), routingValid ? "全部模型" : "无法确定")),
+          el("div", { class: "auth-file-card" }, el("div", { class: "account-access-scope-label", text: "允许的凭证" }), chips((access.credentials || []).map(accountCredentialLabel).sort((a, b) => a.text.localeCompare(b.text, "zh-CN")), routingValid ? "全部凭证" : "无法确定")),
+        )];
+        if ((access.warnings || []).length) nodes.push(el("div", { class: "account-access-warnings" }, ...(access.warnings || []).map((warning) => el("span", { class: "tag warn", text: warning }))));
+        $("account-access").replaceChildren(...nodes);
       }
 
       function pricePatternMatches(pattern, model) {
@@ -5049,10 +5133,10 @@
         }
       }
 
-      function renderAdminTab(tab, preserveKeyPicker) {
+      function renderAdminTab(tab, preserveRoutePicker) {
         if (tab === "keys") {
           // Replacing the anchor row would close a picker the user is working in.
-          if (!preserveKeyPicker || !modelPicker.scope) renderKeys();
+          if (!preserveRoutePicker || !routePicker.scope) renderKeys();
         } else if (tab === "analysis") {
           renderAnalysis(false);
         } else if (tab === "request-events") {
@@ -5063,7 +5147,7 @@
           renderAuthFiles(false);
         } else if (tab === "settings") {
           renderPlans();
-          renderGroups();
+          renderRoutes();
           renderPriceTable(
             "prices-body",
             state.prices || [],
@@ -5139,16 +5223,16 @@
       async function saveConcurrency(view, raw) {
         const text = String(raw ?? "").trim();
         if (!/^\d+$/.test(text))
-          throw new Error("并发数必须是 0 到 10000 之间的整数");
+          throw new Error("并发限制必须是 0 到 10000 之间的整数");
         const limit = Number(text);
         if (!Number.isSafeInteger(limit) || limit < 0 || limit > 10000) {
-          throw new Error("并发数必须是 0 到 10000 之间的整数");
+          throw new Error("并发限制必须是 0 到 10000 之间的整数");
         }
         await plugin("POST", "/keys/concurrency", {
           scope: view.scope,
           concurrency_limit: limit,
         });
-        notify(limit ? "并发数已更新为 " + limit : "已取消并发限制");
+        notify(limit ? "并发限制已更新为 " + limit : "已取消并发限制");
         await refreshPage("foreground");
       }
 
@@ -5252,7 +5336,7 @@
                   guard(async () => {
                     if (event.target.value === CUSTOM_CONCURRENCY) {
                       const raw = await ask(
-                        "设置并发数",
+                        "设置并发限制",
                         "请输入 0 到 10000 的整数，0 表示不限制。",
                         String(currentConcurrencyLimit),
                       );
@@ -5325,8 +5409,8 @@
                   !view.in_config ? " · 不在 CLIProxyAPI Key 列表中" : null,
                 ),
               ),
-              el("td", {}, el("span", { class: "native-select" }, select)),
-              el("td", {}, modelTrigger(view)),
+              el("td", {}, el("span", { class: "native-select key-plan-select" }, select)),
+              el("td", {}, routeTrigger(view)),
               el("td", {}, concurrency),
               el("td", {}, usage),
               el(
@@ -5398,8 +5482,8 @@
             [
               "API Key",
               "订阅计划",
-              "可用模型",
-              "并发数",
+              "路由规则",
+              "并发限制",
               "剩余额度",
               "到期时间",
               "状态",
@@ -5419,54 +5503,57 @@
         return view.cycle_end_at ? when(view.cycle_end_at) : "未开始";
       }
 
-      function groupName(id) {
-        const group = state.groups.find((entry) => entry.id === id);
-        return group ? group.name || group.id : id;
+      function routeName(id) {
+        const route = state.routes.find((entry) => entry.id === id);
+        return route ? route.name || route.id : "路由规则已不存在，请重新选择";
       }
 
-      // Match the model union enforced by the backend.
-      function effectiveModels(view) {
-        const models = new Set(view.models || []);
-        for (const id of view.model_groups || []) {
-          const group = state.groups.find((entry) => entry.id === id);
-          for (const model of (group && group.models) || []) models.add(model);
+      function credentialLabel(item) {
+        if (item.source === "auth-files") return item.provider + " · " + (item.display_name || "未提供邮箱");
+        return "AI 供应商 · " + item.provider + " · " + item.display_name;
+      }
+
+      function credentialProviderFromValue(value) {
+        const separator = String(value).indexOf("\u0000");
+        if (separator <= 0 || separator === String(value).length - 1) return null;
+        return { source: String(value).slice(0, separator), provider: String(value).slice(separator + 1) };
+      }
+
+      function credentialProviderLabel(item) {
+        return (item.source === "auth-files" ? "认证文件" : "AI 供应商") + " · " + item.provider;
+      }
+
+      function bindingKey(binding) { return binding.kind + "\u0000" + binding.value; }
+
+      function bindingName(binding) {
+        if (binding.kind === "route") return routeName(binding.value);
+        if (binding.kind === "model") return "单模型 · " + binding.value;
+        if (binding.kind === "credential_provider") {
+          const provider = credentialProviderFromValue(binding.value);
+          return provider ? credentialProviderLabel(provider) : "凭证类别已不存在";
         }
-        return [...models];
+        const credential = state.credentials.find((item) => item.ref === binding.value);
+        return credential ? credentialLabel(credential) : "上游凭证已不存在";
       }
 
-      function modelTrigger(view) {
-        const names = view.all_models
-          ? [{ text: ALL_GROUP_NAME, mono: false }]
-          : (view.model_groups || [])
-              .map((id) => ({ text: groupName(id), mono: false }))
-              .concat(
-                (view.models || []).map((model) => ({
-                  text: model,
-                  mono: true,
-                })),
-              );
+      function routeTrigger(view) {
+        const bindings = view.route_bindings || [];
+        const names = bindings.length
+          ? bindings.map((binding) => ({ text: bindingName(binding), mono: binding.kind === "model", tag: binding.kind === "credential_provider" ? "整类" : "" }))
+          : [{ text: ALL_ROUTE_NAME, mono: false }];
         const parts = names.flatMap((entry, index) => [
           index ? "、" : null,
           el("span", { class: entry.mono ? "mono" : "" }, entry.text),
+          entry.tag ? el("span", { class: "tag warn settings-item-chip", text: entry.tag }) : null,
         ]);
-        // Empty groups do not constrain the all-models grant.
-        const unlimited = !view.all_models && !effectiveModels(view).length;
         return el(
           "button",
           {
-            class: "model-trigger",
-            title: names.map((entry) => entry.text).join("、"),
-            "aria-label": keyName(view) + " 的可用模型",
-            onclick: (event) => openModelPicker(view, event.currentTarget),
+            class: "route-trigger",
+            title: names.map((entry) => entry.text + (entry.tag ? " · " + entry.tag : "")).join("、"),
+            "aria-label": keyName(view) + " 的路由规则",
+            onclick: (event) => openRoutePicker(view, event.currentTarget),
           },
-          unlimited
-            ? el("span", {
-                class: "tag warn",
-                text: "未限制",
-                title:
-                  "所选分组还没有模型，当前等同于「" + ALL_GROUP_NAME + "」",
-              })
-            : null,
           parts,
         );
       }
@@ -5493,39 +5580,43 @@
         return !term || String(text).toLowerCase().includes(term);
       }
 
-      let modelPicker = {
+      let routePicker = {
         scope: "",
         all: true,
-        groups: new Set(),
-        models: new Set(),
+        bindings: new Map(),
+        expanded: { routes: true, credentials: true, models: true },
+        searching: false,
+        beforeSearch: null,
         anchor: null,
       };
 
-      function openModelPicker(view, anchor) {
-        modelPicker = {
+      function openRoutePicker(view, anchor) {
+        routePicker = {
           scope: view.scope,
-          all: !!view.all_models,
-          groups: new Set(view.model_groups || []),
-          models: new Set(view.models || []),
+          all: !(view.route_bindings || []).length,
+          bindings: new Map((view.route_bindings || []).map((binding) => [bindingKey(binding), binding])),
+          expanded: { routes: true, credentials: true, models: true },
+          searching: false,
+          beforeSearch: null,
           anchor,
         };
-        $("model-picker-search").value = "";
-        $("model-picker").classList.remove("hidden");
-        renderModelPicker();
-        positionModelPicker();
-        $("model-picker-search").focus();
+        $("route-picker-search").value = "";
+        $("route-picker").classList.remove("hidden");
+        renderRoutePicker();
+        positionRoutePicker();
+        $("route-picker-search").focus();
       }
 
-      function closeModelPicker() {
-        modelPicker.scope = "";
-        modelPicker.anchor = null;
-        $("model-picker").classList.add("hidden");
+      function closeRoutePicker() {
+        routePicker.scope = "";
+        routePicker.anchor = null;
+        $("route-picker").classList.add("hidden");
       }
 
-      function positionModelPicker() {
-        const node = $("model-picker");
-        if (!modelPicker.anchor || node.classList.contains("hidden")) return;
-        const anchorRect = modelPicker.anchor.getBoundingClientRect();
+      function positionRoutePicker() {
+        const node = $("route-picker");
+        if (!routePicker.anchor || node.classList.contains("hidden")) return;
+        const anchorRect = routePicker.anchor.getBoundingClientRect();
         const rect = node.getBoundingClientRect();
         const margin = 8;
         let left = anchorRect.left;
@@ -5543,12 +5634,15 @@
         node.style.top = Math.round(top) + "px";
       }
 
-      function pickerOption(checked, disabled, kind, label, note, onToggle) {
+      function pickerOption(checked, disabled, kind, label, note, onToggle, icon, disabledReason, tag) {
         return el(
           "label",
           {
             class:
-              "model-picker-option " + kind + (disabled ? " disabled" : ""),
+              "route-picker-option " + kind + (disabled ? " disabled" : ""),
+            title: disabled
+              ? disabledReason || "已选择「" + ALL_ROUTE_NAME + "」。如需设置其他范围，请先取消选择该规则。"
+              : null,
           },
           el("input", {
             type: "checkbox",
@@ -5556,255 +5650,163 @@
             disabled: disabled || undefined,
             onchange: (event) => onToggle(event.target.checked),
           }),
-          el("span", {}, label),
+          icon ? el("i", { class: icon + " fa-fw", "aria-hidden": "true" }) : null,
+          el("span", { title: label }, label),
+          tag ? el("span", { class: "tag warn settings-item-chip", text: tag }) : null,
           note ? el("span", { class: "count" }, note) : null,
         );
       }
 
-      function renderModelPicker() {
-        const term = $("model-picker-search").value.trim().toLowerCase();
-        const list = $("model-picker-list");
+      function renderRoutePicker() {
+        const term = $("route-picker-search").value.trim().toLowerCase();
+        const list = $("route-picker-list");
         const sections = [];
 
-        const groupOptions = [];
-        if (matchesTerm(ALL_GROUP_NAME, term)) {
-          groupOptions.push(
+        const routeOptions = [];
+        if (matchesTerm(ALL_ROUTE_NAME, term)) {
+          routeOptions.push(
             pickerOption(
-              modelPicker.all,
+              routePicker.all,
               false,
-              "group",
-              ALL_GROUP_NAME,
+              "route",
+              ALL_ROUTE_NAME,
               "全部",
               (checked) => {
-                // Selecting every model is exclusive: the other boxes are kept in memory
-                // so that clearing this one puts the previous selection back, but while it
-                // is on they are neither shown as selected nor selectable.
-                modelPicker.all = checked;
-                renderModelPicker();
+                routePicker.all = checked;
+                if (checked) routePicker.bindings.clear();
+                renderRoutePicker();
               },
             ),
           );
         }
-        for (const group of state.groups) {
-          if (!matchesTerm(group.name || group.id, term)) continue;
-          groupOptions.push(
+        for (const route of state.routes.filter((entry) => entry.id !== ALL_ROUTE_ID)) {
+          if (!matchesTerm(route.name || route.id, term)) continue;
+          const binding = { kind: "route", value: route.id };
+          routeOptions.push(
             pickerOption(
-              !modelPicker.all && modelPicker.groups.has(group.id),
-              modelPicker.all,
-              "group",
-              group.name || group.id,
-              (group.models || []).length + " 个模型",
+              !routePicker.all && routePicker.bindings.has(bindingKey(binding)),
+              routePicker.all,
+              "route",
+              route.name || route.id,
+              "自定义",
               (checked) => {
-                if (checked) modelPicker.groups.add(group.id);
-                else modelPicker.groups.delete(group.id);
-                renderModelPicker();
+                if (checked) routePicker.bindings.set(bindingKey(binding), binding);
+                else routePicker.bindings.delete(bindingKey(binding));
+                renderRoutePicker();
               },
             ),
           );
         }
-        if (groupOptions.length) {
-          sections.push(
-            el("div", { class: "model-picker-group" }, "分组"),
-            ...groupOptions,
-          );
+        for (const binding of routePicker.bindings.values()) if (binding.kind === "route" && !state.routes.some((route) => route.id === binding.value) && matchesTerm(binding.value, term)) routeOptions.push(pickerOption(true, false, "route", "路由规则已不存在，请重新选择", binding.value, (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }));
+        sections.push(pickerSection("routes", "路由规则", routeOptions, term ? "没有匹配的路由规则" : "暂无路由规则"));
+
+        const selectedProviderValues = new Set([...routePicker.bindings.values()].filter((binding) => binding.kind === "credential_provider").map((binding) => binding.value));
+        for (const item of state.credentials) {
+          if (selectedProviderValues.has(providerKey(item))) routePicker.bindings.delete(bindingKey({ kind: "credential", value: item.ref }));
         }
+        const credentialOptions = routeProviderChoices(selectedProviderValues)
+          .filter((item) => matchesTerm(credentialProviderLabel(item) + " 整类 类别", term))
+          .map((item) => {
+            const binding = { kind: "credential_provider", value: providerKey(item) };
+            const label = credentialProviderLabel(item);
+            const available = state.credentials.some((credential) => credential.source === item.source && credential.provider.toLowerCase() === item.provider.toLowerCase());
+            return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), routePicker.all, "credential-provider", label, available ? "" : "暂无凭证", (checked) => {
+              if (checked) {
+                routePicker.bindings.set(bindingKey(binding), binding);
+                for (const credential of state.credentials) {
+                  if (credential.source === item.source && credential.provider.toLowerCase() === item.provider.toLowerCase()) routePicker.bindings.delete(bindingKey({ kind: "credential", value: credential.ref }));
+                }
+              } else routePicker.bindings.delete(bindingKey(binding));
+              renderRoutePicker();
+            }, "fa-solid fa-layer-group", null, "整类");
+          });
+        credentialOptions.push(...state.credentials.filter((item) => matchesTerm(credentialLabel(item), term)).map((item) => {
+          const binding = { kind: "credential", value: item.ref };
+          const providerBinding = { kind: "credential_provider", value: providerKey(item) };
+          const covered = routePicker.bindings.has(bindingKey(providerBinding));
+          const disabled = routePicker.all || covered;
+          const disabledReason = covered ? "已选择「" + credentialProviderLabel(item) + "」整类，该类别下的单个凭证无需重复选择。" : "";
+          return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), disabled, "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.bindings.set(bindingKey(binding), binding); else routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "fa-solid fa-key", disabledReason);
+        }));
+        for (const binding of routePicker.bindings.values()) if (binding.kind === "credential" && !state.credentials.some((item) => item.ref === binding.value) && matchesTerm(binding.value, term)) credentialOptions.push(pickerOption(true, routePicker.all, "credential", "上游凭证已不存在", binding.value.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "fa-solid fa-key"));
+        sections.push(pickerSection("credentials", "上游凭证", credentialOptions, term ? "没有匹配的上游凭证" : "暂无上游凭证"));
 
         const modelOptions = catalogModels()
           .filter((model) => matchesTerm(model, term))
-          .map((model) =>
-            pickerOption(
-              !modelPicker.all && modelPicker.models.has(model),
-              modelPicker.all,
+          .map((model) => {
+            const binding = { kind: "model", value: model };
+            return pickerOption(
+              !routePicker.all && routePicker.bindings.has(bindingKey(binding)),
+              routePicker.all,
               "model",
               model,
               "",
               (checked) => {
-                if (checked) modelPicker.models.add(model);
-                else modelPicker.models.delete(model);
-                renderModelPicker();
+                if (checked) routePicker.bindings.set(bindingKey(binding), binding);
+                else routePicker.bindings.delete(bindingKey(binding));
+                renderRoutePicker();
               },
-            ),
-          );
-        if (modelOptions.length) {
-          sections.push(
-            el("div", { class: "model-picker-group" }, "模型"),
-            ...modelOptions,
-          );
-        }
-
-        const retired = retiredModels(modelPicker.models).filter((model) =>
-          matchesTerm(model, term),
-        );
-        if (retired.length) {
-          sections.push(el("div", { class: "model-picker-group" }, "已下线"));
-          for (const model of retired) {
-            sections.push(
-              pickerOption(
-                !modelPicker.all,
-                modelPicker.all,
-                "model",
-                model,
-                "不在模型列表中",
-                (checked) => {
-                  if (checked) modelPicker.models.add(model);
-                  else modelPicker.models.delete(model);
-                  renderModelPicker();
-                },
-              ),
             );
-          }
-        }
+          });
+        for (const binding of routePicker.bindings.values()) if (binding.kind === "model" && !catalogModels().some((model) => model.toLowerCase() === binding.value.toLowerCase()) && matchesTerm(binding.value, term)) modelOptions.push(pickerOption(true, routePicker.all, "model", binding.value, "CPA 当前未公布此模型", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }));
+        sections.push(pickerSection("models", "模型", modelOptions, term ? "没有匹配的模型" : "暂无模型"));
 
-        list.replaceChildren(
-          ...(sections.length
-            ? sections
-            : [el("div", { class: "empty", text: "没有匹配的分组或模型" })]),
-        );
-        const selected = modelPicker.groups.size + modelPicker.models.size;
-        // Saving nothing has no meaning to express: a key that may call every model
-        // says so by selecting the all-models group, which is what an empty selection
-        // is stored as. Asking for the choice is clearer than making it silently.
-        $("model-picker-save").disabled = !modelPicker.all && !selected;
-        $("model-picker-hint").textContent = modelPicker.all
-          ? "已选择「" + ALL_GROUP_NAME + "」，取消后可选择其他分组和模型"
-          : selected
-            ? "已选择 " + selected + " 项，可用模型为所有分组和模型的并集"
-            : "请至少选择一个分组或模型；不限制模型请选择「" +
-              ALL_GROUP_NAME +
-              "」";
+        list.replaceChildren(...sections);
+        $("route-picker-save").disabled = false;
       }
 
-      function saveModelPicker() {
-        const scope = modelPicker.scope;
-        const unrestricted = modelPicker.all;
-        if (
-          !scope ||
-          (!unrestricted &&
-            !modelPicker.groups.size &&
-            !modelPicker.models.size)
-        )
-          return;
-        const body = unrestricted
-          ? { scope, groups: [ALL_GROUP_ID], models: [] }
-          : {
-              scope,
-              groups: [...modelPicker.groups],
-              models: [...modelPicker.models],
-            };
-        guard(async () => {
-          await plugin("POST", "/keys/models", body);
-          notify(
-            unrestricted ? "该 API Key 可以使用全部模型" : "可用模型已更新",
-          );
-          await refreshPage("foreground");
-        });
-      }
-
-      function settingsExpandButton(kind, id, name, hasDetails) {
-        if (!hasDetails) return null;
-        const expanded = expandedSettingsRows[kind].has(id);
-        const action = expanded ? "收起" : "展开";
-        return el("button", {
-          type: "button",
-          class: "link row-expand-button",
-          "aria-expanded": String(expanded),
-          "aria-label": action + "「" + name + "」详情",
-          title: action,
-          onclick: () => {
-            if (expanded) expandedSettingsRows[kind].delete(id);
-            else expandedSettingsRows[kind].add(id);
-            if (kind === "plans") renderPlans();
-            else renderGroups();
-          },
-        });
-      }
-
-      function settingsDetail(expanded, className, items) {
-        if (!items.length) return el("span", { class: "muted", text: "—" });
-        return el(
-          "div",
-          {
-            class:
-              "settings-detail " +
-              className +
-              (expanded ? " expanded" : " collapsed"),
-            title: expanded ? null : items.map((item) => item.text).join("、"),
-          },
-          el(
-            "div",
-            { class: "settings-chip-list" },
-            items.map((item) =>
-              el("span", {
-                class: "settings-chip settings-item-chip",
-                text: item.text,
-                title: item.title,
-              }),
-            ),
-            !expanded && items.length > 1
-              ? el("span", {
-                  class: "settings-chip settings-overflow-chip",
-                  text: "…",
-                  hidden: true,
-                })
-              : null,
+      function pickerSection(kind, title, options, emptyText) {
+        const bindingKinds = kind === "routes" ? ["route"] : kind === "credentials" ? ["credential", "credential_provider"] : ["model"];
+        const selected = [...routePicker.bindings.values()].filter((binding) => bindingKinds.includes(binding.kind)).length + (kind === "routes" && routePicker.all ? 1 : 0);
+        const expanded = !!routePicker.expanded[kind];
+        return el("div", { class: "route-picker-section" },
+          el("button", { type: "button", class: "route-picker-group", "aria-label": (expanded ? "收起" : "展开") + title, "aria-expanded": String(expanded), onclick: () => { routePicker.expanded[kind] = !expanded; renderRoutePicker(); } },
+            el("span", { class: "route-picker-chevron", "aria-hidden": "true" }, actionIcon("chevron")),
+            el("span", { text: title }),
+            el("span", { class: "route-picker-section-count", text: selected + "/" + options.length }),
           ),
+          expanded ? el("div", {}, ...(options.length ? options : [el("div", { class: "empty", text: emptyText })])) : null,
         );
       }
 
-      function fitCollapsedSettingsDetail(detail) {
-        const list = detail.querySelector(".settings-chip-list");
-        const chips = [...list.querySelectorAll(".settings-item-chip")];
-        const overflow = list.querySelector(".settings-overflow-chip");
-        if (!overflow || !list.clientWidth) return;
-        for (const chip of chips) chip.hidden = false;
-        overflow.hidden = true;
-        const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0;
-        const total = chips.reduce(
-          (width, chip, index) => width + chip.offsetWidth + (index ? gap : 0),
-          0,
-        );
-        if (total <= list.clientWidth + 0.5) return;
-
-        overflow.hidden = false;
-        const room = Math.max(0, list.clientWidth - overflow.offsetWidth - gap);
-        let used = 0;
-        let visible = 0;
-        let outOfRoom = false;
-        for (const chip of chips) {
-          const needed = chip.offsetWidth + (visible ? gap : 0);
-          if (!outOfRoom && used + needed <= room + 0.5) {
-            used += needed;
-            visible++;
-            continue;
-          }
-          outOfRoom = true;
-          chip.hidden = true;
+      async function saveRoutePicker() {
+        const scope = routePicker.scope;
+        if (!scope) return;
+        const body = { scope, bindings: routePicker.all ? [{ kind: "route", value: ALL_ROUTE_ID }] : [...routePicker.bindings.values()] };
+        const button = $("route-picker-save");
+        button.disabled = true;
+        button.textContent = "正在保存…";
+        try {
+          await plugin("PUT", "/keys/routes", body);
+          notify("API Key 路由规则已保存");
+          closeRoutePicker();
+          await refreshPage("foreground");
+        } finally {
+          button.disabled = false;
+          button.textContent = "保存";
         }
-        overflow.title = "还有 " + (chips.length - visible) + " 项";
       }
 
-      const settingsDetailResizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) fitCollapsedSettingsDetail(entry.target);
-      });
-      let settingsDetailFitFrame = 0;
-      function scheduleSettingsDetailFit() {
-        cancelAnimationFrame(settingsDetailFitFrame);
-        settingsDetailFitFrame = requestAnimationFrame(() => {
-          settingsDetailResizeObserver.disconnect();
-          document
-            .querySelectorAll(".settings-detail.collapsed")
-            .forEach((detail) => {
-              fitCollapsedSettingsDetail(detail);
-              settingsDetailResizeObserver.observe(detail);
-            });
-        });
+      function settingsChipList(items, fallback) {
+        if (!items.length) return el("span", { class: fallback === "—" ? "muted" : "", text: fallback });
+        return el("div", { class: "settings-chip-list" }, items.map((item) =>
+          el("span", item.title
+            ? { class: "settings-chip settings-item-chip" + (item.tag ? " has-tag" : ""), title: item.title }
+            : { class: "settings-chip settings-item-chip" + (item.tag ? " has-tag" : "") },
+          item.tag ? el("span", { class: "settings-chip-label", text: item.text }) : item.text,
+          item.tag ? el("span", { class: "tag warn", text: item.tag }) : null),
+        ));
+      }
+
+      function settingsEntryField(label, content) {
+        return el("div", { class: "error-event-field settings-entry-field" },
+          el("span", { class: "error-event-field-label", text: label }),
+          el("div", { class: "error-event-field-value settings-entry-value" }, content),
+        );
       }
 
       function keyChipItems(keys) {
-        return keys.map((key) => ({
-          text: keyDisplayText(key),
-          title: key.scope,
-        }));
+        return keys.map((key) => ({ text: keyDisplayText(key) }));
       }
 
       function modelChipItems(models) {
@@ -5812,248 +5814,168 @@
       }
 
       function renderPlans() {
-        const rows = state.plans.map((plan) => {
+        const cards = state.plans.map((plan) => {
           const boundKeys = state.keys.filter((key) => key.plan_id === plan.id);
           const name = plan.name || plan.id;
-          const expanded = expandedSettingsRows.plans.has(plan.id);
           return el(
-            "tr",
-            { class: "settings-data-row" + (expanded ? " expanded" : "") },
+            "article",
+            { class: "auth-file-card", role: "listitem" },
             el(
-              "td",
-              { class: "settings-expand-cell" },
-              settingsExpandButton("plans", plan.id, name, boundKeys.length > 0),
-            ),
-            el("td", { class: "settings-row-name" }, name),
-            el("td", { class: "num" }, usd(plan.amount_usd)),
-            el("td", {}, periodText(plan.period)),
-            el(
-              "td",
-              {},
-              settingsDetail(
-                expanded,
-                "plan-key-list",
-                keyChipItems(boundKeys),
-              ),
-            ),
-            el(
-              "td",
-              { class: "small" },
-              el("button", {
-                class: "link",
-                text: "编辑",
-                onclick: () => editPlan(plan),
-              }),
-              el("button", {
-                class: "link danger",
-                text: "删除",
-                onclick: () =>
-                  guard(async () => {
-                    if (
-                      !(await confirmAction(
-                        "删除订阅计划「" + (plan.name || plan.id) + "」？",
-                        boundKeys.length
-                          ? "已绑定的 " +
-                              boundKeys.length +
-                              " 个 API Key 将改为不限制。"
-                          : "",
-                      ))
-                    )
-                      return;
-                    await plugin(
-                      "DELETE",
-                      "/plans?id=" + encodeURIComponent(plan.id),
-                    );
-                    expandedSettingsRows.plans.delete(plan.id);
+              "div",
+              { class: "event-entry-head settings-entry-header" },
+              el("div", { class: "settings-entry-title", text: name }),
+              el("div", { class: "row settings-entry-actions" },
+                el("button", { class: "link", text: "编辑", onclick: () => editPlan(plan) }),
+                el("button", {
+                  class: "link danger",
+                  text: "删除",
+                  onclick: () => guard(async () => {
+                    if (!(await confirmAction(
+                      "删除订阅计划「" + name + "」？",
+                      boundKeys.length ? "已绑定的 " + boundKeys.length + " 个 API Key 将改为不限制。" : "",
+                    ))) return;
+                    await plugin("DELETE", "/plans?id=" + encodeURIComponent(plan.id));
                     notify("订阅计划已删除");
                     await refreshPage("foreground");
                   }),
-              }),
+                }),
+              ),
+            ),
+            el("div", { class: "settings-entry-fields" },
+              el("div", { class: "event-request-meta" },
+                settingsEntryField("额度", el("b", { class: "mono", text: usd(plan.amount_usd) })),
+                settingsEntryField("周期", periodText(plan.period)),
+              ),
+              settingsEntryField("已绑定 Key", settingsChipList(keyChipItems(boundKeys), "—")),
             ),
           );
         });
         replaceContent(
           $("plans-body"),
-          table(
-            [
-              "",
-              "名称",
-              { label: "额度", num: true },
-              "周期",
-              "已绑定 Key",
-              "操作",
-            ],
-            rows,
-          ),
+          cards.length ? el("div", { class: "event-list settings-card-list", role: "list" }, cards) : el("div", { class: "empty", text: "暂无订阅计划" }),
         );
-        scheduleSettingsDetailFit();
         if ($("plan-dialog").open) renderPlanKeyPicker($("plan-id").value);
       }
 
-      function renderGroups() {
-        const allModels = catalogModels();
-        const allBoundKeys = state.keys.filter((key) => key.all_models);
-        const allExpanded = expandedSettingsRows.groups.has(ALL_GROUP_ID);
-        const allRow = el(
-          "tr",
-          {
-            class:
-              "settings-data-row" + (allExpanded ? " expanded" : ""),
-          },
-          el(
-            "td",
-            { class: "settings-expand-cell" },
-            settingsExpandButton(
-              "groups",
-              ALL_GROUP_ID,
-              ALL_GROUP_NAME,
-              allModels.length > 0 || allBoundKeys.length > 0,
-            ),
-          ),
-          el("td", { class: "settings-row-name" }, ALL_GROUP_NAME),
-          el(
-            "td",
-            { class: "num" },
-            el("span", { class: "tag plain", text: "全部" }),
-          ),
-          el(
-            "td",
-            {},
-            settingsDetail(
-              allExpanded,
-              "group-models",
-              modelChipItems(allModels),
-            ),
-          ),
-          el(
-            "td",
-            {},
-            settingsDetail(
-              allExpanded,
-              "group-key-list",
-              keyChipItems(allBoundKeys),
-            ),
-          ),
-          el("td", { class: "small muted" }, "—"),
-        );
-        const rows = [
-          allRow,
-          ...state.groups.map((group) => {
-            const models = group.models || [];
-            const boundKeys = state.keys.filter((key) =>
-              (key.model_groups || []).includes(group.id),
-            );
-            const name = group.name || group.id;
-            const expanded = expandedSettingsRows.groups.has(group.id);
-            return el(
-              "tr",
-              {
-                class:
-                  "settings-data-row" + (expanded ? " expanded" : ""),
-              },
-              el(
-                "td",
-                { class: "settings-expand-cell" },
-                settingsExpandButton(
-                  "groups",
-                  group.id,
-                  name,
-                  models.length > 0 || boundKeys.length > 0,
-                ),
-              ),
-              el("td", { class: "settings-row-name" }, name),
-              el(
-                "td",
-                { class: "num" },
-                models.length
-                  ? String(models.length)
-                  : el("span", {
-                      class: "tag warn",
-                      text: "空分组",
-                      title: "空分组不限制任何模型",
-                    }),
-              ),
-              el(
-                "td",
-                {},
-                settingsDetail(
-                  expanded,
-                  "group-models",
-                  modelChipItems(models),
-                ),
-              ),
-              el(
-                "td",
-                {},
-                settingsDetail(
-                  expanded,
-                  "group-key-list",
-                  keyChipItems(boundKeys),
-                ),
-              ),
-              el(
-                "td",
-                { class: "small" },
-                el("button", {
-                  class: "link",
-                  text: "编辑",
-                  onclick: () => editGroup(group),
-                }),
+      function renderRoutes() {
+        const cards = state.routes.map((route) => {
+          const rule = route.rule || {};
+          const models = rule.models || [];
+          const credentials = (rule.credential_providers || [])
+            .map((item) => ({ text: (item.source === "auth-files" ? "认证文件" : "AI 供应商") + " · " + item.provider, tag: "整类" }))
+            .concat((rule.credential_ids || []).map((ref) => {
+              const credential = state.credentials.find((item) => item.ref === ref);
+              return { text: credential ? credentialLabel(credential) : "凭证已不存在" };
+            }));
+          const boundKeys = state.keys.filter((key) => route.id === ALL_ROUTE_ID
+            ? !(key.route_bindings || []).length
+            : (key.route_bindings || []).some((binding) => binding.kind === "route" && binding.value === route.id));
+          const name = route.name || route.id;
+          const system = route.id === ALL_ROUTE_ID;
+          return el(
+            "article",
+            { class: "auth-file-card", role: "listitem" },
+            el(
+              "div",
+              { class: "event-entry-head settings-entry-header" },
+              el("div", { class: "settings-entry-title", text: name }),
+              system ? null : el("div", { class: "row settings-entry-actions" },
+                el("button", { class: "link", text: "编辑", onclick: () => editRoute(route) }),
                 el("button", {
                   class: "link danger",
                   text: "删除",
-                  onclick: () =>
-                    guard(async () => {
-                      if (
-                        !(await confirmAction(
-                          "删除模型分组「" + (group.name || group.id) + "」？",
-                          boundKeys.length
-                            ? "已绑定的 " +
-                                boundKeys.length +
-                                " 个 API Key 将移除该分组；因此不再有任何选择的 Key 会恢复为全部模型。"
-                            : "",
-                        ))
-                      )
-                        return;
-                      await plugin(
-                        "DELETE",
-                        "/model-groups?id=" + encodeURIComponent(group.id),
-                      );
-                      expandedSettingsRows.groups.delete(group.id);
-                      notify("模型分组已删除");
-                      await refreshPage("foreground");
-                    }),
+                  onclick: () => guard(async () => {
+                    if (!(await confirmAction(
+                      "删除路由规则「" + name + "」？",
+                      route.bound_key_count
+                        ? "该规则正被 " + route.bound_key_count + " 个 API Key 使用。删除后会从这些 API Key 中移除；其中 " + (route.fully_unrestricted_keys || 0) + " 个将恢复为「" + ALL_ROUTE_NAME + "」。此操作无法撤销。"
+                        : "此操作无法撤销。",
+                    ))) return;
+                    await plugin("DELETE", "/routes?id=" + encodeURIComponent(route.id));
+                    notify("路由规则已删除");
+                    await refreshPage("foreground");
+                  }),
                 }),
               ),
-            );
-          }),
-        ];
+            ),
+            el("div", { class: "settings-entry-fields" },
+              settingsEntryField("模型范围", settingsChipList(modelChipItems(models), "全部模型")),
+              settingsEntryField("凭证范围", settingsChipList(credentials, "全部凭证")),
+              settingsEntryField("已绑定 Key", settingsChipList(keyChipItems(boundKeys), "—")),
+            ),
+          );
+        });
         replaceContent(
-          $("groups-body"),
-          table(
-            [
-              "",
-              "名称",
-              { label: "模型数", num: true },
-              "包含模型",
-              "已绑定 Key",
-              "操作",
-            ],
-            rows,
-          ),
+          $("routes-body"),
+          ...(state.access?.credential_inventory_error
+            ? [el("div", { class: "notice warn show", text: "凭证信息暂时无法加载：" + state.access.credential_inventory_error })]
+            : []),
+          el("div", { class: "event-list settings-card-list", role: "list" }, cards),
+          ...(state.routes.some((route) => route.id !== ALL_ROUTE_ID)
+            ? []
+            : [el("div", { class: "empty", text: "暂无自定义路由规则" })]),
         );
-        scheduleSettingsDetailFit();
-        if ($("group-dialog").open) renderGroupModelPicker();
+        if ($("route-dialog").open) {
+          renderRouteModelList();
+          renderRouteCredentialList();
+          renderRouteKeyList($("route-id").value);
+        }
       }
 
-      let groupModels = new Set();
+      let routeModels = new Set();
+      let routeCredentialIDs = new Set();
+      let routeProviders = new Set();
 
-      function renderGroupModelPicker() {
-        const node = $("group-model-picker");
-        const term = $("group-model-search").value.trim().toLowerCase();
-        const retired = new Set(retiredModels(groupModels));
+      function providerKey(item) { return item.source + "\u0000" + item.provider; }
+
+      function routeRuleSearchTerm() {
+        return $("route-rule-search").value.trim().toLowerCase();
+      }
+
+      function routeProviderChoices(selected = routeProviders) {
+        const providers = new Map();
+        for (const item of state.credentials) providers.set(providerKey(item), { source: item.source, provider: item.provider });
+        for (const key of selected) if (!providers.has(key)) { const item = credentialProviderFromValue(key); if (item) providers.set(key, item); }
+        return [...providers.values()];
+      }
+
+      function renderRouteCredentialList() {
+        for (const item of state.credentials) {
+          if (routeProviders.has(providerKey(item))) routeCredentialIDs.delete(item.ref);
+        }
+        const term = routeRuleSearchTerm();
+        const options = routeProviderChoices().filter((item) => matchesTerm((item.source === "auth-files" ? "认证文件" : "AI 供应商") + " " + item.provider + " 整类", term)).map((item) => {
+          const source = item.source === "auth-files" ? "认证文件" : "AI 供应商";
+          const available = state.credentials.some((credential) => credential.source === item.source && credential.provider.toLowerCase() === item.provider.toLowerCase());
+          const label = source + " · " + item.provider;
+          return el("label", {}, el("input", { type: "checkbox", checked: routeProviders.has(providerKey(item)) || undefined, onchange: (event) => {
+            if (event.target.checked) {
+              routeProviders.add(providerKey(item));
+              for (const credential of state.credentials) {
+                if (credential.source === item.source && credential.provider.toLowerCase() === item.provider.toLowerCase()) routeCredentialIDs.delete(credential.ref);
+              }
+            } else routeProviders.delete(providerKey(item));
+            renderRouteCredentialList();
+          } }), el("i", { class: "fa-solid fa-layer-group fa-fw", "aria-hidden": "true" }), el("span", { title: label + " · 整类" }, label), el("span", { class: "tag warn settings-item-chip", text: "整类" }), !available ? el("span", { class: "muted small", text: "暂无凭证" }) : null);
+        });
+        const credentials = state.credentials.filter((item) => matchesTerm(credentialLabel(item), term));
+        for (const item of credentials) {
+          const label = credentialLabel(item);
+          const covered = routeProviders.has(providerKey(item));
+          options.push(el("label", { class: covered ? "disabled" : "" }, el("input", { type: "checkbox", checked: routeCredentialIDs.has(item.ref) || undefined, disabled: covered || undefined, onchange: (event) => { if (event.target.checked) routeCredentialIDs.add(item.ref); else routeCredentialIDs.delete(item.ref); renderRouteCredentialList(); } }), el("i", { class: "fa-solid fa-key fa-fw", "aria-hidden": "true" }), el("span", { title: label }, label)));
+        }
+        for (const ref of routeCredentialIDs) if (!state.credentials.some((item) => item.ref === ref) && matchesTerm(ref, term)) options.push(el("label", {}, el("input", { type: "checkbox", checked: true, onchange: (event) => { if (!event.target.checked) routeCredentialIDs.delete(ref); renderRouteCredentialList(); } }), el("i", { class: "fa-solid fa-key fa-fw", "aria-hidden": "true" }), el("span", { title: ref }, "凭证已不存在")));
+        $("route-credential-list").replaceChildren(...(options.length ? options : [el("div", { class: "empty", text: "没有匹配项" })]));
+        const credentialCount = routeCredentialIDs.size + routeProviders.size;
+        $("route-credential-count").textContent = credentialCount ? String(credentialCount) : "全部";
+      }
+
+      function renderRouteModelList() {
+        const node = $("route-model-list");
+        const term = routeRuleSearchTerm();
+        const retired = new Set(retiredModels(routeModels));
         const models = catalogModels().concat([...retired]);
-        $("group-model-count").textContent = String(groupModels.size);
+        $("route-model-count").textContent = routeModels.size ? String(routeModels.size) : "全部";
         const options = models
           .filter((model) => matchesTerm(model, term))
           .map((model) =>
@@ -6063,16 +5985,16 @@
               el("input", {
                 type: "checkbox",
                 value: model,
-                checked: groupModels.has(model) || undefined,
+                checked: routeModels.has(model) || undefined,
                 onchange: (event) => {
-                  if (event.target.checked) groupModels.add(model);
-                  else groupModels.delete(model);
-                  $("group-model-count").textContent = String(groupModels.size);
+                  if (event.target.checked) routeModels.add(model);
+                  else routeModels.delete(model);
+                  renderRouteModelList();
                 },
               }),
-              el("span", { class: "mono" }, model),
+              el("span", { class: "mono", title: model }, model),
               retired.has(model)
-                ? el("span", { class: "muted small", text: "不在模型列表中" })
+                ? el("span", { class: "muted small", text: "CPA 当前未公布此模型" })
                 : null,
             ),
           );
@@ -6090,27 +6012,56 @@
         );
       }
 
-      function resetGroupForm() {
-        $("group-form-title").textContent = "新建模型分组";
-        $("group-save").textContent = "创建";
-        $("group-id").value = "";
-        $("group-name").value = "";
-        $("group-model-search").value = "";
-        groupModels = new Set();
-        renderGroupModelPicker();
+      function renderRouteKeyList(routeID) {
+        const list = $("route-key-list");
+        if (!state.keys.length) {
+          list.replaceChildren(el("div", { class: "empty", text: "暂无 API Key" }));
+          return;
+        }
+        list.replaceChildren(...state.keys.map((key) => {
+          const checked = !!routeID && (key.route_bindings || []).some((binding) => binding.kind === "route" && binding.value === routeID);
+          return el(
+            "label",
+            {},
+            el("input", { type: "checkbox", value: key.scope, checked: checked || undefined }),
+            el("span", { title: keyName(key) }, keyName(key)),
+            key.preview && key.preview !== keyName(key) ? el("span", { class: "muted small mono", title: key.preview }, key.preview) : null,
+          );
+        }));
       }
 
-      function editGroup(group) {
-        $("group-form-title").textContent =
-          "编辑模型分组：" + (group.name || group.id);
-        $("group-id").value = group.id;
-        $("group-save").textContent = "保存";
-        $("group-name").value = group.name || "";
-        $("group-model-search").value = "";
-        groupModels = new Set(group.models || []);
-        renderGroupModelPicker();
-        $("group-dialog").showModal();
-        $("group-name").focus();
+      function selectedRouteScopes() {
+        return [...$("route-key-list").querySelectorAll('input[type="checkbox"]:checked')].map((input) => input.value);
+      }
+
+      function resetRouteForm() {
+        $("route-form-title").textContent = "新建路由规则";
+        $("route-save").textContent = "创建";
+        $("route-id").value = "";
+        $("route-name").value = "";
+        $("route-rule-search").value = "";
+        routeModels = new Set();
+        routeCredentialIDs = new Set();
+        routeProviders = new Set();
+        renderRouteModelList();
+        renderRouteCredentialList();
+        renderRouteKeyList("");
+      }
+
+      function editRoute(route) {
+        $("route-form-title").textContent = "编辑路由规则：" + (route.name || route.id);
+        $("route-id").value = route.id;
+        $("route-save").textContent = "保存";
+        $("route-name").value = route.name || "";
+        $("route-rule-search").value = "";
+        routeModels = new Set(route.rule?.models || []);
+        routeCredentialIDs = new Set(route.rule?.credential_ids || []);
+        routeProviders = new Set((route.rule?.credential_providers || []).map(providerKey));
+        renderRouteModelList();
+        renderRouteCredentialList();
+        renderRouteKeyList(route.id);
+        $("route-dialog").showModal();
+        $("route-name").focus();
       }
 
       function priceSourceTag(source) {
@@ -7008,19 +6959,18 @@
       }
 
       const pluginLogLevels = {
+        debug: { label: "调试", class: "tag plain" },
         error: { label: "错误", class: "tag bad" },
         info: { label: "信息", class: "tag info" },
       };
 
       function matchesPluginLogLevel(pluginLog, level) {
-        return !level || pluginLog.level === level;
+        return level === "all" || pluginLog.level === level;
       }
 
       function labelPluginLogLevels(pluginLogs) {
         for (const option of $("plugin-log-level").options) {
-          const label = option.value
-            ? pluginLogLevels[option.value].label
-            : "全部级别";
+          const label = option.value === "all" ? "全部级别" : pluginLogLevels[option.value].label;
           const count = pluginLogs.filter((pluginLog) =>
             matchesPluginLogLevel(pluginLog, option.value),
           ).length;
@@ -7041,12 +6991,24 @@
       function loadPluginLogs(options = {}) {
         const background = options.background === true;
         const deferRender = options.deferRender === true;
+        const append = options.append === true;
+        const before = append ? Number(state.pluginLogsNext || 0) : 0;
+        if (append && !before) return Promise.resolve();
+        const params = new URLSearchParams({
+          level: $("plugin-log-level").value,
+          limit: "100",
+        });
+        if (before) params.set("before_id", String(before));
         return loadResource(
           detailLoads.adminPluginLogs,
-          () => plugin("GET", "/plugin-logs"),
+          () => plugin("GET", "/plugin-logs?" + params.toString()),
           (result) => {
-            if (!background || canBackgroundRefreshPluginLogs())
-              state.pluginLogs = result.entries || [];
+            if (!background || canBackgroundRefreshPluginLogs()) {
+              state.pluginLogs = append
+                ? (state.pluginLogs || []).concat(result.entries || [])
+                : result.entries || [];
+              state.pluginLogsNext = Number(result.next_before_id || 0);
+            }
           },
           () =>
             currentRole === "admin" &&
@@ -7061,6 +7023,7 @@
         const load = detailLoads.adminPluginLogs;
         const scroller = $("plugin-logs-body");
         if (!pluginLogs) {
+          $("plugin-logs-more").classList.add("hidden");
           if (load.promise) {
             scroller.replaceChildren(
               el("div", { class: "empty", text: "加载中…" }),
@@ -7089,6 +7052,8 @@
           return;
         }
         const filter = $("plugin-log-filter").value.trim().toLowerCase();
+        const currentIDs = new Set(pluginLogs.map((entry) => String(entry.id || "")).filter(Boolean));
+        for (const id of expandedPluginLogIDs) if (!currentIDs.has(id)) expandedPluginLogIDs.delete(id);
         const searched = pluginLogs.filter((pluginLog) => {
           if (!filter) return true;
           return [pluginLog.message]
@@ -7119,11 +7084,7 @@
               ),
               el("span", { class: level.class, text: level.label }),
             ),
-            el(
-              "div",
-              { class: "plugin-log-message" },
-              pluginLog.message || "",
-            ),
+            renderPluginLogMessage(pluginLog),
           );
         });
         const previousScrollTop = scroller.scrollTop;
@@ -7147,6 +7108,28 @@
         );
         scroller.scrollTop = previousScrollTop;
         scroller.scrollLeft = previousScrollLeft;
+        $("plugin-logs-more").classList.toggle("hidden", !state.pluginLogsNext);
+        $("plugin-logs-more").disabled = !!load.promise;
+      }
+
+      function renderPluginLogMessage(pluginLog) {
+        const message = pluginLog.message || "";
+        if (!message.startsWith("route ")) return el("div", { class: "plugin-log-message" }, message);
+        try {
+          const row = JSON.parse(message.slice(6));
+          const model = row.model_result === "deny" ? "模型：拒绝" : row.model_result === "configuration_error" ? "模型：配置错误" : "模型：允许";
+          const credential = row.credential_result === "selected" ? "上游凭证：" + row.selected_credential : row.credential_result === "not_reached" ? "上游凭证：未进入选择阶段" : row.credential_result === "not_observed" ? "上游凭证：未观察到选择结果" : row.credential_result === "configuration_error" ? "上游凭证：配置错误" : "上游凭证：全部上游凭证";
+          const id = String(pluginLog.id || "");
+          return el("details", {
+            class: "plugin-log-message",
+            open: id && expandedPluginLogIDs.has(id) || undefined,
+            ontoggle: (event) => {
+              if (!id) return;
+              if (event.currentTarget.open) expandedPluginLogIDs.add(id);
+              else expandedPluginLogIDs.delete(id);
+            },
+          }, el("summary", { class: "details-summary" }, el("span", { class: "details-summary-icon", "aria-hidden": "true" }, actionIcon("chevron")), el("span", {}, [row.key, row.model, model, credential, "请求结果：" + row.outcome].filter(Boolean).join(" · "))), el("pre", {}, JSON.stringify(row, null, 2)));
+        } catch (_) { return el("div", { class: "plugin-log-message" }, message); }
       }
 
       function syncPlanFields() {
@@ -7387,7 +7370,7 @@
 
       // /v1/models requires a downstream API Key, so the browser borrows one only
       // for this same-origin request. The plugin never stores it.
-      async function autoSyncModels(apiKeys) {
+      async function syncPriceCatalog(apiKeys) {
         const key = (apiKeys || [])
           .map((value) => (value || "").trim())
           .find(Boolean);
@@ -7451,8 +7434,8 @@
           if (err instanceof AuthError) throw err;
           notify("同步 API Key 失败：" + (err.message || err), "err");
         }
-        const models = await autoSyncModels(keys);
-        if (models) summaries.push(models);
+        const priceCatalog = await syncPriceCatalog(keys);
+        if (priceCatalog) summaries.push(priceCatalog);
         return summaries.join("；");
       }
 
@@ -7503,51 +7486,17 @@
       $("gate-mode-account").onclick = () => setLoginMode("account");
 
       function actionIcon(name) {
-        const svg = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "svg",
-        );
-        svg.setAttribute("viewBox", "0 0 24 24");
-        svg.setAttribute("aria-hidden", "true");
-        const paths = {
-          refresh: [
-            "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8",
-            "M21 3v5h-5",
-          ],
-          sun: [
-            "M12 2v2",
-            "M12 20v2",
-            "M4.93 4.93l1.41 1.41",
-            "M17.66 17.66l1.41 1.41",
-            "M2 12h2",
-            "M20 12h2",
-            "M6.34 17.66l-1.41 1.41",
-            "M19.07 4.93l-1.41 1.41",
-            "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
-          ],
-          moon: ["M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"],
-          logout: [
-            "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4",
-            "M16 17l5-5-5-5",
-            "M21 12H9",
-          ],
-          download: [
-            "M12 3v12",
-            "M7 10l5 5 5-5",
-            "M5 21h14",
-          ],
-          copy: [
-            "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2",
-            "M8 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2",
-          ],
-          check: ["M20 6 9 17l-5-5"],
+        const icons = {
+          refresh: "fa-rotate-right",
+          sun: "fa-sun",
+          moon: "fa-moon",
+          logout: "fa-right-from-bracket",
+          download: "fa-download",
+          copy: "fa-copy",
+          check: "fa-check",
+          chevron: "fa-chevron-right",
         };
-        for (const value of paths[name] || []) {
-          const path = document.createElementNS(svg.namespaceURI, "path");
-          path.setAttribute("d", value);
-          svg.append(path);
-        }
-        return svg;
+        return el("i", { class: "fa-solid " + (icons[name] || "fa-circle") + (name === "chevron" ? " fa-chevron-icon" : ""), "aria-hidden": "true" });
       }
 
       function setActionIcon(button, name, label) {
@@ -7868,7 +7817,7 @@
       );
       function setAdminTab(name) {
         const selected = ADMIN_TAB_IDS.includes(name) ? name : "keys";
-        if (selected !== "keys") closeModelPicker();
+        if (selected !== "keys") closeRoutePicker();
         writePageRoute("admin", selected);
         for (const tab of TABS) {
           const active = tab.dataset.tab === selected;
@@ -7877,13 +7826,13 @@
         }
         const visible =
           selected === "settings"
-            ? new Set(["plans", "groups", "prices", "plugin-logs"])
+            ? new Set(["plans", "routes", "prices", "plugin-logs"])
             : new Set([selected]);
         for (const section of [
           "keys",
           "analysis",
           "plans",
-          "groups",
+          "routes",
           "prices",
           "request-events",
           "errors",
@@ -7904,7 +7853,7 @@
           closeSharedTimePopover(false);
         }
         if (currentRole === "admin" && state.status) {
-          renderAdminTab(selected, selected === "keys" && !!modelPicker.scope);
+          renderAdminTab(selected, selected === "keys" && !!routePicker.scope);
         }
       }
       for (const tab of TABS)
@@ -7933,65 +7882,92 @@
           await refreshPage("foreground");
         });
 
-      $("model-picker-search").addEventListener("input", renderModelPicker);
-      $("model-picker-cancel").onclick = closeModelPicker;
-      $("model-picker-save").onclick = () => {
-        saveModelPicker();
-        closeModelPicker();
-      };
-      addEventListener("scroll", positionModelPicker, {
+      $("route-picker-search").addEventListener("input", () => {
+        const searching = !!$("route-picker-search").value.trim();
+        if (searching && !routePicker.searching) { routePicker.beforeSearch = { ...routePicker.expanded }; routePicker.expanded = { routes: true, credentials: true, models: true }; }
+        if (!searching && routePicker.searching && routePicker.beforeSearch) routePicker.expanded = routePicker.beforeSearch;
+        routePicker.searching = searching;
+        renderRoutePicker();
+      });
+      $("route-picker-cancel").onclick = closeRoutePicker;
+      $("route-picker-save").onclick = () => guard(saveRoutePicker);
+      addEventListener("scroll", positionRoutePicker, {
         passive: true,
         capture: true,
       });
-      addEventListener("resize", positionModelPicker);
+      addEventListener("resize", positionRoutePicker);
       addEventListener(
         "pointerdown",
         (event) => {
-          if (!modelPicker.scope) return;
+          if (!routePicker.scope) return;
           if (
-            $("model-picker").contains(event.target) ||
-            (modelPicker.anchor && modelPicker.anchor.contains(event.target))
+            $("route-picker").contains(event.target) ||
+            (routePicker.anchor && routePicker.anchor.contains(event.target))
           )
             return;
-          closeModelPicker();
+          closeRoutePicker();
         },
         true,
       );
       addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && modelPicker.scope) closeModelPicker();
+        if (event.key === "Escape" && routePicker.scope) closeRoutePicker();
       });
 
-      $("group-model-search").addEventListener("input", renderGroupModelPicker);
-      $("group-model-all").onclick = () => {
-        for (const model of catalogModels()) groupModels.add(model);
-        renderGroupModelPicker();
+      $("route-rule-search").addEventListener("input", () => {
+        renderRouteModelList();
+        renderRouteCredentialList();
+      });
+      $("route-rule-all").onclick = () => {
+        routeModels = new Set(catalogModels());
+        routeCredentialIDs = new Set();
+        routeProviders = new Set(routeProviderChoices().map(providerKey));
+        renderRouteModelList();
+        renderRouteCredentialList();
       };
-      $("group-model-none").onclick = () => {
-        groupModels = new Set();
-        renderGroupModelPicker();
+      $("route-rule-none").onclick = () => {
+        routeModels = new Set();
+        routeCredentialIDs = new Set();
+        routeProviders = new Set();
+        renderRouteModelList();
+        renderRouteCredentialList();
       };
-      $("group-new").onclick = () => {
-        resetGroupForm();
-        $("group-dialog").showModal();
-        $("group-name").focus();
+      $("route-new").onclick = () => {
+        resetRouteForm();
+        $("route-dialog").showModal();
+        $("route-name").focus();
       };
-      $("group-cancel").onclick = () => $("group-dialog").close();
-      $("group-dialog").addEventListener("close", resetGroupForm);
-      $("group-save").onclick = () =>
+      $("route-cancel").onclick = () => $("route-dialog").close();
+      $("route-dialog").addEventListener("close", resetRouteForm);
+      $("route-save").onclick = () =>
         guard(async () => {
-          const name = $("group-name").value.trim();
-          if (!name) throw new Error("分组名称不能为空");
-          const id = $("group-id").value;
-          const models = [...groupModels];
-          if (id) await plugin("PATCH", "/model-groups", { id, name, models });
-          else await plugin("POST", "/model-groups", { name, models });
-          notify(id ? "模型分组已保存" : "模型分组已创建");
-          $("group-dialog").close();
-          await refreshPage("foreground");
+          const button = $("route-save");
+          button.disabled = true;
+          const originalText = button.textContent;
+          button.textContent = "正在保存…";
+          try {
+            const name = $("route-name").value.trim();
+            if (!name) throw new Error("请输入规则名称");
+            const id = $("route-id").value;
+            const credential_providers = [...routeProviders].map((key) => { const [source, provider] = key.split("\u0000"); return { source, provider }; });
+            const rule = { models: [...routeModels], credential_ids: [...routeCredentialIDs], credential_providers };
+            const scopes = selectedRouteScopes();
+            if (id) {
+              const route = state.routes.find((item) => item.id === id);
+              if (route?.bound_key_count && !(await confirmAction("保存路由规则？", "保存后将立即影响 " + route.bound_key_count + " 个 API Key，请确认规则效果。"))) return;
+              await plugin("PATCH", "/routes", { id, name, rule, scopes });
+            } else await plugin("POST", "/routes", { name, rule, scopes });
+            notify(id ? "路由规则已保存" : "路由规则已创建");
+            $("route-dialog").close();
+            await refreshPage("foreground");
+          } finally {
+            button.disabled = false;
+            if ($("route-dialog").open) button.textContent = originalText;
+          }
         });
 
       $("plugin-log-filter").addEventListener("input", renderPluginLogs);
-      $("plugin-log-level").addEventListener("change", renderPluginLogs);
+      $("plugin-log-level").addEventListener("change", () => { state.pluginLogs = null; state.pluginLogsNext = 0; guard(() => loadPluginLogs()); });
+      $("plugin-logs-more").onclick = () => guard(() => loadPluginLogs({ append: true }));
       $("plugin-logs-clear").onclick = () =>
         guard(async () => {
           if (

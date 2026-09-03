@@ -10,7 +10,7 @@ import (
 
 const (
 	ABIVersion    uint32 = 1
-	SchemaVersion uint32 = 3
+	SchemaVersion uint32 = 4
 )
 
 // Plugin identity. PluginID doubles as the dynamic library file name, the
@@ -21,7 +21,7 @@ const (
 	Version    = "1.0.1"
 
 	MenuLabel       = "API Key 计费"
-	MenuDescription = "管理下游 API Key 的计费、并发限制、订阅额度和用量"
+	MenuDescription = "管理下游 API Key 的路由、计费、并发限制、订阅额度和用量"
 
 	GitHubRepository = "https://github.com/haowang02/cpa-plugin-key-billing"
 )
@@ -33,6 +33,7 @@ const (
 	MethodRequestInterceptBefore = "request.intercept_before"
 	MethodRequestInterceptAfter  = "request.intercept_after"
 	MethodRequestComplete        = "request.complete"
+	MethodSchedulerPick          = "scheduler.pick"
 
 	MethodUsageHandle = "usage.handle"
 
@@ -44,10 +45,11 @@ const (
 	// MetadataCallerScope is sha256("cli-proxy-api:caller-scope:v1\x00"+apiKey)
 	// in hex. It is the only downstream-key identifier available at interception
 	// time, and it covers keys presented via query string as well as headers.
-	MetadataCallerScope = "caller_scope"
-	MetadataGenerate    = "generate"
-	MetadataSource      = "source"
-	MetadataRequestPath = "request_path"
+	MetadataCallerScope    = "caller_scope"
+	MetadataGenerate       = "generate"
+	MetadataSource         = "source"
+	MetadataRequestPath    = "request_path"
+	MetadataRequestedModel = "requested_model"
 	// SourcePluginHostModelCallback is the MetadataSource value for nested
 	// plugin-initiated executions, which bypass client model and quota checks.
 	SourcePluginHostModelCallback = "plugin_host_model_callback"
@@ -94,6 +96,34 @@ type Capabilities struct {
 	RequestLifecyclePlugin bool `json:"request_lifecycle_plugin"`
 	UsagePlugin            bool `json:"usage_plugin"`
 	ManagementAPI          bool `json:"management_api"`
+	Scheduler              bool `json:"scheduler"`
+}
+
+type SchedulerPickRequest struct {
+	Model   string `json:"Model"`
+	Options struct {
+		Metadata map[string]any `json:"Metadata"`
+	} `json:"Options"`
+	Candidates []SchedulerAuthCandidate `json:"Candidates"`
+}
+
+type SchedulerAuthCandidate struct {
+	ID         string            `json:"ID"`
+	Provider   string            `json:"Provider"`
+	Status     string            `json:"Status"`
+	Attributes map[string]string `json:"Attributes"`
+}
+
+type SchedulerPickResponse struct {
+	AuthID  string `json:"AuthID,omitempty"`
+	Handled bool   `json:"Handled"`
+}
+
+type RequestCompletion struct {
+	RequestID  string         `json:"RequestID"`
+	Outcome    string         `json:"Outcome"`
+	StatusCode int            `json:"StatusCode"`
+	Metadata   map[string]any `json:"Metadata"`
 }
 
 type RequestInterceptRequest struct {

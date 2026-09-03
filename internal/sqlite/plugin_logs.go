@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"cpa-key-billing/internal/billing"
@@ -29,33 +30,47 @@ func prunePluginLogs(exec execer, cutoff time.Time) error {
 	return nil
 }
 
-// PluginLogs answers newest first, ordered by the id each line was
-// committed under, so two stamped in the same nanosecond still read in order.
-func (d *DB) PluginLogs(since time.Time) ([]billing.PluginLog, error) {
-	rows, errQuery := d.db.Query(
-		"SELECT at, level, message FROM plugin_logs WHERE at >= ? ORDER BY id DESC", nanos(since))
-	if errQuery != nil {
-		return nil, fmt.Errorf("读取插件日志：%w", errQuery)
+func (d *DB) PluginLogsPage(query billing.PluginLogQuery) (billing.PluginLogPage, error) {
+	where := []string{"at >= ?"}
+	args := []any{nanos(query.Since)}
+	if query.BeforeID > 0 {
+		where = append(where, "id < ?")
+		args = append(args, query.BeforeID)
+	}
+	if len(query.Levels) > 0 {
+		marks := make([]string, len(query.Levels))
+		for i, level := range query.Levels {
+			marks[i] = "?"
+			args = append(args, string(level))
+		}
+		where = append(where, "level IN ("+strings.Join(marks, ",")+")")
+	}
+	args = append(args, query.Limit+1)
+	rows, err := d.db.Query("SELECT id,at,level,message FROM plugin_logs WHERE "+strings.Join(where, " AND ")+" ORDER BY id DESC LIMIT ?", args...)
+	if err != nil {
+		return billing.PluginLogPage{}, fmt.Errorf("读取插件日志：%w", err)
 	}
 	defer rows.Close()
-	entries := []billing.PluginLog{}
+	page := billing.PluginLogPage{Entries: []billing.PluginLog{}}
 	for rows.Next() {
-		var (
-			entry billing.PluginLog
-			at    int64
-			level string
-		)
-		if errScan := rows.Scan(&at, &level, &entry.Message); errScan != nil {
-			return nil, fmt.Errorf("读取插件日志：%w", errScan)
+		var entry billing.PluginLog
+		var at int64
+		var level string
+		if err := rows.Scan(&entry.ID, &at, &level, &entry.Message); err != nil {
+			return billing.PluginLogPage{}, fmt.Errorf("读取插件日志：%w", err)
 		}
 		entry.At = timeAt(at)
 		entry.Level = billing.PluginLogLevel(level)
-		entries = append(entries, entry)
+		page.Entries = append(page.Entries, entry)
 	}
-	if errRows := rows.Err(); errRows != nil {
-		return nil, fmt.Errorf("读取插件日志：%w", errRows)
+	if err := rows.Err(); err != nil {
+		return billing.PluginLogPage{}, fmt.Errorf("读取插件日志：%w", err)
 	}
-	return entries, nil
+	if len(page.Entries) > query.Limit {
+		page.Entries = page.Entries[:query.Limit]
+		page.NextBeforeID = page.Entries[len(page.Entries)-1].ID
+	}
+	return page, nil
 }
 
 func (d *DB) ClearPluginLogs() (int, error) {

@@ -12,7 +12,7 @@ type Repository interface {
 	RequestEventScopes(since time.Time) (map[string]struct{}, error)
 
 	AppendPluginLog(entry PluginLog, cutoff time.Time) error
-	PluginLogs(since time.Time) ([]PluginLog, error)
+	PluginLogsPage(query PluginLogQuery) (PluginLogPage, error)
 	ClearPluginLogs() (int, error)
 
 	Close() error
@@ -24,7 +24,7 @@ type Snapshot struct {
 }
 
 // Changes names the rows one mutation touched, so a save writes those and no
-// others. Plans, prices, model groups and credentials are replaced whole because
+// others. Plans, prices, routes, and credentials are replaced whole because
 // an operator changes them a few rows at a time and there are never many; keys
 // are named individually because usage accounting runs on every proxied request
 // and must touch a single row.
@@ -36,7 +36,7 @@ type Changes struct {
 
 	Plans       bool
 	Prices      bool
-	ModelGroups bool
+	Routes      bool
 	Credentials bool
 
 	NormalRequestEvents []RequestEvent
@@ -47,7 +47,7 @@ type Changes struct {
 const maxPendingRequestRecords = 1000
 
 func (c Changes) empty() bool {
-	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && !c.Prices && !c.ModelGroups && !c.Credentials &&
+	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && !c.Prices && !c.Routes && !c.Credentials &&
 		len(c.NormalRequestEvents) == 0 && len(c.RequestErrorEvents) == 0 && c.RequestEventCutoff.IsZero()
 }
 
@@ -62,7 +62,7 @@ func (c Changes) merge(next Changes) Changes {
 		AllKeys:             c.AllKeys || next.AllKeys,
 		Plans:               c.Plans || next.Plans,
 		Prices:              c.Prices || next.Prices,
-		ModelGroups:         c.ModelGroups || next.ModelGroups,
+		Routes:              c.Routes || next.Routes,
 		Credentials:         c.Credentials || next.Credentials,
 		NormalRequestEvents: append(append([]RequestEvent(nil), c.NormalRequestEvents...), next.NormalRequestEvents...),
 		RequestErrorEvents:  append(append([]RequestErrorEvent(nil), c.RequestErrorEvents...), next.RequestErrorEvents...),

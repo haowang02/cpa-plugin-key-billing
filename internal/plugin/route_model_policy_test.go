@@ -9,37 +9,17 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// restrictApp grants the test key one model that is not the one flow requests
-// make, so every admitted request in this file is one the key may not call.
 func restrictApp(t *testing.T, models ...string) *App {
 	t.Helper()
 	app := newAppWithPrice(t, true)
 	if _, errSync := app.store.SyncKeys([]string{testAPIKey}, false); errSync != nil {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
-	group, errCreate := app.store.CreateModelGroup(billing.ModelGroup{Name: "基础", Models: models})
+	_, errCreate := app.store.CreateRoute(billing.Route{Name: "基础", Rule: billing.RouteRule{Models: models}}, []string{flowScope()})
 	if errCreate != nil {
-		t.Fatalf("CreateModelGroup error = %v", errCreate)
-	}
-	if errSet := app.store.SetKeyModels(flowScope(), []string{group.ID}, nil); errSet != nil {
-		t.Fatalf("SetKeyModels error = %v", errSet)
+		t.Fatalf("CreateRoute error = %v", errCreate)
 	}
 	return app
-}
-
-func onlyModelBlockEvent(t *testing.T, app *App) billing.PluginLog {
-	t.Helper()
-	events, errEvents := app.store.PluginLogs()
-	if errEvents != nil {
-		t.Fatalf("Events error = %v", errEvents)
-	}
-	for _, event := range events {
-		if strings.HasPrefix(event.Message, "模型拦截：") {
-			return event
-		}
-	}
-	t.Fatalf("events = %+v, want a model block", events)
-	return billing.PluginLog{}
 }
 
 func interceptModel(t *testing.T, app *App, clientFormat, model string) RequestInterceptResponse {
@@ -58,9 +38,6 @@ func interceptModel(t *testing.T, app *App, clientFormat, model string) RequestI
 	return response
 }
 
-// A refused model is answered in the client's own error shape, with the type and
-// code CLIProxyAPI uses for a 403, so its SDK surfaces a permission problem
-// rather than a parse failure.
 func TestForbiddenModelIsRefusedInEveryClientFormat(t *testing.T) {
 	app := restrictApp(t, "chat/fast")
 
@@ -78,7 +55,6 @@ func TestForbiddenModelIsRefusedInEveryClientFormat(t *testing.T) {
 			if !response.Terminate || response.StatusCode != http.StatusForbidden {
 				t.Fatalf("response = %+v, want a terminating 403", response)
 			}
-			// Nothing to wait for: only an operator can change this answer.
 			if retry := response.ResponseHeaders.Get("Retry-After"); retry != "" {
 				t.Fatalf("Retry-After = %q, want none on a permanent refusal", retry)
 			}
@@ -103,31 +79,6 @@ func TestForbiddenModelIsRefusedInEveryClientFormat(t *testing.T) {
 	}
 }
 
-// The request never reached an upstream, so it is billed nothing and logged
-// nowhere but the plugin log — the same treatment an exhausted quota gets.
-func TestForbiddenModelIsReportedAndNotBilled(t *testing.T) {
-	app := restrictApp(t, "chat/fast")
-
-	if response := interceptModel(t, app, "openai", flowModel); !response.Terminate {
-		t.Fatal("a model the key may not call was admitted")
-	}
-	if entries := requestEventEntries(t, app); len(entries) != 0 {
-		t.Fatalf("request events = %+v, want a refused request left out of them", entries)
-	}
-	event := onlyModelBlockEvent(t, app)
-	if event.Level != billing.PluginLogInfo {
-		t.Fatalf("level = %q, want information: enforcement working is not a fault", event.Level)
-	}
-	for _, want := range []string{"模型拦截：", "/v1/chat/completions", flowModel, "chat/fast"} {
-		if !strings.Contains(event.Message, want) {
-			t.Fatalf("message = %q, want it to name %q", event.Message, want)
-		}
-	}
-}
-
-// A refused model must not open a subscription period. The window would then be
-// counted against a request that never ran, and a never-reset plan would have
-// handed out its only budget to nothing at all.
 func TestForbiddenModelLeavesTheSubscriptionUntouched(t *testing.T) {
 	app := restrictApp(t, "chat/fast")
 	if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{

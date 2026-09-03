@@ -19,7 +19,7 @@ func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
 			{"auth_index":"api-1","name":"openai-api-key.json","type":"openai","provider":"openai","account_type":"api_key","account":"sk-upstream-secret"},
 			{"auth_index":"x-2","name":"zeta.json","type":"xai","email":"z@example.com","disabled":true,"path":"/secret/zeta.json","account":"sk-upstream-secret","id_token":"secret"},
 			{"auth_index":"c-2","name":"zeta.json","type":"codex","id_token":{"plan_type":"pro"}},
-			{"auth_index":"c-1","name":"Alpha.json","type":"codex","modtime":"2026-09-02T01:02:03Z","id_token":{"planType":"prolite"}},
+			{"auth_index":"c-1","name":"Alpha.json","type":"codex","email":"user@example.com","modtime":"2026-09-02T01:02:03Z","id_token":{"planType":"prolite"}},
 			{"auth_index":"a-1","name":"antigravity.json","type":"antigravity"},
 			{"auth_index":"cl-1","name":"claude.json","type":"claude"}
 		]}`), nil
@@ -43,6 +43,9 @@ func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
 	encoded := string(response.Body)
 	if payload.Files[2].CacheRevision != "2026-09-02T01:02:03Z" {
 		t.Fatalf("cache revision = %q", payload.Files[2].CacheRevision)
+	}
+	if payload.Files[2].Email != "user@example.com" {
+		t.Fatalf("email = %q, want CPA email", payload.Files[2].Email)
 	}
 	if payload.Files[4].QuotaSupported || payload.Files[4].QuotaReason != "认证文件已停用" {
 		t.Fatalf("disabled quota availability = %+v", payload.Files[4])

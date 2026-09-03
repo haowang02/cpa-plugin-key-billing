@@ -8,20 +8,30 @@ import (
 type PluginLogLevel string
 
 const (
+	PluginLogDebug PluginLogLevel = "debug"
 	PluginLogInfo  PluginLogLevel = "info"
 	PluginLogError PluginLogLevel = "error"
 )
 
 const PluginLogRetention = 30 * 24 * time.Hour
 
-// PluginLog is one operational line kept for PluginLogRetention and bounded
-// by nothing else: the log records occasional operational events — a reload, a
-// failing disk — and dropping the oldest to make room for the newest would hide
-// exactly the onset an operator is looking for.
 type PluginLog struct {
+	ID      int64          `json:"id"`
 	At      time.Time      `json:"at"`
 	Level   PluginLogLevel `json:"level"`
 	Message string         `json:"message"`
+}
+
+type PluginLogQuery struct {
+	Levels   []PluginLogLevel
+	BeforeID int64
+	Limit    int
+	Since    time.Time
+}
+
+type PluginLogPage struct {
+	Entries      []PluginLog `json:"entries"`
+	NextBeforeID int64       `json:"next_before_id,omitempty"`
 }
 
 // Event tolerates a nil store because the panic handler reports through it; a
@@ -38,14 +48,14 @@ func (s *Store) AddPluginLog(level PluginLogLevel, format string, args ...any) {
 	})
 }
 
-func (s *Store) PluginLogs() ([]PluginLog, error) {
-	entries, err := withRepository(s, func(repo Repository) ([]PluginLog, error) {
-		return repo.PluginLogs(s.Now().Add(-PluginLogRetention))
-	})
-	if entries == nil {
-		entries = []PluginLog{}
+func (s *Store) PluginLogsPage(query PluginLogQuery) (PluginLogPage, error) {
+	retention := s.Now().Add(-PluginLogRetention)
+	if query.Since.IsZero() || query.Since.Before(retention) {
+		query.Since = retention
 	}
-	return entries, err
+	return withRepository(s, func(repo Repository) (PluginLogPage, error) {
+		return repo.PluginLogsPage(query)
+	})
 }
 
 func (s *Store) ClearPluginLogs() (int, error) {

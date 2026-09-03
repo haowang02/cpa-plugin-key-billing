@@ -21,9 +21,16 @@ const (
 type HostCaller func(method string, payload any) (json.RawMessage, error)
 
 type hostAuthFile struct {
+	ID          string    `json:"id"`
 	AuthIndex   string    `json:"auth_index"`
 	Name        string    `json:"name"`
 	Type        string    `json:"type"`
+	Provider    string    `json:"provider"`
+	Label       string    `json:"label"`
+	Status      string    `json:"status"`
+	Source      string    `json:"source"`
+	Path        string    `json:"path"`
+	Account     string    `json:"account"`
 	Disabled    bool      `json:"disabled"`
 	Unavailable bool      `json:"unavailable"`
 	Email       string    `json:"email"`
@@ -158,7 +165,7 @@ func (a *App) listAuthFiles() ([]authFileView, error) {
 		category := authCategory(file.Type)
 		quotaSupported, quotaReason := authQuotaAvailability(file, category)
 		views = append(views, authFileView{
-			AuthIndex: file.AuthIndex, Name: file.Name, Category: category, Email: file.Email,
+			AuthIndex: file.AuthIndex, Name: file.Name, Category: category, Email: cleanText(file.Email),
 			Disabled: file.Disabled, Unavailable: file.Unavailable,
 			QuotaSupported: quotaSupported, QuotaReason: quotaReason, CacheRevision: authFileRevision(file),
 		})

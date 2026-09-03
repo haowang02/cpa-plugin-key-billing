@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"cpa-key-billing/internal/billing"
 )
@@ -42,7 +43,7 @@ func (a *App) searchPriceCatalog(req ManagementRequest) ManagementResponse {
 }
 
 // The UI supplies /v1/models because the plugin has no model-list callback.
-func (a *App) syncModels(req ManagementRequest) ManagementResponse {
+func (a *App) syncPriceCatalog(req ManagementRequest) ManagementResponse {
 	if _, errCatalog := billing.EnsureBuiltinCatalog(); errCatalog != nil {
 		return errorResponse(errCatalog)
 	}
@@ -52,7 +53,7 @@ func (a *App) syncModels(req ManagementRequest) ManagementResponse {
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	result, errSync := a.store.SyncModels(body.Models)
+	result, errSync := a.store.SyncPriceCatalog(body.Models)
 	if errSync != nil {
 		return errorResponse(errSync)
 	}
@@ -60,18 +61,22 @@ func (a *App) syncModels(req ManagementRequest) ManagementResponse {
 }
 
 type accessResponse struct {
-	Role        string               `json:"role"`
-	Keys        []billing.KeyView    `json:"keys"`
-	Plans       []billing.Plan       `json:"plans"`
-	ModelGroups []billing.ModelGroup `json:"model_groups"`
+	Role                     string              `json:"role"`
+	Keys                     []billing.KeyView   `json:"keys"`
+	Plans                    []billing.Plan      `json:"plans"`
+	Routes                   []billing.RouteView `json:"routes"`
+	Credentials              []credentialView    `json:"credentials"`
+	CredentialInventoryError string              `json:"credential_inventory_error,omitempty"`
 }
 
 func (a *App) access() ManagementResponse {
+	credentialError := ""
+	if err := a.refreshCredentialInventory(); err != nil {
+		credentialError = err.Error()
+	}
 	return JSONResponse(http.StatusOK, accessResponse{
-		Role:        "management",
-		Keys:        a.store.KeyViews(),
-		Plans:       a.store.Plans(),
-		ModelGroups: a.store.ModelGroups(),
+		Role: "management", Keys: a.store.KeyViews(), Plans: a.store.Plans(), Routes: a.store.RouteViews(),
+		Credentials: a.credentialInventory(), CredentialInventoryError: credentialError,
 	})
 }
 
@@ -122,60 +127,168 @@ func (a *App) updatePlan(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, map[string]any{"plan": stored})
 }
 
-func (a *App) createModelGroup(req ManagementRequest) ManagementResponse {
-	var group billing.ModelGroup
-	if errDecode := decodeStrict(req.Body, &group); errDecode != nil {
-		return errorResponse(errDecode)
-	}
-	stored, errCreate := a.store.CreateModelGroup(group)
-	if errCreate != nil {
-		return errorResponse(errCreate)
-	}
-	return JSONResponse(http.StatusCreated, map[string]any{"model_group": stored})
-}
-
-func (a *App) updateModelGroup(req ManagementRequest) ManagementResponse {
-	var patch billing.ModelGroupPatch
-	if errDecode := decodeStrict(req.Body, &patch); errDecode != nil {
-		return errorResponse(errDecode)
-	}
-	stored, errUpdate := a.store.UpdateModelGroup(patch)
-	if errUpdate != nil {
-		return errorResponse(errUpdate)
-	}
-	return JSONResponse(http.StatusOK, map[string]any{"model_group": stored})
-}
-
-func (a *App) deleteModelGroup(req ManagementRequest) ManagementResponse {
-	id := strings.TrimSpace(req.Query.Get("id"))
-	released, errDelete := a.store.DeleteModelGroup(id)
-	if errDelete != nil {
-		return errorResponse(errDelete)
-	}
-	return JSONResponse(http.StatusOK, map[string]any{"deleted": id, "released_keys": released})
-}
-
-func (a *App) setKeyModels(req ManagementRequest) ManagementResponse {
+func (a *App) createRoute(req ManagementRequest) ManagementResponse {
 	var body struct {
-		Scope  string   `json:"scope"`
-		Groups []string `json:"groups,omitempty"`
-		Models []string `json:"models,omitempty"`
+		Name   string            `json:"name"`
+		Rule   billing.RouteRule `json:"rule"`
+		Scopes []string          `json:"scopes,omitempty"`
 	}
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	if errApply := a.store.SetKeyModels(body.Scope, body.Groups, body.Models); errApply != nil {
+	rule, errRule := billing.NormalizeRouteRule(body.Rule)
+	if errRule != nil {
+		return errorResponse(errRule)
+	}
+	route := billing.Route{Name: body.Name, Rule: rule}
+	if response := a.validateNewCredentialRefs(rule.CredentialIDs, nil); response != nil {
+		return *response
+	}
+	stored, errCreate := a.store.CreateRoute(route, body.Scopes)
+	if errCreate != nil {
+		return errorResponse(errCreate)
+	}
+	return JSONResponse(http.StatusCreated, map[string]any{"route": stored})
+}
+
+func (a *App) updateRoute(req ManagementRequest) ManagementResponse {
+	var body struct {
+		billing.RoutePatch
+		Scopes *[]string `json:"scopes,omitempty"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
+		return errorResponse(errDecode)
+	}
+	patch := body.RoutePatch
+	if patch.Rule != nil {
+		rule, errRule := billing.NormalizeRouteRule(*patch.Rule)
+		if errRule != nil {
+			return errorResponse(errRule)
+		}
+		patch.Rule = &rule
+		var existing []string
+		if route, ok := a.store.Route(patch.ID); ok {
+			existing = route.Rule.CredentialIDs
+		}
+		if response := a.validateNewCredentialRefs(patch.Rule.CredentialIDs, existing); response != nil {
+			return *response
+		}
+	}
+	stored, errUpdate := a.store.UpdateRoute(patch, body.Scopes)
+	if errUpdate != nil {
+		return errorResponse(errUpdate)
+	}
+	return JSONResponse(http.StatusOK, map[string]any{"route": stored})
+}
+
+func (a *App) deleteRoute(req ManagementRequest) ManagementResponse {
+	id := strings.TrimSpace(req.Query.Get("id"))
+	result, errDelete := a.store.DeleteRoute(id)
+	if errDelete != nil {
+		return errorResponse(errDelete)
+	}
+	return JSONResponse(http.StatusOK, result)
+}
+
+func (a *App) setKeyRoutes(req ManagementRequest) ManagementResponse {
+	var body struct {
+		Scope    string                 `json:"scope"`
+		Bindings []billing.RouteBinding `json:"bindings"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
+		return errorResponse(errDecode)
+	}
+	bindings, errBindings := billing.NormalizeRouteBindings(body.Bindings)
+	if errBindings != nil {
+		return errorResponse(errBindings)
+	}
+	var existing []string
+	if key, ok := a.store.KeyViewForScope(body.Scope); ok {
+		for _, binding := range key.RouteBindings {
+			if binding.Kind == billing.RouteBindingCredential {
+				existing = append(existing, binding.Value)
+			}
+		}
+	}
+	refs := []string{}
+	for _, binding := range bindings {
+		if binding.Kind == billing.RouteBindingCredential {
+			refs = append(refs, binding.Value)
+		}
+	}
+	if response := a.validateNewCredentialRefs(refs, existing); response != nil {
+		return *response
+	}
+	if errApply := a.store.SetKeyRoutes(body.Scope, bindings); errApply != nil {
 		return errorResponse(errApply)
 	}
 	return JSONResponse(http.StatusOK, struct{}{})
 }
 
-func (a *App) listPluginLogs() ManagementResponse {
-	entries, err := a.store.PluginLogs()
+func (a *App) validateNewCredentialRefs(refs, existing []string) *ManagementResponse {
+	old := make(map[string]struct{}, len(existing))
+	for _, ref := range existing {
+		old[strings.ToLower(strings.TrimSpace(ref))] = struct{}{}
+	}
+	newRefs := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if _, ok := old[strings.ToLower(strings.TrimSpace(ref))]; ok {
+			continue
+		}
+		newRefs = append(newRefs, ref)
+	}
+	if len(newRefs) == 0 {
+		return nil
+	}
+	if err := a.refreshCredentialInventory(); err != nil {
+		response := JSONError(http.StatusBadGateway, "host_unavailable", "加载上游凭证失败："+err.Error())
+		return &response
+	}
+	if missing := a.missingCredentialRef(newRefs); missing != "" {
+		response := JSONError(http.StatusBadRequest, "invalid", "上游凭证已不存在："+missing)
+		return &response
+	}
+	return nil
+}
+
+func (a *App) listPluginLogs(req ManagementRequest) ManagementResponse {
+	query := billing.PluginLogQuery{Limit: 100}
+	if raw := strings.TrimSpace(req.Query.Get("limit")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 500 {
+			return JSONError(http.StatusBadRequest, "invalid", "limit 必须是 1 到 500 之间的整数")
+		}
+		query.Limit = value
+	}
+	if raw := strings.TrimSpace(req.Query.Get("before_id")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value < 1 {
+			return JSONError(http.StatusBadRequest, "invalid", "before_id 无效")
+		}
+		query.BeforeID = value
+	}
+	if raw := strings.TrimSpace(req.Query.Get("since")); raw != "" {
+		value, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return JSONError(http.StatusBadRequest, "invalid", "since 必须是 RFC3339 时间")
+		}
+		query.Since = value
+	}
+	levels := strings.TrimSpace(req.Query.Get("level"))
+	if levels != "" && levels != "all" {
+		for _, raw := range strings.Split(levels, ",") {
+			level := billing.PluginLogLevel(strings.TrimSpace(raw))
+			if level != billing.PluginLogDebug && level != billing.PluginLogInfo && level != billing.PluginLogError {
+				return JSONError(http.StatusBadRequest, "invalid", "level 无效")
+			}
+			query.Levels = append(query.Levels, level)
+		}
+	}
+	page, err := a.store.PluginLogsPage(query)
 	if err != nil {
 		return errorResponse(err)
 	}
-	return JSONResponse(http.StatusOK, map[string]any{"entries": entries})
+	return JSONResponse(http.StatusOK, page)
 }
 
 func (a *App) clearPluginLogs() ManagementResponse {
@@ -286,6 +399,13 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 		a.store.AddPluginLog(billing.PluginLogInfo, "已同步 CLIProxyAPI 的 API Key 列表：新增 %d 个，移除 %d 个。",
 			result.Added, result.Removed)
 	}
+	live := make(map[string]struct{})
+	for _, key := range a.store.KeyViews() {
+		if key.DeletedAt.IsZero() {
+			live[key.Scope] = struct{}{}
+		}
+	}
+	a.scheduler.prune(live)
 	return JSONResponse(http.StatusOK, result)
 }
 

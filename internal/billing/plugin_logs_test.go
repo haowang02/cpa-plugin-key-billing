@@ -9,11 +9,11 @@ import (
 
 func mustPluginLogs(t *testing.T, store *Store) []PluginLog {
 	t.Helper()
-	events, errEvents := store.PluginLogs()
+	page, errEvents := store.PluginLogsPage(PluginLogQuery{Limit: 500})
 	if errEvents != nil {
-		t.Fatalf("PluginLogs error = %v", errEvents)
+		t.Fatalf("PluginLogsPage error = %v", errEvents)
 	}
-	return events
+	return page.Entries
 }
 
 // The store stamps each line with its own clock and reads back the window that

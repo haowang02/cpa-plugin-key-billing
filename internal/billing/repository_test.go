@@ -2,6 +2,7 @@ package billing
 
 import (
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -58,14 +59,21 @@ func (r *memoryRepository) AppendPluginLog(entry PluginLog, cutoff time.Time) er
 	return nil
 }
 
-func (r *memoryRepository) PluginLogs(since time.Time) ([]PluginLog, error) {
-	entries := []PluginLog{}
+func (r *memoryRepository) PluginLogsPage(query PluginLogQuery) (PluginLogPage, error) {
+	page := PluginLogPage{Entries: []PluginLog{}}
 	for i := len(r.pluginLogs) - 1; i >= 0; i-- {
-		if !r.pluginLogs[i].At.Before(since) {
-			entries = append(entries, r.pluginLogs[i])
+		entry := r.pluginLogs[i]
+		if entry.At.Before(query.Since) || query.BeforeID > 0 && entry.ID >= query.BeforeID || len(query.Levels) > 0 && !slices.Contains(query.Levels, entry.Level) {
+			continue
+		}
+		page.Entries = append(page.Entries, entry)
+		if len(page.Entries) > query.Limit {
+			page.Entries = page.Entries[:query.Limit]
+			page.NextBeforeID = page.Entries[len(page.Entries)-1].ID
+			break
 		}
 	}
-	return entries, nil
+	return page, nil
 }
 
 func (r *memoryRepository) ClearPluginLogs() (int, error) {
@@ -87,10 +95,11 @@ func keptPluginLogs(entries []PluginLog, cutoff time.Time) []PluginLog {
 	return kept
 }
 
-func (r *memoryRepository) Save(_ *State, changes Changes) error {
+func (r *memoryRepository) Save(state *State, changes Changes) error {
 	if r.fail != nil {
 		return r.fail
 	}
+	r.state = state
 	r.saves = append(r.saves, changes)
 	r.requestEvents = append(r.requestEvents, changes.NormalRequestEvents...)
 	r.requestErrors = append(r.requestErrors, changes.RequestErrorEvents...)
@@ -199,7 +208,7 @@ func newStoreWithRepository(t *testing.T) (*Store, *memoryRepository) {
 func (s *Store) ReplaceAll(fn func(*State)) {
 	updateResult(s, func(state *State) (struct{}, Changes) {
 		fn(state)
-		return struct{}{}, Changes{AllKeys: true, Plans: true, Prices: true, ModelGroups: true, Credentials: true}
+		return struct{}{}, Changes{AllKeys: true, Plans: true, Prices: true, Routes: true, Credentials: true}
 	})
 }
 

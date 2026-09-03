@@ -251,22 +251,26 @@ PLANS = [
         "amount_usd": 50,
         "period": {"kind": "never"},
     },
+    {
+        "id": "long-name-plan",
+        "name": "面向跨区域研发测试与持续集成团队的超长名称订阅计划",
+        "amount_usd": 1200,
+        "period": {"kind": "monthly"},
+    },
 ]
 
 
-MODEL_GROUPS = [
-    {
-        "id": "basic",
-        "name": "基础模型",
-        "models": ["gpt-5.5", "deepseek-v4-flash", "retired-model-v3"],
-    },
-    {
-        "id": "long-context",
-        "name": "长上下文",
-        "models": ["gpt-5.6-sol", "claude-sonnet-4-5"],
-    },
-    # An empty group grants nothing of its own, which the group tab marks.
-    {"id": "draft", "name": "待整理", "models": []},
+CREDENTIALS = [
+    {"ref": "sha256:" + "a" * 64, "source": "auth-files", "provider": "codex", "display_name": "xxxyyyy4455@gmail.com", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "b" * 64, "source": "auth-files", "provider": "claude", "display_name": "claude-team@example.com", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "c" * 64, "source": "ai-providers", "provider": "codex", "display_name": "sk-dem…1234", "status": "active", "disabled": False, "unavailable": False},
+]
+
+ROUTES = [
+    {"id": "system:all", "name": "默认", "rule": {"models": [], "credential_ids": [], "credential_providers": []}, "bound_key_count": 5},
+    {"id": "codex-auth-files", "name": "Codex 认证文件", "rule": {"models": ["gpt-5.6-sol"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}, "bound_key_count": 6, "fully_unrestricted_keys": 1},
+    {"id": "codex-ai-provider", "name": "Codex AI 供应商", "rule": {"models": ["gpt-5.5"], "credential_ids": ["sha256:" + "c" * 64], "credential_providers": []}, "bound_key_count": 4, "fully_unrestricted_keys": 0},
+    {"id": "long-name-route", "name": "跨区域研发测试团队使用的超长名称 Codex 认证文件路由规则", "rule": {"models": ["claude/deepseek-v4-flash-vision-exp"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}, "bound_key_count": 0, "fully_unrestricted_keys": 0},
 ]
 
 
@@ -283,9 +287,9 @@ AUTH_FILES = [
     },
     {
         "auth_index": "auth-demo-codex-plus",
-        "name": "codex-7f84a219-demo.enterprise.automation.account@example.com-plus.json",
+        "name": "codex-1dfbc38b-xxxyyyy4455@gmail.com-pro.json",
         "category": "codex",
-        "email": "demo.enterprise.automation.account@example.com",
+        "email": "xxxyyyy4455@gmail.com",
         "disabled": False,
         "unavailable": False,
         "quota_supported": True,
@@ -495,23 +499,11 @@ def auth_file_quota(query):
     }
 
 
-# Three shapes the picker has to put back on the screen: every model, a group
-# alone, and groups mixed with individually selected models.
-def key_model_access(index):
-    if index % 4 == 1:
-        return ["basic"], []
-    if index % 4 == 2:
-        return ["basic", "long-context"], ["claude-sonnet-4-5"]
-    if index % 4 == 3:
-        return [], ["gpt-5.6-sol"]
-    return [], []
-
-
 def make_key(index):
     plan_id = "team-monthly" if index <= 14 else "one-time" if index == 15 else ""
     plan_name = "研发团队" if plan_id == "team-monthly" else "一次性额度" if plan_id else ""
     cost = round(7.5 + index * 0.83, 4)
-    groups, models = key_model_access(index)
+    bindings = [] if index % 4 == 0 else ([{"kind": "route", "value": "codex-auth-files"}] if index % 4 == 1 else ([{"kind": "credential", "value": "sha256:" + "c" * 64}, {"kind": "model", "value": "gpt-5.6-sol"}] if index % 4 == 2 else [{"kind": "route", "value": "codex-ai-provider"}, {"kind": "credential_provider", "value": "auth-files\u0000codex"}]))
     result = {
         "scope": hashlib.sha256(CALLER_SCOPE_SALT + f"sk-demo-{index:04d}".encode()).hexdigest(),
         "preview": f"sk-demo…{index:04d}",
@@ -521,9 +513,7 @@ def make_key(index):
         "plan_name": plan_name,
         "concurrency_limit": [0, 1, 2, 5, 10][index % 5],
         "current_concurrency": index % 3,
-        "model_groups": groups,
-        "models": models,
-        "all_models": not groups and not models,
+        "route_bindings": bindings,
         "unlimited": not plan_id,
         "blocked": False,
         "limit_usd": 500 if plan_id == "team-monthly" else 50 if plan_id else 0,
@@ -618,7 +608,7 @@ def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, lo
 LOG_CASES = [
     {
         "provider": "codex",
-        "source": "codex · demo@example.com",
+        "source": "codex · xxxyyyy4455@gmail.com",
         "executor_type": "CodexExecutor",
         "reasoning_effort": "high",
         "service_tier": "auto",
@@ -841,10 +831,32 @@ def account_status(index):
 
 def account_access(index):
     key = LIVE_KEYS[index]
-    model_names = sorted(set(key["models"] + [model for group in MODEL_GROUPS
-                                              if group["id"] in key["model_groups"]
-                                              for model in group["models"]]))
-    return {"role": "api_key", "all_models": key["all_models"], "models": model_names}
+    unrestricted = not key["route_bindings"]
+    return {
+        "role": "api_key",
+        "models": [] if unrestricted else ["gpt-5.6-sol"],
+        "credentials": [] if unrestricted else [{
+            "source": "auth-files", "provider": "codex",
+            "name": "xxxyyyy4455@gmail.com", "status": "active",
+        }],
+        "routing_valid": True,
+        "warnings": [],
+    }
+
+
+def refresh_route_counts():
+    for route in ROUTES:
+        if route["id"] == "system:all":
+            route["bound_key_count"] = sum(not key.get("route_bindings") for key in KEYS)
+            route["fully_unrestricted_keys"] = 0
+            continue
+        binding = {"kind": "route", "value": route["id"]}
+        bound = [key for key in KEYS if binding in key.get("route_bindings", [])]
+        route["bound_key_count"] = len(bound)
+        route["fully_unrestricted_keys"] = sum(
+            not [item for item in key.get("route_bindings", []) if item != binding]
+            for key in bound
+        )
 
 
 def request_error(event_index, message, status=0, error_type="", code=""):
@@ -923,6 +935,13 @@ ERRORS = [
 
 PLUGIN_LOGS = [
     {
+        "id": 3,
+        "at": iso(NOW - timedelta(minutes=2)),
+        "level": "debug",
+        "message": "route " + json.dumps({"key": "成员 01 · sk-demo…0001", "model": "gpt-5.6-sol", "model_policy": "restricted", "model_result": "allow", "credential_policy": "restricted", "credential_result": "selected", "selected_credential": "codex · xxxyyyy4455@gmail.com", "outcome": "succeeded", "status": 200}, ensure_ascii=False, separators=(",", ":")),
+    },
+    {
+        "id": 2,
         "at": iso(NOW - timedelta(minutes=11)),
         "level": "info",
         "message": (
@@ -931,6 +950,7 @@ PLUGIN_LOGS = [
         ),
     },
     {
+        "id": 1,
         "at": iso(NOW - timedelta(hours=12, minutes=40)),
         "level": "info",
         "message": "已同步 CLIProxyAPI 的 API Key 列表：新增 2 个，移除 1 个。",
@@ -1090,7 +1110,8 @@ def payload_for(path, query):
     if path == f"{API_BASE}/status":
         return {"role": "management", "enabled": True}
     if path == f"{API_BASE}/access":
-        return {"role": "management", "keys": KEYS, "plans": PLANS, "model_groups": MODEL_GROUPS}
+        refresh_route_counts()
+        return {"role": "management", "keys": KEYS, "plans": PLANS, "routes": ROUTES, "credentials": CREDENTIALS}
     if path == f"{API_BASE}/prices":
         return PRICES
     if path == f"{API_BASE}/events":
@@ -1249,13 +1270,54 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"added": 0, "removed": 0})
         elif route == ("POST", f"{API_BASE}/prices/sync"):
             self.send_json(200, {"added": 0, "removed": 0, "priced": len(PRICES)})
-        elif route == ("DELETE", f"{API_BASE}/model-groups"):
-            self.send_json(200, {"deleted": parse_qs(parsed.query).get("id", [""])[0], "released_keys": 2})
-        elif route == ("POST", f"{API_BASE}/model-groups"):
-            self.send_json(201, {"model_group": MODEL_GROUPS[0]})
+        elif route == ("DELETE", f"{API_BASE}/routes"):
+            route_id = parse_qs(parsed.query).get("id", [""])[0]
+            affected = 0
+            unrestricted = 0
+            ROUTES[:] = [item for item in ROUTES if item["id"] != route_id]
+            for key in KEYS:
+                before = len(key.get("route_bindings", []))
+                key["route_bindings"] = [binding for binding in key.get("route_bindings", []) if not (binding["kind"] == "route" and binding["value"] == route_id)]
+                if before != len(key["route_bindings"]):
+                    affected += 1
+                    unrestricted += not key["route_bindings"]
+            self.send_json(200, {"deleted": route_id, "affected_keys": affected, "fully_unrestricted_keys": unrestricted})
+        elif route == ("POST", f"{API_BASE}/routes"):
+            body = json.loads(request_body or b"{}")
+            route_id = f"route-dummy-{len(ROUTES)}"
+            scopes = set(body.get("scopes", []))
+            stored = {"id": route_id, "name": body.get("name", "新路由"), "rule": body.get("rule", {}), "bound_key_count": len(scopes)}
+            ROUTES.append(stored)
+            for key in KEYS:
+                if key["scope"] in scopes:
+                    key.setdefault("route_bindings", []).append({"kind": "route", "value": route_id})
+            self.send_json(201, {"route": stored})
+        elif route == ("PATCH", f"{API_BASE}/routes"):
+            body = json.loads(request_body or b"{}")
+            route_id = body.get("id", "")
+            stored = next((item for item in ROUTES if item["id"] == route_id), ROUTES[1])
+            stored.update({key: body[key] for key in ("name", "rule") if key in body})
+            if "scopes" in body:
+                scopes = set(body["scopes"])
+                for key in KEYS:
+                    bindings = [binding for binding in key.get("route_bindings", []) if not (binding["kind"] == "route" and binding["value"] == route_id)]
+                    if key["scope"] in scopes:
+                        bindings.append({"kind": "route", "value": route_id})
+                    key["route_bindings"] = bindings
+            refresh_route_counts()
+            self.send_json(200, {"route": stored})
+        elif route == ("PUT", f"{API_BASE}/keys/routes"):
+            body = json.loads(request_body or b"{}")
+            bindings = body.get("bindings", [])
+            if bindings == [{"kind": "route", "value": "system:all"}]:
+                bindings = []
+            for key in KEYS:
+                if key["scope"] == body.get("scope"):
+                    key["route_bindings"] = bindings
+                    break
+            refresh_route_counts()
+            self.send_json(200, {"ok": True})
         elif route in {
-            ("PATCH", f"{API_BASE}/model-groups"),
-            ("POST", f"{API_BASE}/keys/models"),
             ("POST", f"{API_BASE}/keys/bind"),
             ("POST", f"{API_BASE}/keys/unbind"),
             ("POST", f"{API_BASE}/keys/reset"),

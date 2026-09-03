@@ -4,14 +4,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"cpa-key-billing/internal/billing"
 	"cpa-key-billing/internal/sqlite"
 )
 
 type App struct {
-	store      *billing.Store
-	hostCaller HostCaller
+	store              *billing.Store
+	hostCaller         HostCaller
+	routingMu          sync.Mutex
+	credentials        map[string]credentialView
+	credentialsByRawID map[string]string
+	scheduler          subsetScheduler
+	pending            map[string]pendingRouteLog
+	pendingSequence    uint64
 }
 
 func (a *App) SetHostCaller(caller HostCaller) {
@@ -20,7 +27,10 @@ func (a *App) SetHostCaller(caller HostCaller) {
 
 func NewApp() *App {
 	return &App{
-		store: billing.NewStore(openRepository),
+		store:              billing.NewStore(openRepository),
+		credentials:        make(map[string]credentialView),
+		credentialsByRawID: make(map[string]string),
+		pending:            make(map[string]pendingRouteLog),
 	}
 }
 
@@ -58,6 +68,8 @@ func (a *App) handleMethod(method string, request []byte) ([]byte, error) {
 		return OKEnvelope(RequestInterceptResponse{})
 	case MethodRequestComplete:
 		return a.completeRequest(request)
+	case MethodSchedulerPick:
+		return a.pickCredential(request)
 	case MethodUsageHandle:
 		return a.handleUsage(request)
 	case MethodManagementRegister:
@@ -108,7 +120,7 @@ func registration() Registration {
 				{
 					Name:        "enabled",
 					Type:        "boolean",
-					Description: "启用 API Key 计费、并发限制和订阅额度控制。",
+					Description: "启用 API Key 路由、计费、并发限制和订阅额度控制。",
 				},
 				{
 					Name:        "state_file",
@@ -122,6 +134,7 @@ func registration() Registration {
 			RequestLifecyclePlugin: true,
 			UsagePlugin:            true,
 			ManagementAPI:          true,
+			Scheduler:              true,
 		},
 	}
 }

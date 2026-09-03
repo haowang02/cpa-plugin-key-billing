@@ -40,9 +40,6 @@ type Store struct {
 	// reported, so retries against one do not repeat it.
 	blocked blockedKeys
 
-	// denied does the same for the models a key may not call.
-	denied deniedModels
-
 	errMu     sync.Mutex
 	lastError string
 

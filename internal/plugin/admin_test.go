@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -63,7 +65,7 @@ func readPrices(t *testing.T, app *App) []billing.PriceRow {
 func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 	app := newConfiguredApp(t)
 
-	var synced billing.ModelSyncResult
+	var synced billing.PriceCatalogSyncResult
 	callOK(t, app, http.MethodPost, routePricesSync, nil, map[string]any{
 		"models": []string{"gpt-4o", "house-model-x"},
 	}, http.StatusOK, &synced)
@@ -388,60 +390,122 @@ func TestManagementRoutesWorkWhileDisabled(t *testing.T) {
 	}, http.StatusCreated, nil)
 }
 
-func TestModelGroupsRoundTripThroughTheManagementAPI(t *testing.T) {
+func TestRoutesRoundTripThroughTheManagementAPI(t *testing.T) {
 	app := newConfiguredApp(t)
 	const apiKey = "sk-models-first-00001"
 	scope := billing.CallerScope(apiKey)
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{apiKey}}, http.StatusOK, nil)
 
 	var created struct {
-		Group billing.ModelGroup `json:"model_group"`
+		Route billing.Route `json:"route"`
 	}
-	callOK(t, app, http.MethodPost, routeModelGroups, nil, map[string]any{
-		"name": "Fast models", "models": []string{"gpt-4o", "chat/fast"},
+	callOK(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
+		"name": "Fast models", "rule": map[string]any{"models": []string{"gpt-4o", "chat/fast"}, "credential_ids": []string{}, "credential_providers": []any{}},
 	}, http.StatusCreated, &created)
-	if created.Group.ID != "fast-models" || len(created.Group.Models) != 2 {
-		t.Fatalf("group = %+v", created.Group)
+	if created.Route.ID != "fast-models" || len(created.Route.Rule.Models) != 2 {
+		t.Fatalf("route = %+v", created.Route)
 	}
 
-	if key := keysByScope(t, app)[scope]; !key.AllModels {
+	if key := keysByScope(t, app)[scope]; len(key.RouteBindings) != 0 {
 		t.Fatalf("key = %+v, want it unrestricted to begin with", key)
 	}
 
-	callOK(t, app, http.MethodPost, routeKeysModels, nil, map[string]any{
-		"scope": scope, "groups": []string{"fast-models"}, "models": []string{"claude-sonnet-4-5"},
+	callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
+		"scope": scope, "bindings": []map[string]string{{"kind": "route", "value": "fast-models"}, {"kind": "model", "value": "claude-sonnet-4-5"}, {"kind": "credential_provider", "value": "auth-files\x00codex"}},
 	}, http.StatusOK, nil)
 	key := keysByScope(t, app)[scope]
-	if key.AllModels || len(key.ModelGroupIDs) != 1 || len(key.Models) != 1 {
+	if len(key.RouteBindings) != 3 || !slices.Contains(key.RouteBindings, billing.RouteBinding{Kind: billing.RouteBindingCredentialProvider, Value: "auth-files\x00codex"}) {
 		t.Fatalf("key = %+v, want the selection recorded", key)
 	}
 
-	callOK(t, app, http.MethodPost, routeKeysModels, nil, map[string]any{
-		"scope": scope, "groups": []string{billing.AllModelsGroupID, "fast-models"},
-		"models": []string{"claude-sonnet-4-5"},
+	callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
+		"scope": scope, "bindings": []map[string]string{{"kind": "route", "value": billing.SystemAllRouteID}},
 	}, http.StatusOK, nil)
-	if key = keysByScope(t, app)[scope]; !key.AllModels {
-		t.Fatalf("key = %+v, want the all-models group to clear the rest", key)
+	if key = keysByScope(t, app)[scope]; len(key.RouteBindings) != 0 {
+		t.Fatalf("key = %+v, want the default route to clear the rest", key)
 	}
 
 	name := "Renamed"
-	callOK(t, app, http.MethodPatch, routeModelGroups, nil, map[string]any{
+	callOK(t, app, http.MethodPatch, routeRoutes, nil, map[string]any{
 		"id": "fast-models", "name": name,
 	}, http.StatusOK, nil)
-	groups := readAccess(t, app).ModelGroups
-	if len(groups) != 1 || groups[0].Name != name || len(groups[0].Models) != 2 {
-		t.Fatalf("groups = %+v, want only the name changed", groups)
+	routes := readAccess(t, app).Routes
+	if len(routes) != 2 || routes[1].Name != name || len(routes[1].Rule.Models) != 2 {
+		t.Fatalf("routes = %+v, want only the name changed", routes)
 	}
 
-	var deleted struct {
-		Released int `json:"released_keys"`
-	}
-	callOK(t, app, http.MethodDelete, routeModelGroups, url.Values{"id": {"fast-models"}}, nil, http.StatusOK, &deleted)
-	if deleted.Released != 0 {
-		t.Fatalf("released = %d, want none: the key had already been returned to every model", deleted.Released)
-	}
-	if resp := callManagement(t, app, http.MethodDelete, routeModelGroups, url.Values{"id": {"fast-models"}}, nil); resp.StatusCode != http.StatusNotFound {
+	callOK(t, app, http.MethodDelete, routeRoutes, url.Values{"id": {"fast-models"}}, nil, http.StatusOK, nil)
+	if resp := callManagement(t, app, http.MethodDelete, routeRoutes, url.Values{"id": {"fast-models"}}, nil); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("second delete status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestRouteManagementWritesKeyMembershipAtomically(t *testing.T) {
+	app := newConfiguredApp(t)
+	keys := []string{"sk-route-member-a-0001", "sk-route-member-b-0002"}
+	scopeA, scopeB := billing.CallerScope(keys[0]), billing.CallerScope(keys[1])
+	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": keys}, http.StatusOK, nil)
+	var created struct {
+		Route billing.Route `json:"route"`
+	}
+	callOK(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
+		"name": "Codex", "rule": map[string]any{"models": []string{"gpt-5.6-sol"}}, "scopes": []string{scopeA},
+	}, http.StatusCreated, &created)
+	binding := billing.RouteBinding{Kind: billing.RouteBindingRoute, Value: created.Route.ID}
+	if !slices.Contains(keysByScope(t, app)[scopeA].RouteBindings, binding) {
+		t.Fatal("create did not bind selected API Key")
+	}
+	callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
+		"scope": scopeB, "bindings": []billing.RouteBinding{{Kind: billing.RouteBindingModel, Value: "gpt-5.5"}},
+	}, http.StatusOK, nil)
+	callOK(t, app, http.MethodPatch, routeRoutes, nil, map[string]any{
+		"id": created.Route.ID, "scopes": []string{scopeB},
+	}, http.StatusOK, nil)
+	views := keysByScope(t, app)
+	if slices.Contains(views[scopeA].RouteBindings, binding) {
+		t.Fatal("update retained unchecked API Key")
+	}
+	if !slices.Contains(views[scopeB].RouteBindings, binding) || !slices.Contains(views[scopeB].RouteBindings, billing.RouteBinding{Kind: billing.RouteBindingModel, Value: "gpt-5.5"}) {
+		t.Fatalf("update replaced unrelated bindings: %+v", views[scopeB].RouteBindings)
+	}
+}
+
+func TestRouteMutationRefreshesInventoryAndNeverReturnsRawCredentialID(t *testing.T) {
+	app := newConfiguredApp(t)
+	const rawID = "raw-upstream-auth-secret"
+	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+		if method != hostAuthList {
+			t.Fatalf("host method=%q", method)
+		}
+		return json.RawMessage(`{"files":[{"id":"raw-upstream-auth-secret","provider":"codex","source":"file","path":"/auth/codex.json","name":"codex.json"}]}`), nil
+	})
+	ref := billing.CredentialFingerprint(rawID)
+	response := callManagement(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
+		"name": "Exact credential",
+		"rule": map[string]any{"models": []string{}, "credential_ids": []string{ref}, "credential_providers": []any{}},
+	})
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
+	}
+	if strings.Contains(string(response.Body), rawID) {
+		t.Fatalf("route response leaked raw credential ID: %s", response.Body)
+	}
+	unknown := billing.CredentialFingerprint("unknown")
+	response = callManagement(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
+		"name": "Missing credential",
+		"rule": map[string]any{"models": []string{}, "credential_ids": []string{unknown}, "credential_providers": []any{}},
+	})
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown credential status=%d body=%s", response.StatusCode, response.Body)
+	}
+	const key = "sk-route-case-check-0001"
+	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{key}}, http.StatusOK, nil)
+	response = callManagement(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
+		"scope":    billing.CallerScope(key),
+		"bindings": []map[string]string{{"kind": "Credential", "value": unknown}},
+	})
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("normalized unknown credential status=%d body=%s", response.StatusCode, response.Body)
 	}
 }
 
@@ -466,5 +530,25 @@ func TestPluginLogReportsStartupAndFailures(t *testing.T) {
 	if len(loaded.Entries) != 2 || loaded.Entries[0].Level != billing.PluginLogError ||
 		!strings.Contains(loaded.Entries[0].Message, "应用插件配置失败") {
 		t.Fatalf("plugin logs = %+v, want the rejected config reported first", loaded.Entries)
+	}
+}
+
+func TestPluginLogManagementPaginatesAndFiltersDebugRows(t *testing.T) {
+	app := newConfiguredApp(t)
+	if _, err := app.store.ClearPluginLogs(); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []string{"first", "second", "third"} {
+		app.store.AddPluginLog(billing.PluginLogDebug, "%s", message)
+	}
+	var first billing.PluginLogPage
+	callOK(t, app, http.MethodGet, routePluginLogs, url.Values{"level": {"debug"}, "limit": {"2"}}, nil, http.StatusOK, &first)
+	if len(first.Entries) != 2 || first.NextBeforeID == 0 || first.Entries[0].Message != "third" || first.Entries[1].Message != "second" {
+		t.Fatalf("first page=%+v", first)
+	}
+	var second billing.PluginLogPage
+	callOK(t, app, http.MethodGet, routePluginLogs, url.Values{"level": {"debug"}, "limit": {"2"}, "before_id": {strconv.FormatInt(first.NextBeforeID, 10)}}, nil, http.StatusOK, &second)
+	if len(second.Entries) != 1 || second.NextBeforeID != 0 || second.Entries[0].Message != "first" {
+		t.Fatalf("second page=%+v", second)
 	}
 }

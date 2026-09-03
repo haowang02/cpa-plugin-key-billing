@@ -296,7 +296,7 @@ func TestRetiredKeysAreDroppedOnceTheirLogExpired(t *testing.T) {
 	})
 
 	clock = now.Add(RequestEventRetention + time.Hour)
-	if !store.blocked.onset(scope, now) || !store.denied.onset(scope, "blocked-model") {
+	if !store.blocked.onset(scope, now) {
 		t.Fatal("failed to seed request-report suppression state")
 	}
 	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {
@@ -307,7 +307,7 @@ func TestRetiredKeysAreDroppedOnceTheirLogExpired(t *testing.T) {
 			t.Fatal("a retired key outlived every request event that could name it")
 		}
 	})
-	if !store.blocked.onset(scope, now) || !store.denied.onset(scope, "blocked-model") {
+	if !store.blocked.onset(scope, now) {
 		t.Fatal("purged key retained request-report suppression state")
 	}
 }

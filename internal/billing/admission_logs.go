@@ -45,37 +45,6 @@ func (s *Store) ReportQuotaBlock(scope, endpoint string, decision Decision) {
 	s.AddPluginLog(PluginLogInfo, "%s", message.String())
 }
 
-// ReportModelBlock records that a key asked for a model it may not call. Like a
-// quota block this is the request's only trace: it never reached an upstream and
-// produced nothing to bill.
-func (s *Store) ReportModelBlock(scope, endpoint string, decision ModelDecision) {
-	if decision.Allowed {
-		return
-	}
-	scope = strings.TrimSpace(scope)
-	if scope == "" || !s.denied.onset(scope, decision.Model) {
-		return
-	}
-	name := ""
-	s.read(func(state *State) { name = state.describeKey(scope) })
-
-	var message strings.Builder
-	message.WriteString("模型拦截：")
-	message.WriteString(name)
-	if endpoint = strings.TrimSpace(endpoint); endpoint != "" {
-		message.WriteString(" → ")
-		message.WriteString(endpoint)
-	}
-	message.WriteString("，请求模型 ")
-	message.WriteString(decision.Model)
-	message.WriteString("。")
-	message.WriteString(decision.Describe())
-	message.WriteString("。")
-	// Enforcement working as configured is not a fault of the plugin's, so this
-	// stays out of the level an operator reads to find one.
-	s.AddPluginLog(PluginLogInfo, "%s", message.String())
-}
-
 // blockedKeys remembers which subscription window a key was last reported
 // blocked in, so an exhausted key names itself once rather than once per
 // request the client behind it retries. A window that rolls, and an operator
@@ -108,60 +77,32 @@ func (b *blockedKeys) forget(scopes ...string) {
 	}
 }
 
-// deniedModels remembers which model a key was last turned away for, so a
-// client looping on one it may not call names itself once rather than once per
-// retry. A different model reports again, and so does the same one after an
-// operator changed what the key may reach — the entry is dropped when the grant
-// behind it does. Unlike an exhausted quota this needs no expiry of its own: the
-// grant only changes when someone changes it.
-type deniedModels struct {
-	mu     sync.Mutex
-	models map[string]string
-}
-
-func (d *deniedModels) onset(scope, model string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.models == nil {
-		d.models = make(map[string]string)
-	}
-	if reported, exists := d.models[scope]; exists && reported == model {
-		return false
-	}
-	d.models[scope] = model
-	return true
-}
-
-func (d *deniedModels) forget(scopes ...string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for _, scope := range scopes {
-		delete(d.models, scope)
-	}
-}
-
 // describeKey names a key the way the panel does: the operator's remark beside
 // the masked preview, either one alone when that is all there is, and the head
 // of the scope for a key no synchronization has ever named.
 func (s *State) describeKey(scope string) string {
-	preview := ""
-	if key := s.Keys[scope]; key != nil {
-		label := strings.TrimSpace(key.Label)
-		preview = strings.TrimSpace(key.Preview)
-		switch {
-		case label != "" && preview != "":
-			return label + " · " + preview
-		case label != "":
-			return label
-		}
-	}
-	if preview != "" {
-		return preview
+	if description := keyDescription(s.Keys[scope]); description != "" {
+		return description
 	}
 	if len(scope) > 12 {
 		return scope[:12] + "…"
 	}
 	return scope
+}
+
+func keyDescription(key *KeyState) string {
+	if key == nil {
+		return ""
+	}
+	label, preview := strings.TrimSpace(key.Label), strings.TrimSpace(key.Preview)
+	switch {
+	case label != "" && preview != "":
+		return label + " · " + preview
+	case label != "":
+		return label
+	default:
+		return preview
+	}
 }
 
 func planName(decision Decision) string {

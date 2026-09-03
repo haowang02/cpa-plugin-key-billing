@@ -30,10 +30,20 @@ type accountConcurrency struct {
 	Current int `json:"current"`
 }
 
-type accountModelAccess struct {
-	Role      string   `json:"role"`
-	AllModels bool     `json:"all_models"`
-	Models    []string `json:"models"`
+type accountAccessResponse struct {
+	Role         string                   `json:"role"`
+	Models       []string                 `json:"models"`
+	Credentials  []accountRouteCredential `json:"credentials"`
+	RoutingValid bool                     `json:"routing_valid"`
+	Warnings     []string                 `json:"warnings"`
+}
+
+type accountRouteCredential struct {
+	Source       string `json:"source,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Status       string `json:"status"`
+	ProviderWide bool   `json:"provider_wide,omitempty"`
 }
 
 type accountStatusResponse struct {
@@ -68,12 +78,81 @@ func (a *App) accountStatus(access viewAccess) ManagementResponse {
 
 func (a *App) accountAccess(access viewAccess) ManagementResponse {
 	if !access.Tracked {
-		return apiKeyJSON(http.StatusOK, accountModelAccess{Role: "api_key", Models: []string{}})
+		return apiKeyJSON(http.StatusOK, accountAccessResponse{Role: "api_key", Models: []string{}, Credentials: []accountRouteCredential{}, RoutingValid: true, Warnings: []string{}})
 	}
-	models := accountModels(access.Key, a.store.ModelGroups())
-	return apiKeyJSON(http.StatusOK, accountModelAccess{Role: "api_key", AllModels: access.Key.AllModels, Models: models})
+	warnings := []string{}
+	if err := a.refreshCredentialInventory(); err != nil {
+		warnings = append(warnings, "上游凭证信息暂时无法加载")
+	}
+	decision := a.store.ResolveRouting(access.Scope, "", "")
+	if decision.ConfigurationError != "" {
+		warnings = append(warnings, "路由规则已不存在，请联系管理员")
+	}
+	inventory := a.credentialInventory()
+	byRef := map[string]credentialView{}
+	for _, item := range inventory {
+		byRef[item.Ref] = item
+	}
+	credentials := make([]accountRouteCredential, 0, len(decision.CredentialIDs)+len(decision.CredentialProviders))
+	seen := map[string]struct{}{}
+	add := func(key string, item accountRouteCredential) {
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		credentials = append(credentials, item)
+	}
+	for _, ref := range decision.CredentialIDs {
+		if credential, ok := byRef[ref]; ok {
+			add(credential.Ref, accountCredential(credential))
+		} else {
+			add("missing", accountRouteCredential{Name: "指定上游凭证当前不可用", Status: "missing"})
+		}
+	}
+	for _, selector := range decision.CredentialProviders {
+		matched := false
+		for _, credential := range inventory {
+			if credential.Source == selector.Source && strings.EqualFold(credential.Provider, selector.Provider) {
+				add(credential.Ref, accountCredential(credential))
+				matched = true
+			}
+		}
+		if matched {
+			continue
+		}
+		name := sourceLabel(selector.Source) + " · " + selector.Provider
+		add("provider\x00"+selector.Source+"\x00"+selector.Provider, accountRouteCredential{
+			Source: selector.Source, Provider: selector.Provider, Status: "missing", ProviderWide: true,
+		})
+		warnings = append(warnings, "当前没有符合「"+name+"」的上游凭证")
+	}
+	sort.Slice(credentials, func(i, j int) bool {
+		left := credentials[i].Source + "\x00" + credentials[i].Provider + "\x00" + credentials[i].Name
+		right := credentials[j].Source + "\x00" + credentials[j].Provider + "\x00" + credentials[j].Name
+		return left < right
+	})
+	return apiKeyJSON(http.StatusOK, accountAccessResponse{
+		Role: "api_key", Models: decision.ModelScope, Credentials: credentials,
+		RoutingValid: decision.ConfigurationError == "", Warnings: warnings,
+	})
 }
 
+func accountCredential(item credentialView) accountRouteCredential {
+	status := item.Status
+	if status == "" {
+		status = "active"
+	}
+	return accountRouteCredential{Source: item.Source, Provider: item.Provider, Name: item.DisplayName, Status: status}
+}
+func sourceLabel(source string) string {
+	if source == billing.CredentialSourceAuthFiles {
+		return "认证文件"
+	}
+	if source == billing.CredentialSourceAIProviders {
+		return "AI 供应商"
+	}
+	return source
+}
 func accountScope(headers http.Header) (string, bool) {
 	values := headers.Values("Authorization")
 	if len(values) != 1 {
@@ -85,32 +164,6 @@ func accountScope(headers http.Header) (string, bool) {
 	}
 	scope := billing.CallerScope(parts[1])
 	return scope, scope != ""
-}
-
-func accountModels(view billing.KeyView, groups []billing.ModelGroup) []string {
-	if view.AllModels {
-		return []string{}
-	}
-	models := append([]string(nil), view.Models...)
-	selectedGroups := make(map[string]struct{}, len(view.ModelGroupIDs))
-	for _, id := range view.ModelGroupIDs {
-		selectedGroups[id] = struct{}{}
-	}
-	for _, group := range groups {
-		if _, selected := selectedGroups[group.ID]; selected {
-			models = append(models, group.Models...)
-		}
-	}
-	sort.Strings(models)
-	result := models[:0]
-	for _, value := range models {
-		value = strings.TrimSpace(value)
-		if value == "" || (len(result) > 0 && result[len(result)-1] == value) {
-			continue
-		}
-		result = append(result, value)
-	}
-	return result
 }
 
 func apiKeyUnauthorized() ManagementResponse {

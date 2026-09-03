@@ -50,14 +50,14 @@ func TestRepositoryRoundTrip(t *testing.T) {
 	state := billing.NewState()
 	state.Plans = []billing.Plan{{ID: "weekly", Name: "Weekly 10", AmountUSD: 10, Period: billing.Period{Kind: billing.PeriodWeekly}}}
 	state.Prices = []billing.PriceRule{{Pattern: "gpt-5.5", InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: price(.1)}}
-	state.ModelGroups = []billing.ModelGroup{{ID: "fast", Name: "Fast", Models: []string{"gpt-5.5"}}}
+	state.Routes = []billing.Route{billing.SystemAllRoute(), {ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
 	state.Keys["scope-a"] = &billing.KeyState{Preview: "sk-tes…0001", Label: "Alice", InConfig: true,
-		PlanID: "weekly", ConcurrencyLimit: 7, ModelGroupIDs: []string{"fast"}, Models: []string{"other"},
+		PlanID: "weekly", ConcurrencyLimit: 7, RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}, {Kind: "model", Value: "other"}},
 		Cycle: billing.Cycle{PlanID: "weekly", StartAt: start, EndAt: start.Add(7 * 24 * time.Hour), SpentUSD: 1.5}}
 	state.Credentials["auth-1"] = billing.Credential{Provider: "codex", Account: "ops@example.com"}
 
 	database := openDatabase(t, path)
-	mustSave(t, database, state, billing.Changes{AllKeys: true, Plans: true, Prices: true, ModelGroups: true, Credentials: true,
+	mustSave(t, database, state, billing.Changes{AllKeys: true, Plans: true, Prices: true, Routes: true, Credentials: true,
 		RequestErrorEvents: []billing.RequestErrorEvent{{Event: billing.RequestEvent{At: start, Scope: "scope-a", AuthIndex: "auth-1", Provider: "codex", BillingModel: "gpt-5.5"},
 			Error: billing.RequestError{StatusCode: 429, ErrorType: "rate_limit", Body: "limited"}}}})
 	if err := database.Close(); err != nil {
@@ -92,15 +92,14 @@ func TestSaveWritesOnlyNamedKeys(t *testing.T) {
 func TestKeyGrantIsRewrittenWithTheKey(t *testing.T) {
 	database := openTestDB(t)
 	state := billing.NewState()
-	state.ModelGroups = []billing.ModelGroup{{ID: "fast", Name: "Fast", Models: []string{"gpt-5.5"}}}
-	state.Keys["scope-a"] = &billing.KeyState{ModelGroupIDs: []string{"fast"}, Models: []string{"claude"}}
-	state.Keys["scope-b"] = &billing.KeyState{ModelGroupIDs: []string{"fast"}}
-	mustSave(t, database, state, billing.Changes{AllKeys: true, ModelGroups: true})
-	state.Keys["scope-a"].ModelGroupIDs = nil
-	state.Keys["scope-a"].Models = []string{"other"}
+	state.Routes = []billing.Route{billing.SystemAllRoute(), {ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
+	state.Keys["scope-a"] = &billing.KeyState{RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}, {Kind: "model", Value: "claude"}}}
+	state.Keys["scope-b"] = &billing.KeyState{RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}}}
+	mustSave(t, database, state, billing.Changes{AllKeys: true, Routes: true})
+	state.Keys["scope-a"].RouteBindings = []billing.RouteBinding{{Kind: "model", Value: "other"}}
 	mustSave(t, database, state, billing.Changes{Keys: []string{"scope-a"}})
 	stored := mustLoad(t, database).State
-	if len(stored.Keys["scope-a"].ModelGroupIDs) != 0 || !reflect.DeepEqual(stored.Keys["scope-a"].Models, []string{"other"}) || len(stored.Keys["scope-b"].ModelGroupIDs) != 1 {
+	if !reflect.DeepEqual(stored.Keys["scope-a"].RouteBindings, []billing.RouteBinding{{Kind: "model", Value: "other"}}) || len(stored.Keys["scope-b"].RouteBindings) != 1 {
 		t.Fatalf("stored grants = %+v", stored.Keys)
 	}
 }
@@ -112,8 +111,7 @@ func TestFreshSchemaVersionAndTables(t *testing.T) {
 		t.Fatalf("schema version = %d, err = %v", version, err)
 	}
 	want := map[string]bool{
-		"api_keys": true, "key_model_groups": true, "key_allowed_models": true,
-		"model_groups": true, "model_group_models": true, "plans": true,
+		"api_keys": true, "routes": true, "plans": true,
 		"prices": true, "credentials": true, "request_events": true,
 		"request_errors": true, "plugin_logs": true,
 	}

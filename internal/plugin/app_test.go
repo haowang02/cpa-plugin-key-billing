@@ -27,7 +27,7 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 		t.Fatalf("SchemaVersion = %d, want %d", registration.SchemaVersion, SchemaVersion)
 	}
 	caps := registration.Capabilities
-	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.UsagePlugin || !caps.ManagementAPI {
+	if !caps.RequestInterceptor || !caps.RequestLifecyclePlugin || !caps.UsagePlugin || !caps.ManagementAPI || !caps.Scheduler {
 		t.Fatalf("capabilities = %+v, want every hook billing depends on", caps)
 	}
 	if registration.Metadata.Name != PluginName || registration.Metadata.Version != Version {
@@ -87,10 +87,11 @@ func TestConfigureReportsCatalogPreloadFailure(t *testing.T) {
 	if requests != 1 {
 		t.Fatalf("catalog preload requests = %d, want 1", requests)
 	}
-	events, errEvents := app.store.PluginLogs()
+	page, errEvents := app.store.PluginLogsPage(billing.PluginLogQuery{Limit: 500})
 	if errEvents != nil {
 		t.Fatal(errEvents)
 	}
+	events := page.Entries
 	if len(events) == 0 || events[0].Level != billing.PluginLogError ||
 		!strings.Contains(events[0].Message, "加载 models.dev 参考价目录失败") {
 		t.Fatalf("events = %+v, want the preload failure", events)
@@ -104,8 +105,8 @@ func TestManagementRegistrationExposesOnlyCurrentEndpoints(t *testing.T) {
 		"GET /status", "GET /access", "GET /prices", "GET /prices/catalog",
 		"POST /prices/catalog/refresh", "PUT /prices", "POST /prices/reset", "POST /prices/sync",
 		"POST /plans", "PATCH /plans", "DELETE /plans",
-		"POST /model-groups", "PATCH /model-groups", "DELETE /model-groups",
-		"POST /keys/models", "POST /keys/bind", "POST /keys/unbind", "POST /keys/reset",
+		"POST /routes", "PATCH /routes", "DELETE /routes", "PUT /keys/routes",
+		"POST /keys/bind", "POST /keys/unbind", "POST /keys/reset",
 		"POST /keys/reset-all", "POST /keys/label", "POST /keys/concurrency", "POST /keys/sync",
 		"GET /analysis", "GET /events", "GET /errors",
 		"GET /plugin-logs", "DELETE /plugin-logs", "GET /auth-files", "GET /auth-files/quota",

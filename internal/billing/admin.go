@@ -105,7 +105,7 @@ func sameOptionalPrice(a, b *float64) bool {
 	return *a == *b
 }
 
-type ModelSyncResult struct {
+type PriceCatalogSyncResult struct {
 	Added   int `json:"added"`
 	Removed int `json:"removed"`
 	Priced  int `json:"priced"`
@@ -117,7 +117,7 @@ type ModelSyncResult struct {
 // undo an edit.
 //
 // Glob rows cannot be reconciled against model names, so they are preserved.
-func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
+func (s *Store) SyncPriceCatalog(models []string) (PriceCatalogSyncResult, error) {
 	wanted := make([]string, 0, len(models))
 	seen := make(map[string]struct{}, len(models))
 	for _, model := range models {
@@ -135,10 +135,10 @@ func (s *Store) SyncModels(models []string) (ModelSyncResult, error) {
 	if len(wanted) == 0 {
 		// An empty list is far more likely to be a failed read than a proxy
 		// that serves nothing, and wiping the table would discard every edit.
-		return ModelSyncResult{}, invalidf("模型列表为空，未执行同步")
+		return PriceCatalogSyncResult{}, invalidf("模型列表为空，未执行同步")
 	}
 
-	var result ModelSyncResult
+	var result PriceCatalogSyncResult
 	kept := 0
 	loaded := builtinCatalog()
 	updateResult(s, func(state *State) (struct{}, Changes) {
