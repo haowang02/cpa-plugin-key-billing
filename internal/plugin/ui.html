@@ -629,6 +629,32 @@
       .concurrency-editor .native-select,
       .concurrency-editor select { width: 96px; min-width: 96px; }
       .concurrency-editor .small { white-space: nowrap; }
+      .key-identity { display: flex; align-items: center; gap: 4px; }
+      button.key-copy-button {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        min-width: 22px;
+        min-height: 22px;
+        padding: 0;
+        color: var(--text-secondary);
+      }
+      button.key-copy-button:hover:not(:disabled) { color: var(--text-primary); }
+      button.key-copy-button.copied,
+      button.key-copy-button.copied:hover { color: var(--primary-color); }
+      :root[data-cpamp-plugin-host="true"] button.key-copy-button {
+        min-height: 22px;
+        padding: 0;
+      }
+      .key-copy-button svg {
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
       .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
       .notice {
         padding: 10px 14px;
@@ -5073,6 +5099,43 @@
           : identity;
       }
 
+      async function copyAPIKey(button, view) {
+        button.disabled = true;
+        try {
+          const list = await api("GET", "/v0/management/api-keys", null, {
+            raw: true,
+          });
+          const salt = "cli-proxy-api:caller-scope:v1\u0000";
+          const encoder = new TextEncoder();
+          let key = "";
+          for (const value of (list && list["api-keys"]) || []) {
+            const candidate = String(value || "").trim();
+            const digest = await crypto.subtle.digest(
+              "SHA-256",
+              encoder.encode(salt + candidate),
+            );
+            const scope = Array.from(new Uint8Array(digest), (byte) =>
+              byte.toString(16).padStart(2, "0"),
+            ).join("");
+            if (scope === view.scope) {
+              key = candidate;
+              break;
+            }
+          }
+          if (!key) throw new Error("该 API Key 已不在 CLIProxyAPI 配置中");
+          await navigator.clipboard.writeText(key);
+          button.classList.add("copied");
+          setActionIcon(button, "check", "已复制");
+          setTimeout(() => {
+            if (!button.isConnected) return;
+            button.classList.remove("copied");
+            setActionIcon(button, "copy", "复制 API Key");
+          }, 2000);
+        } finally {
+          button.disabled = false;
+        }
+      }
+
       async function saveConcurrency(view, raw) {
         const text = String(raw ?? "").trim();
         if (!/^\d+$/.test(text))
@@ -5101,6 +5164,9 @@
           )
           .map((view) => {
             const name = keyName(view);
+            const identity =
+              view.preview || (view.scope || "").slice(0, 12) + "…";
+            const hasLabel = view.label && view.label !== identity;
             const select = el(
               "select",
               {
@@ -5219,9 +5285,6 @@
               }),
             );
 
-            const notes = [];
-            if (view.preview && view.preview !== name) notes.push(view.preview);
-            if (!view.in_config) notes.push("不在 CLIProxyAPI Key 列表中");
             const hasExpiry =
               !view.unlimited &&
               view.cycle_end_at &&
@@ -5234,10 +5297,33 @@
               el(
                 "td",
                 {},
-                el("div", {}, name),
-                notes.length
-                  ? el("div", { class: "muted small mono" }, notes.join(" · "))
-                  : null,
+                hasLabel ? el("div", {}, name) : null,
+                el(
+                  "div",
+                  {
+                    class: hasLabel
+                      ? "key-identity muted small mono"
+                      : "key-identity",
+                  },
+                  el("span", {}, identity),
+                  view.in_config
+                    ? el(
+                        "button",
+                        {
+                          class: "key-copy-button link",
+                          type: "button",
+                          title: "复制 API Key",
+                          "aria-label": "复制 API Key",
+                          onclick: (event) =>
+                            guard(() =>
+                              copyAPIKey(event.currentTarget, view),
+                            ),
+                        },
+                        actionIcon("copy"),
+                      )
+                    : null,
+                  !view.in_config ? " · 不在 CLIProxyAPI Key 列表中" : null,
+                ),
               ),
               el("td", {}, el("span", { class: "native-select" }, select)),
               el("td", {}, modelTrigger(view)),
@@ -7450,6 +7536,11 @@
             "M7 10l5 5 5-5",
             "M5 21h14",
           ],
+          copy: [
+            "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2",
+            "M8 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2",
+          ],
+          check: ["M20 6 9 17l-5-5"],
         };
         for (const value of paths[name] || []) {
           const path = document.createElementNS(svg.namespaceURI, "path");

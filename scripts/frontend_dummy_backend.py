@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,6 +14,7 @@ UI_PATH = ROOT / "internal" / "plugin" / "ui.html"
 API_BASE = "/v0/management/plugins/cpa-key-billing"
 RESOURCE_BASE = "/v0/resource/plugins/cpa-key-billing"
 NOW = datetime.now().astimezone().replace(hour=20, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+CALLER_SCOPE_SALT = b"cli-proxy-api:caller-scope:v1\0"
 
 
 HOST_SHELL = r"""<!doctype html>
@@ -511,7 +513,7 @@ def make_key(index):
     cost = round(7.5 + index * 0.83, 4)
     groups, models = key_model_access(index)
     result = {
-        "scope": f"{index:064x}",
+        "scope": hashlib.sha256(CALLER_SCOPE_SALT + f"sk-demo-{index:04d}".encode()).hexdigest(),
         "preview": f"sk-demo…{index:04d}",
         "label": f"成员 {index:02d}" if index % 3 else "",
         "in_config": True,
