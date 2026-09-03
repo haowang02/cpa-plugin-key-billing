@@ -38,13 +38,16 @@ Follow Conventional Commits:
 - Include `scope` only when it clearly identifies the affected module.
 - Use one of these common types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, or `chore`.
 
-For simple changes, use only a subject line:
+Use only a subject line when the change is genuinely simple, narrowly scoped, and fully explained by the summary:
 
 ```text
 fix(viewport): prevent scrolling past content bounds
 ```
 
-Add a body only when it provides useful context beyond the subject. Separate it with a blank line and describe the motivation, important implementation details, or behavioral impact:
+For every other commit, include a body. Separate it from the subject with a blank line and describe the motivation, important implementation details, and behavioral impact:
+
+- Wrap body text at approximately 72 columns so it remains readable with Git's standard log indentation.
+- Prefer one cohesive body paragraph. Use additional paragraphs only when the commit contains genuinely distinct concerns.
 
 ```text
 refactor(tui): replace custom viewport handling
