@@ -87,14 +87,17 @@ func (d *DB) RequestEvents(query billing.RequestEventQuery, since time.Time) (bi
 	}
 	view.Statuses.Normal = int(normal.Int64)
 	view.Statuses.Failed = int(failed.Int64)
-	view.Total = view.Statuses.Total(query.Status)
+	view.Total = view.Statuses.All
 
 	page := where
-	switch query.Status {
-	case billing.RequestEventStatusNormal:
-		page += " AND r.failed = 0"
-	case billing.RequestEventStatusFailed:
-		page += " AND r.failed != 0"
+	if failed := query.Failed; failed != nil {
+		if *failed {
+			view.Total = view.Statuses.Failed
+			page += " AND r.failed != 0"
+		} else {
+			view.Total = view.Statuses.Normal
+			page += " AND r.failed = 0"
+		}
 	}
 	limit := query.Limit
 	if limit <= 0 {

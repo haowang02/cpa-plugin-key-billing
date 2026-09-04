@@ -117,7 +117,7 @@ func TestAccountRequestEventsUseSharedShapeWithoutCrossingScopes(t *testing.T) {
 	to := view.Entries[0].At.Add(time.Second).Format(time.RFC3339Nano)
 	filtered := callAccount(t, app, routeEvents, accountTestKeyA, url.Values{
 		"api_key": {billing.CallerScope(accountTestKeyB)},
-		"model":   {"gpt-5.5"}, "status": {"normal"}, "from": {from}, "to": {to},
+		"model":   {"gpt-5.5"}, "failed": {"false"}, "from": {from}, "to": {to},
 	})
 	if errDecode := json.Unmarshal(filtered.Body, &view); errDecode != nil || view.Total != 1 {
 		t.Fatalf("filtered account request events = %+v, err = %v", view, errDecode)

@@ -675,7 +675,7 @@ def request_event_view(query, scope=""):
     selected_source = query.get("source", [""])[0]
     selected_provider = query.get("provider", [""])[0]
     selected_executor = query.get("executor", [""])[0]
-    selected_status = query.get("status", [""])[0]
+    selected_failed = query.get("failed", [""])[0]
     offset = max(0, int(query.get("offset", ["0"])[0] or 0))
     limit = max(0, int(query.get("limit", ["0"])[0] or 0))
     time_matched = filter_event_time([entry for entry in REQUEST_EVENTS if not scope or entry["scope"] == scope], query)
@@ -706,10 +706,10 @@ def request_event_view(query, scope=""):
             continue
         if selected_executor and entry.get("executor_type") != selected_executor:
             continue
-        status = "failed" if entry.get("failed") else "normal"
+        failed = bool(entry.get("failed"))
         counts["all"] += 1
-        counts[status] = counts.get(status, 0) + 1
-        if selected_status and status != selected_status:
+        counts["failed" if failed else "normal"] += 1
+        if selected_failed and failed != (selected_failed == "true"):
             continue
         matched.append(entry)
     page = matched[offset:offset + limit] if limit else matched[offset:]

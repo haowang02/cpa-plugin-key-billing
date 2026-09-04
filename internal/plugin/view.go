@@ -68,14 +68,19 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 	query := billing.RequestEventQuery{
 		Scope: access.Scope, Model: strings.TrimSpace(req.Query.Get("model")),
 		Source: strings.TrimSpace(req.Query.Get("source")), Executor: strings.TrimSpace(req.Query.Get("executor")),
-		Provider: strings.TrimSpace(req.Query.Get("provider")), Status: strings.TrimSpace(req.Query.Get("status")),
-		Limit: defaultEventPageSize,
+		Provider: strings.TrimSpace(req.Query.Get("provider")),
+		Limit:    defaultEventPageSize,
 	}
 	if !access.APIKey {
 		query.KeyScope = strings.TrimSpace(req.Query.Get("api_key"))
 	}
-	if !billing.ValidRequestEventStatus(query.Status) {
-		return viewJSONError(access, http.StatusBadRequest, "invalid", "status 无效："+query.Status)
+	switch raw := strings.TrimSpace(req.Query.Get("failed")); raw {
+	case "":
+	case "false", "true":
+		failed := raw == "true"
+		query.Failed = &failed
+	default:
+		return viewJSONError(access, http.StatusBadRequest, "invalid", "failed 必须是 true 或 false")
 	}
 	if errQuery := requestPageParams(req.Query, &query.Offset, &query.Limit, &query.From, &query.To); errQuery != nil {
 		return viewErrorResponse(access, errQuery)

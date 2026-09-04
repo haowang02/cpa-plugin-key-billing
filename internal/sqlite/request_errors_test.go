@@ -61,7 +61,8 @@ func TestEveryFailedRequestHasAnErrorEventEvenWithoutDetails(t *testing.T) {
 			t.Fatalf("empty failure details were invented: %+v", entry)
 		}
 	}
-	requests := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Status: billing.RequestEventStatusFailed, Limit: 10})
+	failed := true
+	requests := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Failed: &failed, Limit: 10})
 	if requests.Total != 2 {
 		t.Fatalf("failed request events = %+v", requests)
 	}

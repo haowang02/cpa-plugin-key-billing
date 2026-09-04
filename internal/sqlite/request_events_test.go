@@ -73,14 +73,15 @@ func TestRequestEventsPageOverTheWholeMatch(t *testing.T) {
 	}
 }
 
-func TestRequestEventStatusFilterKeepsOverallCounts(t *testing.T) {
+func TestRequestEventFailedFilterKeepsOverallCounts(t *testing.T) {
 	database, _ := requestEventDatabase(t)
+	normal, failed := false, true
 
-	if view := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Status: billing.RequestEventStatusNormal}); view.Total != 4 ||
+	if view := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Failed: &normal}); view.Total != 4 ||
 		len(view.Entries) != 4 || view.Statuses.All != 6 {
 		t.Fatalf("view = %d entries, statuses %+v", view.Total, view.Statuses)
 	}
-	if view := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Status: billing.RequestEventStatusFailed}); view.Total != 2 ||
+	if view := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Failed: &failed}); view.Total != 2 ||
 		len(view.Entries) != 2 {
 		t.Fatalf("view = %+v, want the two failed events", view.Entries)
 	}
@@ -132,7 +133,7 @@ func TestRequestEventScopeConstrainsRowsAndCounts(t *testing.T) {
 		}
 	}
 
-	view = mustQueryRequestEvents(t, database, billing.RequestEventQuery{Scope: "scope-b", Status: billing.RequestEventStatusFailed, Limit: 10})
+	view = mustQueryRequestEvents(t, database, billing.RequestEventQuery{Scope: "scope-b", Limit: 10})
 	if view.Total != 2 || len(view.Entries) != 2 ||
 		view.Statuses != (billing.RequestEventStatusCounts{All: 2, Failed: 2}) {
 		t.Fatalf("scope-b view = %+v, statuses %+v", view.Entries, view.Statuses)

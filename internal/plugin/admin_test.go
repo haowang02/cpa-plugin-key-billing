@@ -329,14 +329,14 @@ func TestRequestEventQueryReachesTheStore(t *testing.T) {
 	to := app.store.Now().Add(time.Second).Format(time.RFC3339Nano)
 	callOK(t, app, http.MethodGet, routeEvents, url.Values{
 		"api_key": {billing.CallerScope(apiKey)}, "model": {"gpt-5.5"}, "source": {events.Entries[0].Source},
-		"status": {"normal"}, "from": {from}, "to": {to},
+		"failed": {"false"}, "from": {from}, "to": {to},
 	}, nil, http.StatusOK, &events)
 	if events.Total != 3 || events.Filters == nil {
 		t.Fatalf("field and time filtered events = %+v", events)
 	}
 
 	for _, query := range []url.Values{
-		{"status": {"unknown"}}, {"offset": {"-1"}}, {"limit": {"0"}},
+		{"failed": {"unknown"}}, {"offset": {"-1"}}, {"limit": {"0"}},
 		{"limit": {"1001"}}, {"limit": {"one page"}}, {"from": {"yesterday"}},
 		{"from": {"2026-09-01T02:00:00Z"}, "to": {"2026-09-01T01:00:00Z"}},
 	} {

@@ -2528,8 +2528,8 @@
                   </select></span>
                 <span class="native-select"><select id="request-event-status" aria-label="按状态筛选">
                     <option value="">全部状态</option>
-                    <option value="normal">正常</option>
-                    <option value="failed">失败</option>
+                    <option value="false">正常</option>
+                    <option value="true">失败</option>
                   </select></span>
                 <button id="request-events-filter-clear" class="link" type="button" disabled>清除筛选</button>
               </div>
@@ -2713,8 +2713,8 @@
                     </select></span>
                   <span class="native-select"><select id="account-request-event-status" aria-label="按状态筛选">
                       <option value="">全部状态</option>
-                      <option value="normal">正常</option>
-                      <option value="failed">失败</option>
+                      <option value="false">正常</option>
+                      <option value="true">失败</option>
                     </select></span>
                   <button id="account-request-events-filter-clear" class="link" type="button" disabled>清除筛选</button>
                 </div>
@@ -6998,20 +6998,21 @@
         tooltip.setAttribute("aria-hidden", "true");
       }
 
-      const REQUEST_EVENT_STATUS_LABELS = {
-        "": "全部状态",
-        normal: "正常",
-        failed: "失败",
+      const REQUEST_EVENT_STATUS_OPTIONS = {
+        "": { label: "全部状态", count: "all" },
+        false: { label: "正常", count: "normal" },
+        true: { label: "失败", count: "failed" },
       };
 
       // Counts cover the whole field/time selection and ignore the status choice,
       // so each status option can show how many entries selecting it would reveal.
       function labelRequestEventStatuses(select, counts) {
         for (const option of select.options) {
+          const status = REQUEST_EVENT_STATUS_OPTIONS[option.value];
           option.textContent =
-            REQUEST_EVENT_STATUS_LABELS[option.value] +
+            status.label +
             " · " +
-            int((counts || {})[option.value || "all"]);
+            int((counts || {})[status.count]);
         }
       }
 
@@ -7069,11 +7070,11 @@
         const key = account ? "" : $("analysis-key").value;
         const model = $(prefix + "-model").value;
         const source = $(prefix + "-source").value;
-        const status = $(prefix + "-status").value;
+        const failed = $(prefix + "-status").value;
         if (key) params.set("api_key", key);
         if (model) params.set("model", model);
         if (source) params.set("source", source);
-        if (status) params.set("status", status);
+        if (failed) params.set("failed", failed);
         const range = selectedRange(account);
         if (range.from) params.set("from", range.from);
         if (range.to) params.set("to", range.to);

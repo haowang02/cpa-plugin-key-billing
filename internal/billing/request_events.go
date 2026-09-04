@@ -37,11 +37,6 @@ type RequestEventRow struct {
 	Source  string `json:"source,omitempty"`
 }
 
-const (
-	RequestEventStatusNormal = "normal"
-	RequestEventStatusFailed = "failed"
-)
-
 // RequestEventQuery selects one filtered page of request events.
 type RequestEventQuery struct {
 	// Scope is an internal authorization boundary. Callers never select it from
@@ -52,7 +47,7 @@ type RequestEventQuery struct {
 	Source         string
 	Executor       string
 	Provider       string
-	Status         string
+	Failed         *bool
 	From           time.Time
 	To             time.Time
 	Timezone       *time.Location
@@ -88,28 +83,6 @@ type RequestEventStatusCounts struct {
 	All    int `json:"all"`
 	Normal int `json:"normal"`
 	Failed int `json:"failed"`
-}
-
-func (c RequestEventStatusCounts) Total(status string) int {
-	switch status {
-	case "":
-		return c.All
-	case RequestEventStatusNormal:
-		return c.Normal
-	case RequestEventStatusFailed:
-		return c.Failed
-	default:
-		return 0
-	}
-}
-
-func ValidRequestEventStatus(status string) bool {
-	switch status {
-	case "", RequestEventStatusNormal, RequestEventStatusFailed:
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *Store) RequestEvents(query RequestEventQuery) (RequestEventView, error) {
