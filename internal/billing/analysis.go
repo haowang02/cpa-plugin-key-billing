@@ -2,11 +2,6 @@ package billing
 
 import "time"
 
-type AnalysisRange struct {
-	From time.Time `json:"from"`
-	To   time.Time `json:"to"`
-}
-
 type AnalysisComposition struct {
 	Key           string  `json:"key"`
 	Label         string  `json:"label"`
@@ -51,7 +46,6 @@ type AnalysisSummary struct {
 }
 
 type AnalysisView struct {
-	Range             AnalysisRange     `json:"range"`
 	Summary           AnalysisSummary   `json:"summary"`
 	UsageDistribution UsageDistribution `json:"usage_distribution"`
 }
@@ -66,7 +60,6 @@ func (s *Store) Analysis(query RequestEventQuery) (AnalysisView, error) {
 	view, err := withRepository(s, func(repo Repository) (AnalysisView, error) {
 		return repo.Analysis(query, now.Add(-RequestEventRetention))
 	})
-	view.Range = AnalysisRange{From: from, To: to}
 	if view.UsageDistribution.APIKeys == nil {
 		view.UsageDistribution.APIKeys = []AnalysisComposition{}
 	}

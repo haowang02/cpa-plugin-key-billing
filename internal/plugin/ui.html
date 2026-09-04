@@ -481,21 +481,22 @@
         content: "";
         position: absolute;
         z-index: 2;
-        top: 1px;
-        bottom: 1px;
+        top: 0;
+        bottom: 0;
         width: 32px;
-        border-radius: 13px;
         pointer-events: none;
         opacity: 0;
         transition: opacity 0.15s ease;
       }
       .tabs-scroll::before {
-        left: 1px;
+        left: -2px;
         background: linear-gradient(to right, var(--tabs-fade-surface) 20%, transparent);
+        box-shadow: inset 4px 0 var(--tabs-fade-surface);
       }
       .tabs-scroll::after {
-        right: 1px;
+        right: -2px;
         background: linear-gradient(to left, var(--tabs-fade-surface) 20%, transparent);
+        box-shadow: inset -4px 0 var(--tabs-fade-surface);
       }
       .tabs-scroll.can-scroll-left::before,
       .tabs-scroll.can-scroll-right::after { opacity: 1; }
@@ -1885,33 +1886,58 @@
         .account-subscription-stats { grid-template-columns: 1fr; }
         /* CPAMC overlays mobile controls; CPAMP keeps them outside the frame. */
         :root:not([data-cpamp-plugin-host="true"]) body.embedded .wrap { padding-top: 90px; }
-        .section-toolbar { align-items: flex-start; }
+        .section-toolbar { align-items: center; }
         .page-tabs-row { align-items: stretch; flex-direction: column; }
         .page-tabs-row > .tabs-scroll { width: 100%; }
         .tabs-scroll > .tabs { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
         .shared-time-filter { width: 100%; }
         .shared-time-filter > .native-select { flex: 1 1 0; min-width: 0; }
         .shared-time-filter > .native-select > select { width: 100%; min-width: 0; }
-        .section-toolbar > .section-actions { flex: 1 1 100%; width: 100%; }
+        .section-toolbar > .section-actions {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: center;
+          flex: 1 1 100%;
+          width: 100%;
+        }
         .section-actions .wide-search,
-        #price-filter,
-        .section-actions #request-event-note { flex: 1 0 100%; }
-        .auth-filter-bar { display: grid; grid-template-columns: 1fr 1fr; }
+        #price-filter {
+          width: 100%;
+          max-width: none;
+          min-width: 0;
+        }
+        #tab-prices .section-actions {
+          grid-template-columns: minmax(0, 1fr) auto auto;
+        }
+        #tab-plugin-logs .section-actions {
+          grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+        }
+        #tab-plugin-logs .section-actions > *,
+        #tab-plugin-logs .section-actions select {
+          width: 100%;
+          min-width: 0;
+        }
+        .section-actions.auth-filter-bar {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
         .auth-filter-bar input[type="search"] { width: 100%; min-width: 0; }
         .auth-filter-bar .native-select,
         .auth-filter-bar select,
         .toggle-filter:not(.compact-toggle) { width: 100%; min-width: 0; }
         .auth-file-grid { grid-template-columns: 1fr; }
         .event-list-card { height: clamp(560px, calc(100dvh - 20px), 760px); }
-        .event-card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .event-card-actions .native-select,
-        .event-card-actions select { width: 100%; min-width: 0; }
+        .section-actions.event-card-actions {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        #tab-errors .event-card-actions,
+        #account-tab-errors .event-card-actions {
+          grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+        }
+        .section-actions.event-card-actions .native-select,
+        .section-actions.event-card-actions select { width: 100%; min-width: 0; }
         .usage-distribution-layout { grid-template-columns: 1fr; }
         .usage-distribution-chart { width: min(220px, 72vw); }
-        #request-events-filter-clear,
-        #account-request-events-filter-clear,
-        #errors-filter-clear,
-        #account-errors-filter-clear { grid-column: 1/-1; justify-self: start; }
+        .event-card-actions > .link { justify-self: start; }
         .shared-time-filter .time-range-popover {
           position: fixed;
           z-index: 1301;
@@ -2426,7 +2452,7 @@
                     <option value="normal">正常</option>
                     <option value="failed">失败</option>
                   </select></span>
-                <button id="request-events-filter-clear" class="link" type="button">清除筛选</button>
+                <button id="request-events-filter-clear" class="link" type="button" disabled>清除筛选</button>
               </div>
             </div>
             <div id="request-events-body" class="event-list-region"></div>
@@ -2447,7 +2473,7 @@
                 <span class="native-select"><select id="error-source" aria-label="按来源筛选">
                     <option value="">全部来源</option>
                   </select></span>
-                <button id="errors-filter-clear" class="link" type="button">清除筛选</button>
+                <button id="errors-filter-clear" class="link" type="button" disabled>清除筛选</button>
               </div>
             </div>
             <div id="errors-body" class="event-list-region"></div>
@@ -2611,7 +2637,7 @@
                       <option value="normal">正常</option>
                       <option value="failed">失败</option>
                     </select></span>
-                  <button id="account-request-events-filter-clear" class="link" type="button">清除筛选</button>
+                  <button id="account-request-events-filter-clear" class="link" type="button" disabled>清除筛选</button>
                 </div>
               </div>
               <div id="account-request-events-body" class="event-list-region"></div>
@@ -2631,7 +2657,7 @@
                   <span class="native-select"><select id="account-error-source">
                       <option value="">全部来源</option>
                     </select></span>
-                  <button id="account-errors-filter-clear" class="link" type="button">清除筛选</button>
+                  <button id="account-errors-filter-clear" class="link" type="button" disabled>清除筛选</button>
                 </div>
               </div>
               <div id="account-errors" class="event-list-region"></div>
@@ -3116,23 +3142,24 @@
 
       function resetRoleControls(role) {
         const account = role === "account";
+        const prefix = account ? "account-" : "";
         for (const id of REQUEST_EVENT_FILTER_IDS[role]) $(id).value = "";
         sharedTimeRanges[role] = { mode: "30d" };
         updateSharedTimeControl(account);
         closeSharedTimePopover(account);
-        updateRequestEventFilterControls(account);
-        $(account ? "account-error-model" : "error-model").value = "";
-        $(account ? "account-error-source" : "error-source").value = "";
+        $(prefix + "error-model").value = "";
+        $(prefix + "error-source").value = "";
+        updateFilterClearButton($(prefix + "request-events-filter-clear"));
+        updateFilterClearButton($(prefix + "errors-filter-clear"));
         const requestEventScroller = $(
           account ? "account-request-events-body" : "request-events-body",
         );
         requestEventScroller.scrollTop = 0;
         requestEventScroller.scrollLeft = 0;
 
-        const authPrefix = account ? "account-auth" : "auth";
-        $(authPrefix + "-enabled-only").checked = true;
-        $(authPrefix + "-provider").value = "";
-        $(authPrefix + "-search").value = "";
+        $(prefix + "auth-enabled-only").checked = true;
+        $(prefix + "auth-provider").value = "";
+        $(prefix + "auth-search").value = "";
         if (!account) {
           $("analysis-key").value = "";
           $("key-filter").value = "";
@@ -3320,11 +3347,6 @@
         if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
         if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
         return String(n);
-      }
-      function rate(value) {
-        const n = Number(value || 0);
-        if (Math.abs(n) >= 1000) return tokens(n);
-        return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
       }
       function exactTokens(value) {
         return Math.trunc(Number(value || 0)).toLocaleString("en-US");
@@ -4561,9 +4583,6 @@
         ) {
           return;
         }
-        const from = new Date(analysis.range?.from).getTime();
-        const to = new Date(analysis.range?.to).getTime();
-        const minutes = Math.max(1, (to - from) / 60000 || 1);
         const colors = analysisColors();
         const tabs = Object.entries(labels).map(([key, label]) =>
           el("button", {
@@ -4611,8 +4630,6 @@
                 "总成本",
                 row.cost_available === false ? "—" : usd(row.cost_usd),
               ),
-              metric("RPM", rate(Number(row.requests || 0) / minutes)),
-              metric("TPM", rate(Number(row.total_tokens || 0) / minutes)),
             ),
           );
         });
@@ -4688,6 +4705,9 @@
           return;
         }
         populateErrorFilters(owner.errors, account);
+        updateFilterClearButton(
+          $(account ? "account-errors-filter-clear" : "errors-filter-clear"),
+        );
         const previousTop = target.scrollTop;
         const entries = (owner.errors.entries || []).map((entry) => {
           const tags = [
@@ -6658,9 +6678,8 @@
         for (const option of select.options) {
           option.textContent =
             REQUEST_EVENT_STATUS_LABELS[option.value] +
-            "（" +
-            int((counts || {})[option.value || "all"]) +
-            "）";
+            " · " +
+            int((counts || {})[option.value || "all"]);
         }
       }
 
@@ -6729,11 +6748,9 @@
         return "/events?" + params.toString();
       }
 
-      function updateRequestEventFilterControls(account) {
-        const role = account ? "account" : "admin";
-        $(
-          account ? "account-request-events-filter-clear" : "request-events-filter-clear",
-        ).disabled = !REQUEST_EVENT_FILTER_IDS[role].some((id) => $(id).value);
+      function updateFilterClearButton(button) {
+        const selects = button.parentElement.querySelectorAll("select");
+        button.disabled = !Array.from(selects).some((select) => select.value);
       }
 
       function sharedTimeID(account, suffix) {
@@ -7077,7 +7094,9 @@
         const prefix = account ? "account-request-event" : "request-event";
         populateRequestEventFilters(view.filter_options, account);
         labelRequestEventStatuses($(prefix + "-status"), view.status_counts);
-        updateRequestEventFilterControls(account);
+        updateFilterClearButton(
+          $(account ? "account-request-events-filter-clear" : "request-events-filter-clear"),
+        );
         const entries = view.entries || [];
         note.textContent =
           "已加载 " + int(entries.length) + " / " + int(view.total) + " 条";
@@ -7330,7 +7349,7 @@
           const count = pluginLogs.filter((pluginLog) =>
             matchesPluginLogLevel(pluginLog, option.value),
           ).length;
-          option.textContent = label + "（" + int(count) + "）";
+          option.textContent = label + " · " + int(count);
         }
       }
 
@@ -8149,14 +8168,17 @@
           ? detailLoads.accountErrors
           : detailLoads.adminErrors;
         const ids = [prefix + "error-model", prefix + "error-source"];
+        const clear = $(prefix + "errors-filter-clear");
         for (const id of ids) {
           $(id).addEventListener("change", () => {
+            updateFilterClearButton(clear);
             resetLoadState(load);
             guard(() => loadErrors(account, false));
           });
         }
-        $(prefix + "errors-filter-clear").onclick = () => {
+        clear.onclick = () => {
           for (const id of ids) $(id).value = "";
+          updateFilterClearButton(clear);
           resetLoadState(load);
           guard(() => loadErrors(account, false));
         };
@@ -8359,17 +8381,18 @@
         });
       for (const account of [false, true]) {
         const role = account ? "account" : "admin";
-        for (const id of REQUEST_EVENT_FILTER_IDS[role]) {
-          $(id).addEventListener("change", () =>
-            guard(() => loadRequestEvents(false, account)),
-          );
-        }
         const clear = $(
           account ? "account-request-events-filter-clear" : "request-events-filter-clear",
         );
+        for (const id of REQUEST_EVENT_FILTER_IDS[role]) {
+          $(id).addEventListener("change", () => {
+            updateFilterClearButton(clear);
+            guard(() => loadRequestEvents(false, account));
+          });
+        }
         clear.onclick = () => {
           for (const id of REQUEST_EVENT_FILTER_IDS[role]) $(id).value = "";
-          updateRequestEventFilterControls(account);
+          updateFilterClearButton(clear);
           guard(() => loadRequestEvents(false, account));
         };
         const exportButton = $(

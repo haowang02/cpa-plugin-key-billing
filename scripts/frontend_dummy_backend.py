@@ -1006,10 +1006,6 @@ def analysis_view(query, scope=""):
         cost[name] = {"usd": value}
 
     return {
-        "range": {
-            "from": query.get("from", [iso(NOW - timedelta(days=30))])[0],
-            "to": query.get("to", [iso(NOW)])[0],
-        },
         "summary": {
             "requests": requests,
             "succeeded": requests - failed,
