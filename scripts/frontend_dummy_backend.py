@@ -1217,8 +1217,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"catalog": {"models": len(PRICES)}, "updated_models": 2})
         elif route == ("POST", f"{API_BASE}/prices/reset"):
             self.send_json(200, {"restored": len(PRICES)})
-        elif route == ("POST", f"{API_BASE}/keys/reset-all"):
-            self.send_json(200, {"reset": 14})
+        elif route == ("POST", f"{API_BASE}/keys/reset"):
+            scopes = json.loads(request_body or b"[]")
+            self.send_json(200, {"reset": len(set(scopes))})
         elif route == ("POST", f"{API_BASE}/keys/concurrency"):
             body = json.loads(request_body or b"{}")
             for key in KEYS:
@@ -1306,7 +1307,6 @@ class Handler(BaseHTTPRequestHandler):
         elif route in {
             ("POST", f"{API_BASE}/keys/bind"),
             ("POST", f"{API_BASE}/keys/unbind"),
-            ("POST", f"{API_BASE}/keys/reset"),
             ("POST", f"{API_BASE}/keys/label"),
             ("POST", f"{API_BASE}/plans"),
             ("PATCH", f"{API_BASE}/plans"),

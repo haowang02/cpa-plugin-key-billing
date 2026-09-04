@@ -169,6 +169,37 @@ func TestPlanBindingsRoundTripThroughTheManagementAPI(t *testing.T) {
 	}
 }
 
+func TestKeyResetAcceptsScopeList(t *testing.T) {
+	app := newConfiguredApp(t)
+	keys := []string{"sk-reset-first-000001", "sk-reset-second-00002"}
+	scopes := []string{billing.CallerScope(keys[0]), billing.CallerScope(keys[1])}
+	callOK(t, app, http.MethodPost, routeKeysSync, nil,
+		map[string]any{"keys": keys}, http.StatusOK, nil)
+	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
+		"id": "daily", "amount_usd": 10, "period_seconds": 86400,
+		"scopes": scopes,
+	}, http.StatusCreated, nil)
+	for _, scope := range scopes {
+		if decision := app.store.Authorize(scope, time.Now()); !decision.Allowed {
+			t.Fatalf("Authorize(%q) = %+v", scope, decision)
+		}
+	}
+
+	var result struct {
+		Reset int `json:"reset"`
+	}
+	callOK(t, app, http.MethodPost, routeKeysReset, nil, scopes, http.StatusOK, &result)
+	if result.Reset != 2 {
+		t.Fatalf("reset = %d, want 2", result.Reset)
+	}
+	byScope := keysByScope(t, app)
+	for _, scope := range scopes {
+		if !byScope[scope].CycleEndAt.IsZero() {
+			t.Fatalf("cycle for %q remained active: %+v", scope, byScope[scope])
+		}
+	}
+}
+
 func TestKeyConcurrencyRoundTrips(t *testing.T) {
 	app := newConfiguredApp(t)
 	const apiKey = "sk-concurrency-000001"

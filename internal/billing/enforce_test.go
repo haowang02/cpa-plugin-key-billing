@@ -102,9 +102,7 @@ func TestAuthorizeNeverResetPlanHasNoAutomaticReset(t *testing.T) {
 	if decision.Allowed || !decision.ResetAt.IsZero() {
 		t.Fatalf("decision = %+v, want blocked forever with no reset time", decision)
 	}
-	if errReset := store.ResetCycle("s"); errReset != nil {
-		t.Fatalf("ResetCycle error = %v", errReset)
-	}
+	store.ResetCycles([]string{"s"})
 	if !store.Authorize("s", now.Add(10*365*24*time.Hour)).Allowed {
 		t.Fatal("manual reset did not restore the one-time budget")
 	}

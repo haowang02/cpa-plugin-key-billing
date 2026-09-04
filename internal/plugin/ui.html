@@ -2424,7 +2424,7 @@
               <h2>API Key</h2>
               <div class="row section-actions">
                 <input id="key-filter" placeholder="搜索 API Key、备注或计划" class="wide-search" />
-                <button id="keys-reset-all">全员重置</button>
+                <button id="keys-reset-periodic" class="labeled-icon-button"><span data-lucide-icon="party-popper" aria-hidden="true"></span>全员重置</button>
               </div>
             </div>
             <div id="keys-body"></div>
@@ -6146,9 +6146,7 @@
                         ))
                       )
                         return;
-                      await plugin("POST", "/keys/reset", {
-                        scope: view.scope,
-                      });
+                      await plugin("POST", "/keys/reset", [view.scope]);
                       notify("订阅额度已重置");
                       await refreshPage("foreground");
                     }),
@@ -8249,6 +8247,7 @@
         "chevron-down": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down"><path d="m6 9 6 6 6-6"/></svg>`,
         clock: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clock"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
         key: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-key-round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg>`,
+        "party-popper": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-party-popper"><path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/><path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/><path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/></svg>`,
         "file-key": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-key-icon lucide-file-key"><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M4 12v6"/><path d="M4 14h2"/><path d="M9.65 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v4"/><circle cx="4" cy="20" r="2"/></svg>`,
       };
 
@@ -8845,7 +8844,7 @@
         },
         { passive: true },
       );
-      $("keys-reset-all").onclick = () =>
+      $("keys-reset-periodic").onclick = () =>
         guard(async () => {
           if (
             !(await confirmAction(
@@ -8854,7 +8853,19 @@
             ))
           )
             return;
-          const result = await plugin("POST", "/keys/reset-all");
+          const periodicPlans = new Set(
+            state.plans
+              .filter((plan) => plan.period_seconds > 0)
+              .map((plan) => plan.id),
+          );
+          const scopes = state.keys
+            .filter((key) => periodicPlans.has(key.plan_id))
+            .map((key) => key.scope);
+          if (!scopes.length) {
+            notify("没有需要重置的额度");
+            return;
+          }
+          const result = await plugin("POST", "/keys/reset", scopes);
           notify(
             result.reset
               ? "已重置 " + result.reset + " 个 API Key 的额度"

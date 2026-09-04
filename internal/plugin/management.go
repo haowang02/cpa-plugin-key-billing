@@ -32,7 +32,6 @@ const (
 	routeKeysBind        = "/keys/bind"
 	routeKeysUnbind      = "/keys/unbind"
 	routeKeysReset       = "/keys/reset"
-	routeKeysResetAll    = "/keys/reset-all"
 	routeKeysLabel       = "/keys/label"
 	routeKeysConcurrency = "/keys/concurrency"
 	routeKeysSync        = "/keys/sync"
@@ -67,8 +66,7 @@ var managementEndpoints = []managementEndpoint{
 	{http.MethodPut, routeKeysRoutes, "替换一个 API Key 的路由绑定。", (*App).setKeyRoutes},
 	{http.MethodPost, routeKeysBind, "将 API Key 绑定到订阅计划。", (*App).bindKey},
 	{http.MethodPost, routeKeysUnbind, "解除 API Key 的订阅计划。", (*App).unbindKey},
-	{http.MethodPost, routeKeysReset, "重置 API Key 的订阅额度。", (*App).resetKey},
-	{http.MethodPost, routeKeysResetAll, "重置所有周期性计划 API Key 的订阅额度。", func(a *App, _ ManagementRequest) ManagementResponse { return a.resetAllKeys() }},
+	{http.MethodPost, routeKeysReset, "重置指定 API Key 的订阅额度。", (*App).resetKeys},
 	{http.MethodPost, routeKeysLabel, "设置 API Key 备注。", (*App).labelKey},
 	{http.MethodPost, routeKeysConcurrency, "设置 API Key 最大并发请求数。", (*App).setKeyConcurrency},
 	{http.MethodPost, routeKeysSync, "同步 CLIProxyAPI 中的 API Key 列表。", (*App).syncKeys},

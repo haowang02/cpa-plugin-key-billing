@@ -191,37 +191,13 @@ func (s *Store) UnbindKey(scope string) error {
 }
 
 // The next request starts a fresh period after a reset.
-func (s *Store) ResetCycle(scope string) error {
-	scope = normalizeScope(scope)
-	if scope == "" {
-		return invalidf("API Key 标识不能为空")
-	}
-	updateResult(s, func(state *State) (struct{}, Changes) {
-		key := state.liveKey(scope)
-		if key == nil {
-			return struct{}{}, Changes{}
-		}
-		if _, exists := state.FindPlan(key.PlanID); !exists {
-			return struct{}{}, Changes{}
-		}
-		key.Cycle = Cycle{}
-		return struct{}{}, Changes{Keys: []string{scope}}
-	})
-	return nil
-}
-
-// ResetAllCycles resets every key on a plan that repeats, and reports how many
-// had a period to end. A plan that never resets grants its budget once, so a
-// bulk action must not hand it out again.
-func (s *Store) ResetAllCycles() int {
+func (s *Store) ResetCycles(scopes []string) int {
+	scopes = normalizeScopes(scopes)
 	return updateResult(s, func(state *State) (int, Changes) {
-		var reset []string
-		for scope, key := range state.Keys {
-			if key == nil || !key.DeletedAt.IsZero() || key.Cycle == (Cycle{}) {
-				continue
-			}
-			plan, exists := state.FindPlan(key.PlanID)
-			if !exists || plan.PeriodSeconds == 0 {
+		reset := make([]string, 0, len(scopes))
+		for _, scope := range scopes {
+			key := state.liveKey(scope)
+			if key == nil || key.Cycle == (Cycle{}) {
 				continue
 			}
 			key.Cycle = Cycle{}

@@ -288,12 +288,6 @@ func (a *App) clearPluginLogs() ManagementResponse {
 	return JSONResponse(http.StatusOK, map[string]any{"cleared": cleared})
 }
 
-func (a *App) resetAllKeys() ManagementResponse {
-	return JSONResponse(http.StatusOK, struct {
-		Reset int `json:"reset"`
-	}{Reset: a.store.ResetAllCycles()})
-}
-
 func (a *App) deletePlan(req ManagementRequest) ManagementResponse {
 	id := strings.TrimSpace(req.Query.Get("id"))
 	unbound, errDelete := a.store.DeletePlan(id)
@@ -330,17 +324,14 @@ func (a *App) unbindKey(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, struct{}{})
 }
 
-func (a *App) resetKey(req ManagementRequest) ManagementResponse {
-	var body struct {
-		Scope string `json:"scope"`
-	}
-	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
+func (a *App) resetKeys(req ManagementRequest) ManagementResponse {
+	var scopes []string
+	if errDecode := decodeStrict(req.Body, &scopes); errDecode != nil {
 		return errorResponse(errDecode)
 	}
-	if errReset := a.store.ResetCycle(body.Scope); errReset != nil {
-		return errorResponse(errReset)
-	}
-	return JSONResponse(http.StatusOK, struct{}{})
+	return JSONResponse(http.StatusOK, struct {
+		Reset int `json:"reset"`
+	}{Reset: a.store.ResetCycles(scopes)})
 }
 
 func (a *App) labelKey(req ManagementRequest) ManagementResponse {

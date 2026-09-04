@@ -166,7 +166,10 @@ func TestCompletionDoesNotOpenCycleAfterAdministrativeChange(t *testing.T) {
 		change func(*Store) error
 		planID string
 	}{
-		{"reset", func(store *Store) error { return store.ResetCycle("scope-a") }, "daily"},
+		{"reset", func(store *Store) error {
+			store.ResetCycles([]string{"scope-a"})
+			return nil
+		}, "daily"},
 		{"rebind", func(store *Store) error { return store.BindKey("scope-a", "weekly") }, "weekly"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
