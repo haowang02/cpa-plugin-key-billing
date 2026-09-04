@@ -7,11 +7,10 @@ import (
 )
 
 type KeyView struct {
-	Scope     string    `json:"scope"`
-	Preview   string    `json:"preview,omitempty"`
-	Label     string    `json:"label,omitempty"`
-	InConfig  bool      `json:"in_config"`
-	DeletedAt time.Time `json:"deleted_at,omitzero"`
+	Scope    string `json:"scope"`
+	Preview  string `json:"preview,omitempty"`
+	Label    string `json:"label,omitempty"`
+	InConfig bool   `json:"in_config"`
 
 	PlanID             string        `json:"plan_id,omitempty"`
 	PlanName           string        `json:"plan_name,omitempty"`
@@ -40,7 +39,7 @@ func (s *Store) KeyViews() []KeyView {
 		}
 		views := make([]KeyView, 0, len(state.Keys))
 		for scope, key := range state.Keys {
-			if key == nil {
+			if key == nil || !key.DeletedAt.IsZero() {
 				continue
 			}
 			if settleKeyPlan(key, plans, now) {
@@ -59,7 +58,6 @@ func keyView(scope string, key *KeyState, plans map[string]Plan, currentConcurre
 		Preview:            key.Preview,
 		Label:              key.Label,
 		InConfig:           key.InConfig,
-		DeletedAt:          key.DeletedAt,
 		PlanID:             key.PlanID,
 		ConcurrencyLimit:   key.ConcurrencyLimit,
 		CurrentConcurrency: currentConcurrency,

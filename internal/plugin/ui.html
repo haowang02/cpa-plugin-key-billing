@@ -3856,7 +3856,7 @@
           },
           ({ access, configuredCredentialsLoaded }) => {
             state.access = access;
-            state.keys = (access.keys || []).filter((view) => !view.deleted_at);
+            state.keys = access.keys;
             state.plans = access.plans || [];
             state.routes = access.routes || [];
             state.credentials = access.credentials || [];

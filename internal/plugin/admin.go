@@ -391,9 +391,7 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 	}
 	live := make(map[string]struct{})
 	for _, key := range a.store.KeyViews() {
-		if key.DeletedAt.IsZero() {
-			live[key.Scope] = struct{}{}
-		}
+		live[key.Scope] = struct{}{}
 	}
 	a.scheduler.prune(live)
 	return JSONResponse(http.StatusOK, result)

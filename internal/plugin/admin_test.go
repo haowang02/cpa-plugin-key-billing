@@ -295,14 +295,8 @@ func TestSyncRetiresKeysDeletedFromCPA(t *testing.T) {
 	}
 
 	keys := readAccess(t, app).Keys
-	if len(keys) != 2 {
-		t.Fatalf("keys = %+v, want the deleted key kept alongside the live one", keys)
-	}
-	for _, view := range keys {
-		wantDeleted := view.Scope == billing.CallerScope(removed)
-		if view.DeletedAt.IsZero() == wantDeleted || view.Preview == "" {
-			t.Fatalf("view = %+v, want it marked deleted=%v with its identity kept", view, wantDeleted)
-		}
+	if len(keys) != 1 || keys[0].Scope != billing.CallerScope(kept) {
+		t.Fatalf("keys = %+v, want only the live key", keys)
 	}
 
 	var events billing.RequestEventView
