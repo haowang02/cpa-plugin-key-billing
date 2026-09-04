@@ -87,7 +87,7 @@ func TestRequestEventFailedFilterKeepsOverallCounts(t *testing.T) {
 	}
 }
 
-func TestRequestEventFieldAndTimeFiltersShareOneQuery(t *testing.T) {
+func TestRequestEventFieldAndTimeFilters(t *testing.T) {
 	database, state := requestEventDatabase(t)
 	state.Credentials["auth-xai"] = billing.Credential{Provider: "xai", Account: "ops-xai@example.com"}
 	entry := requestEvent("scope-b", eventStart.Add(6*time.Minute))
@@ -104,8 +104,7 @@ func TestRequestEventFieldAndTimeFiltersShareOneQuery(t *testing.T) {
 	if view.Total != 1 || len(view.Entries) != 1 || !view.Entries[0].At.Equal(entry.At) {
 		t.Fatalf("view = %+v, want the one exact field and time match", view.Entries)
 	}
-	if view.Filters == nil || len(view.Filters.APIKeys) != 1 || len(view.Filters.Models) != 1 ||
-		len(view.Filters.Sources) != 1 {
+	if view.Filters == nil || len(view.Filters.Models) != 1 || len(view.Filters.Sources) != 1 {
 		t.Fatalf("filter options = %+v", view.Filters)
 	}
 
@@ -119,13 +118,10 @@ func TestRequestEventFieldAndTimeFiltersShareOneQuery(t *testing.T) {
 func TestRequestEventScopeConstrainsRowsAndCounts(t *testing.T) {
 	database, _ := requestEventDatabase(t)
 
-	view := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Scope: "scope-a", Limit: 10, IncludeFilters: true})
+	view := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Scope: "scope-a", Limit: 10})
 	if view.Total != 4 || len(view.Entries) != 4 ||
 		view.Statuses != (billing.RequestEventStatusCounts{All: 4, Normal: 4}) {
 		t.Fatalf("scope-a view = %+v, statuses %+v", view.Entries, view.Statuses)
-	}
-	if view.Filters == nil || len(view.Filters.APIKeys) != 1 || view.Filters.APIKeys[0].Scope != "scope-a" {
-		t.Fatalf("scope-a filter options = %+v", view.Filters)
 	}
 	for _, entry := range view.Entries {
 		if entry.Scope != "scope-a" {

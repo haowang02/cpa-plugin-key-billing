@@ -373,7 +373,14 @@
         outline: none;
       }
       input[type="number"] { width: 110px; }
-      .native-select { position: relative; display: inline-flex; align-items: center; color: var(--text-secondary); }
+      .native-select {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        max-width: 100%;
+        color: var(--text-secondary);
+      }
       .native-select::after {
         content: "";
         position: absolute;
@@ -390,8 +397,13 @@
       .native-select > select {
         -webkit-appearance: none;
         appearance: none;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
         padding-right: 36px;
         color: var(--text-primary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       label.field > .native-select,
       label.field > .native-select > select { width: 100%; }
@@ -464,20 +476,70 @@
       .tabs button[data-tab].active,
       .tabs button[data-account-tab].active { color: var(--text-primary); border-bottom-color: var(--primary-color); }
       .page-tabs-row {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, max-content) auto;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
+        gap: 16px;
         margin-bottom: 16px;
       }
+      .page-tabs-row.controls-inline {
+        grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
+        justify-content: normal;
+      }
+      body:not(.embedded) .page-tabs-row {
+        grid-template-columns: minmax(0, max-content);
+      }
+      body:not(.embedded) .page-tabs-row.controls-inline {
+        grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+      }
+      .page-tab-actions {
+        display: flex;
+        grid-column: 1 / -1;
+        grid-row: 2;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 0;
+      }
+      .page-tabs-row.controls-inline .page-tab-actions {
+        grid-column: 2;
+        grid-row: 1;
+      }
+      .page-tabs-row.controls-inline .shared-time-filter { flex: none; }
+      .tab-refresh {
+        display: none;
+        grid-column: 2;
+        grid-row: 1;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+        padding: 0;
+        border-radius: 50%;
+        line-height: 0;
+      }
+      .page-tabs-row.controls-inline .tab-refresh {
+        grid-column: 3;
+      }
+      body.embedded .tab-refresh { display: grid; }
       .tabs-scroll {
         --tabs-fade-surface: var(--bg-secondary);
         position: relative;
         width: max-content;
         max-width: 100%;
         min-width: 0;
+        overflow: hidden;
       }
-      .tabs-scroll > .tabs { margin-bottom: 0; }
+      .tabs-scroll > .tabs {
+        width: max-content;
+        max-width: 100%;
+        margin-bottom: 0;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
       .tabs-scroll::before,
       .tabs-scroll::after {
         content: "";
@@ -669,6 +731,7 @@
           var(--surface-subtle, var(--bg-tertiary)) 78%,
           var(--bg-primary)
         );
+        border-radius: 14px;
       }
       :root[data-cpamp-plugin-host="true"] .tabs::-webkit-scrollbar { display: none; }
       :root[data-cpamp-plugin-host="true"] .tabs button[data-tab],
@@ -758,15 +821,39 @@
       .concurrency-editor select { width: 96px; min-width: 96px; }
       .concurrency-editor .small { white-space: nowrap; }
       .key-plan-select { width: 150px; max-width: 150px; }
-      .key-plan-select > select {
-        width: 100%;
+      .key-plan-select > select { width: 100%; }
+      .api-key-identity {
+        display: inline-flex;
+        align-items: baseline;
+        flex: 0 1 auto;
+        gap: 6px;
         min-width: 0;
         max-width: 100%;
+      }
+      .api-key-identity-stacked {
+        display: grid;
+        align-items: initial;
+        gap: 1px;
+      }
+      .api-key-identity-line {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+      }
+      .api-key-identity-line > span:first-child {
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .key-identity { display: flex; align-items: center; gap: 4px; }
+      .api-key-identity-secondary {
+        color: var(--text-tertiary);
+        font-size: 12px;
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
       button.key-copy-button {
         display: grid;
         place-items: center;
@@ -968,7 +1055,7 @@
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         gap: 12px;
-        align-items: start;
+        align-items: stretch;
       }
       .account-access-summary {
         display: grid;
@@ -1005,7 +1092,16 @@
           box-shadow 0.16s ease,
           background-color 0.16s ease;
       }
-      .account-model-name { color: var(--text-primary); font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+      .account-model-name {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--text-primary);
+        font-size: 14px;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .account-model-price-list { display: grid; gap: 6px; }
       .account-model-price-row {
         display: grid;
@@ -1781,15 +1877,18 @@
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
-      .event-request-meta { display: flex; align-items: baseline; gap: 3px 12px; min-width: 0; flex-wrap: wrap; }
-      .error-event-field { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+      .event-request-meta { display: flex; align-items: baseline; gap: 3px 12px; min-width: 0; }
+      .error-event-field { display: flex; flex: 0 0 auto; align-items: baseline; gap: 6px; min-width: 0; }
+      .error-event-field:last-child { flex: 1 1 auto; }
       .error-event-field-label { flex: none; color: var(--text-tertiary); font-size: 11px; font-weight: 500; }
       .error-event-field-value {
         min-width: 0;
+        overflow: hidden;
         color: var(--text-secondary);
         font-size: 12px;
         font-weight: 400;
-        overflow-wrap: anywhere;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .event-error-body {
         margin: 7px 0 0;
@@ -1899,12 +1998,6 @@
         /* CPAMC overlays mobile controls; CPAMP keeps them outside the frame. */
         :root:not([data-cpamp-plugin-host="true"]) body.embedded .wrap { padding-top: 90px; }
         .section-toolbar { align-items: center; }
-        .page-tabs-row { align-items: stretch; flex-direction: column; }
-        .page-tabs-row > .tabs-scroll { width: 100%; }
-        .tabs-scroll > .tabs { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
-        .shared-time-filter { width: 100%; }
-        .shared-time-filter > .native-select { flex: 1 1 0; min-width: 0; }
-        .shared-time-filter > .native-select > select { width: 100%; min-width: 0; }
         .section-toolbar > .section-actions {
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
@@ -1971,6 +2064,14 @@
           grid-template-areas: "time tags" "meta meta";
           gap: 5px 10px;
         }
+        .event-request-meta { flex-wrap: wrap; }
+        .error-event-field { flex: 0 1 auto; }
+        .error-event-field-value {
+          overflow: visible;
+          overflow-wrap: anywhere;
+          text-overflow: clip;
+          white-space: normal;
+        }
         .event-entry-tags { gap: 4px; }
         .event-entry-tags .tag { padding-inline: 6px; }
         .gate { margin: 3vh auto; padding: 16px; }
@@ -2004,8 +2105,18 @@
           min-height: 34px;
         }
       }
-      .shared-time-filter { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: none; }
-      .shared-time-filter.hidden { display: none; }
+      .shared-time-filter {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex: 0 1 auto;
+        min-width: 0;
+      }
+      .shared-time-filter > .native-select {
+        flex: 0 1 auto;
+        max-width: 320px;
+      }
       .shared-time-filter label { color: var(--text-tertiary); font-size: 12px; }
       .labeled-icon-button {
         display: inline-flex;
@@ -2014,7 +2125,6 @@
         gap: 6px;
         white-space: nowrap;
       }
-      .export-button.hidden { display: none; }
       .labeled-icon-button .lucide-icon { width: 15px; height: 15px; color: var(--text-tertiary); }
       .usage-distribution-card { min-height: 360px; }
       .analysis-summary-grid {
@@ -2151,6 +2261,13 @@
       }
       .usage-distribution-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .usage-distribution-heading b { min-width: 0; overflow-wrap: anywhere; }
+      .usage-distribution-heading .api-key-identity {
+        flex: 1;
+        font-weight: 600;
+      }
+      .usage-distribution-heading .api-key-identity-secondary {
+        font-weight: 400;
+      }
       .usage-distribution-track {
         height: 6px;
         overflow: hidden;
@@ -2381,40 +2498,43 @@
               <button data-tab="settings">设置</button>
             </div>
           </div>
-          <div id="shared-time-filter" class="shared-time-filter hidden">
-            <span class="native-select">
-              <select id="analysis-key" aria-label="按 API Key 筛选">
-                <option value="">全部 API Key</option>
-              </select>
-            </span>
-            <div class="time-range-control">
-              <button id="shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
-                <span class="time-range-icon" data-lucide-icon="clock" aria-hidden="true"></span>
-                <span id="shared-time-label">最近 30 天</span><span class="time-range-chevron" data-lucide-icon="chevron-down" aria-hidden="true"></span>
-              </button>
-              <div id="shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择时间范围">
-                <div class="time-range-heading">时间范围</div>
-                <div class="time-range-presets" role="group" aria-label="常用时间范围">
-                  <button type="button" data-shared-time-preset="8h">最近 8 小时</button>
-                  <button type="button" data-shared-time-preset="24h">最近 24 小时</button>
-                  <button type="button" data-shared-time-preset="7d">最近 7 天</button>
-                  <button type="button" data-shared-time-preset="30d">最近 30 天</button>
-                  <button type="button" data-shared-time-preset="today">今天</button>
-                  <button type="button" data-shared-time-preset="yesterday">昨天</button>
-                  <button type="button" data-shared-time-preset="custom">自定义</button>
-                </div>
-                <div id="shared-time-custom" class="time-range-custom hidden">
-                  <label class="field">开始时间<input id="shared-time-from" type="datetime-local" step="60" /></label>
-                  <label class="field">结束时间<input id="shared-time-to" type="datetime-local" step="60" /></label>
-                  <div class="row time-range-actions">
-                    <button id="shared-time-cancel" type="button">取消</button>
-                    <button id="shared-time-apply" type="button" class="primary">应用</button>
+          <div class="page-tab-actions hidden">
+            <div id="shared-time-filter" class="shared-time-filter hidden">
+              <span class="native-select">
+                <select id="analysis-key" aria-label="按 API Key 筛选">
+                  <option value="">全部 API Key</option>
+                </select>
+              </span>
+              <div class="time-range-control">
+                <button id="shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
+                  <span class="time-range-icon" data-lucide-icon="clock" aria-hidden="true"></span>
+                  <span id="shared-time-label">最近 30 天</span><span class="time-range-chevron" data-lucide-icon="chevron-down" aria-hidden="true"></span>
+                </button>
+                <div id="shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择时间范围">
+                  <div class="time-range-heading">时间范围</div>
+                  <div class="time-range-presets" role="group" aria-label="常用时间范围">
+                    <button type="button" data-shared-time-preset="8h">最近 8 小时</button>
+                    <button type="button" data-shared-time-preset="24h">最近 24 小时</button>
+                    <button type="button" data-shared-time-preset="7d">最近 7 天</button>
+                    <button type="button" data-shared-time-preset="30d">最近 30 天</button>
+                    <button type="button" data-shared-time-preset="today">今天</button>
+                    <button type="button" data-shared-time-preset="yesterday">昨天</button>
+                    <button type="button" data-shared-time-preset="custom">自定义</button>
+                  </div>
+                  <div id="shared-time-custom" class="time-range-custom hidden">
+                    <label class="field">开始时间<input id="shared-time-from" type="datetime-local" step="60" /></label>
+                    <label class="field">结束时间<input id="shared-time-to" type="datetime-local" step="60" /></label>
+                    <div class="row time-range-actions">
+                      <button id="shared-time-cancel" type="button">取消</button>
+                      <button id="shared-time-apply" type="button" class="primary">应用</button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-            <button id="request-events-export" class="export-button labeled-icon-button hidden" type="button">导出</button>
+            <button id="request-events-export" class="labeled-icon-button hidden" type="button">导出</button>
           </div>
+          <button type="button" class="icon-action tab-refresh" data-page-action="refresh" aria-label="刷新"></button>
         </div>
         <div id="shared-time-backdrop" class="time-range-backdrop hidden"></div>
 
@@ -2641,35 +2761,38 @@
                 <button type="button" data-account-tab="auth-files">认证文件</button>
               </nav>
             </div>
-            <div id="account-shared-time-filter" class="shared-time-filter hidden">
-              <div class="time-range-control">
-                <button id="account-shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
-                  <span class="time-range-icon" data-lucide-icon="clock" aria-hidden="true"></span>
-                  <span id="account-shared-time-label">最近 30 天</span><span class="time-range-chevron" data-lucide-icon="chevron-down" aria-hidden="true"></span>
-                </button>
-                <div id="account-shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择时间范围">
-                  <div class="time-range-heading">时间范围</div>
-                  <div class="time-range-presets" role="group" aria-label="常用时间范围">
-                    <button type="button" data-account-shared-time-preset="8h">最近 8 小时</button>
-                    <button type="button" data-account-shared-time-preset="24h">最近 24 小时</button>
-                    <button type="button" data-account-shared-time-preset="7d">最近 7 天</button>
-                    <button type="button" data-account-shared-time-preset="30d">最近 30 天</button>
-                    <button type="button" data-account-shared-time-preset="today">今天</button>
-                    <button type="button" data-account-shared-time-preset="yesterday">昨天</button>
-                    <button type="button" data-account-shared-time-preset="custom">自定义</button>
-                  </div>
-                  <div id="account-shared-time-custom" class="time-range-custom hidden">
-                    <label class="field">开始时间<input id="account-shared-time-from" type="datetime-local" step="60" /></label>
-                    <label class="field">结束时间<input id="account-shared-time-to" type="datetime-local" step="60" /></label>
-                    <div class="row time-range-actions">
-                      <button id="account-shared-time-cancel" type="button">取消</button>
-                      <button id="account-shared-time-apply" type="button" class="primary">应用</button>
+            <div class="page-tab-actions hidden">
+              <div id="account-shared-time-filter" class="shared-time-filter hidden">
+                <div class="time-range-control">
+                  <button id="account-shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
+                    <span class="time-range-icon" data-lucide-icon="clock" aria-hidden="true"></span>
+                    <span id="account-shared-time-label">最近 30 天</span><span class="time-range-chevron" data-lucide-icon="chevron-down" aria-hidden="true"></span>
+                  </button>
+                  <div id="account-shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="选择时间范围">
+                    <div class="time-range-heading">时间范围</div>
+                    <div class="time-range-presets" role="group" aria-label="常用时间范围">
+                      <button type="button" data-account-shared-time-preset="8h">最近 8 小时</button>
+                      <button type="button" data-account-shared-time-preset="24h">最近 24 小时</button>
+                      <button type="button" data-account-shared-time-preset="7d">最近 7 天</button>
+                      <button type="button" data-account-shared-time-preset="30d">最近 30 天</button>
+                      <button type="button" data-account-shared-time-preset="today">今天</button>
+                      <button type="button" data-account-shared-time-preset="yesterday">昨天</button>
+                      <button type="button" data-account-shared-time-preset="custom">自定义</button>
+                    </div>
+                    <div id="account-shared-time-custom" class="time-range-custom hidden">
+                      <label class="field">开始时间<input id="account-shared-time-from" type="datetime-local" step="60" /></label>
+                      <label class="field">结束时间<input id="account-shared-time-to" type="datetime-local" step="60" /></label>
+                      <div class="row time-range-actions">
+                        <button id="account-shared-time-cancel" type="button">取消</button>
+                        <button id="account-shared-time-apply" type="button" class="primary">应用</button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-              <button id="account-request-events-export" class="export-button labeled-icon-button hidden" type="button">导出</button>
+              <button id="account-request-events-export" class="labeled-icon-button hidden" type="button">导出</button>
             </div>
+            <button type="button" class="icon-action tab-refresh" data-page-action="refresh" aria-label="刷新"></button>
           </div>
           <div id="account-shared-time-backdrop" class="time-range-backdrop hidden"></div>
           <section id="account-tab-subscription">
@@ -3916,6 +4039,7 @@
             state.routes = access.routes || [];
             state.credentials = access.credentials || [];
             state.configuredCredentialsLoaded = configuredCredentialsLoaded;
+            populateSharedKeyFilter();
           },
           () => currentRole === "admin" && renderAdminPage(),
           deferRender,
@@ -4009,7 +4133,14 @@
         if (!account && $("analysis-key").value) {
           params.set("api_key", $("analysis-key").value);
         }
-        return loadResource(
+        const render = () =>
+          currentRole === (account ? "account" : "admin") &&
+          renderAnalysis(account);
+        const accessReady =
+          !account && state.access === null
+            ? loadAdminAccess(true)
+            : Promise.resolve();
+        const analysisReady = loadResource(
           load,
           () =>
             account
@@ -4019,10 +4150,18 @@
             const target = account ? accountState : state;
             target.analysis = analysis;
           },
-          () =>
-            currentRole === (account ? "account" : "admin") &&
-            renderAnalysis(account),
-          deferRender,
+          null,
+          true,
+        );
+        if (!deferRender) render();
+        return Promise.allSettled([accessReady, analysisReady]).then(
+          (results) => {
+            if (!deferRender && (account || state.access !== null)) render();
+            const failed = results.find(
+              (result) => result.status === "rejected",
+            );
+            if (failed) throw failed.reason;
+          },
         );
       }
 
@@ -4077,6 +4216,45 @@
       const TAB_BARS = Array.from(
         document.querySelectorAll(".tabs-scroll > .tabs"),
       );
+      const PAGE_TAB_ROWS = Array.from(
+        document.querySelectorAll(".page-tabs-row"),
+      );
+      let tabLayoutFrame = 0;
+
+      function updatePageTabLayouts() {
+        tabLayoutFrame = 0;
+        for (const row of PAGE_TAB_ROWS) {
+          const tabBar = row.querySelector(".tabs-scroll > .tabs");
+          const actions = row.querySelector(".page-tab-actions");
+          const hasControls = Array.from(actions.children).some(
+            (node) => !node.classList.contains("hidden"),
+          );
+          actions.classList.toggle("hidden", !hasControls);
+          row.classList.toggle("controls-inline", hasControls);
+          const actionBounds = actions.getBoundingClientRect();
+          const actionsOverflow = Array.from(actions.children).some((child) => {
+            if (!child.getClientRects().length) return false;
+            const bounds = child.getBoundingClientRect();
+            return (
+              bounds.left < actionBounds.left - 1 ||
+              bounds.right > actionBounds.right + 1
+            );
+          });
+          if (
+            hasControls &&
+            (tabBar.scrollWidth > tabBar.clientWidth + 1 ||
+              actionsOverflow)
+          ) {
+            row.classList.remove("controls-inline");
+          }
+          updateTabScrollHint(tabBar);
+        }
+      }
+
+      function schedulePageTabLayout() {
+        if (tabLayoutFrame) cancelAnimationFrame(tabLayoutFrame);
+        tabLayoutFrame = requestAnimationFrame(updatePageTabLayouts);
+      }
 
       function updateTabScrollHint(tabBar) {
         const maxScrollLeft = tabBar.scrollWidth - tabBar.clientWidth;
@@ -4117,8 +4295,9 @@
             tasks.push(loadAccountPrices(false));
         } else {
           if (
-            ["keys", "settings", "analysis"].includes(tab) &&
-            owner.access === null
+            owner.access === null &&
+            tab !== "analysis" &&
+            tab !== "auth-files"
           )
             tasks.push(loadAdminAccess(false));
           if (["keys", "settings"].includes(tab) && owner.prices === null)
@@ -4150,6 +4329,7 @@
         $("account-app").classList.add("hidden");
         $("app").classList.remove("hidden");
         if (summary) notify(summary);
+        schedulePageTabLayout();
         scheduleAutoRefresh();
       }
 
@@ -4169,6 +4349,7 @@
         const route = pageRoute();
         setAccountTab(route.role === "account" ? route.tab : "subscription");
         await ensureViewInitialized(true);
+        schedulePageTabLayout();
         scheduleAutoRefresh();
       }
 
@@ -4203,6 +4384,7 @@
         if (!["analysis", "request-events", "errors"].includes(accountTab)) {
           closeSharedTimePopover(true);
         }
+        schedulePageTabLayout();
         if (currentRole === "account" && accountState.access) renderAccount();
         revealTab(
           document.querySelector(`[data-account-tab="${accountTab}"]`),
@@ -4216,9 +4398,7 @@
         $("account-content").classList.toggle("hidden", !tracked);
         const identity = access.identity || {};
         if (tracked)
-          $("account-identity").textContent = identity.label
-            ? identity.label + " · " + identity.preview
-            : identity.preview;
+          $("account-identity").textContent = apiKeyIdentity(identity).text;
         const subscription = access.subscription || {};
         const concurrency = access.concurrency || {};
         $("account-remaining").textContent = !tracked
@@ -4340,33 +4520,27 @@
         const fields = [
           ["输入", "input_per_1m"],
           ["输出", "output_per_1m"],
+        ];
+        const longContext = price?.long_context;
+        for (const [label, field] of [
           ["缓存读", "cache_read_per_1m"],
           ["缓存写", "cache_write_per_1m"],
-        ];
-        const resolvedRate = (row, field) => {
-          if (!row) return 0;
-          const value = row[field];
-          if (
-            (value === null || value === undefined) &&
-            (field === "cache_read_per_1m" ||
-              field === "cache_write_per_1m")
-          ) {
-            return Number(row.input_per_1m || 0);
-          }
-          return Number(value || 0);
-        };
-        const longContext = price?.long_context;
+        ]) {
+          if (price?.[field] != null || longContext?.[field] != null)
+            fields.push([label, field]);
+        }
         const threshold = longContext
           ? ">" + tokenThreshold(longContext.threshold_input_tokens)
           : "";
         const priceRows = price
-          ? fields
-              .map(([label, field]) => ({
-                label,
-                base: resolvedRate(price, field),
-                long: resolvedRate(longContext, field),
-              }))
-              .filter((item) => item.base > 0 || item.long > 0)
+          ? fields.map(([label, field]) => ({
+              label,
+              base: price[field] == null ? null : Number(price[field]),
+              long:
+                longContext?.[field] == null
+                  ? null
+                  : Number(longContext[field]),
+            }))
           : [];
         const priceRow = (item) =>
           el(
@@ -4379,13 +4553,13 @@
             el(
               "strong",
               { class: "mono account-model-base-price" },
-              item.base > 0 ? usd(item.base) : "—",
+              item.base == null ? "—" : usd(item.base),
             ),
             longContext
               ? el(
                   "span",
                   { class: "account-model-long-price" },
-                  item.long > 0
+                  item.long != null
                     ? [
                         el(
                           "span",
@@ -4401,14 +4575,17 @@
         return el(
           "div",
           { class: "account-model-card" },
-          el("b", { class: "mono account-model-name" }, model),
-          price && priceRows.length
+          el("b", { class: "mono account-model-name", title: model }, model),
+          price
             ? el(
                 "div",
                 { class: "account-model-price-list" },
                 priceRows.map((item) => priceRow(item)),
               )
-            : el("span", { class: "muted small", text: "暂无定价" }),
+            : el("span", {
+                class: "muted small",
+                text: "暂无定价，不收取费用",
+              }),
         );
       }
 
@@ -4486,7 +4663,13 @@
         return visible;
       }
 
-      function renderUsageDistributionChart(account, rows, dimensionLabel, colors) {
+      function renderUsageDistributionChart(
+        account,
+        rows,
+        dimension,
+        dimensionLabel,
+        colors,
+      ) {
         const role = account ? "account" : "admin";
         analysisCharts[role].distribution?.destroy();
         analysisCharts[role].distribution = null;
@@ -4501,7 +4684,11 @@
         analysisCharts[role].distribution = new Chart(canvas, {
           type: "doughnut",
           data: {
-            labels: rows.map((row) => row.label || row.key || "未知"),
+            labels: rows.map((row) =>
+              dimension === "api_keys" && row.key !== "other"
+                ? apiKeyIdentity(row).text
+                : row.label || row.key || "未知",
+            ),
             datasets: [
               {
                 data: rows.map((row) => Number(row.percent || 0)),
@@ -4948,7 +5135,9 @@
             el(
               "div",
               { class: "usage-distribution-heading" },
-              el("b", {}, row.label || row.key || "未知"),
+              dimension === "api_keys" && row.key !== "other"
+                ? renderAPIKeyIdentity(row)
+                : el("b", {}, row.label || row.key || "未知"),
               el(
                 "b",
                 { class: "mono" },
@@ -5004,6 +5193,7 @@
         renderUsageDistributionChart(
           account,
           rows,
+          dimension,
           labels[dimension],
           colors,
         );
@@ -5031,15 +5221,6 @@
           );
           return;
         }
-        if (!account) {
-          populateEventFilterSelect(
-            $("analysis-key"),
-            "全部 API Key",
-            state.keys,
-            (key) => key.scope,
-            (key) => keyName(key),
-          );
-        }
         const analysis = owner.analysis;
         const summary = analysis.summary;
         const trends = analysis.trends;
@@ -5048,6 +5229,13 @@
           summary,
           trends,
           analysis.usage_distribution,
+          account
+            ? null
+            : state.keys.map(({ scope, preview, label }) => [
+                scope,
+                preview,
+                label,
+              ]),
         ]);
         const trendCanvasID = account
           ? "account-usage-trend-chart"
@@ -5106,7 +5294,6 @@
       function populateErrorFilters(view, account) {
         const prefix = account ? "account-" : "";
         const filters = view.filter_options || {};
-        if (!account) populateSharedKeyFilter(filters.api_keys);
         for (const [name, label, values] of [
           ["model", "全部模型", filters.models],
           ["source", "全部来源", filters.sources],
@@ -5170,7 +5357,8 @@
                   ? null
                   : errorEventField(
                       "API Key",
-                      requestEventKeyName(entry),
+                      renderAPIKeyIdentity(entry),
+                      false,
                     ),
                 errorEventField("模型", entry.billing_model || entry.upstream_model),
                 errorEventField("来源", entry.source),
@@ -5866,17 +6054,58 @@
         if (renderTab) renderAdminTab(activeAdminTab(), true);
       }
 
-      function keyName(view) {
-        return (
-          view.label || view.preview || (view.scope || "").slice(0, 12) + "…"
-        );
+      function apiKeyIdentity(view) {
+        const scope = String(view.scope || view.key || "");
+        const accessKey = scope
+          ? state.keys.find((key) => key.scope === scope)
+          : null;
+        const preview = String(accessKey?.preview || view.preview || "");
+        const candidate = String(accessKey?.label || view.label || "");
+        const label =
+          candidate && candidate !== preview && candidate !== scope
+            ? candidate
+            : "";
+        const primary =
+          label || preview || (scope ? scope.slice(0, 12) + "…" : "未归属");
+        const secondary = label ? preview : "";
+        return {
+          primary,
+          secondary,
+          text: secondary ? primary + " · " + secondary : primary,
+        };
       }
 
-      function keyDisplayText(view) {
-        const identity = view.preview || (view.scope || "").slice(0, 12) + "…";
-        return view.label && view.label !== identity
-          ? view.label + " · " + identity
-          : identity;
+      function renderAPIKeyIdentity(view, options = {}) {
+        const identity = apiKeyIdentity(view);
+        const trailing = options.trailing || [];
+        const line = (text, className, children = []) =>
+          el(
+            "span",
+            { class: "api-key-identity-line" + className },
+            el("span", { text }),
+            children,
+          );
+        return el(
+          "span",
+          {
+            class:
+              "api-key-identity" +
+              (options.stacked ? " api-key-identity-stacked" : ""),
+            title: identity.text,
+          },
+          line(
+            identity.primary,
+            "",
+            identity.secondary ? [] : trailing,
+          ),
+          identity.secondary
+            ? line(
+                identity.secondary,
+                " api-key-identity-secondary",
+                trailing,
+              )
+            : null,
+        );
       }
 
       async function copyAPIKey(button, view) {
@@ -5938,21 +6167,20 @@
           .filter(
             (view) =>
               !filter ||
-              (keyName(view) + " " + (view.plan_name || "") + " " + view.scope)
+              [apiKeyIdentity(view).text, view.plan_name, view.scope]
+                .filter(Boolean)
+                .join(" ")
                 .toLowerCase()
                 .includes(filter),
           )
           .map((view) => {
-            const name = keyName(view);
+            const name = apiKeyIdentity(view).primary;
             const plan = state.plans.find((plan) => plan.id === view.plan_id);
             const cycleStatus = view.unlimited
               ? "—"
               : plan?.period_seconds === 0
                 ? "不重置"
                 : "未开始";
-            const identity =
-              view.preview || (view.scope || "").slice(0, 12) + "…";
-            const hasLabel = view.label && view.label !== identity;
             const select = el(
               "select",
               {
@@ -6077,32 +6305,32 @@
               el(
                 "td",
                 {},
-                hasLabel ? el("div", {}, name) : null,
-                el(
-                  "div",
+                renderAPIKeyIdentity(
+                  view,
                   {
-                    class: hasLabel
-                      ? "key-identity muted small mono"
-                      : "key-identity",
+                    stacked: true,
+                    trailing: [
+                      view.in_config
+                        ? el(
+                            "button",
+                            {
+                              class: "key-copy-button link",
+                              type: "button",
+                              title: "复制 API Key",
+                              "aria-label": "复制 API Key",
+                              onclick: (event) =>
+                                guard(() =>
+                                  copyAPIKey(event.currentTarget, view),
+                                ),
+                            },
+                            actionIcon("copy"),
+                          )
+                        : null,
+                      !view.in_config
+                        ? " · 不在 CLIProxyAPI Key 列表中"
+                        : null,
+                    ],
                   },
-                  el("span", {}, identity),
-                  view.in_config
-                    ? el(
-                        "button",
-                        {
-                          class: "key-copy-button link",
-                          type: "button",
-                          title: "复制 API Key",
-                          "aria-label": "复制 API Key",
-                          onclick: (event) =>
-                            guard(() =>
-                              copyAPIKey(event.currentTarget, view),
-                            ),
-                        },
-                        actionIcon("copy"),
-                      )
-                    : null,
-                  !view.in_config ? " · 不在 CLIProxyAPI Key 列表中" : null,
                 ),
               ),
               el("td", {}, el("span", { class: "native-select key-plan-select" }, select)),
@@ -6158,7 +6386,7 @@
                     guard(async () => {
                       const label = await ask(
                         "备注",
-                        keyName(view),
+                        name,
                         view.label || "",
                       );
                       if (label === null) return;
@@ -6266,7 +6494,7 @@
           {
             class: "route-trigger" + (allRoutes ? " route-trigger-all" : ""),
             title: names.map((entry) => entry.text + (entry.tag ? " · " + entry.tag : "")).join("、"),
-            "aria-label": keyName(view) + " 的路由规则",
+            "aria-label": apiKeyIdentity(view).primary + " 的路由规则",
             onclick: (event) => openRoutePicker(view, event.currentTarget),
           },
           parts,
@@ -6359,7 +6587,15 @@
         node.style.top = Math.round(top) + "px";
       }
 
-      function pickerOption(checked, kind, label, note, onToggle, iconName, disabledReason) {
+      function pickerOption(
+        checked,
+        kind,
+        label,
+        note,
+        onToggle,
+        options = {},
+      ) {
+        const { iconName, disabledReason, badge } = options;
         const disabled = !!disabledReason;
         return el(
           "label",
@@ -6376,7 +6612,17 @@
           }),
           iconName ? actionIcon(iconName) : null,
           el("span", { title: label }, label),
-          kind === "credential-provider" ? el("span", { class: "tag warn settings-item-chip", text: "整类" }) : null,
+          kind === "credential-provider"
+            ? el("span", {
+                class: "tag warn settings-item-chip",
+                text: "整类",
+              })
+            : badge
+              ? el("span", {
+                  class: "tag plain settings-item-chip",
+                  text: badge,
+                })
+              : null,
           note ? el("span", { class: "count" }, note) : null,
         );
       }
@@ -6414,18 +6660,83 @@
           .filter((item) => matchesTerm(credentialProviderLabel(item) + " 整类 类别", term))
           .map((item) => {
             const label = credentialProviderLabel(item);
-            return pickerOption(hasCredentialProvider(routePicker.credentialProviders, item), "credential-provider", label, credentialProviderAvailabilityNote(item), (checked) => {
-              if (checked) routePicker.credentialProviders.push({ source: item.source, provider: item.provider });
-              else routePicker.credentialProviders = routePicker.credentialProviders.filter((provider) => !sameCredentialProvider(provider, item));
-              renderRoutePicker();
-            }, credentialIcon(item));
+            return pickerOption(
+              hasCredentialProvider(routePicker.credentialProviders, item),
+              "credential-provider",
+              label,
+              credentialProviderAvailabilityNote(item),
+              (checked) => {
+                if (checked)
+                  routePicker.credentialProviders.push({
+                    source: item.source,
+                    provider: item.provider,
+                  });
+                else
+                  routePicker.credentialProviders =
+                    routePicker.credentialProviders.filter(
+                      (provider) => !sameCredentialProvider(provider, item),
+                    );
+                renderRoutePicker();
+              },
+              { iconName: credentialIcon(item) },
+            );
           });
-        credentialOptions.push(...state.credentials.filter((item) => (!routePicker.enabledOnly || !item.disabled) && matchesTerm(credentialLabel(item), term)).sort(compareCredentials).map((item) => {
-          const covered = hasCredentialProvider(routePicker.credentialProviders, item);
-          const disabledReason = covered ? "已选择「" + credentialProviderLabel(item) + "」整类，该类别下的单个凭证无需重复选择。" : "";
-          return pickerOption(routePicker.credentialIDs.has(item.ref), "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.credentialIDs.add(item.ref); else routePicker.credentialIDs.delete(item.ref); renderRoutePicker(); }, credentialIcon(item), disabledReason);
-        }));
-        for (const ref of routePicker.credentialIDs) if (!state.credentials.some((item) => item.ref === ref) && matchesTerm(ref, term)) credentialOptions.push(pickerOption(true, "credential", "上游凭证已不存在", ref.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.credentialIDs.delete(ref); renderRoutePicker(); }, "key"));
+        credentialOptions.push(
+          ...state.credentials
+            .filter(
+              (item) =>
+                (!routePicker.enabledOnly || !item.disabled) &&
+                matchesTerm(credentialLabel(item), term),
+            )
+            .sort(compareCredentials)
+            .map((item) => {
+              const covered = hasCredentialProvider(
+                routePicker.credentialProviders,
+                item,
+              );
+              const disabledReason = covered
+                ? "已选择「" +
+                  credentialProviderLabel(item) +
+                  "」整类，该类别下的单个凭证无需重复选择。"
+                : "";
+              return pickerOption(
+                routePicker.credentialIDs.has(item.ref),
+                "credential",
+                credentialLabel(item),
+                item.unavailable ? "不可用" : "",
+                (checked) => {
+                  if (checked) routePicker.credentialIDs.add(item.ref);
+                  else routePicker.credentialIDs.delete(item.ref);
+                  renderRoutePicker();
+                },
+                {
+                  iconName: credentialIcon(item),
+                  disabledReason,
+                  badge: item.disabled ? "已停用" : "",
+                },
+              );
+            }),
+        );
+        for (const ref of routePicker.credentialIDs) {
+          if (
+            state.credentials.some((item) => item.ref === ref) ||
+            !matchesTerm(ref, term)
+          )
+            continue;
+          credentialOptions.push(
+            pickerOption(
+              true,
+              "credential",
+              "上游凭证已不存在",
+              ref.slice(0, 16) + "…",
+              (checked) => {
+                if (!checked) routePicker.credentialIDs.delete(ref);
+                renderRoutePicker();
+              },
+              { iconName: "key" },
+            ),
+          );
+        }
         sections.push(pickerSection("credentials", "上游凭证", credentialOptions, term ? "没有匹配的上游凭证" : "暂无上游凭证"));
 
         const modelOptions = catalogModels()
@@ -6534,7 +6845,7 @@
       }
 
       function keyChipItems(keys) {
-        return keys.map((key) => ({ text: keyDisplayText(key) }));
+        return keys.map((key) => ({ text: apiKeyIdentity(key).text }));
       }
 
       function modelChipItems(models) {
@@ -6703,7 +7014,7 @@
         for (const item of credentials) {
           const label = credentialLabel(item);
           const covered = hasCredentialProvider(routeProviders, item);
-          options.push(el("label", { class: covered ? "disabled" : "" }, el("input", { type: "checkbox", checked: routeCredentialIDs.has(item.ref) || undefined, disabled: covered || undefined, onchange: (event) => { if (event.target.checked) routeCredentialIDs.add(item.ref); else routeCredentialIDs.delete(item.ref); renderRouteCredentialList(); } }), actionIcon(credentialIcon(item)), el("span", { title: label }, label)));
+          options.push(el("label", { class: covered ? "disabled" : "" }, el("input", { type: "checkbox", checked: routeCredentialIDs.has(item.ref) || undefined, disabled: covered || undefined, onchange: (event) => { if (event.target.checked) routeCredentialIDs.add(item.ref); else routeCredentialIDs.delete(item.ref); renderRouteCredentialList(); } }), actionIcon(credentialIcon(item)), el("span", { title: label }, label), item.disabled ? el("span", { class: "tag plain settings-item-chip", text: "已停用" }) : null));
         }
         for (const ref of routeCredentialIDs) if (!state.credentials.some((item) => item.ref === ref) && matchesTerm(ref, term)) options.push(el("label", {}, el("input", { type: "checkbox", checked: true, onchange: (event) => { if (!event.target.checked) routeCredentialIDs.delete(ref); renderRouteCredentialList(); } }), actionIcon("key"), el("span", { title: ref }, "凭证已不存在")));
         $("route-credential-list").replaceChildren(...(options.length ? options : [el("div", { class: "empty", text: "没有匹配项" })]));
@@ -6765,8 +7076,7 @@
             "label",
             {},
             el("input", { type: "checkbox", value: key.scope, checked: checked || undefined }),
-            el("span", { title: keyName(key) }, keyName(key)),
-            key.preview && key.preview !== keyName(key) ? el("span", { class: "muted small mono", title: key.preview }, key.preview) : null,
+            renderAPIKeyIdentity(key),
           );
         }));
       }
@@ -6926,11 +7236,6 @@
         replaceContent($(target), table(headers, rows));
       }
 
-      function requestEventKeyName(entry) {
-        return entry.label || entry.preview ||
-          (entry.scope ? entry.scope.slice(0, 12) + "…" : "未归属");
-      }
-
       function costTierText(cost) {
         const threshold = tokenThreshold(cost.threshold_input_tokens);
         return cost.long_context
@@ -7077,21 +7382,17 @@
       function populateRequestEventFilters(filters, account) {
         if (!filters) return;
         const prefix = account ? "account-request-event" : "request-event";
-        if (!account) populateSharedKeyFilter(filters.api_keys);
         populateEventFilterSelect($(prefix + "-model"), "全部模型", filters.models);
         populateEventFilterSelect($(prefix + "-source"), "全部来源", filters.sources);
       }
 
-      function populateSharedKeyFilter(keys) {
+      function populateSharedKeyFilter() {
         populateEventFilterSelect(
           $("analysis-key"),
           "全部 API Key",
-          keys || [],
+          state.keys,
           (item) => item.scope,
-          (item) =>
-            item.label
-              ? item.label + (item.preview ? " · " + item.preview : "")
-              : item.preview || item.scope,
+          (item) => apiKeyIdentity(item).text,
         );
       }
 
@@ -7473,7 +7774,6 @@
         const previousScrollLeft = scroller.scrollLeft;
         const rows = entries.map((entry) => {
           const cost = entry.cost || {};
-          const keyDisplay = account ? "" : requestEventKeyName(entry);
           const statusMarks = [];
           if (entry.failed)
             statusMarks.push(el("span", { class: "tag bad", text: "失败" }));
@@ -7526,10 +7826,7 @@
               : el(
                   "td",
                   {},
-                  el("div", {}, keyDisplay),
-                  entry.preview && entry.preview !== keyDisplay
-                    ? el("div", { class: "muted small mono" }, entry.preview)
-                    : null,
+                  renderAPIKeyIdentity(entry, { stacked: true }),
                 ),
             el(
               "td",
@@ -7722,13 +8019,21 @@
         }
       }
 
-      function errorEventField(label, value) {
+      function errorEventField(label, value, mono = true) {
         if (!value) return null;
         return el(
           "div",
           { class: "error-event-field" },
           el("span", { class: "error-event-field-label", text: label }),
-          el("span", { class: "error-event-field-value mono", text: value }),
+          el(
+            "span",
+            {
+              class:
+                "error-event-field-value" + (mono ? " mono" : ""),
+              title: typeof value === "string" ? value : null,
+            },
+            value,
+          ),
         );
       }
 
@@ -7905,10 +8210,7 @@
                 checked: key.plan_id === planID && !!planID,
                 disabled: ownedByOther || undefined,
               }),
-              el("span", {}, keyName(key)),
-              key.preview && key.preview !== keyName(key)
-                ? el("span", { class: "muted small mono" }, key.preview)
-                : null,
+              renderAPIKeyIdentity(key),
               owner
                 ? el("span", {
                     class: "muted small",
@@ -8630,6 +8932,7 @@
         if (!["analysis", "request-events", "errors"].includes(selected)) {
           closeSharedTimePopover(false);
         }
+        schedulePageTabLayout();
         if (currentRole === "admin") {
           renderAdminTab(selected, selected === "keys" && !!routePicker.scope);
         }
@@ -8688,7 +8991,7 @@
       });
       addEventListener("resize", () => {
         positionRoutePicker();
-        for (const tabBar of TAB_BARS) updateTabScrollHint(tabBar);
+        schedulePageTabLayout();
       });
       addEventListener(
         "pointerdown",

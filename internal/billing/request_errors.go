@@ -47,13 +47,12 @@ type RequestErrorView struct {
 }
 
 type RequestErrorFilterValues struct {
-	APIKeys     []APIKeyFilterOption `json:"api_keys"`
-	Models      []string             `json:"models"`
-	Sources     []string             `json:"sources"`
-	Executors   []string             `json:"executors,omitempty"`
-	Providers   []string             `json:"providers,omitempty"`
-	StatusCodes []int                `json:"status_codes,omitempty"`
-	ErrorTypes  []string             `json:"error_types,omitempty"`
+	Models      []string `json:"models"`
+	Sources     []string `json:"sources"`
+	Executors   []string `json:"executors,omitempty"`
+	Providers   []string `json:"providers,omitempty"`
+	StatusCodes []int    `json:"status_codes,omitempty"`
+	ErrorTypes  []string `json:"error_types,omitempty"`
 }
 
 func (s *Store) RequestErrors(query RequestErrorQuery) (RequestErrorView, error) {

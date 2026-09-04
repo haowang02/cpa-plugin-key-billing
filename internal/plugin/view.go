@@ -97,9 +97,6 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 			view.Entries[i].Preview = ""
 			view.Entries[i].Label = ""
 		}
-		if view.Filters != nil {
-			view.Filters.APIKeys = []billing.APIKeyFilterOption{}
-		}
 	}
 	return viewJSON(access, http.StatusOK, view)
 }
@@ -136,9 +133,6 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 		for i := range view.Entries {
 			view.Entries[i].Scope, view.Entries[i].AuthIndex = "", ""
 			view.Entries[i].Preview, view.Entries[i].Label = "", ""
-		}
-		if view.Filters != nil {
-			view.Filters.APIKeys = []billing.APIKeyFilterOption{}
 		}
 	}
 	return viewJSON(access, http.StatusOK, view)

@@ -119,32 +119,28 @@ func (d *DB) requestErrorFilterValues(query billing.RequestErrorQuery, since tim
 		args = append(args, scope)
 	}
 	rows, err := d.db.Query(`WITH filtered AS (
-		SELECT r.scope, coalesce(k.preview, '') preview, coalesce(k.label, '') label,
-		coalesce(NULLIF(r.billing_model, ''), r.upstream_model) model, coalesce(c.name, '') source,
+		SELECT coalesce(NULLIF(r.billing_model, ''), r.upstream_model) model, coalesce(c.name, '') source,
 		r.executor_type executor, coalesce(NULLIF(r.provider, ''), c.provider, '') provider,
 		e.status_code, e.error_type`+where+`)
-		SELECT kind, value, preview, label FROM (
-		SELECT 'key' kind, scope value, preview, label FROM filtered GROUP BY scope, preview, label
-		UNION ALL SELECT 'model', model, '', '' FROM filtered WHERE model != '' GROUP BY model
-		UNION ALL SELECT 'source', source, '', '' FROM filtered WHERE source != '' GROUP BY source
-		UNION ALL SELECT 'executor', executor, '', '' FROM filtered WHERE executor != '' GROUP BY executor
-		UNION ALL SELECT 'provider', provider, '', '' FROM filtered WHERE provider != '' GROUP BY provider
-		UNION ALL SELECT 'status_code', CAST(status_code AS TEXT), '', '' FROM filtered WHERE status_code > 0 GROUP BY status_code
-		UNION ALL SELECT 'error_type', error_type, '', '' FROM filtered WHERE error_type != '' GROUP BY error_type
-		) ORDER BY kind, label COLLATE NOCASE, value COLLATE NOCASE`, args...)
+		SELECT kind, value FROM (
+		SELECT 'model' kind, model value FROM filtered WHERE model != '' GROUP BY model
+		UNION ALL SELECT 'source', source FROM filtered WHERE source != '' GROUP BY source
+		UNION ALL SELECT 'executor', executor FROM filtered WHERE executor != '' GROUP BY executor
+		UNION ALL SELECT 'provider', provider FROM filtered WHERE provider != '' GROUP BY provider
+		UNION ALL SELECT 'status_code', CAST(status_code AS TEXT) FROM filtered WHERE status_code > 0 GROUP BY status_code
+		UNION ALL SELECT 'error_type', error_type FROM filtered WHERE error_type != '' GROUP BY error_type
+		) ORDER BY kind, value COLLATE NOCASE`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("读取错误事件筛选项：%w", err)
 	}
 	defer rows.Close()
-	result := &billing.RequestErrorFilterValues{APIKeys: []billing.APIKeyFilterOption{}, Models: []string{}, Sources: []string{}, Executors: []string{}, Providers: []string{}, StatusCodes: []int{}, ErrorTypes: []string{}}
+	result := &billing.RequestErrorFilterValues{Models: []string{}, Sources: []string{}, Executors: []string{}, Providers: []string{}, StatusCodes: []int{}, ErrorTypes: []string{}}
 	for rows.Next() {
-		var kind, value, preview, label string
-		if err := rows.Scan(&kind, &value, &preview, &label); err != nil {
+		var kind, value string
+		if err := rows.Scan(&kind, &value); err != nil {
 			return nil, fmt.Errorf("读取错误事件筛选项：%w", err)
 		}
 		switch kind {
-		case "key":
-			result.APIKeys = append(result.APIKeys, billing.APIKeyFilterOption{Scope: value, Preview: preview, Label: label})
 		case "model":
 			result.Models = append(result.Models, value)
 		case "source":

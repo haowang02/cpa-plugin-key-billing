@@ -184,36 +184,29 @@ func (d *DB) requestEventFilterValues(query billing.RequestEventQuery, since tim
 	}
 	rows, errQuery := d.db.Query(`
 		WITH filtered AS (
-			SELECT r.scope, coalesce(k.preview, '') AS preview, coalesce(k.label, '') AS label,
-				coalesce(NULLIF(r.billing_model, ''), r.upstream_model) AS model,
+			SELECT coalesce(NULLIF(r.billing_model, ''), r.upstream_model) AS model,
 				coalesce(c.name, '') AS source, r.executor_type AS executor,
 				coalesce(NULLIF(r.provider, ''), c.provider, '') AS provider`+where+`
 		)
-		SELECT kind, value, preview, label FROM (
-			SELECT 'key' AS kind, scope AS value, preview, label FROM filtered GROUP BY scope, preview, label
-			UNION ALL
-			SELECT 'model', model, '', '' FROM filtered WHERE model != '' GROUP BY model
-			UNION ALL
-			SELECT 'source', source, '', '' FROM filtered WHERE source != '' GROUP BY source
-			UNION ALL SELECT 'executor', executor, '', '' FROM filtered WHERE executor != '' GROUP BY executor
-			UNION ALL SELECT 'provider', provider, '', '' FROM filtered WHERE provider != '' GROUP BY provider
-		) ORDER BY kind, CASE WHEN kind = 'key' AND label = '' THEN 1 ELSE 0 END,
-			label COLLATE NOCASE, value COLLATE NOCASE`, args...)
+		SELECT kind, value FROM (
+			SELECT 'model' AS kind, model AS value FROM filtered WHERE model != '' GROUP BY model
+			UNION ALL SELECT 'source', source FROM filtered WHERE source != '' GROUP BY source
+			UNION ALL SELECT 'executor', executor FROM filtered WHERE executor != '' GROUP BY executor
+			UNION ALL SELECT 'provider', provider FROM filtered WHERE provider != '' GROUP BY provider
+		) ORDER BY kind, value COLLATE NOCASE`, args...)
 	if errQuery != nil {
 		return nil, fmt.Errorf("读取请求事件筛选项：%w", errQuery)
 	}
 	defer rows.Close()
 
-	filters := &billing.RequestEventFilterValues{APIKeys: []billing.APIKeyFilterOption{}, Models: []string{}, Sources: []string{},
+	filters := &billing.RequestEventFilterValues{Models: []string{}, Sources: []string{},
 		Executors: []string{}, Providers: []string{}}
 	for rows.Next() {
-		var kind, value, preview, label string
-		if errScan := rows.Scan(&kind, &value, &preview, &label); errScan != nil {
+		var kind, value string
+		if errScan := rows.Scan(&kind, &value); errScan != nil {
 			return nil, fmt.Errorf("读取请求事件筛选项：%w", errScan)
 		}
 		switch kind {
-		case "key":
-			filters.APIKeys = append(filters.APIKeys, billing.APIKeyFilterOption{Scope: value, Preview: preview, Label: label})
 		case "model":
 			filters.Models = append(filters.Models, value)
 		case "source":

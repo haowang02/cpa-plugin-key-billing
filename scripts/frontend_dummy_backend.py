@@ -271,7 +271,7 @@ CREDENTIALS = [
 SYNCED_CREDENTIAL_REFS = set()
 
 ROUTES = [
-    {"id": "coding", "name": "代码开发", "rule": {"models": ["gpt-5.6-sol", "gpt-5.5"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}},
+    {"id": "coding", "name": "代码开发", "rule": {"models": ["gpt-5.6-sol", "gpt-5.5", "codex/deepseek-v4-flash-vision-exp"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}},
     {"id": "analytics", "name": "数据分析", "rule": {"models": ["claude/deepseek-v4-pro", "claude/deepseek-v4-flash"], "credential_ids": ["sha256:" + "b" * 64], "credential_providers": []}},
     {"id": "economy", "name": "轻量任务", "rule": {"models": ["gpt-5.6-luna"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}},
 ]
@@ -677,14 +677,7 @@ def request_event_view(query, scope=""):
     offset = max(0, int(query.get("offset", ["0"])[0] or 0))
     limit = max(0, int(query.get("limit", ["0"])[0] or 0))
     time_matched = filter_event_time([entry for entry in REQUEST_EVENTS if not scope or entry["scope"] == scope], query)
-    keys = {}
-    for entry in time_matched:
-        keys[entry["scope"]] = {
-            "scope": entry["scope"], "preview": entry.get("preview", ""), "label": entry.get("label", ""),
-        }
     filter_options = {
-        "api_keys": sorted(keys.values(), key=lambda item: (not item["label"], item["label"].lower(),
-                                                             item["preview"].lower())),
         "models": sorted({entry.get("billing_model") or entry.get("upstream_model", "")
                           for entry in time_matched} - {""}, key=str.lower),
         "sources": sorted({entry.get("source", "") for entry in time_matched} - {""}, key=str.lower),
@@ -714,7 +707,6 @@ def request_event_view(query, scope=""):
     if scope:
         page = [{key: value for key, value in entry.items()
                  if key not in {"scope", "auth_index", "preview", "label"}} for entry in page]
-        filter_options["api_keys"] = []
     result = {"entries": page, "total": len(matched), "offset": offset, "status_counts": counts}
     if offset == 0:
         result["filter_options"] = filter_options
@@ -895,18 +887,7 @@ def error_view(query, scope=""):
                  if key not in {"scope", "preview", "label", "auth_index"}} for entry in page]
     result = {"entries": page, "total": len(filtered)}
     if offset == 0:
-        keys = {}
-        for entry in rows:
-            keys[entry["scope"]] = {
-                "scope": entry["scope"],
-                "preview": entry["preview"],
-                "label": entry["label"],
-            }
         result["filter_options"] = {
-            "api_keys": [] if scope else sorted(
-                keys.values(),
-                key=lambda item: (not item["label"], item["label"].lower(), item["preview"].lower()),
-            ),
             "models": sorted({entry["billing_model"] for entry in rows}),
             "sources": sorted({entry["source"] for entry in rows}),
             "providers": sorted({entry["provider"] for entry in rows}),
@@ -1095,7 +1076,9 @@ def payload_for(path, query):
             "api-key-entries": [{"api-key": "sk-dummy-deepseek"}],
         }]}
     if path == "/v1/models":
-        return {"data": [{"id": row["pattern"]} for row in PRICES]}
+        return {"data": [{"id": row["pattern"]} for row in PRICES] + [
+            {"id": "codex/deepseek-v4-flash-vision-exp"},
+        ]}
     return None
 
 

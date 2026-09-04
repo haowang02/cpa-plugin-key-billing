@@ -66,17 +66,10 @@ type RequestEventView struct {
 }
 
 type RequestEventFilterValues struct {
-	APIKeys   []APIKeyFilterOption `json:"api_keys"`
-	Models    []string             `json:"models"`
-	Sources   []string             `json:"sources"`
-	Executors []string             `json:"executors,omitempty"`
-	Providers []string             `json:"providers,omitempty"`
-}
-
-type APIKeyFilterOption struct {
-	Scope   string `json:"scope"`
-	Preview string `json:"preview,omitempty"`
-	Label   string `json:"label,omitempty"`
+	Models    []string `json:"models"`
+	Sources   []string `json:"sources"`
+	Executors []string `json:"executors,omitempty"`
+	Providers []string `json:"providers,omitempty"`
 }
 
 type RequestEventStatusCounts struct {
