@@ -55,6 +55,7 @@ type RequestEventQuery struct {
 	Status         string
 	From           time.Time
 	To             time.Time
+	Timezone       *time.Location
 	IncludeFilters bool
 	Offset         int
 	// Limit is the page size; a non-positive limit returns every match.

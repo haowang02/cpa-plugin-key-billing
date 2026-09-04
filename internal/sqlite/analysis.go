@@ -3,15 +3,16 @@ package sqlite
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"cpa-key-billing/internal/billing"
 )
 
 const (
-	analysisModelSQL  = "coalesce(NULLIF(r.billing_model, ''), NULLIF(r.upstream_model, ''), '未知模型')"
-	analysisTokensSQL = `(r.uncached_input_tokens + r.cache_read_tokens +
-		r.cache_write_tokens + r.billed_output_tokens)`
+	analysisModelSQL         = "coalesce(NULLIF(r.billing_model, ''), NULLIF(r.upstream_model, ''), '未知模型')"
+	analysisInputTokensSQL   = `(r.uncached_input_tokens + r.cache_read_tokens + r.cache_write_tokens)`
+	analysisTokensSQL        = `(` + analysisInputTokensSQL + ` + r.billed_output_tokens)`
 	analysisCostAvailableSQL = `(r.price_source != 'none' OR ` + analysisTokensSQL + ` = 0)`
 )
 
@@ -36,6 +37,14 @@ func (d *DB) Analysis(query billing.RequestEventQuery, since time.Time) (billing
 		return billing.AnalysisView{}, errSummary
 	}
 	view.Summary = summary
+	trends, errTrends := d.analysisTrends(query, where, args)
+	if errTrends != nil {
+		return billing.AnalysisView{}, errTrends
+	}
+	if !summary.Cost.Available {
+		trends.TotalCost = []billing.AnalysisTrendPoint{}
+	}
+	view.Trends = trends
 	if query.Scope == "" && query.KeyScope == "" {
 		dimensions = append(dimensions, analysisDimension{
 			name: "API Key", key: "r.scope",
@@ -66,7 +75,7 @@ func (d *DB) analysisSummary(where string, args []any) (billing.AnalysisSummary,
 	err := d.db.QueryRow(`SELECT count(*),
 		coalesce(sum(CASE WHEN r.failed != 0 THEN 1 ELSE 0 END), 0),
 		coalesce(sum(`+analysisTokensSQL+`), 0),
-		coalesce(sum(r.uncached_input_tokens + r.cache_read_tokens + r.cache_write_tokens), 0),
+		coalesce(sum(`+analysisInputTokensSQL+`), 0),
 		coalesce(sum(r.billed_output_tokens), 0), coalesce(sum(r.cache_read_tokens), 0),
 		coalesce(sum(r.cache_write_tokens), 0), coalesce(sum(r.total_usd), 0),
 		coalesce(sum(r.uncached_input_usd), 0), coalesce(sum(r.cache_read_usd), 0),
@@ -89,6 +98,90 @@ func (d *DB) analysisSummary(where string, args []any) (billing.AnalysisSummary,
 		summary.CacheRate = float64(summary.CacheReadTokens) * 100 / float64(summary.InputTokens)
 	}
 	return summary, nil
+}
+
+func (d *DB) analysisTrends(query billing.RequestEventQuery, where string, args []any) (billing.AnalysisTrends, error) {
+	location := query.Timezone
+	if location == nil {
+		location = time.UTC
+	}
+	daily := query.To.Sub(query.From) > 24*time.Hour
+	start := query.From
+	if daily {
+		local := query.From.In(location)
+		start = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
+	}
+	points := func() []billing.AnalysisTrendPoint {
+		result := []billing.AnalysisTrendPoint{}
+		for cursor := start; cursor.Before(query.To); {
+			result = append(result, billing.AnalysisTrendPoint{Time: cursor})
+			if daily {
+				cursor = cursor.AddDate(0, 0, 1)
+			} else {
+				cursor = cursor.Add(time.Hour)
+			}
+		}
+		return result
+	}
+	result := billing.AnalysisTrends{
+		Requests: points(), TotalTokens: points(), UncachedInputTokens: points(), OutputTokens: points(),
+		CacheReadTokens: points(), CacheWriteTokens: points(), CacheRate: points(), TotalCost: points(),
+	}
+	boundaries := result.Requests
+	var bucketSQL strings.Builder
+	queryArgs := make([]any, 0, len(boundaries)-1+len(args))
+	if len(boundaries) == 1 {
+		bucketSQL.WriteString("0")
+	} else {
+		bucketSQL.WriteString("CASE")
+		for index := 1; index < len(boundaries); index++ {
+			bucketSQL.WriteString(" WHEN r.at < ? THEN ")
+			bucketSQL.WriteString(fmt.Sprint(index - 1))
+			queryArgs = append(queryArgs, nanos(boundaries[index].Time))
+		}
+		bucketSQL.WriteString(" ELSE ")
+		bucketSQL.WriteString(fmt.Sprint(len(boundaries) - 1))
+		bucketSQL.WriteString(" END")
+	}
+	queryArgs = append(queryArgs, args...)
+	rows, err := d.db.Query(`SELECT `+bucketSQL.String()+`, count(*),
+		coalesce(sum(r.uncached_input_tokens), 0), coalesce(sum(r.billed_output_tokens), 0),
+		coalesce(sum(r.cache_read_tokens), 0), coalesce(sum(r.cache_write_tokens), 0),
+		coalesce(sum(r.total_usd), 0)`+
+		where+` GROUP BY 1 ORDER BY 1`, queryArgs...)
+	if err != nil {
+		return billing.AnalysisTrends{}, fmt.Errorf("聚合分析趋势：%w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var index int
+		var requests, uncachedInputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int64
+		var totalCost float64
+		if err := rows.Scan(
+			&index, &requests, &uncachedInputTokens, &outputTokens,
+			&cacheReadTokens, &cacheWriteTokens, &totalCost,
+		); err != nil {
+			return billing.AnalysisTrends{}, fmt.Errorf("读取分析趋势：%w", err)
+		}
+		if index < 0 || index >= len(result.Requests) {
+			return billing.AnalysisTrends{}, fmt.Errorf("读取分析趋势：桶索引 %d 超出范围", index)
+		}
+		totalInputTokens := uncachedInputTokens + cacheReadTokens + cacheWriteTokens
+		result.Requests[index].Value = float64(requests)
+		result.TotalTokens[index].Value = float64(totalInputTokens + outputTokens)
+		result.UncachedInputTokens[index].Value = float64(uncachedInputTokens)
+		result.OutputTokens[index].Value = float64(outputTokens)
+		result.CacheReadTokens[index].Value = float64(cacheReadTokens)
+		result.CacheWriteTokens[index].Value = float64(cacheWriteTokens)
+		if totalInputTokens > 0 {
+			result.CacheRate[index].Value = float64(cacheReadTokens) * 100 / float64(totalInputTokens)
+		}
+		result.TotalCost[index].Value = totalCost
+	}
+	if err := rows.Err(); err != nil {
+		return billing.AnalysisTrends{}, fmt.Errorf("读取分析趋势：%w", err)
+	}
+	return result, nil
 }
 
 func (d *DB) analysisComposition(where string, args []any, keySQL, labelSQL, name string) ([]billing.AnalysisComposition, error) {

@@ -34,6 +34,43 @@ func TestAnalysisAggregatesOnlyDisplayedUsageDistributions(t *testing.T) {
 	if usage.APIKeys[0].Percent+usage.APIKeys[1].Percent != 100 {
 		t.Fatalf("API Key percentages = %+v", usage.APIKeys)
 	}
+	trend := view.Trends.Requests
+	if len(trend) != 4 || trend[0].Value != 0 || trend[1].Value != 3 ||
+		!trend[0].Time.Equal(eventStart.Add(-time.Hour)) {
+		t.Fatalf("hourly request trend = %+v", trend)
+	}
+}
+
+func TestAnalysisDailyTrendUsesBrowserTimeZone(t *testing.T) {
+	database := openTestDB(t)
+	state := billing.NewState()
+	state.Keys["scope-a"] = &billing.KeyState{Preview: "sk-tes…0001"}
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
+	events := []billing.RequestEvent{
+		requestEvent("scope-a", time.Date(2026, 3, 8, 4, 59, 0, 0, time.UTC)),
+		requestEvent("scope-a", time.Date(2026, 3, 8, 5, 1, 0, 0, time.UTC)),
+		requestEvent("scope-a", time.Date(2026, 3, 9, 4, 1, 0, 0, time.UTC)),
+	}
+	mustSave(t, database, state, billing.Changes{
+		AllKeys: true, NormalRequestEvents: events,
+	})
+
+	view, err := database.Analysis(billing.RequestEventQuery{
+		From: from, To: from.Add(72 * time.Hour), Timezone: location,
+	}, from.Add(-billing.RequestEventRetention))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStart := time.Date(2026, 3, 7, 0, 0, 0, 0, location)
+	trend := view.Trends.Requests
+	if len(trend) != 4 || !trend[0].Time.Equal(wantStart) ||
+		trend[0].Value != 1 || trend[1].Value != 1 || trend[2].Value != 1 || trend[3].Value != 0 {
+		t.Fatalf("daily request trend = %+v", trend)
+	}
 }
 
 func TestAnalysisScopeSkipsTheRedundantKeyDimension(t *testing.T) {
@@ -96,5 +133,11 @@ func TestAnalysisSummaryIncludesTokenAndCostBreakdowns(t *testing.T) {
 		summary.Cost.CacheRead.USD != 3 || summary.Cost.CacheWrite.USD != 0.5 ||
 		summary.Cost.Output.USD != 0.5 {
 		t.Fatalf("cost summary = %+v", summary.Cost)
+	}
+	trends := view.Trends
+	if len(trends.UncachedInputTokens) != 1 || trends.UncachedInputTokens[0].Value != 100 ||
+		trends.OutputTokens[0].Value != 50 || trends.CacheReadTokens[0].Value != 300 ||
+		trends.CacheWriteTokens[0].Value != 50 || trends.TotalTokens[0].Value != 500 {
+		t.Fatalf("token trends = %+v", trends)
 	}
 }

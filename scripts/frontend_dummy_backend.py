@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -630,7 +631,7 @@ def event_sample(
 # Numeric usage and timing values are sampled from a real export. All identities
 # below are synthetic and intentionally unrelated to the source records.
 SUCCESS_EVENT_SAMPLES = [
-    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "auto", 11513, 8209, 266, (712, 91648, 0, 425), (4, 0.4, 5, 20)),
+    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "auto", 11513, 8209, 266, (712, 91648, 4096, 425), (4, 0.4, 5, 20)),
     event_sample(5, "codex · dev-team@example.com", "codex", "gpt-5.6-luna", "CodexWebsocketsExecutor", "low", "auto", 2516, 1431, 10, (1030, 49920, 0, 75), (0.2, 0.02, 0.25, 1.2)),
     event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "medium", "auto", 2417, 1103, 0, (1194, 95616, 0, 73), (5, 0.5, 5, 30)),
     event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 5306, 2121, 21, (798, 169984, 0, 201), (4, 0.4, 5, 20)),
@@ -1005,6 +1006,63 @@ def analysis_view(query, scope=""):
     for name, value in cost_values.items():
         cost[name] = {"usd": value}
 
+    from_time = datetime.fromisoformat(
+        query.get("from", [iso(NOW - timedelta(days=30))])[0].replace("Z", "+00:00")
+    )
+    to_time = datetime.fromisoformat(
+        query.get("to", [iso(NOW)])[0].replace("Z", "+00:00")
+    )
+    bucket_size = timedelta(hours=1)
+    bucket_start = from_time
+    if to_time - from_time > timedelta(days=1):
+        bucket_size = timedelta(days=1)
+        browser_zone = ZoneInfo(query.get("timezone", ["UTC"])[0])
+        local_from = from_time.astimezone(browser_zone)
+        bucket_start = local_from.replace(hour=0, minute=0, second=0, microsecond=0)
+    buckets = []
+    cursor = bucket_start
+    while cursor < to_time:
+        buckets.append({"time": cursor, "requests": 0,
+                        "input_tokens": 0, "output_tokens": 0,
+                        "cache_read_tokens": 0, "cache_write_tokens": 0,
+                        "total_cost": 0})
+        cursor += bucket_size
+    for entry in rows:
+        at = datetime.fromisoformat(entry["at"].replace("Z", "+00:00"))
+        if at < bucket_start or not buckets:
+            continue
+        index = len(buckets) - 1
+        for candidate in range(1, len(buckets)):
+            if at < buckets[candidate]["time"]:
+                index = candidate - 1
+                break
+        item = buckets[index]
+        item["requests"] += 1
+        entry_cost = entry.get("cost", {})
+        item["input_tokens"] += entry_cost.get("uncached_input_tokens", 0)
+        item["output_tokens"] += entry_cost.get("billed_output_tokens", 0)
+        item["cache_read_tokens"] += entry_cost.get("cache_read_tokens", 0)
+        item["cache_write_tokens"] += entry_cost.get("cache_write_tokens", 0)
+        item["total_cost"] += entry_cost.get("total_usd", 0)
+
+    def trend(value):
+        return [{"time": iso(item["time"]), "value": value(item)} for item in buckets]
+
+    def total_input(item):
+        return item["input_tokens"] + item["cache_read_tokens"] + item["cache_write_tokens"]
+
+    trends = {
+        "requests": trend(lambda item: item["requests"]),
+        "total_tokens": trend(lambda item: total_input(item) + item["output_tokens"]),
+        "input_tokens": trend(lambda item: item["input_tokens"]),
+        "output_tokens": trend(lambda item: item["output_tokens"]),
+        "cache_read_tokens": trend(lambda item: item["cache_read_tokens"]),
+        "cache_write_tokens": trend(lambda item: item["cache_write_tokens"]),
+        "cache_rate": trend(lambda item: item["cache_read_tokens"] * 100 / total_input(item)
+                            if total_input(item) else 0),
+        "total_cost": trend(lambda item: item["total_cost"]) if cost["available"] else [],
+    }
+
     return {
         "summary": {
             "requests": requests,
@@ -1019,6 +1077,7 @@ def analysis_view(query, scope=""):
             "cache_rate": cache_read_tokens * 100 / input_tokens if input_tokens else 0,
             "cost": cost,
         },
+        "trends": trends,
         "usage_distribution": {
             "api_keys": [] if scope or selected else distribution("scope", "label"),
             "models": distribution("billing_model", unknown="未知模型"),

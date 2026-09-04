@@ -378,6 +378,12 @@ func TestManagementAnalysisOmitsTheSelectedKeyDimension(t *testing.T) {
 	if response.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid analysis range status = %d, want 400", response.StatusCode)
 	}
+	response = callManagement(t, app, http.MethodGet, routeAnalysis, url.Values{
+		"timezone": {"not/a-timezone"},
+	}, nil)
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid timezone status = %d, want 400", response.StatusCode)
+	}
 }
 
 func TestManagementRoutesWorkWhileDisabled(t *testing.T) {

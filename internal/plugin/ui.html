@@ -2011,15 +2011,36 @@
         gap: 12px;
         margin-bottom: 16px;
       }
-      .analysis-summary-card {
+      :root .card.analysis-summary-card {
+        --analysis-accent: var(--analysis-color-1);
+        --analysis-trend-fill: color-mix(in srgb, var(--analysis-accent) 18%, transparent);
         display: grid;
-        grid-template-rows: auto auto 1fr;
-        gap: 12px;
+        grid-template-rows: auto auto auto 56px;
+        align-content: start;
+        gap: 7px;
         min-width: 0;
-        min-height: 190px;
         margin: 0;
-        padding: 18px;
+        padding: 16px;
+        border: 1px solid transparent;
+        background:
+          linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--analysis-accent) 13%, var(--bg-primary)),
+            var(--bg-primary) 58%
+          ) padding-box,
+          linear-gradient(
+            105deg,
+            color-mix(in srgb, var(--analysis-accent) 86%, transparent),
+            color-mix(in srgb, var(--analysis-accent) 20%, transparent) 38%,
+            var(--border-color) 78%
+          ) border-box;
+        box-shadow:
+          var(--shadow),
+          0 10px 28px color-mix(in srgb, var(--analysis-accent) 8%, transparent);
       }
+      :root .analysis-summary-card:nth-child(2) { --analysis-accent: var(--analysis-color-4); }
+      :root .analysis-summary-card:nth-child(3) { --analysis-accent: #14b8a6; }
+      :root .analysis-summary-card:nth-child(4) { --analysis-accent: var(--analysis-color-2); }
       .analysis-summary-title { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
       .analysis-summary-value {
         overflow-wrap: anywhere;
@@ -2030,15 +2051,23 @@
         color: var(--text-primary);
         font-variant-numeric: tabular-nums;
       }
-      .analysis-summary-details { display: grid; align-content: end; gap: 7px; }
-      .analysis-summary-line {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+      .analysis-summary-details {
+        display: flex;
         align-items: baseline;
         gap: 10px;
         min-width: 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .analysis-summary-details::-webkit-scrollbar { display: none; }
+      .analysis-summary-line {
+        display: inline-flex;
+        align-items: baseline;
+        flex: none;
+        gap: 4px;
         color: var(--text-tertiary);
         font-size: 12px;
+        white-space: nowrap;
       }
       .analysis-summary-line strong {
         color: var(--text-secondary);
@@ -2046,8 +2075,46 @@
         font-variant-numeric: tabular-nums;
         text-align: right;
       }
-      .analysis-cost-line { grid-template-columns: minmax(0, 1fr) max-content; gap: 8px; }
-      .analysis-cost-line strong { white-space: nowrap; }
+      .analysis-summary-trend {
+        display: block;
+        width: 100%;
+        height: 56px;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        background: color-mix(
+          in srgb,
+          var(--analysis-accent) 5%,
+          var(--bg-primary)
+        );
+      }
+      .usage-trend-card h2 { margin-bottom: 10px; }
+      .usage-trend-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .usage-trend-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.2;
+        white-space: nowrap;
+      }
+      .usage-trend-legend-dot {
+        width: 8px;
+        height: 8px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--legend-color);
+      }
+      .usage-trend-chart { position: relative; height: 360px; min-width: 0; }
       .usage-distribution-header { align-items: center; margin-bottom: 18px; }
       .usage-distribution-tabs { display: flex; gap: 8px; flex-wrap: nowrap; }
       .usage-distribution-tabs button.active {
@@ -2094,15 +2161,23 @@
         font-variant-numeric: tabular-nums;
       }
       .event-card-actions select { min-width: 132px; }
-      @media (max-width: 768px) {
+      @media (max-width: 1100px) {
         .analysis-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @media (max-width: 768px) {
+        .usage-trend-chart { height: 320px; }
         .usage-distribution-card { min-height: 0; }
         .usage-distribution-layout { grid-template-columns: 1fr; gap: 16px; }
         .usage-distribution-chart { width: min(240px, 75vw); height: min(240px, 75vw); }
       }
       @media (max-width: 520px) {
         .analysis-summary-grid { grid-template-columns: 1fr; }
-        .analysis-summary-card { min-height: 0; }
+        .analysis-summary-details { gap: 5px; }
+        .analysis-summary-line { gap: 2px; font-size: 10px; }
+        .analysis-summary-line strong { font-size: 11px; }
+        .usage-trend-legend { gap: 6px; margin-bottom: 12px; }
+        .usage-trend-legend-item { padding: 4px 8px; font-size: 10px; }
+        .usage-trend-chart { height: 280px; }
         dialog { width: calc(100vw - 24px); max-width: none; padding: 16px; }
         .settings-form-grid { grid-template-columns: 1fr; }
         .price-dialog { padding: 18px; }
@@ -3173,7 +3248,7 @@
 
       function resetRoleData(role) {
         const account = role === "account";
-        destroyAnalysisChart(account);
+        destroyAnalysisCharts(account);
         delete $(account ? "account-analysis-body" : "analysis-body").dataset
           .analysisSignature;
         if (role === "account") accountState = emptyAccountState();
@@ -3878,6 +3953,10 @@
           : detailLoads.adminAnalysis;
         const range = selectedRange(account);
         const params = new URLSearchParams(range);
+        params.set(
+          "timezone",
+          Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        );
         if (!account && $("analysis-key").value) {
           params.set("api_key", $("analysis-key").value);
         }
@@ -4305,12 +4384,16 @@
         "--analysis-color-6",
       ];
       const analysisDimensions = { admin: "api_keys", account: "models" };
-      const analysisCharts = { admin: null, account: null };
+      const analysisCharts = {
+        admin: { trend: null, distribution: null },
+        account: { trend: null, distribution: null },
+      };
 
-      function destroyAnalysisChart(account) {
+      function destroyAnalysisCharts(account) {
         const role = account ? "account" : "admin";
-        analysisCharts[role]?.destroy();
-        analysisCharts[role] = null;
+        for (const chart of Object.values(analysisCharts[role])) chart?.destroy();
+        analysisCharts[role].trend = null;
+        analysisCharts[role].distribution = null;
       }
 
       function themeColor(property, fallback) {
@@ -4368,7 +4451,8 @@
 
       function renderUsageDistributionChart(account, rows, dimensionLabel, colors) {
         const role = account ? "account" : "admin";
-        destroyAnalysisChart(account);
+        analysisCharts[role].distribution?.destroy();
+        analysisCharts[role].distribution = null;
         const canvas = $(account ? "account-usage-chart" : "usage-chart");
         if (!canvas || !rows.length) return;
         if (typeof Chart === "undefined") {
@@ -4377,7 +4461,7 @@
           );
           return;
         }
-        analysisCharts[role] = new Chart(canvas, {
+        analysisCharts[role].distribution = new Chart(canvas, {
           type: "doughnut",
           data: {
             labels: rows.map((row) => row.label || row.key || "未知"),
@@ -4438,6 +4522,248 @@
         });
       }
 
+      function renderUsageTrendChart(account, trends, colors) {
+        const role = account ? "account" : "admin";
+        analysisCharts[role].trend?.destroy();
+        analysisCharts[role].trend = null;
+        const canvas = $(account ? "account-usage-trend-chart" : "usage-trend-chart");
+        const points = trends.total_tokens || [];
+        if (!canvas || !points.length) return;
+        if (typeof Chart === "undefined") {
+          canvas.parentElement.replaceChildren(
+            el("div", { class: "empty", text: "图表组件加载失败" }),
+          );
+          return;
+        }
+        const values = (name) =>
+          (trends[name] || []).map((point) => Number(point.value || 0));
+        const totalTokens = values("total_tokens");
+        const cacheWriteTokens = values("cache_write_tokens");
+        const average = totalTokens.reduce((sum, value) => sum + value, 0) /
+          totalTokens.length;
+        const daily = points.length > 1 &&
+          new Date(points[1].time) - new Date(points[0].time) > 12 * 3600000;
+        const labelFormat = new Intl.DateTimeFormat(
+          "zh-CN",
+          daily
+            ? { month: "numeric", day: "numeric" }
+            : { hour: "2-digit", minute: "2-digit", hour12: false },
+        );
+        const labels = points.map((point) => labelFormat.format(new Date(point.time)));
+        const textColor = themeColor("--text-tertiary", "#8b95a6");
+        const tokenDataset = (label, data, color) => ({
+          type: "bar",
+          label,
+          data,
+          yAxisID: "tokens",
+          stack: "tokens",
+          metric: "tokens",
+          backgroundColor: color,
+          borderColor: color,
+          borderWidth: 0,
+          borderRadius: 0,
+          maxBarThickness: 42,
+          categoryPercentage: 0.76,
+          barPercentage: 0.9,
+        });
+        const datasets = [
+          tokenDataset("输入", values("input_tokens"), colors[0]),
+          tokenDataset("输出", values("output_tokens"), colors[2]),
+          tokenDataset("缓存读", values("cache_read_tokens"), colors[1]),
+        ];
+        if (cacheWriteTokens.some((value) => value > 0)) {
+          datasets.push(tokenDataset("缓存写", cacheWriteTokens, colors[4]));
+        }
+        datasets.push(
+          {
+            type: "line",
+            label: "请求数",
+            data: values("requests"),
+            yAxisID: "requests",
+            metric: "requests",
+            borderColor: "#ff6048",
+            backgroundColor: "#ff6048",
+            borderWidth: 2.5,
+            borderDash: [7, 5],
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            tension: 0.38,
+          },
+        );
+        const costs = values("total_cost");
+        if (costs.length) {
+          datasets.push({
+            type: "line",
+            label: "总成本",
+            data: costs,
+            yAxisID: "cost",
+            metric: "cost",
+            borderColor: colors[5],
+            backgroundColor: colors[5],
+            borderWidth: 2.5,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            tension: 0.38,
+          });
+        }
+        datasets.push({
+          type: "line",
+          label: "平均值: " + tokens(average),
+          data: totalTokens.map(() => average),
+          yAxisID: "tokens",
+          stack: "average",
+          metric: "average",
+          borderColor: textColor,
+          borderWidth: 1.5,
+          borderDash: [5, 5],
+          pointRadius: 0,
+          pointHoverRadius: 0,
+        });
+        const gridColor = themeColor("--border-color", "#e3e1db");
+        const narrow = canvas.parentElement.clientWidth <= 520;
+        const legend = canvas.closest(".usage-trend-card").querySelector(
+          ".usage-trend-legend",
+        );
+        legend.replaceChildren(
+          ...datasets.map((dataset) =>
+            el(
+              "span",
+              {
+                class: "usage-trend-legend-item",
+                style: "--legend-color:" + dataset.borderColor,
+              },
+              el("i", { class: "usage-trend-legend-dot", "aria-hidden": "true" }),
+              dataset.label,
+            ),
+          ),
+        );
+        analysisCharts[role].trend = new Chart(canvas, {
+          type: "bar",
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 300 },
+            onResize: (chart, size) => {
+              const compact = size.width <= 520;
+              chart.options.scales.requests.display = !compact;
+              chart.options.scales.cost.display = !compact && costs.length > 0;
+            },
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: themeColor("--floating-surface", "#2a2723"),
+                borderColor: themeColor("--border-primary", "#4a453f"),
+                borderWidth: 1,
+                titleColor: themeColor("--text-primary", "#f6f4f1"),
+                bodyColor: themeColor("--text-secondary", "#c9c3bb"),
+                usePointStyle: true,
+                boxWidth: 8,
+                boxHeight: 8,
+                boxPadding: 6,
+                filter: (context) => context.dataset.metric !== "average",
+                callbacks: {
+                  labelPointStyle: () => ({ pointStyle: "circle", rotation: 0 }),
+                  label: (context) => {
+                    const value = Number(context.raw || 0);
+                    if (context.dataset.metric === "requests") {
+                      return context.dataset.label + "：" + int(value);
+                    }
+                    if (context.dataset.metric === "cost") {
+                      return context.dataset.label + "：" + usd(value);
+                    }
+                    return context.dataset.label + "：" + tokens(value);
+                  },
+                  footer: (items) =>
+                    items.length
+                      ? "Token 总数：" + tokens(totalTokens[items[0].dataIndex])
+                      : "",
+                },
+              },
+            },
+            scales: {
+              x: {
+                stacked: true,
+                grid: { color: gridColor, drawTicks: false },
+                ticks: { color: textColor, maxRotation: 0, autoSkip: true },
+              },
+              tokens: {
+                stacked: true,
+                beginAtZero: true,
+                grid: { color: gridColor },
+                ticks: { color: textColor, callback: (value) => tokens(value) },
+              },
+              requests: {
+                beginAtZero: true,
+                position: "right",
+                display: !narrow,
+                grid: { drawOnChartArea: false },
+                ticks: { color: textColor, precision: 0 },
+              },
+              cost: {
+                beginAtZero: true,
+                position: "right",
+                display: !narrow && costs.length > 0,
+                grid: { drawOnChartArea: false },
+                ticks: { color: textColor, callback: (value) => usd(value) },
+              },
+            },
+          },
+        });
+      }
+
+      function drawAnalysisTrend(canvas, points) {
+        const values = (points || []).map((point) => Number(point.value || 0));
+        if (!values.length) return;
+        if (values.length === 1) values.push(values[0]);
+        const context = canvas.getContext("2d");
+        const width = canvas.width;
+        const height = canvas.height;
+        const padding = 12;
+        const minimum = Math.min(...values);
+        const maximum = Math.max(...values);
+        const span = maximum - minimum;
+        const coordinates = values.map((value, index) => ({
+          x: padding + (index * (width - padding * 2)) / (values.length - 1),
+          y: span
+            ? padding + ((maximum - value) * (height - padding * 2)) / span
+            : maximum === 0
+              ? height - padding
+              : height / 2,
+        }));
+        const line = new Path2D();
+        line.moveTo(coordinates[0].x, coordinates[0].y);
+        for (let index = 1; index < coordinates.length; index++) {
+          const previous = coordinates[index - 1];
+          const current = coordinates[index];
+          const middle = (previous.x + current.x) / 2;
+          line.bezierCurveTo(
+            middle,
+            previous.y,
+            middle,
+            current.y,
+            current.x,
+            current.y,
+          );
+        }
+        const fill = new Path2D(line);
+        fill.lineTo(coordinates[coordinates.length - 1].x, height - padding);
+        fill.lineTo(coordinates[0].x, height - padding);
+        fill.closePath();
+        const style = getComputedStyle(canvas);
+        context.fillStyle =
+          style.getPropertyValue("--analysis-trend-fill").trim() ||
+          "rgba(52, 120, 246, 0.16)";
+        context.fill(fill);
+        context.strokeStyle =
+          style.getPropertyValue("--analysis-accent").trim() || "#3478f6";
+        context.lineWidth = 4;
+        context.lineCap = "round";
+        context.lineJoin = "round";
+        context.stroke(line);
+      }
+
       function renderAnalysisSummary(summary) {
         const cost = summary.cost || {};
         const detail = (label, value) =>
@@ -4447,65 +4773,68 @@
             el("span", {}, label),
             el("strong", { class: "mono" }, value),
           );
-        const card = (title, value, rows) =>
+        const card = (title, value, rows, trend) =>
           el(
             "section",
             { class: "card analysis-summary-card", "aria-label": title },
             el("div", { class: "analysis-summary-title" }, title),
             el("div", { class: "analysis-summary-value mono" }, value),
             el("div", { class: "analysis-summary-details" }, rows),
+            el("canvas", {
+              class: "analysis-summary-trend",
+              width: "600",
+              height: "128",
+              role: "img",
+              "aria-label": title + "趋势图",
+              "data-analysis-trend": trend,
+            }),
           );
-        const costDetail = (label, parts) => {
+        const costDetail = (label, part) => {
           const available = cost.available !== false;
-          const values = Array.isArray(parts) ? parts : [parts];
-          const amounts = values.map((part) =>
-            Number(part?.usd || 0) === 0 ? "$0.0000" : usd(part?.usd),
-          );
-          return el(
-            "div",
-            { class: "analysis-summary-line analysis-cost-line" },
-            el("span", {}, label),
-            el(
-              "strong",
-              { class: "mono" },
-              available ? amounts.join("/") : "—",
-            ),
+          const amount = Number(part?.usd || 0);
+          return detail(
+            label,
+            available ? (amount === 0 ? "$0.0000" : usd(amount)) : "—",
           );
         };
         const hasCacheWriteTokens = Number(summary.cache_write_tokens || 0) > 0;
-        const cacheTokenLabel = hasCacheWriteTokens ? "缓存读/写" : "缓存读";
-        const cacheTokenValue = hasCacheWriteTokens
-          ? [summary.cache_read_tokens, summary.cache_write_tokens]
-              .map((value) => tokens(value))
-              .join("/")
-          : tokens(summary.cache_read_tokens);
         const hasCacheWriteCost = Number(cost.cache_write?.usd || 0) > 0;
         const costRows = [
           costDetail("输入", cost.input),
           costDetail("输出", cost.output),
-          costDetail(
-            hasCacheWriteCost ? "缓存读/写" : "缓存读",
-            hasCacheWriteCost
-              ? [cost.cache_read, cost.cache_write]
-              : cost.cache_read,
-          ),
+          costDetail("缓存读", cost.cache_read),
         ];
+        if (hasCacheWriteCost)
+          costRows.push(costDetail("缓存写", cost.cache_write));
+        const tokenRows = [
+          detail("输入", tokens(summary.input_tokens)),
+          detail("输出", tokens(summary.output_tokens)),
+          detail("缓存读", tokens(summary.cache_read_tokens)),
+        ];
+        if (hasCacheWriteTokens)
+          tokenRows.push(detail("缓存写", tokens(summary.cache_write_tokens)));
         return el(
           "div",
           { class: "analysis-summary-grid" },
-          card("请求总数", int(summary.requests), [
-            detail("成功", int(summary.succeeded)),
-            detail("失败", int(summary.failed)),
-            detail(
-              "成功率",
-              Number(summary.success_rate || 0).toFixed(2) + "%",
-            ),
-          ]),
-          card("Token 总数", tokens(summary.total_tokens), [
-            detail("输入", tokens(summary.input_tokens)),
-            detail("输出", tokens(summary.output_tokens)),
-            detail(cacheTokenLabel, cacheTokenValue),
-          ]),
+          card(
+            "请求总数",
+            int(summary.requests),
+            [
+              detail("成功", int(summary.succeeded)),
+              detail("失败", int(summary.failed)),
+              detail(
+                "成功率",
+                Number(summary.success_rate || 0).toFixed(2) + "%",
+              ),
+            ],
+            "requests",
+          ),
+          card(
+            "Token 总数",
+            tokens(summary.total_tokens),
+            tokenRows,
+            "total_tokens",
+          ),
           card(
             "缓存率",
             Number(summary.cache_rate || 0).toFixed(2) + "%",
@@ -4513,11 +4842,13 @@
               detail("缓存读", tokens(summary.cache_read_tokens)),
               detail("输入", tokens(summary.input_tokens)),
             ],
+            "cache_rate",
           ),
           card(
             "总成本",
             cost.available === false ? "—" : usd(cost.total_usd),
             costRows,
+            "total_cost",
           ),
         );
       }
@@ -4529,7 +4860,7 @@
           ? detailLoads.accountAnalysis
           : detailLoads.adminAnalysis;
         if (!owner.analysis) {
-          destroyAnalysisChart(account);
+          destroyAnalysisCharts(account);
           delete target.dataset.analysisSignature;
           replaceContent(
             target,
@@ -4570,13 +4901,18 @@
           analysis.usage_distribution?.[dimension] || [],
         );
         const summary = analysis.summary || {};
+        const trends = analysis.trends || {};
         const renderSignature = JSON.stringify([
           document.documentElement.getAttribute("data-theme") || "",
           dimension,
           summary,
+          trends,
           rows,
         ]);
         const canvasID = account ? "account-usage-chart" : "usage-chart";
+        const trendCanvasID = account
+          ? "account-usage-trend-chart"
+          : "usage-trend-chart";
         if (
           target.dataset.analysisSignature === renderSignature &&
           document.getElementById(canvasID)
@@ -4638,6 +4974,28 @@
           renderAnalysisSummary(summary),
           el(
             "section",
+            { class: "card usage-trend-card" },
+            el("h2", {}, "用量趋势"),
+            (trends.total_tokens || []).length
+              ? [
+                  el("div", { class: "usage-trend-legend" }),
+                  el(
+                    "div",
+                    { class: "usage-trend-chart" },
+                    el("canvas", {
+                      id: trendCanvasID,
+                      role: "img",
+                      "aria-label": "用量趋势组合图",
+                    }),
+                  ),
+                ]
+              : el("div", {
+                  class: "empty",
+                  text: "当前时间范围内暂无趋势数据",
+                }),
+          ),
+          el(
+            "section",
             { class: "card usage-distribution-card" },
             el(
               "div",
@@ -4667,6 +5025,10 @@
           ),
         );
         target.dataset.analysisSignature = renderSignature;
+        for (const canvas of target.querySelectorAll("[data-analysis-trend]")) {
+          drawAnalysisTrend(canvas, trends[canvas.dataset.analysisTrend]);
+        }
+        renderUsageTrendChart(account, trends, colors);
         renderUsageDistributionChart(account, rows, labels[dimension], colors);
       }
 

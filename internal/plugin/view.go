@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"cpa-key-billing/internal/billing"
 )
@@ -156,6 +157,15 @@ func (a *App) analysis(req ManagementRequest, access viewAccess) ManagementRespo
 	}
 	if err := timeParam(req.Query, "to", &query.To); err != nil {
 		return viewErrorResponse(access, err)
+	}
+	if name := strings.TrimSpace(req.Query.Get("timezone")); name != "" {
+		location, err := time.LoadLocation(name)
+		if err != nil {
+			return viewErrorResponse(access, &billing.Error{
+				Kind: billing.KindInvalid, Msg: "timezone 不是有效的 IANA 时区",
+			})
+		}
+		query.Timezone = location
 	}
 	view, err := a.store.Analysis(query)
 	if err != nil {

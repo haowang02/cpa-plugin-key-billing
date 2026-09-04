@@ -2,6 +2,22 @@ package billing
 
 import "time"
 
+type AnalysisTrendPoint struct {
+	Time  time.Time `json:"time"`
+	Value float64   `json:"value"`
+}
+
+type AnalysisTrends struct {
+	Requests            []AnalysisTrendPoint `json:"requests"`
+	TotalTokens         []AnalysisTrendPoint `json:"total_tokens"`
+	UncachedInputTokens []AnalysisTrendPoint `json:"input_tokens"`
+	OutputTokens        []AnalysisTrendPoint `json:"output_tokens"`
+	CacheReadTokens     []AnalysisTrendPoint `json:"cache_read_tokens"`
+	CacheWriteTokens    []AnalysisTrendPoint `json:"cache_write_tokens"`
+	CacheRate           []AnalysisTrendPoint `json:"cache_rate"`
+	TotalCost           []AnalysisTrendPoint `json:"total_cost"`
+}
+
 type AnalysisComposition struct {
 	Key           string  `json:"key"`
 	Label         string  `json:"label"`
@@ -47,6 +63,7 @@ type AnalysisSummary struct {
 
 type AnalysisView struct {
 	Summary           AnalysisSummary   `json:"summary"`
+	Trends            AnalysisTrends    `json:"trends"`
 	UsageDistribution UsageDistribution `json:"usage_distribution"`
 }
 
