@@ -134,23 +134,7 @@ func (s *subsetScheduler) prune(scopes map[string]struct{}) {
 }
 
 func candidateAllowed(candidate SchedulerAuthCandidate, decision billing.RoutingDecision) bool {
-	ref := billing.CredentialFingerprint(candidate.ID)
-	for _, id := range decision.CredentialIDs {
-		if strings.EqualFold(id, ref) {
-			return true
-		}
-	}
-	source := credentialSourceFromCandidate(candidate)
-	if source == "" {
-		return false
-	}
-	provider := strings.ToLower(strings.TrimSpace(candidate.Provider))
-	for _, item := range decision.CredentialProviders {
-		if item.Source == source && item.Provider == provider {
-			return true
-		}
-	}
-	return false
+	return routingAllowsCredential(candidate.ID, credentialSourceFromCandidate(candidate), candidate.Provider, decision)
 }
 
 func (a *App) pickCredential(raw []byte) ([]byte, error) {

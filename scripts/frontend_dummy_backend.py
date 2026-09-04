@@ -334,6 +334,12 @@ AUTH_FILES = [
     },
 ]
 
+AUTH_FILE_CREDENTIAL_REFS = {
+    "auth-demo-codex-plus": "sha256:" + "a" * 64,
+    "auth-demo-claude": "sha256:" + "b" * 64,
+    "auth-demo-xai-active": "sha256:" + "e" * 64,
+}
+
 for auth_file in AUTH_FILES:
     auth_file["cache_revision"] = iso(NOW - timedelta(minutes=5))
 
@@ -723,7 +729,7 @@ def filter_event_time(entries, query):
             (not to_time or datetime.fromisoformat(entry["at"].replace("Z", "+00:00")) < to_time)]
 
 
-def account_access(index):
+def account_routing(index):
     key = LIVE_KEYS[index]
     bindings = key["route_bindings"]
     models = set(bindings["models"])
@@ -741,6 +747,13 @@ def account_access(index):
                 (item["source"], item["provider"])
                 for item in route["rule"]["credential_providers"]
             )
+
+    return models, credential_refs, credential_providers
+
+
+def account_access(index):
+    key = LIVE_KEYS[index]
+    models, credential_refs, credential_providers = account_routing(index)
 
     credentials = [
         {
@@ -768,6 +781,18 @@ def account_access(index):
         "routing_valid": True,
         "warnings": [],
     }
+
+
+def account_auth_files(index):
+    _, credential_refs, credential_providers = account_routing(index)
+    if not credential_refs and not credential_providers:
+        return AUTH_FILES
+    return [
+        auth_file
+        for auth_file in AUTH_FILES
+        if AUTH_FILE_CREDENTIAL_REFS.get(auth_file["auth_index"]) in credential_refs
+        or ("auth-files", auth_file["category"]) in credential_providers
+    ]
 
 
 def refresh_route_counts():
@@ -1157,9 +1182,14 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path.endswith("/errors"):
                 self.send_json(200, error_view(parse_qs(parsed.query), LIVE_KEYS[index]["scope"]))
             elif parsed.path.endswith("/auth-files"):
-                self.send_json(200, {"files": AUTH_FILES})
+                self.send_json(200, {"files": account_auth_files(index)})
             elif parsed.path.endswith("/auth-files/quota"):
-                payload = auth_file_quota(parse_qs(parsed.query))
+                query = parse_qs(parsed.query)
+                allowed = {
+                    item["auth_index"] for item in account_auth_files(index)
+                }
+                auth_index = query.get("auth_index", [""])[0]
+                payload = auth_file_quota(query) if auth_index in allowed else None
                 if payload is None:
                     self.send_json(404, {"error": {"message": "认证文件不存在或不支持限额查询"}})
                 else:

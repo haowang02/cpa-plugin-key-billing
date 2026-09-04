@@ -100,7 +100,7 @@ func (a *App) authFiles(access viewAccess) ManagementResponse {
 	if access.APIKey && !access.Tracked {
 		return apiKeyUnauthorized()
 	}
-	files, errList := a.listAuthFiles()
+	files, errList := a.listAuthFiles(access)
 	if errList != nil {
 		return viewJSONError(access, http.StatusBadGateway, "host_unavailable", errList.Error())
 	}
@@ -132,6 +132,12 @@ func (a *App) authQuota(req ManagementRequest, access viewAccess) ManagementResp
 	if strings.EqualFold(strings.TrimSpace(selected.AccountType), "api_key") {
 		return viewJSONError(access, http.StatusNotFound, "not_found", "认证文件不存在")
 	}
+	if access.APIKey {
+		decision := a.store.ResolveRouting(access.Scope, "", "")
+		if decision.ConfigurationError != "" || (decision.RestrictsCredentials() && !routingAllowsAuthFile(*selected, decision)) {
+			return viewJSONError(access, http.StatusNotFound, "not_found", "认证文件不存在")
+		}
+	}
 	if selected.Disabled {
 		return viewJSONError(access, http.StatusUnprocessableEntity, "disabled", "认证文件已停用")
 	}
@@ -149,10 +155,24 @@ func (a *App) authQuota(req ManagementRequest, access viewAccess) ManagementResp
 	return viewJSON(access, http.StatusOK, result)
 }
 
-func (a *App) listAuthFiles() ([]authFileView, error) {
+func (a *App) listAuthFiles(access viewAccess) ([]authFileView, error) {
 	files, errList := a.listHostAuthFiles()
 	if errList != nil {
 		return nil, errList
+	}
+	if access.APIKey {
+		decision := a.store.ResolveRouting(access.Scope, "", "")
+		if decision.ConfigurationError != "" {
+			files = nil
+		} else if decision.RestrictsCredentials() {
+			filtered := files[:0]
+			for _, file := range files {
+				if routingAllowsAuthFile(file, decision) {
+					filtered = append(filtered, file)
+				}
+			}
+			files = filtered
+		}
 	}
 	views := make([]authFileView, 0, len(files))
 	for _, file := range files {

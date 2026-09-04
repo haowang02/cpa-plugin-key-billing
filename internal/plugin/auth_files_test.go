@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"cpa-key-billing/internal/billing"
 )
 
 func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
@@ -105,6 +107,69 @@ func TestAccountAuthFilesRequireTrackedAPIKey(t *testing.T) {
 	}
 	if hostCalls != 1 {
 		t.Fatalf("tracked account made %d host calls, want 1", hostCalls)
+	}
+}
+
+func TestAccountAuthFilesFollowCredentialRouting(t *testing.T) {
+	app := newConfiguredApp(t)
+	if _, errSync := app.store.SyncKeys([]string{accountTestKeyA}, false); errSync != nil {
+		t.Fatal(errSync)
+	}
+	scope := billing.CallerScope(accountTestKeyA)
+	if _, errRoute := app.store.CreateRoute(billing.Route{Name: "受限认证文件", Rule: billing.RouteRule{
+		CredentialIDs: []string{
+			billing.CredentialFingerprint("auth-codex-allowed"),
+			billing.CredentialFingerprint("config-codex-exact"),
+		},
+		CredentialProviders: []billing.CredentialProviderSelector{
+			{Source: billing.CredentialSourceAuthFiles, Provider: "claude"},
+			{Source: billing.CredentialSourceAIProviders, Provider: "codex"},
+		},
+	}}, []string{scope}); errRoute != nil {
+		t.Fatal(errRoute)
+	}
+	hostGetCalls := 0
+	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+		switch method {
+		case hostAuthList:
+			return json.RawMessage(`{"files":[
+				{"id":"auth-codex-allowed","auth_index":"codex-allowed","name":"allowed.json","type":"codex","source":"file","path":"/auth/allowed.json"},
+				{"id":"auth-codex-denied","auth_index":"codex-denied","name":"denied.json","type":"codex","source":"file","path":"/auth/denied.json"},
+				{"id":"auth-claude","auth_index":"claude-allowed","name":"claude.json","type":"claude","source":"file","path":"/auth/claude.json"},
+				{"id":"config-codex-exact","auth_index":"config-exact","name":"configured-exact","type":"codex","provider":"codex","source":"config","runtime_only":true}
+			]}`), nil
+		case hostAuthGet:
+			hostGetCalls++
+			return nil, nil
+		default:
+			t.Fatalf("unexpected host method %q", method)
+			return nil, nil
+		}
+	})
+	access := viewAccess{APIKey: true, Scope: scope, Tracked: true}
+	response := app.authFiles(access)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var payload authFileListResponse
+	if errDecode := json.Unmarshal(response.Body, &payload); errDecode != nil {
+		t.Fatal(errDecode)
+	}
+	got := make([]string, 0, len(payload.Files))
+	for _, file := range payload.Files {
+		got = append(got, file.AuthIndex)
+	}
+	want := []string{"claude-allowed", "codex-allowed"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("auth files = %v, want %v", got, want)
+	}
+
+	request := ManagementRequest{Query: url.Values{"auth_index": {"codex-denied"}}}
+	if response := app.authQuota(request, access); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("denied quota status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	if hostGetCalls != 0 {
+		t.Fatalf("denied credential made %d host.auth.get calls", hostGetCalls)
 	}
 }
 

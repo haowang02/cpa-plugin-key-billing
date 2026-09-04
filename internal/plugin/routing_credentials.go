@@ -81,6 +81,39 @@ func credentialSourceFromHost(file hostAuthFile) string {
 	return ""
 }
 
+func routingAllowsCredential(rawID, source, provider string, decision billing.RoutingDecision) bool {
+	if rawID = strings.TrimSpace(rawID); rawID != "" {
+		ref := billing.CredentialFingerprint(rawID)
+		for _, allowed := range decision.CredentialIDs {
+			if strings.EqualFold(allowed, ref) {
+				return true
+			}
+		}
+	}
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	for _, allowed := range decision.CredentialProviders {
+		if allowed.Source == source && allowed.Provider == provider {
+			return true
+		}
+	}
+	return false
+}
+
+func routingAllowsAuthFile(file hostAuthFile, decision billing.RoutingDecision) bool {
+	source := credentialSourceFromHost(file)
+	if source == billing.CredentialSourceAIProviders {
+		return false
+	}
+	if source == "" {
+		source = billing.CredentialSourceAuthFiles
+	}
+	provider := file.Provider
+	if strings.TrimSpace(provider) == "" {
+		provider = file.Type
+	}
+	return routingAllowsCredential(file.ID, source, provider, decision)
+}
+
 func credentialSourceFromCandidate(candidate SchedulerAuthCandidate) string {
 	backend := strings.ToLower(strings.TrimSpace(candidate.Attributes["source_backend"]))
 	source := strings.ToLower(strings.TrimSpace(candidate.Attributes["source"]))
