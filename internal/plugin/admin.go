@@ -61,7 +61,6 @@ func (a *App) syncPriceCatalog(req ManagementRequest) ManagementResponse {
 }
 
 type accessResponse struct {
-	Role                     string              `json:"role"`
 	Keys                     []billing.KeyView   `json:"keys"`
 	Plans                    []billing.Plan      `json:"plans"`
 	Routes                   []billing.RouteView `json:"routes"`
@@ -75,7 +74,7 @@ func (a *App) access() ManagementResponse {
 		credentialError = err.Error()
 	}
 	return JSONResponse(http.StatusOK, accessResponse{
-		Role: "management", Keys: a.store.KeyViews(), Plans: a.store.Plans(), Routes: a.store.RouteViews(),
+		Keys: a.store.KeyViews(), Plans: a.store.Plans(), Routes: a.store.RouteViews(),
 		Credentials: a.credentialInventory(), CredentialInventoryError: credentialError,
 	})
 }

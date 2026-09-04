@@ -34,17 +34,13 @@ type UsageDistribution struct {
 	Sources []AnalysisComposition `json:"sources"`
 }
 
-type AnalysisCostPart struct {
-	USD float64 `json:"usd"`
-}
-
 type AnalysisCostSummary struct {
-	Available  bool             `json:"available"`
-	TotalUSD   float64          `json:"total_usd"`
-	Input      AnalysisCostPart `json:"input"`
-	CacheRead  AnalysisCostPart `json:"cache_read"`
-	CacheWrite AnalysisCostPart `json:"cache_write"`
-	Output     AnalysisCostPart `json:"output"`
+	Available     bool    `json:"available"`
+	TotalUSD      float64 `json:"total_usd"`
+	InputUSD      float64 `json:"input_usd"`
+	CacheReadUSD  float64 `json:"cache_read_usd"`
+	CacheWriteUSD float64 `json:"cache_write_usd"`
+	OutputUSD     float64 `json:"output_usd"`
 }
 
 type AnalysisSummary struct {

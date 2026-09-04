@@ -31,7 +31,10 @@ type accountConcurrency struct {
 }
 
 type accountAccessResponse struct {
-	Role         string                   `json:"role"`
+	Tracked      bool                     `json:"tracked"`
+	Identity     accountIdentity          `json:"identity"`
+	Subscription accountSubscription      `json:"subscription"`
+	Concurrency  accountConcurrency       `json:"concurrency"`
 	Models       []string                 `json:"models"`
 	Credentials  []accountRouteCredential `json:"credentials"`
 	RoutingValid bool                     `json:"routing_valid"`
@@ -46,47 +49,37 @@ type accountRouteCredential struct {
 	ProviderWide bool   `json:"provider_wide,omitempty"`
 }
 
-type accountStatusResponse struct {
-	Role         string              `json:"role"`
-	Tracked      bool                `json:"tracked"`
-	Identity     accountIdentity     `json:"identity"`
-	Subscription accountSubscription `json:"subscription"`
-	Concurrency  accountConcurrency  `json:"concurrency"`
-}
-
-func (a *App) accountStatus(access viewAccess) ManagementResponse {
+func (a *App) accountAccess(access viewAccess) ManagementResponse {
+	response := accountAccessResponse{
+		Tracked: access.Tracked, Models: []string{}, Credentials: []accountRouteCredential{},
+		RoutingValid: true, Warnings: []string{},
+	}
 	if !access.Tracked {
-		return apiKeyJSON(http.StatusOK, accountStatusResponse{Role: "api_key", Tracked: false})
+		return apiKeyJSON(http.StatusOK, response)
 	}
 	view := access.Key
 	remaining := view.LimitUSD - view.SpentUSD
 	if remaining < 0 {
 		remaining = 0
 	}
-	return apiKeyJSON(http.StatusOK, accountStatusResponse{
-		Role:     "api_key",
-		Tracked:  true,
-		Identity: accountIdentity{Preview: view.Preview, Label: view.Label},
-		Subscription: accountSubscription{
-			Name: view.PlanName, Unlimited: view.Unlimited, Blocked: view.Blocked,
-			LimitUSD: view.LimitUSD, SpentUSD: view.SpentUSD, RemainingUSD: remaining,
-			UsedPercent: view.UsedPercent, CycleEndAt: view.CycleEndAt,
-		},
-		Concurrency: accountConcurrency{Limit: view.ConcurrencyLimit, Current: view.CurrentConcurrency},
-	})
-}
-
-func (a *App) accountAccess(access viewAccess) ManagementResponse {
-	if !access.Tracked {
-		return apiKeyJSON(http.StatusOK, accountAccessResponse{Role: "api_key", Models: []string{}, Credentials: []accountRouteCredential{}, RoutingValid: true, Warnings: []string{}})
+	response.Identity = accountIdentity{Preview: view.Preview, Label: view.Label}
+	response.Subscription = accountSubscription{
+		Name: view.PlanName, Unlimited: view.Unlimited, Blocked: view.Blocked,
+		LimitUSD: view.LimitUSD, SpentUSD: view.SpentUSD, RemainingUSD: remaining,
+		UsedPercent: view.UsedPercent, CycleEndAt: view.CycleEndAt,
 	}
-	warnings := []string{}
-	if err := a.refreshCredentialInventory(); err != nil {
-		warnings = append(warnings, "上游凭证信息暂时无法加载")
-	}
+	response.Concurrency = accountConcurrency{Limit: view.ConcurrencyLimit, Current: view.CurrentConcurrency}
 	decision := a.store.ResolveRouting(access.Scope, "", "")
+	response.Models = decision.ModelScope
+	response.RoutingValid = decision.ConfigurationError == ""
 	if decision.ConfigurationError != "" {
-		warnings = append(warnings, "路由规则已不存在，请联系管理员")
+		response.Warnings = append(response.Warnings, "路由规则已不存在，请联系管理员")
+	}
+	if !decision.RestrictsCredentials() {
+		return apiKeyJSON(http.StatusOK, response)
+	}
+	if err := a.refreshCredentialInventory(); err != nil {
+		response.Warnings = append(response.Warnings, "上游凭证信息暂时无法加载")
 	}
 	inventory := a.credentialInventory()
 	byRef := map[string]credentialView{}
@@ -126,7 +119,7 @@ func (a *App) accountAccess(access viewAccess) ManagementResponse {
 		credentials = append(credentials, accountRouteCredential{
 			Source: selector.Source, Provider: selector.Provider, Status: "missing", ProviderWide: true,
 		})
-		warnings = append(warnings, "当前没有符合「"+name+"」的上游凭证")
+		response.Warnings = append(response.Warnings, "当前没有符合「"+name+"」的上游凭证")
 	}
 	sort.Slice(credentials, func(i, j int) bool {
 		left, right := credentials[i], credentials[j]
@@ -138,10 +131,8 @@ func (a *App) accountAccess(access viewAccess) ManagementResponse {
 		}
 		return left.Name < right.Name
 	})
-	return apiKeyJSON(http.StatusOK, accountAccessResponse{
-		Role: "api_key", Models: decision.ModelScope, Credentials: credentials,
-		RoutingValid: decision.ConfigurationError == "", Warnings: warnings,
-	})
+	response.Credentials = credentials
+	return apiKeyJSON(http.StatusOK, response)
 }
 
 func accountCredential(item credentialView) accountRouteCredential {

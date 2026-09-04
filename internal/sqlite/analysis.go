@@ -83,8 +83,8 @@ func (d *DB) analysisSummary(where string, args []any) (billing.AnalysisSummary,
 		coalesce(min(CASE WHEN `+analysisCostAvailableSQL+` THEN 1 ELSE 0 END), 1)`+where, args...).Scan(
 		&summary.Requests, &summary.Failed, &summary.TotalTokens, &summary.InputTokens, &summary.OutputTokens,
 		&summary.CacheReadTokens, &summary.CacheWriteTokens,
-		&summary.Cost.TotalUSD, &summary.Cost.Input.USD, &summary.Cost.CacheRead.USD,
-		&summary.Cost.CacheWrite.USD, &summary.Cost.Output.USD, &costAvailable,
+		&summary.Cost.TotalUSD, &summary.Cost.InputUSD, &summary.Cost.CacheReadUSD,
+		&summary.Cost.CacheWriteUSD, &summary.Cost.OutputUSD, &costAvailable,
 	)
 	if err != nil {
 		return billing.AnalysisSummary{}, fmt.Errorf("汇总分析数据：%w", err)

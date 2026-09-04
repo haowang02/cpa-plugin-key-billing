@@ -16,11 +16,11 @@ func TestRoutingModelPrecedesCredentialPolicy(t *testing.T) {
 	})
 
 	denied := store.ResolveRouting("scope-a", "claude-sonnet-4-6", "claude-sonnet-4-6")
-	if denied.ModelAllowed || !denied.ModelRestricted {
+	if denied.AllowsModel() || !denied.RestrictsModels() {
 		t.Fatalf("decision=%+v, want model denial", denied)
 	}
 	allowed := store.ResolveRouting("scope-a", "gpt-5.6-sol", "gpt-5.6-sol")
-	if !allowed.ModelAllowed || !allowed.CredentialRestricted || !slices.Contains(allowed.CredentialIDs, ref) {
+	if !allowed.AllowsModel() || !allowed.RestrictsCredentials() || !slices.Contains(allowed.CredentialIDs, ref) {
 		t.Fatalf("decision=%+v", allowed)
 	}
 	if !slices.ContainsFunc(allowed.CredentialProviders, func(item CredentialProviderSelector) bool {
@@ -41,11 +41,11 @@ func TestConditionalRoutesUnionModelsAndFilterCredentialsByRequestedModel(t *tes
 	})
 
 	gpt := store.ResolveRouting("scope-a", "gpt-5.6-sol", "gpt-5.6-sol")
-	if !gpt.ModelAllowed || len(gpt.ModelScope) != 2 || len(gpt.CredentialProviders) != 1 || gpt.CredentialProviders[0].Provider != "codex" {
+	if !gpt.AllowsModel() || len(gpt.ModelScope) != 2 || len(gpt.CredentialProviders) != 1 || gpt.CredentialProviders[0].Provider != "codex" {
 		t.Fatalf("gpt decision=%+v", gpt)
 	}
 	claude := store.ResolveRouting("scope-a", "claude-sonnet-4-6", "claude-sonnet-4-6")
-	if !claude.ModelAllowed || len(claude.CredentialProviders) != 1 || claude.CredentialProviders[0].Provider != "claude" {
+	if !claude.AllowsModel() || len(claude.CredentialProviders) != 1 || claude.CredentialProviders[0].Provider != "claude" {
 		t.Fatalf("claude decision=%+v", claude)
 	}
 }
@@ -58,11 +58,11 @@ func TestDirectModelAndCredentialBindingsComposeAcrossPhases(t *testing.T) {
 	})
 
 	allowed := store.ResolveRouting("scope-a", "gpt-5.6-sol", "gpt-5.6-sol")
-	if !allowed.ModelAllowed || !allowed.ModelRestricted || !allowed.CredentialRestricted || !slices.Equal(allowed.CredentialIDs, []string{ref}) {
+	if !allowed.AllowsModel() || !allowed.RestrictsModels() || !allowed.RestrictsCredentials() || !slices.Equal(allowed.CredentialIDs, []string{ref}) {
 		t.Fatalf("allowed decision=%+v", allowed)
 	}
 	denied := store.ResolveRouting("scope-a", "claude-sonnet-4-6", "claude-sonnet-4-6")
-	if denied.ModelAllowed || !denied.CredentialRestricted {
+	if denied.AllowsModel() || !denied.RestrictsCredentials() {
 		t.Fatalf("denied decision=%+v", denied)
 	}
 }
@@ -134,10 +134,10 @@ func TestRoutingUsesTheBillingModelIdentity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			decision := store.ResolveRouting("scope-a", test.upstream, test.requested)
-			if decision.ModelAllowed != test.want {
+			if decision.AllowsModel() != test.want {
 				t.Fatalf("decision=%+v", decision)
 			}
-			if !decision.ModelAllowed && strings.Contains(decision.Model, "(") {
+			if !decision.AllowsModel() && strings.Contains(decision.Model, "(") {
 				t.Fatalf("refused model kept thinking suffix: %q", decision.Model)
 			}
 		})
@@ -150,13 +150,13 @@ func TestRoutingSeparatesConfiguredSuffixedModels(t *testing.T) {
 		state.Prices = []PriceRule{{Pattern: "chat/fast"}, {Pattern: "chat/fast(high)"}}
 		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{Models: []string{"chat/fast"}}}
 	})
-	if decision := store.ResolveRouting("scope-a", "chat/fast", "chat/fast(high)"); decision.ModelAllowed {
+	if decision := store.ResolveRouting("scope-a", "chat/fast", "chat/fast(high)"); decision.AllowsModel() {
 		t.Fatalf("configured suffixed model inherited base grant: %+v", decision)
 	}
 	if err := store.SetKeyRoutes("scope-a", RouteBindings{Models: []string{"chat/fast", "chat/fast(high)"}}); err != nil {
 		t.Fatal(err)
 	}
-	if decision := store.ResolveRouting("scope-a", "chat/fast", "chat/fast(high)"); !decision.ModelAllowed {
+	if decision := store.ResolveRouting("scope-a", "chat/fast", "chat/fast(high)"); !decision.AllowsModel() {
 		t.Fatalf("explicit suffixed grant was denied: %+v", decision)
 	}
 }
@@ -167,7 +167,7 @@ func TestMissingRouteFailsClosed(t *testing.T) {
 		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{RouteIDs: []string{"missing"}}}
 	})
 	decision := store.ResolveRouting("scope-a", "gpt-5.6", "gpt-5.6")
-	if decision.ModelAllowed || decision.ConfigurationError == "" {
+	if decision.AllowsModel() || decision.ConfigurationError == "" {
 		t.Fatalf("decision=%+v", decision)
 	}
 }
@@ -192,7 +192,7 @@ func TestDirectCredentialProviderBindingRestrictsOneSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision := store.ResolveRouting("scope-a", "gpt-5.6-sol", "gpt-5.6-sol")
-	if !decision.ModelAllowed || !decision.CredentialRestricted || len(decision.CredentialProviders) != 1 {
+	if !decision.AllowsModel() || !decision.RestrictsCredentials() || len(decision.CredentialProviders) != 1 {
 		t.Fatalf("decision=%+v", decision)
 	}
 	allowed := decision.CredentialProviders[0]

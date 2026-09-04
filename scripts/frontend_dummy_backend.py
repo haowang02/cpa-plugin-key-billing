@@ -731,21 +731,6 @@ def filter_event_time(entries, query):
             (not to_time or datetime.fromisoformat(entry["at"].replace("Z", "+00:00")) < to_time)]
 
 
-def account_status(index):
-    key = LIVE_KEYS[index]
-    return {
-        "role": "api_key",
-        "tracked": True,
-        "identity": {"preview": key["preview"], "label": key["label"]},
-        "subscription": {
-            "name": key["plan_name"], "unlimited": key["unlimited"], "blocked": key["blocked"],
-            "limit_usd": key["limit_usd"], "spent_usd": key["spent_usd"],
-            "remaining_usd": max(0, key["limit_usd"] - key["spent_usd"]),
-            "used_percent": key["used_percent"], "cycle_end_at": key.get("cycle_end_at"),
-        },
-        "concurrency": {"limit": key["concurrency_limit"], "current": key["current_concurrency"]},
-    }
-
 def account_access(index):
     key = LIVE_KEYS[index]
     bindings = key["route_bindings"]
@@ -777,7 +762,15 @@ def account_access(index):
         or (credential["source"], credential["provider"]) in credential_providers
     ]
     return {
-        "role": "api_key",
+        "tracked": True,
+        "identity": {"preview": key["preview"], "label": key["label"]},
+        "subscription": {
+            "name": key["plan_name"], "unlimited": key["unlimited"], "blocked": key["blocked"],
+            "limit_usd": key["limit_usd"], "spent_usd": key["spent_usd"],
+            "remaining_usd": max(0, key["limit_usd"] - key["spent_usd"]),
+            "used_percent": key["used_percent"], "cycle_end_at": key.get("cycle_end_at"),
+        },
+        "concurrency": {"limit": key["concurrency_limit"], "current": key["current_concurrency"]},
         "models": sorted(models),
         "credentials": credentials,
         "routing_valid": True,
@@ -963,17 +956,6 @@ def analysis_view(query, scope=""):
     cache_read_tokens = sum(entry.get("cost", {}).get("cache_read_tokens", 0) for entry in rows)
     cache_write_tokens = sum(entry.get("cost", {}).get("cache_write_tokens", 0) for entry in rows)
     output_tokens = sum(entry.get("cost", {}).get("billed_output_tokens", 0) for entry in rows)
-    cost_fields = {
-        "input": "uncached_input_usd",
-        "cache_read": "cache_read_usd",
-        "cache_write": "cache_write_usd",
-        "output": "output_usd",
-    }
-    cost_values = {
-        name: sum(entry.get("cost", {}).get(field, 0) for entry in rows)
-        for name, field in cost_fields.items()
-    }
-    total_usd = sum(cost_values.values())
     cost = {
         "available": all(
             entry.get("price_source") != "none" or
@@ -982,10 +964,14 @@ def analysis_view(query, scope=""):
             )) == 0
             for entry in rows
         ),
-        "total_usd": total_usd,
+        "input_usd": sum(entry.get("cost", {}).get("uncached_input_usd", 0) for entry in rows),
+        "cache_read_usd": sum(entry.get("cost", {}).get("cache_read_usd", 0) for entry in rows),
+        "cache_write_usd": sum(entry.get("cost", {}).get("cache_write_usd", 0) for entry in rows),
+        "output_usd": sum(entry.get("cost", {}).get("output_usd", 0) for entry in rows),
     }
-    for name, value in cost_values.items():
-        cost[name] = {"usd": value}
+    cost["total_usd"] = sum(cost[field] for field in (
+        "input_usd", "cache_read_usd", "cache_write_usd", "output_usd"
+    ))
 
     from_time = datetime.fromisoformat(
         query.get("from", [iso(NOW - timedelta(days=30))])[0].replace("Z", "+00:00")
@@ -1068,11 +1054,9 @@ def analysis_view(query, scope=""):
 
 
 def payload_for(path, query):
-    if path == f"{API_BASE}/status":
-        return {"role": "management", "enabled": True}
     if path == f"{API_BASE}/access":
         refresh_route_counts()
-        return {"role": "management", "keys": KEYS, "plans": PLANS, "routes": ROUTES, "credentials": CREDENTIALS}
+        return {"keys": KEYS, "plans": PLANS, "routes": ROUTES, "credentials": CREDENTIALS}
     if path == f"{API_BASE}/prices":
         return PRICES
     if path == f"{API_BASE}/events":
@@ -1168,7 +1152,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(401, {"error": {"message": "API Key 无效"}})
                 return
         resource_paths = {
-            f"{RESOURCE_BASE}/status",
             f"{RESOURCE_BASE}/access",
             f"{RESOURCE_BASE}/prices",
             f"{RESOURCE_BASE}/events",
@@ -1182,9 +1165,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(401, {"error": {"message": "API Key 无效"}})
                 return
             index = api_keys.index(authorization[7:])
-            if parsed.path.endswith("/status"):
-                self.send_json(200, account_status(index))
-            elif parsed.path.endswith("/access"):
+            if parsed.path.endswith("/access"):
                 self.send_json(200, account_access(index))
             elif parsed.path.endswith("/prices"):
                 self.send_json(200, PRICES)

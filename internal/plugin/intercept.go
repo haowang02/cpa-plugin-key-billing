@@ -51,7 +51,7 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	if routing.ConfigurationError != "" {
 		return OKEnvelope(routingConfigurationResponse(req.SourceFormat, routing.ConfigurationError))
 	}
-	if routing.ModelRestricted && !routing.ModelAllowed {
+	if routing.RestrictsModels() && !routing.AllowsModel() {
 		return OKEnvelope(modelForbiddenResponse(req.SourceFormat, routing))
 	}
 

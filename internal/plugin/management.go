@@ -20,7 +20,6 @@ const (
 var uiHTML []byte
 
 const (
-	routeStatus          = "/status"
 	routeAccess          = "/access"
 	routePrices          = "/prices"
 	routePriceCatalog    = "/prices/catalog"
@@ -52,9 +51,6 @@ type managementEndpoint struct {
 }
 
 var managementEndpoints = []managementEndpoint{
-	{http.MethodGet, routeStatus, "查看插件运行状态。", func(a *App, _ ManagementRequest) ManagementResponse {
-		return JSONResponse(http.StatusOK, pluginStatus{Role: "management", Enabled: a.store.Enabled()})
-	}},
 	{http.MethodGet, routeAccess, "查看 API Key、订阅计划和路由规则。", func(a *App, _ ManagementRequest) ManagementResponse { return a.access() }},
 	{http.MethodGet, routePrices, "查看模型定价。", func(a *App, _ ManagementRequest) ManagementResponse { return a.listPrices(viewAccess{}) }},
 	{http.MethodGet, routePriceCatalog, "搜索模型参考价。", (*App).searchPriceCatalog},
@@ -96,9 +92,6 @@ type resourceEndpoint struct {
 }
 
 var resourceEndpoints = []resourceEndpoint{
-	{routeStatus, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse {
-		return a.accountStatus(access)
-	}},
 	{routeAccess, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse {
 		return a.accountAccess(access)
 	}},
@@ -125,11 +118,6 @@ func managementRegistration() ManagementRegistrationResponse {
 		registration.Resources = append(registration.Resources, ResourceRoute{Path: resourceBase + endpoint.path})
 	}
 	return registration
-}
-
-type pluginStatus struct {
-	Role    string `json:"role"`
-	Enabled bool   `json:"enabled"`
 }
 
 func (a *App) handleManagement(raw []byte) ([]byte, error) {

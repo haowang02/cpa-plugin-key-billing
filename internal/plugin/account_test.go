@@ -47,20 +47,20 @@ func configuredAccountApp(t *testing.T) *App {
 	return app
 }
 
-func TestAccountStatusAuthenticatesByAPIKeyScope(t *testing.T) {
+func TestAccountAccessAuthenticatesByAPIKeyScope(t *testing.T) {
 	app := configuredAccountApp(t)
 
-	response := callAccount(t, app, routeStatus, accountTestKeyA, nil)
+	response := callAccount(t, app, routeAccess, accountTestKeyA, nil)
 	if response.StatusCode != http.StatusOK || response.Headers.Get("Cache-Control") != "private, no-store" ||
 		response.Headers.Get("Vary") != "Authorization" {
 		t.Fatalf("response = %+v", response)
 	}
-	var status accountStatusResponse
-	if errDecode := json.Unmarshal(response.Body, &status); errDecode != nil {
+	var access accountAccessResponse
+	if errDecode := json.Unmarshal(response.Body, &access); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if !status.Tracked || status.Identity.Label != "Alice" {
-		t.Fatalf("status = %+v", status)
+	if !access.Tracked || access.Identity.Label != "Alice" || !access.Subscription.Unlimited {
+		t.Fatalf("access = %+v", access)
 	}
 	body := string(response.Body)
 	for _, forbidden := range []string{accountTestKeyA, accountTestKeyB, billing.CallerScope(accountTestKeyA), `"plan_id"`} {
@@ -69,21 +69,22 @@ func TestAccountStatusAuthenticatesByAPIKeyScope(t *testing.T) {
 		}
 	}
 
-	unknown := callAccount(t, app, routeStatus, "sk-valid-but-untracked-0003", nil)
-	if errDecode := json.Unmarshal(unknown.Body, &status); errDecode != nil || status.Tracked {
-		t.Fatalf("unknown status = %+v, err = %v", status, errDecode)
+	unknown := callAccount(t, app, routeAccess, "sk-valid-but-untracked-0003", nil)
+	var unknownAccess accountAccessResponse
+	if errDecode := json.Unmarshal(unknown.Body, &unknownAccess); errDecode != nil || unknownAccess.Tracked {
+		t.Fatalf("unknown access = %+v, err = %v", unknownAccess, errDecode)
 	}
 }
 
 func TestAccountRoutesRejectMissingOrAmbiguousBearer(t *testing.T) {
 	app := configuredAccountApp(t)
-	if response := callAccount(t, app, routeStatus, "", nil); response.StatusCode != http.StatusUnauthorized ||
+	if response := callAccount(t, app, routeAccess, "", nil); response.StatusCode != http.StatusUnauthorized ||
 		response.Headers.Get("WWW-Authenticate") == "" {
 		t.Fatalf("missing bearer response = %+v", response)
 	}
 
 	raw, errHandle := app.HandleMethod(MethodManagementHandle, mustMarshal(t, ManagementRequest{
-		Method: http.MethodGet, Path: resourceBase + routeStatus,
+		Method: http.MethodGet, Path: resourceBase + routeAccess,
 		Headers: http.Header{"Authorization": {"Bearer " + accountTestKeyA, "Bearer " + accountTestKeyB}},
 	}))
 	if errHandle != nil {
@@ -265,13 +266,13 @@ func TestDeletedAccountCannotReadItsHistory(t *testing.T) {
 	if _, errSync := app.store.SyncKeys([]string{accountTestKeyB}, false); errSync != nil {
 		t.Fatal(errSync)
 	}
-	response := callAccount(t, app, routeStatus, accountTestKeyA, nil)
-	var status accountStatusResponse
-	if errDecode := json.Unmarshal(response.Body, &status); errDecode != nil {
+	response := callAccount(t, app, routeAccess, accountTestKeyA, nil)
+	var access accountAccessResponse
+	if errDecode := json.Unmarshal(response.Body, &access); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if status.Tracked {
-		t.Fatalf("deleted account remained readable: %+v", status)
+	if access.Tracked {
+		t.Fatalf("deleted account remained readable: %+v", access)
 	}
 	events := callAccount(t, app, routeEvents, accountTestKeyA, nil)
 	var view billing.RequestEventView

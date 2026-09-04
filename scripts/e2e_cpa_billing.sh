@@ -965,7 +965,7 @@ run_target() {
   local target_dir="$run_dir/target-$index"
   local host_dir="$target_dir/host"
   local runtime_dir="$target_dir/runtime"
-  local api_key_json plugins_file prompt account_status_file account_access_file account_prices_file account_events_file
+  local api_key_json plugins_file prompt account_access_file account_prices_file account_events_file
   local client upstream stream endpoint body mode extension response_file request_events_file
   local client_label upstream_label mode_label request_number requested_model billing_model upstream_models model_id
   local model_case case_name actual_upstream_model expected_source expected_uncached expected_cache_write
@@ -1241,21 +1241,18 @@ run_target() {
     echo "CLIProxyAPI ${host_label} 请求事件数量为 ${actual_requests}，预期 ${expected_requests}。" >&2
     return 1
   fi
-  account_status_file="$runtime_dir/account-status.json"
   account_access_file="$runtime_dir/account-access.json"
   account_prices_file="$runtime_dir/account-prices.json"
   account_events_file="$runtime_dir/account-events.json"
-  account_call "$port" "/v0/resource/plugins/cpa-key-billing/status" >"$account_status_file"
   account_call "$port" "/v0/resource/plugins/cpa-key-billing/access" >"$account_access_file"
   account_call "$port" "/v0/resource/plugins/cpa-key-billing/prices" >"$account_prices_file"
   account_call "$port" "/v0/resource/plugins/cpa-key-billing/events?limit=100" >"$account_events_file"
   if ! jq -e '
       .tracked == true and
-      (has("keys") | not) and (has("plans") | not) and (has("prices") | not)
-    ' "$account_status_file" >/dev/null ||
-    ! jq -e '
+      has("identity") and has("subscription") and has("concurrency") and
       (.models | length) == 0 and (.credentials | length) == 0 and
       .routing_valid == true and (.warnings | length) == 0 and
+      (has("keys") | not) and (has("plans") | not) and (has("prices") | not) and
       (has("routing") | not) and (has("bindings") | not)
     ' "$account_access_file" >/dev/null ||
     ! jq -e 'length > 0 and all(.[]; has("pattern") and has("source") and (has("operation") | not))' \

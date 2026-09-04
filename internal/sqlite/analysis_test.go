@@ -27,8 +27,8 @@ func TestAnalysisAggregatesOnlyDisplayedUsageDistributions(t *testing.T) {
 	summary := view.Summary
 	if summary.Requests != 3 || summary.Succeeded != 1 || summary.Failed != 2 ||
 		summary.TotalTokens != 3000 || summary.InputTokens != 1500 || summary.CacheRate != 0 ||
-		summary.Cost.TotalUSD != 1.5 || math.Abs(summary.Cost.Input.USD-0.6) > 1e-9 ||
-		math.Abs(summary.Cost.Output.USD-0.9) > 1e-9 {
+		summary.Cost.TotalUSD != 1.5 || math.Abs(summary.Cost.InputUSD-0.6) > 1e-9 ||
+		math.Abs(summary.Cost.OutputUSD-0.9) > 1e-9 {
 		t.Fatalf("summary = %+v", summary)
 	}
 	if usage.APIKeys[0].Percent+usage.APIKeys[1].Percent != 100 {
@@ -129,9 +129,9 @@ func TestAnalysisSummaryIncludesTokenAndCostBreakdowns(t *testing.T) {
 		math.Abs(summary.CacheRate-200.0/3) > 1e-9 {
 		t.Fatalf("token summary = %+v", summary)
 	}
-	if summary.Cost.TotalUSD != 5 || summary.Cost.Input.USD != 1 ||
-		summary.Cost.CacheRead.USD != 3 || summary.Cost.CacheWrite.USD != 0.5 ||
-		summary.Cost.Output.USD != 0.5 {
+	if summary.Cost.TotalUSD != 5 || summary.Cost.InputUSD != 1 ||
+		summary.Cost.CacheReadUSD != 3 || summary.Cost.CacheWriteUSD != 0.5 ||
+		summary.Cost.OutputUSD != 0.5 {
 		t.Fatalf("cost summary = %+v", summary.Cost)
 	}
 	trends := view.Trends

@@ -2353,7 +2353,6 @@
         <header class="head app-header">
           <div class="app-title">
             <h1>API Key 计费</h1>
-            <span id="head-status" class="tag plain">…</span>
           </div>
           <div class="standalone-actions" aria-label="页面操作">
             <button type="button" class="icon-action" data-page-action="refresh" aria-label="刷新"></button>
@@ -2609,7 +2608,6 @@
         <header class="head app-header">
           <div class="app-title">
             <h1>API Key 用量</h1>
-            <span id="account-status" class="tag plain">只读</span>
             <span id="account-identity" class="muted mono"></span>
           </div>
           <div class="standalone-actions" aria-label="页面操作">
@@ -2945,7 +2943,6 @@
           routes: [],
           credentials: [],
           configuredCredentialsLoaded: false,
-          status: null,
           access: null,
           requestEvents: null,
           errors: null,
@@ -2960,7 +2957,6 @@
       }
       function emptyAccountState() {
         return {
-          status: null,
           access: null,
           prices: null,
           requestEvents: null,
@@ -3195,10 +3191,8 @@
       }
 
       const detailLoads = {
-        adminStatus: emptyLoadState(),
         adminAccess: emptyLoadState(),
         adminPrices: emptyLoadState(),
-        accountStatus: emptyLoadState(),
         accountAccess: emptyLoadState(),
         accountPrices: emptyLoadState(),
         adminAnalysis: emptyLoadState(),
@@ -3265,7 +3259,6 @@
         else state = emptyAdminState();
         for (const name of role === "account"
           ? [
-              "accountStatus",
               "accountAccess",
               "accountPrices",
               "accountAnalysis",
@@ -3273,7 +3266,6 @@
               "accountAuthFiles",
             ]
           : [
-              "adminStatus",
               "adminAccess",
               "adminPrices",
               "adminAnalysis",
@@ -3373,26 +3365,6 @@
         api(method, PLUGIN_BASE + path, body, opts);
       const accountAPI = (path, opts) =>
         api("GET", ACCOUNT_BASE + path, null, { ...(opts || {}), raw: true });
-
-      function modelIDs(payload) {
-        const list =
-          (payload && payload.data) ||
-          (payload && payload.models) ||
-          (Array.isArray(payload) ? payload : []);
-        const seen = new Set();
-        return list
-          .map((item) =>
-            String(
-              typeof item === "string" ? item : item?.id || item?.name || "",
-            ).trim(),
-          )
-          .filter((model) => {
-            const key = model.toLowerCase();
-            if (!key || seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          });
-      }
 
       function usd(value) {
         const amount = Number(value || 0);
@@ -3665,25 +3637,6 @@
           if (load.promise === task) load.promise = null;
           if (!deferRender && load.generation === generation) render?.();
         }
-      }
-
-      function loadStatus(account, deferRender) {
-        const load = account
-          ? detailLoads.accountStatus
-          : detailLoads.adminStatus;
-        return loadResource(
-          load,
-          () => (account ? accountAPI("/status") : plugin("GET", "/status")),
-          (status) => {
-            if (account) accountState.status = status;
-            else state.status = status;
-          },
-          () =>
-            account
-              ? currentRole === "account" && renderAccount()
-              : currentRole === "admin" && renderAdminPage(false),
-          deferRender,
-        );
       }
 
       const CONFIGURED_CREDENTIAL_ENDPOINTS = [
@@ -4056,10 +4009,8 @@
         const tasks = [];
         const owner = account ? accountState : state;
         const tab = account ? accountTab : activeAdminTab();
-        if (owner.status === null) tasks.push(loadStatus(account, false));
         if (account) {
-          if (tab === "subscription" && owner.access === null)
-            tasks.push(loadAccountAccess(false));
+          if (owner.access === null) tasks.push(loadAccountAccess(false));
           if (tab === "subscription" && owner.prices === null)
             tasks.push(loadAccountPrices(false));
         } else {
@@ -4087,16 +4038,14 @@
       async function startAdmin(key) {
         currentRole = "admin";
         authKey = key;
-        // Repeated invalid management keys can trigger an IP ban, so probe once only.
-        await loadStatus(false, true);
         await activateAuthQuotaCache(false, key);
         const route = pageRoute();
         setAdminTab(route.role === "admin" ? route.tab : "keys");
+        const summary = await autoSyncKeys();
+        await ensureViewInitialized(false);
         $("gate").classList.add("hidden");
         $("account-app").classList.add("hidden");
         $("app").classList.remove("hidden");
-        const summary = await autoSyncKeys();
-        await ensureViewInitialized(false);
         if (summary) notify(summary);
         scheduleAutoRefresh();
       }
@@ -4106,9 +4055,8 @@
         authKey = key;
         // CLIProxyAPI remains authoritative for whether this downstream key is
         // currently valid. The plugin endpoint only uses the key to select its hash.
-        accountState.models = modelIDs(
-          await api("GET", "/v1/models", null, { raw: true }),
-        );
+        const modelList = await api("GET", "/v1/models", null, { raw: true });
+        accountState.models = modelList.data.map((item) => item.id);
         await activateAuthQuotaCache(true, key);
         $("gate").classList.add("hidden");
         $("app").classList.add("hidden");
@@ -4151,32 +4099,24 @@
         if (!["analysis", "request-events", "errors"].includes(accountTab)) {
           closeSharedTimePopover(true);
         }
-        if (currentRole === "account" && accountState.status) renderAccount();
+        if (currentRole === "account" && accountState.access) renderAccount();
         revealTab(
           document.querySelector(`[data-account-tab="${accountTab}"]`),
         );
       }
 
       function renderAccount(renderDetail = true) {
-        const accountStatus = accountState.status || { tracked: false };
-        const tracked = accountStatus.tracked === true;
+        const access = accountState.access || { tracked: false };
+        const tracked = access.tracked === true;
         $("account-untracked").classList.toggle("hidden", tracked);
         $("account-content").classList.toggle("hidden", !tracked);
-        const identity = accountStatus.identity || {};
+        const identity = access.identity || {};
         if (tracked)
           $("account-identity").textContent = identity.label
             ? identity.label + " · " + identity.preview
             : identity.preview;
-        const subscription = accountStatus.subscription || {};
-        const concurrency = accountStatus.concurrency || {};
-        const status = $("account-status");
-        status.textContent = !tracked
-          ? "尚无记录"
-          : subscription.blocked
-            ? "额度用尽"
-            : "正常";
-        status.className =
-          "tag " + (!tracked ? "plain" : subscription.blocked ? "bad" : "ok");
+        const subscription = access.subscription || {};
+        const concurrency = access.concurrency || {};
         $("account-remaining").textContent = !tracked
           ? "—"
           : subscription.unlimited
@@ -4218,7 +4158,6 @@
             quota.percent.toFixed(2) +
             "%）";
 
-        const access = accountState.access || {};
         const routingValid = access.routing_valid !== false;
         const modelScope = new Set((access.models || []).map((model) => model.toLowerCase()));
         const models = (
@@ -4759,7 +4698,7 @@
       }
 
       function renderAnalysisSummary(summary) {
-        const cost = summary.cost || {};
+        const cost = summary.cost;
         const detail = (label, value) =>
           el(
             "div",
@@ -4783,23 +4722,22 @@
               "data-analysis-trend": trend,
             }),
           );
-        const costDetail = (label, part) => {
-          const available = cost.available !== false;
-          const amount = Number(part?.usd || 0);
+        const costDetail = (label, amount) => {
+          const value = Number(amount || 0);
           return detail(
             label,
-            available ? (amount === 0 ? "$0.0000" : usd(amount)) : "—",
+            cost.available ? (value === 0 ? "$0.0000" : usd(value)) : "—",
           );
         };
         const hasCacheWriteTokens = Number(summary.cache_write_tokens || 0) > 0;
-        const hasCacheWriteCost = Number(cost.cache_write?.usd || 0) > 0;
+        const hasCacheWriteCost = Number(cost.cache_write_usd || 0) > 0;
         const costRows = [
-          costDetail("输入", cost.input),
-          costDetail("输出", cost.output),
-          costDetail("缓存读", cost.cache_read),
+          costDetail("输入", cost.input_usd),
+          costDetail("输出", cost.output_usd),
+          costDetail("缓存读", cost.cache_read_usd),
         ];
         if (hasCacheWriteCost)
-          costRows.push(costDetail("缓存写", cost.cache_write));
+          costRows.push(costDetail("缓存写", cost.cache_write_usd));
         const tokenRows = [
           detail("输入", tokens(summary.input_tokens)),
           detail("输出", tokens(summary.output_tokens)),
@@ -4840,7 +4778,7 @@
           ),
           card(
             "总成本",
-            cost.available === false ? "—" : usd(cost.total_usd),
+            cost.available ? usd(cost.total_usd) : "—",
             costRows,
             "total_cost",
           ),
@@ -4892,10 +4830,10 @@
           analysisDimensions[role] = dimension;
         }
         const rows = compactDistribution(
-          analysis.usage_distribution?.[dimension] || [],
+          analysis.usage_distribution[dimension],
         );
-        const summary = analysis.summary || {};
-        const trends = analysis.trends || {};
+        const summary = analysis.summary;
+        const trends = analysis.trends;
         const renderSignature = JSON.stringify([
           document.documentElement.getAttribute("data-theme") || "",
           dimension,
@@ -4958,7 +4896,7 @@
               metric("请求数", int(row.requests)),
               metric(
                 "总成本",
-                row.cost_available === false ? "—" : usd(row.cost_usd),
+                row.cost_available ? usd(row.cost_usd) : "—",
               ),
             ),
           );
@@ -4970,7 +4908,7 @@
             "section",
             { class: "card usage-trend-card" },
             el("h2", {}, "用量趋势"),
-            (trends.total_tokens || []).length
+            trends.total_tokens.length
               ? [
                   el("div", { class: "usage-trend-legend" }),
                   el(
@@ -5786,15 +5724,7 @@
       }
 
       function renderAdminPage(renderTab = true) {
-        renderHeader();
         if (renderTab) renderAdminTab(activeAdminTab(), true);
-      }
-
-      function renderHeader() {
-        const status = state.status || {};
-        const badge = $("head-status");
-        badge.textContent = status.enabled ? "运行中" : "已停用";
-        badge.className = "tag " + (status.enabled ? "ok" : "warn");
       }
 
       function keyName(view) {
@@ -8045,7 +7975,7 @@
             throw new Error("HTTP " + resp.status);
           }
           const payload = await resp.json();
-          const models = modelIDs(payload);
+          const models = payload.data.map((item) => item.id);
           if (!models.length) {
             return "";
           }
@@ -8306,10 +8236,11 @@
       async function refreshRolePage(account, reason) {
         const background = reason === "background";
         const tab = activeTab(account);
-        const tasks = [loadStatus(account, true)];
+        const tasks = [];
         if (account) {
+          tasks.push(loadAccountAccess(true));
           if (tab === "subscription") {
-            tasks.push(loadAccountAccess(true), loadAccountPrices(true));
+            tasks.push(loadAccountPrices(true));
           }
         } else if (tab === "keys") {
           tasks.push(loadAdminAccess(true));
@@ -8529,7 +8460,7 @@
         if (!["analysis", "request-events", "errors"].includes(selected)) {
           closeSharedTimePopover(false);
         }
-        if (currentRole === "admin" && state.status) {
+        if (currentRole === "admin") {
           renderAdminTab(selected, selected === "keys" && !!routePicker.scope);
         }
         revealTab(document.querySelector(`[data-tab="${selected}"]`));

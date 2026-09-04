@@ -14,7 +14,7 @@ type pendingRouteLog struct {
 	Key                  string
 	Model                string
 	ModelRestricted      bool
-	ModelAllowed         bool
+	ModelDenied          bool
 	CredentialRestricted bool
 	ConfigurationError   bool
 	SelectedCredentialID string
@@ -43,7 +43,9 @@ func credentialLogName(credential credentialView) string {
 
 func (a *App) beginRouteLog(requestID, scope string, decision billing.RoutingDecision) {
 	requestID = strings.TrimSpace(requestID)
-	if requestID == "" || (!decision.ModelRestricted && !decision.CredentialRestricted && decision.ConfigurationError == "") {
+	modelRestricted := decision.RestrictsModels()
+	credentialRestricted := decision.RestrictsCredentials()
+	if requestID == "" || (!modelRestricted && !credentialRestricted && decision.ConfigurationError == "") {
 		return
 	}
 	keyDescription := boundedLogValue(a.store.KeyDescription(scope), 256)
@@ -61,7 +63,13 @@ func (a *App) beginRouteLog(requestID, scope string, decision billing.RoutingDec
 		delete(a.pending, oldestID)
 	}
 	a.pendingSequence++
-	a.pending[requestID] = pendingRouteLog{Sequence: a.pendingSequence, Key: keyDescription, Model: boundedLogValue(decision.Model, 512), ModelRestricted: decision.ModelRestricted, ModelAllowed: decision.ModelAllowed, CredentialRestricted: decision.CredentialRestricted, ConfigurationError: decision.ConfigurationError != ""}
+	a.pending[requestID] = pendingRouteLog{
+		Sequence: a.pendingSequence, Key: keyDescription,
+		Model: boundedLogValue(decision.Model, 512), ModelRestricted: modelRestricted,
+		ModelDenied:          modelRestricted && !decision.AllowsModel(),
+		CredentialRestricted: credentialRestricted,
+		ConfigurationError:   decision.ConfigurationError != "",
+	}
 }
 
 func (a *App) observeRouteCredential(requestID, credentialID, credentialIndex string) {
@@ -103,7 +111,7 @@ func (a *App) finishRouteLog(completion RequestCompletion) {
 	}
 	if pending.ConfigurationError {
 		row["model_result"] = "configuration_error"
-	} else if !pending.ModelAllowed {
+	} else if pending.ModelDenied {
 		row["model_result"] = "deny"
 	}
 	if pending.CredentialRestricted {
@@ -112,7 +120,7 @@ func (a *App) finishRouteLog(completion RequestCompletion) {
 	}
 	if pending.ConfigurationError {
 		row["credential_result"] = "configuration_error"
-	} else if !pending.ModelAllowed {
+	} else if pending.ModelDenied {
 		row["credential_result"] = "not_reached"
 	} else if pending.CredentialRestricted {
 		id := pending.SelectedCredentialID

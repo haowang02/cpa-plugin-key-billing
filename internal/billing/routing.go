@@ -49,14 +49,31 @@ type RoutePatch struct {
 }
 
 type RoutingDecision struct {
-	Model                string
-	ModelAllowed         bool
-	ModelRestricted      bool
-	ModelScope           []string
-	CredentialRestricted bool
-	CredentialIDs        []string
-	CredentialProviders  []CredentialProviderSelector
-	ConfigurationError   string
+	Model               string
+	ModelScope          []string
+	CredentialIDs       []string
+	CredentialProviders []CredentialProviderSelector
+	ConfigurationError  string
+}
+
+func (d RoutingDecision) RestrictsModels() bool {
+	return len(d.ModelScope) > 0
+}
+
+func (d RoutingDecision) AllowsModel() bool {
+	if d.ConfigurationError != "" {
+		return false
+	}
+	if !d.RestrictsModels() || d.Model == "" {
+		return true
+	}
+	return slices.ContainsFunc(d.ModelScope, func(model string) bool {
+		return strings.EqualFold(model, d.Model)
+	})
+}
+
+func (d RoutingDecision) RestrictsCredentials() bool {
+	return len(d.CredentialIDs) > 0 || len(d.CredentialProviders) > 0
 }
 
 type RouteDeleteResult struct {
@@ -429,11 +446,11 @@ func (s *Store) DeleteRoute(id string) (RouteDeleteResult, error) {
 
 func routingRestricted(state *State, key *KeyState) bool {
 	decision := resolveRoutingState(state, key, "")
-	return decision.ConfigurationError != "" || decision.ModelRestricted || decision.CredentialRestricted
+	return decision.ConfigurationError != "" || decision.RestrictsModels() || decision.RestrictsCredentials()
 }
 
 func (s *Store) ResolveRouting(scope, upstreamModel, routeModel string) RoutingDecision {
-	decision := RoutingDecision{ModelAllowed: true}
+	var decision RoutingDecision
 	s.read(func(state *State) {
 		model := state.ResolveBillingModel(upstreamModel, routeModel)
 		decision = resolveRoutingState(state, state.Keys[normalizeScope(scope)], model)
@@ -451,7 +468,7 @@ func (s *Store) KeyDescription(scope string) string {
 
 func resolveRoutingState(state *State, key *KeyState, model string) RoutingDecision {
 	model = strings.TrimSpace(model)
-	d := RoutingDecision{Model: model, ModelAllowed: true, ModelScope: []string{}, CredentialIDs: []string{}, CredentialProviders: []CredentialProviderSelector{}}
+	d := RoutingDecision{Model: model, ModelScope: []string{}, CredentialIDs: []string{}, CredentialProviders: []CredentialProviderSelector{}}
 	if key == nil {
 		return d
 	}
@@ -462,7 +479,6 @@ func resolveRoutingState(state *State, key *KeyState, model string) RoutingDecis
 		route, ok := state.findRoute(id)
 		if !ok {
 			d.ConfigurationError = fmt.Sprintf("路由规则 %q 已不存在", id)
-			d.ModelAllowed = false
 			return d
 		}
 		rule := route.Rule
@@ -492,17 +508,12 @@ func resolveRoutingState(state *State, key *KeyState, model string) RoutingDecis
 		providers[provider] = struct{}{}
 	}
 	if len(modelSet) > 0 {
-		d.ModelRestricted = true
 		for _, display := range modelSet {
 			d.ModelScope = append(d.ModelScope, display)
 		}
 		sort.Slice(d.ModelScope, func(i, j int) bool { return strings.ToLower(d.ModelScope[i]) < strings.ToLower(d.ModelScope[j]) })
-		if model != "" {
-			_, d.ModelAllowed = modelSet[strings.ToLower(model)]
-		}
 	}
 	if len(ids) > 0 || len(providers) > 0 {
-		d.CredentialRestricted = true
 		for _, id := range ids {
 			d.CredentialIDs = append(d.CredentialIDs, id)
 		}

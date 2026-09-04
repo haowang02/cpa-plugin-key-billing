@@ -177,7 +177,7 @@ func (a *App) pickCredential(raw []byte) ([]byte, error) {
 	if decision.ConfigurationError != "" {
 		return ErrorEnvelope("routing_configuration_error", decision.ConfigurationError, http.StatusServiceUnavailable), nil
 	}
-	if !decision.CredentialRestricted {
+	if !decision.RestrictsCredentials() {
 		return OKEnvelope(SchedulerPickResponse{Handled: false})
 	}
 	allowed := make([]SchedulerAuthCandidate, 0, len(req.Candidates))
