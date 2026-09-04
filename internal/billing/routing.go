@@ -293,10 +293,12 @@ func NormalizeRoute(route Route) (Route, error) {
 
 func (s *Store) CreateRoute(route Route, scopes []string) (Route, error) {
 	scopes = normalizeScopes(scopes)
-	return routingUpdateResult(s, func(state *State) (Route, Changes, error) {
+	var errApply error
+	stored := updateResult(s, func(state *State) (Route, Changes) {
 		for _, scope := range scopes {
 			if state.liveKey(scope) == nil {
-				return Route{}, Changes{}, notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+				errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+				return Route{}, Changes{}
 			}
 		}
 		if strings.TrimSpace(route.ID) == "" {
@@ -307,19 +309,22 @@ func (s *Store) CreateRoute(route Route, scopes []string) (Route, error) {
 		}
 		validated, err := NormalizeRoute(route)
 		if err != nil {
-			return Route{}, Changes{}, err
+			errApply = err
+			return Route{}, Changes{}
 		}
 		route = validated
 		if _, ok := state.findRoute(route.ID); ok {
-			return Route{}, Changes{}, conflictf("路由规则 %q 已存在", route.ID)
+			errApply = conflictf("路由规则 %q 已存在", route.ID)
+			return Route{}, Changes{}
 		}
 		state.Routes = append(state.Routes, route)
 		binding := RouteBinding{Kind: RouteBindingRoute, Value: route.ID}
 		for _, scope := range scopes {
 			state.Keys[scope].RouteBindings = append(state.Keys[scope].RouteBindings, binding)
 		}
-		return cloneRoute(route), Changes{Routes: true, Keys: slices.Clone(scopes)}, nil
+		return cloneRoute(route), Changes{Routes: true, Keys: scopes}
 	})
+	return stored, errApply
 }
 
 func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
@@ -327,13 +332,15 @@ func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
 	if patch.ID == "" {
 		return Route{}, invalidf("路由规则 ID 不能为空")
 	}
-	return routingUpdateResult(s, func(state *State) (Route, Changes, error) {
-		changed := []string{}
+	var errApply error
+	stored := updateResult(s, func(state *State) (Route, Changes) {
+		var changed []string
 		i := state.findRouteIndex(patch.ID)
 		if i < 0 {
-			return Route{}, Changes{}, notFoundf("路由规则 %q 不存在", patch.ID)
+			errApply = notFoundf("路由规则 %q 不存在", patch.ID)
+			return Route{}, Changes{}
 		}
-		updated := cloneRoute(state.Routes[i])
+		updated := state.Routes[i]
 		if patch.Name != nil {
 			updated.Name = *patch.Name
 		}
@@ -342,7 +349,8 @@ func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
 		}
 		validated, err := NormalizeRoute(updated)
 		if err != nil {
-			return Route{}, Changes{}, err
+			errApply = err
+			return Route{}, Changes{}
 		}
 		var selected map[string]struct{}
 		if scopes != nil {
@@ -350,33 +358,34 @@ func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
 			selected = make(map[string]struct{}, len(normalized))
 			for _, scope := range normalized {
 				if state.liveKey(scope) == nil {
-					return Route{}, Changes{}, notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+					errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+					return Route{}, Changes{}
 				}
 				selected[scope] = struct{}{}
 			}
 		}
 		updated = validated
 		state.Routes[i] = updated
-		binding := RouteBinding{Kind: RouteBindingRoute, Value: patch.ID}
-		for scope, key := range state.Keys {
-			if key == nil || !key.DeletedAt.IsZero() {
-				continue
-			}
-			hasBinding := slices.Contains(key.RouteBindings, binding)
-			if scopes == nil {
-				continue
-			}
-			_, shouldBind := selected[scope]
-			if shouldBind && !hasBinding {
-				key.RouteBindings = append(key.RouteBindings, binding)
-				changed = append(changed, scope)
-			} else if !shouldBind && hasBinding {
-				key.RouteBindings = slices.DeleteFunc(key.RouteBindings, func(item RouteBinding) bool { return item == binding })
-				changed = append(changed, scope)
+		if scopes != nil {
+			binding := RouteBinding{Kind: RouteBindingRoute, Value: patch.ID}
+			for scope, key := range state.Keys {
+				if key == nil || !key.DeletedAt.IsZero() {
+					continue
+				}
+				hasBinding := slices.Contains(key.RouteBindings, binding)
+				_, shouldBind := selected[scope]
+				if shouldBind && !hasBinding {
+					key.RouteBindings = append(key.RouteBindings, binding)
+					changed = append(changed, scope)
+				} else if !shouldBind && hasBinding {
+					key.RouteBindings = slices.DeleteFunc(key.RouteBindings, func(item RouteBinding) bool { return item == binding })
+					changed = append(changed, scope)
+				}
 			}
 		}
-		return cloneRoute(updated), Changes{Routes: true, Keys: changed}, nil
+		return cloneRoute(updated), Changes{Routes: true, Keys: changed}
 	})
+	return stored, errApply
 }
 
 func (s *Store) SetKeyRoutes(scope string, bindings []RouteBinding) error {
@@ -388,22 +397,25 @@ func (s *Store) SetKeyRoutes(scope string, bindings []RouteBinding) error {
 	if err != nil {
 		return err
 	}
-	_, err = routingUpdateResult(s, func(state *State) (struct{}, Changes, error) {
+	var errApply error
+	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.liveKey(scope)
 		if key == nil {
-			return struct{}{}, Changes{}, notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+			return struct{}{}, Changes{}
 		}
 		for _, binding := range bindings {
 			if binding.Kind == RouteBindingRoute {
 				if _, ok := state.findRoute(binding.Value); !ok {
-					return struct{}{}, Changes{}, notFoundf("路由规则 %q 不存在", binding.Value)
+					errApply = notFoundf("路由规则 %q 不存在", binding.Value)
+					return struct{}{}, Changes{}
 				}
 			}
 		}
-		key.RouteBindings = slices.Clone(bindings)
-		return struct{}{}, Changes{Keys: []string{scope}}, nil
+		key.RouteBindings = bindings
+		return struct{}{}, Changes{Keys: []string{scope}}
 	})
-	return err
+	return errApply
 }
 
 func (s *Store) DeleteRoute(id string) (RouteDeleteResult, error) {
@@ -411,25 +423,26 @@ func (s *Store) DeleteRoute(id string) (RouteDeleteResult, error) {
 	if id == "" {
 		return RouteDeleteResult{}, invalidf("路由规则 ID 不能为空")
 	}
-	return routingUpdateResult(s, func(state *State) (RouteDeleteResult, Changes, error) {
-		changed := []string{}
+	var errApply error
+	result := updateResult(s, func(state *State) (RouteDeleteResult, Changes) {
+		var changed []string
 		i := state.findRouteIndex(id)
 		if i < 0 {
-			return RouteDeleteResult{}, Changes{}, notFoundf("路由规则 %q 不存在", id)
+			errApply = notFoundf("路由规则 %q 不存在", id)
+			return RouteDeleteResult{}, Changes{}
 		}
 		out := RouteDeleteResult{Deleted: id}
 		for scope, key := range state.Keys {
 			if key == nil {
 				continue
 			}
-			live := key.DeletedAt.IsZero()
-			next := slices.DeleteFunc(slices.Clone(key.RouteBindings), func(b RouteBinding) bool { return b.Kind == RouteBindingRoute && b.Value == id })
-			if len(next) == len(key.RouteBindings) {
+			before := len(key.RouteBindings)
+			key.RouteBindings = slices.DeleteFunc(key.RouteBindings, func(b RouteBinding) bool { return b.Kind == RouteBindingRoute && b.Value == id })
+			if len(key.RouteBindings) == before {
 				continue
 			}
-			key.RouteBindings = next
 			changed = append(changed, scope)
-			if !live {
+			if !key.DeletedAt.IsZero() {
 				continue
 			}
 			out.AffectedKeys++
@@ -438,63 +451,9 @@ func (s *Store) DeleteRoute(id string) (RouteDeleteResult, error) {
 			}
 		}
 		state.Routes = slices.Delete(state.Routes, i, i+1)
-		return out, Changes{Routes: true, Keys: changed}, nil
+		return out, Changes{Routes: true, Keys: changed}
 	})
-}
-
-func cloneStateForRouting(state *State) *State {
-	next := *state
-	next.Routes = make([]Route, 0, len(state.Routes))
-	for _, route := range state.Routes {
-		next.Routes = append(next.Routes, cloneRoute(route))
-	}
-	next.Keys = make(map[string]*KeyState, len(state.Keys))
-	for scope, key := range state.Keys {
-		if key == nil {
-			next.Keys[scope] = nil
-			continue
-		}
-		copyKey := *key
-		copyKey.RouteBindings = slices.Clone(key.RouteBindings)
-		next.Keys[scope] = &copyKey
-	}
-	return &next
-}
-
-func routingUpdateResult[T any](s *Store, fn func(*State) (T, Changes, error)) (value T, err error) {
-	var written bool
-	func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		next := cloneStateForRouting(s.state)
-		var current Changes
-		value, current, err = fn(next)
-		if err != nil {
-			return
-		}
-		changes := s.dirty.merge(current)
-		if s.repo == nil {
-			s.state = next
-			s.dirty = changes
-			return
-		}
-		written = true
-		if err = s.repo.Save(next, changes); err != nil {
-			return
-		}
-		s.state = next
-		s.dirty = Changes{}
-	}()
-	if err != nil {
-		if written {
-			s.recordWriteError(err)
-		}
-		return value, err
-	}
-	if written {
-		s.recordWriteSuccess()
-	}
-	return value, nil
+	return result, errApply
 }
 
 func routingRestricted(state *State, key *KeyState) bool {

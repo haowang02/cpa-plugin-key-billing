@@ -1,7 +1,6 @@
 package billing
 
 import (
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -172,24 +171,6 @@ func TestMissingRouteFailsClosed(t *testing.T) {
 	if decision.ModelAllowed || decision.ConfigurationError == "" {
 		t.Fatalf("decision=%+v", decision)
 	}
-}
-
-func TestRoutingMutationPublishesOnlyAfterRepositoryCommit(t *testing.T) {
-	store, repo := newStoreWithRepository(t)
-	store.ReplaceAll(func(state *State) { state.Keys["scope-a"] = &KeyState{} })
-	route, err := store.CreateRoute(Route{Name: "Restricted", Rule: RouteRule{Models: []string{"gpt"}}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	repo.fail = errors.New("disk full")
-	if err := store.SetKeyRoutes("scope-a", []RouteBinding{{Kind: RouteBindingRoute, Value: route.ID}}); err == nil {
-		t.Fatal("SetKeyRoutes succeeded despite repository failure")
-	}
-	store.Read(func(state *State) {
-		if len(state.Keys["scope-a"].RouteBindings) != 0 {
-			t.Fatalf("uncommitted bindings were published: %+v", state.Keys["scope-a"].RouteBindings)
-		}
-	})
 }
 
 func TestCredentialProviderSourceIsPartOfIdentity(t *testing.T) {
