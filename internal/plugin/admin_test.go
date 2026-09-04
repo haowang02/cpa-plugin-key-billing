@@ -509,6 +509,36 @@ func TestRouteMutationRefreshesInventoryAndNeverReturnsRawCredentialID(t *testin
 	}
 }
 
+func TestConfiguredCredentialSyncMakesExactAPIKeysRoutable(t *testing.T) {
+	app := newConfiguredApp(t)
+	const rawID = "codex:apikey:0123456789ab"
+	const rawKey = "sk-dummy-upstream-secret-1234"
+	var synced struct {
+		Credentials []credentialView `json:"credentials"`
+	}
+	callOK(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{
+		"credentials": []map[string]any{{
+			"ref": billing.CredentialFingerprint(rawID), "provider": "codex", "display_name": rawKey,
+		}},
+	}, http.StatusOK, &synced)
+	ref := billing.CredentialFingerprint(rawID)
+	if len(synced.Credentials) != 1 || synced.Credentials[0].Ref != ref ||
+		synced.Credentials[0].DisplayName != billing.PreviewKey(rawKey) {
+		t.Fatalf("credentials=%+v", synced.Credentials)
+	}
+	if strings.Contains(string(mustMarshal(t, synced)), rawKey) {
+		t.Fatalf("sync response leaked upstream key: %+v", synced)
+	}
+	if !candidateAllowed(SchedulerAuthCandidate{ID: rawID, Provider: "codex"}, billing.RoutingDecision{CredentialIDs: []string{ref}}) {
+		t.Fatal("synced credential did not match its scheduler candidate")
+	}
+
+	callOK(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []any{}}, http.StatusOK, &synced)
+	if len(synced.Credentials) != 0 {
+		t.Fatalf("credentials after empty sync=%+v", synced.Credentials)
+	}
+}
+
 func TestPluginLogReportsStartupAndFailures(t *testing.T) {
 	app := newConfiguredApp(t)
 

@@ -265,7 +265,9 @@ CREDENTIALS = [
     {"ref": "sha256:" + "b" * 64, "source": "auth-files", "provider": "claude", "display_name": "platform@example.com", "status": "active", "disabled": False, "unavailable": False},
     {"ref": "sha256:" + "c" * 64, "source": "ai-providers", "provider": "codex", "display_name": "sk-proxy…7f3a", "status": "active", "disabled": False, "unavailable": False},
     {"ref": "sha256:" + "d" * 64, "source": "ai-providers", "provider": "deepseek", "display_name": "sk-live…91b2", "status": "disabled", "disabled": True, "unavailable": False},
+    {"ref": "sha256:" + "e" * 64, "source": "auth-files", "provider": "xai", "display_name": "disabled@example.com", "status": "disabled", "disabled": True, "unavailable": False},
 ]
+SYNCED_CREDENTIAL_REFS = set()
 
 ROUTES = [
     {"id": "system:all", "name": "默认", "rule": {"models": [], "credential_ids": [], "credential_providers": []}, "bound_key_count": 1},
@@ -1209,6 +1211,26 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"ok": True})
         elif route == ("POST", f"{API_BASE}/keys/sync"):
             self.send_json(200, {"added": 0, "removed": 0})
+        elif route == ("POST", f"{API_BASE}/credentials/sync"):
+            body = json.loads(request_body or b"{}")
+            CREDENTIALS[:] = [
+                item for item in CREDENTIALS
+                if item["ref"] not in SYNCED_CREDENTIAL_REFS
+            ]
+            SYNCED_CREDENTIAL_REFS.clear()
+            for item in body.get("credentials", []):
+                ref = item["ref"]
+                SYNCED_CREDENTIAL_REFS.add(ref)
+                CREDENTIALS.append({
+                    "ref": ref,
+                    "source": "ai-providers",
+                    "provider": item["provider"],
+                    "display_name": item["display_name"],
+                    "status": "disabled" if item.get("disabled") else "active",
+                    "disabled": bool(item.get("disabled")),
+                    "unavailable": False,
+                })
+            self.send_json(200, {"credentials": CREDENTIALS})
         elif route == ("POST", f"{API_BASE}/prices/sync"):
             self.send_json(200, {"added": 0, "removed": 0, "priced": len(PRICES)})
         elif route == ("DELETE", f"{API_BASE}/routes"):

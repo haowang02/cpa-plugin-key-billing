@@ -1100,14 +1100,14 @@
           color-mix(in srgb, var(--primary-color) 18%, transparent);
       }
       .toggle-filter.compact-toggle {
-        gap: 5px;
+        gap: 6px;
         min-height: 0;
         padding: 0;
         border: 0;
         border-radius: 0;
         background: transparent;
         color: var(--text-tertiary);
-        font-size: 10px;
+        font-size: 12px;
         line-height: 1;
       }
       .compact-toggle .toggle-track { width: 24px; height: 14px; }
@@ -1367,7 +1367,7 @@
       }
       .route-editor-section { display: grid; align-content: start; gap: 6px; min-width: 0; }
       .route-editor-section > .small { padding-inline: 2px; }
-      .route-editor-title { display: flex; align-items: center; gap: 8px; min-height: 16px; padding-inline: 2px; }
+      .route-editor-title { display: flex; align-items: center; gap: 12px; min-height: 16px; padding-inline: 2px; }
       .route-editor-title > .small { white-space: nowrap; }
       .dialog-input { width: 100%; }
       .dialog-actions { justify-content: flex-end; margin-top: 14px; }
@@ -1482,7 +1482,9 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
-        width: min(340px, calc(100vw - 24px));
+        width: max-content;
+        min-width: min(340px, calc(100vw - 24px));
+        max-width: min(760px, calc(100vw - 16px));
         padding: 12px;
         border: 1px solid var(--border-color);
         border-radius: 10px;
@@ -1535,6 +1537,7 @@
         background: transparent;
         color: inherit;
       }
+      .route-picker-group > .compact-toggle { margin-left: 8px; }
       .route-picker-chevron {
         display: grid;
         place-items: center;
@@ -1559,6 +1562,13 @@
         border-radius: 6px;
         cursor: pointer;
       }
+      .route-picker-option > span[title] {
+        flex: 0 1 auto;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .route-picker-option > .tag,
+      .route-picker-option > .count { flex: none; }
       .route-picker-option > .lucide-icon,
       .key-picker label > .lucide-icon { width: 14px; height: 14px; }
       .route-picker-option.model > span {
@@ -1579,7 +1589,7 @@
       @media (max-width: 768px) {
         /* Anchoring a popover to a cell inside a horizontally scrolling table stops
      making sense once the table is wider than the screen, so it becomes a sheet. */
-        .route-picker { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; }
+        .route-picker { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; min-width: 0; max-width: none; }
         .route-trigger { max-width: none; }
       }
       .wide-search { width: 360px; max-width: 100%; }
@@ -1890,7 +1900,7 @@
         .auth-filter-bar input[type="search"] { width: 100%; min-width: 0; }
         .auth-filter-bar .native-select,
         .auth-filter-bar select,
-        .toggle-filter { width: 100%; min-width: 0; }
+        .toggle-filter:not(.compact-toggle) { width: 100%; min-width: 0; }
         .auth-file-grid { grid-template-columns: 1fr; }
         .event-list-card { height: clamp(560px, calc(100dvh - 20px), 760px); }
         .event-card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2828,7 +2838,7 @@
           prices: null,
           routes: [],
           credentials: [],
-          credentialProviders: null,
+          configuredCredentialsLoaded: false,
           status: null,
           access: null,
           requestEvents: null,
@@ -3586,12 +3596,12 @@
       }
 
       const CONFIGURED_CREDENTIAL_ENDPOINTS = [
-        ["gemini-api-key", "gemini"],
-        ["interactions-api-key", "gemini-interactions"],
-        ["claude-api-key", "claude"],
-        ["codex-api-key", "codex"],
-        ["xai-api-key", "xai"],
-        ["vertex-api-key", "vertex"],
+        ["gemini-api-key", "gemini", "gemini:apikey", true],
+        ["interactions-api-key", "gemini-interactions", "gemini-interactions:apikey", true],
+        ["claude-api-key", "claude", "claude:apikey", true],
+        ["codex-api-key", "codex", "codex:apikey", true],
+        ["xai-api-key", "xai", "xai:apikey", true],
+        ["vertex-api-key", "vertex", "vertex:apikey", false],
       ];
 
       function configuredEntryEnabled(entry) {
@@ -3609,6 +3619,48 @@
           : "openai-compatible-" + value;
       }
 
+      function configuredKeyPreview(value) {
+        const key = String(value || "").trim();
+        if (!key) return "未配置 API Key";
+        if (key.length <= 12) return "*".repeat(key.length);
+        return key.slice(0, 6) + "…" + key.slice(-4);
+      }
+
+      function sortedConfiguredHeaders(headers) {
+        if (!headers || typeof headers !== "object" || Array.isArray(headers))
+          return "";
+        return Object.keys(headers)
+          .sort()
+          .map((key) => key + "\0" + String(headers[key]) + "\0")
+          .join("");
+      }
+
+      async function sha256Hex(value) {
+        const digest = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(value),
+        );
+        return Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+      }
+
+      async function configuredCredentialRef(kind, parts, counters) {
+        // These hashes must stay byte-identical to CPA's StableIDGenerator and
+        // the plugin's CredentialFingerprint so exact bindings match candidates.
+        const digest = await sha256Hex(
+          kind + parts.map((part) => "\0" + String(part || "").trim()).join(""),
+        );
+        const base = kind + ":" + digest.slice(0, 12);
+        const collision = counters.get(base) || 0;
+        counters.set(base, collision + 1);
+        const id = collision ? base + "-" + collision : base;
+        return (
+          "sha256:" +
+          (await sha256Hex("cpa-key-billing:credential:v1\0" + id))
+        );
+      }
+
       async function configuredCredentialEntries(field) {
         try {
           const payload = await api(
@@ -3624,47 +3676,79 @@
         }
       }
 
-      async function loadConfiguredCredentialProviders() {
-        const requests = CONFIGURED_CREDENTIAL_ENDPOINTS.map(
-          async ([field, provider]) => {
-            const entries = await configuredCredentialEntries(field);
-            return entries.length
-              ? { provider, enabled: entries.some(configuredEntryEnabled) }
-              : null;
-          },
-        );
-        requests.push(
-          configuredCredentialEntries("openai-compatibility").then((entries) =>
-            entries.map((entry) => ({
-              provider: openAICompatibleProvider(entry?.name),
-              enabled:
-                entry?.disabled !== true &&
-                (!Array.isArray(entry?.["api-key-entries"]) ||
-                  !entry["api-key-entries"].length ||
-                  entry["api-key-entries"].some(configuredEntryEnabled)),
-            })),
+      async function loadConfiguredCredentials() {
+        const counters = new Map();
+        const credentials = [];
+        const [configuredEntries, compatibilityEntries] = await Promise.all([
+          Promise.all(
+            CONFIGURED_CREDENTIAL_ENDPOINTS.map(([field]) =>
+              configuredCredentialEntries(field),
+            ),
           ),
-        );
+          configuredCredentialEntries("openai-compatibility"),
+        ]);
 
-        // These management responses contain upstream keys. Reduce them to
-        // provider availability immediately and never retain the payloads.
-        const providers = new Map();
-        const add = (item) => {
-          if (!item?.provider) return;
-          const existing = providers.get(item.provider);
-          providers.set(item.provider, {
-            source: "ai-providers",
-            provider: item.provider,
-            available: !!item.enabled || !!existing?.available,
-          });
-        };
-        for (const result of await Promise.all(requests)) {
-          if (Array.isArray(result)) result.forEach(add);
-          else add(result);
+        for (let index = 0; index < CONFIGURED_CREDENTIAL_ENDPOINTS.length; index++) {
+          const [, provider, kind, usesHeaders] =
+            CONFIGURED_CREDENTIAL_ENDPOINTS[index];
+          const entries = configuredEntries[index];
+          for (const entry of entries) {
+            const apiKey = String(entry?.["api-key"] || "").trim();
+            const baseURL = String(entry?.["base-url"] || "").trim();
+            if (!apiKey && !baseURL) continue;
+            const parts = [apiKey, baseURL, String(entry?.["proxy-url"] || "")];
+            if (usesHeaders)
+              parts.push(
+                String(entry?.prefix || ""),
+                sortedConfiguredHeaders(entry?.headers),
+              );
+            credentials.push({
+              ref: await configuredCredentialRef(kind, parts, counters),
+              provider,
+              display_name: configuredKeyPreview(apiKey),
+              disabled: !configuredEntryEnabled(entry),
+            });
+          }
         }
-        return [...providers.values()].sort((a, b) =>
-          a.provider.localeCompare(b.provider),
-        );
+
+        for (const entry of compatibilityEntries) {
+          const providerName = String(entry?.name || "").trim().toLowerCase() || "openai-compatibility";
+          const provider = openAICompatibleProvider(providerName);
+          const apiKeys = Array.isArray(entry?.["api-key-entries"])
+            ? entry["api-key-entries"]
+            : [];
+          const parentEnabled = entry?.disabled !== true;
+          if (!apiKeys.length) {
+            credentials.push({
+              ref: await configuredCredentialRef(
+                "openai-compatibility:" + providerName,
+                [entry?.["base-url"]],
+                counters,
+              ),
+              provider,
+              display_name: "未配置 API Key",
+              disabled: !parentEnabled,
+            });
+            continue;
+          }
+          for (const apiKeyEntry of apiKeys) {
+            const apiKey = String(apiKeyEntry?.["api-key"] || "").trim();
+            credentials.push({
+              ref: await configuredCredentialRef(
+                "openai-compatibility:" + providerName,
+                [apiKey, entry?.["base-url"], apiKeyEntry?.["proxy-url"]],
+                counters,
+              ),
+              provider,
+              display_name: configuredKeyPreview(apiKey),
+              disabled: !parentEnabled || !configuredEntryEnabled(apiKeyEntry),
+            });
+          }
+        }
+
+        // Discard every plaintext configuration response before updating state.
+        const synced = await plugin("POST", "/credentials/sync", { credentials });
+        return synced.credentials || [];
       }
 
       function loadAdminAccess(deferRender) {
@@ -3672,18 +3756,20 @@
           detailLoads.adminAccess,
           async () => {
             const access = await plugin("GET", "/access");
-            const credentialProviders =
-              state.credentialProviders ||
-              (await loadConfiguredCredentialProviders());
-            return { access, credentialProviders };
+            let configuredCredentialsLoaded = state.configuredCredentialsLoaded;
+            if (!configuredCredentialsLoaded) {
+              access.credentials = await loadConfiguredCredentials();
+              configuredCredentialsLoaded = true;
+            }
+            return { access, configuredCredentialsLoaded };
           },
-          ({ access, credentialProviders }) => {
+          ({ access, configuredCredentialsLoaded }) => {
             state.access = access;
             state.keys = (access.keys || []).filter((view) => !view.deleted_at);
             state.plans = access.plans || [];
             state.routes = access.routes || [];
             state.credentials = access.credentials || [];
-            state.credentialProviders = credentialProviders;
+            state.configuredCredentialsLoaded = configuredCredentialsLoaded;
           },
           () => currentRole === "admin" && renderAdminPage(),
           deferRender,
@@ -5840,7 +5926,6 @@
         $("route-picker-search").value = "";
         $("route-picker").classList.remove("hidden");
         renderRoutePicker();
-        positionRoutePicker();
         $("route-picker-search").focus();
       }
 
@@ -5947,8 +6032,7 @@
           .map((item) => {
             const binding = { kind: "credential_provider", value: providerKey(item) };
             const label = credentialProviderLabel(item);
-            const available = item.available;
-            return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), routePicker.all, "credential-provider", label, available ? "" : "暂无凭证", (checked) => {
+            return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), routePicker.all, "credential-provider", label, credentialProviderAvailabilityNote(item), (checked) => {
               if (checked) {
                 routePicker.bindings.set(bindingKey(binding), binding);
                 for (const credential of state.credentials) {
@@ -5991,6 +6075,7 @@
 
         list.replaceChildren(...sections);
         $("route-picker-save").disabled = false;
+        positionRoutePicker();
       }
 
       function pickerSection(kind, title, options, emptyText) {
@@ -6180,25 +6265,33 @@
 
       function routeProviderChoices(selected = routeProviders) {
         const providers = new Map();
-        const add = (item, available) => {
+        for (const item of state.credentials) {
           const key = providerKey(item);
           const existing = providers.get(key);
           providers.set(key, {
             source: item.source,
             provider: item.provider,
-            available: !!available || !!existing?.available,
+            available:
+              (!item.disabled && !item.unavailable) || !!existing?.available,
+            hasCredentials: true,
           });
-        };
-        for (const item of state.credentialProviders || [])
-          add(item, item.available);
-        for (const item of state.credentials)
-          add(item, !item.disabled && !item.unavailable);
+        }
         for (const key of selected) {
           if (providers.has(key)) continue;
           const item = credentialProviderFromValue(key);
-          if (item) add(item, false);
+          if (item)
+            providers.set(key, {
+              ...item,
+              available: false,
+              hasCredentials: false,
+            });
         }
         return [...providers.values()].sort(compareCredentialProviders);
+      }
+
+      function credentialProviderAvailabilityNote(item) {
+        if (item.available) return "";
+        return item.hasCredentials ? "暂无启用凭证" : "暂无凭证";
       }
 
       function renderRouteCredentialList() {
@@ -6208,7 +6301,6 @@
         const term = routeRuleSearchTerm();
         const enabledOnly = $("route-credential-enabled-only").checked;
         const options = routeProviderChoices().filter((item) => (!enabledOnly || item.available) && matchesTerm(credentialProviderLabel(item) + " 整类", term)).map((item) => {
-          const available = item.available;
           const label = credentialProviderLabel(item);
           return el("label", {}, el("input", { type: "checkbox", checked: routeProviders.has(providerKey(item)) || undefined, onchange: (event) => {
             if (event.target.checked) {
@@ -6218,7 +6310,7 @@
               }
             } else routeProviders.delete(providerKey(item));
             renderRouteCredentialList();
-          } }), actionIcon(credentialIcon(item)), el("span", { title: label + " · 整类" }, label), el("span", { class: "tag warn settings-item-chip", text: "整类" }), !available ? el("span", { class: "muted small", text: "暂无凭证" }) : null);
+          } }), actionIcon(credentialIcon(item)), el("span", { title: label + " · 整类" }, label), el("span", { class: "tag warn settings-item-chip", text: "整类" }), item.available ? null : el("span", { class: "muted small", text: credentialProviderAvailabilityNote(item) }));
         });
         const credentials = state.credentials.filter((item) => (!enabledOnly || !item.disabled) && matchesTerm(credentialLabel(item), term)).sort(compareCredentials);
         for (const item of credentials) {

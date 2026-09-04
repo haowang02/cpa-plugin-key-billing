@@ -17,6 +17,7 @@ type App struct {
 	credentials           map[string]credentialView
 	credentialsByRawID    map[string]string
 	credentialRefsByIndex map[string]string
+	syncedCredentialRefs  map[string]struct{}
 	scheduler             subsetScheduler
 	pending               map[string]pendingRouteLog
 	pendingSequence       uint64
@@ -32,6 +33,7 @@ func NewApp() *App {
 		credentials:           make(map[string]credentialView),
 		credentialsByRawID:    make(map[string]string),
 		credentialRefsByIndex: make(map[string]string),
+		syncedCredentialRefs:  make(map[string]struct{}),
 		pending:               make(map[string]pendingRouteLog),
 	}
 }

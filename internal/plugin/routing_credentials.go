@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"net/http"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -21,6 +22,7 @@ type credentialView struct {
 
 var secretLikeToken = regexp.MustCompile(`(?i)(?:(?:sk|key|token)-[a-z0-9_\-]{4,}|[a-z0-9_\-]{24,})`)
 var emailLikeToken = regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`)
+var credentialFingerprint = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func cleanText(value string) string {
 	return strings.Map(func(r rune) rune {
@@ -184,6 +186,62 @@ func (a *App) observeCredentialUsage(authIndex, authType, source, scope string) 
 	}
 	credential.DisplayName = name
 	a.credentials[ref] = credential
+}
+
+func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementResponse {
+	var body struct {
+		Credentials []struct {
+			Ref         string `json:"ref"`
+			Provider    string `json:"provider"`
+			DisplayName string `json:"display_name"`
+			Disabled    bool   `json:"disabled"`
+		} `json:"credentials"`
+	}
+	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
+		return errorResponse(errDecode)
+	}
+	if len(body.Credentials) > 4096 {
+		return JSONError(http.StatusBadRequest, "invalid", "配置型上游凭证过多")
+	}
+
+	next := make(map[string]credentialView, len(body.Credentials))
+	for _, item := range body.Credentials {
+		ref := strings.ToLower(strings.TrimSpace(item.Ref))
+		provider := strings.ToLower(strings.TrimSpace(item.Provider))
+		if !credentialFingerprint.MatchString(ref) || provider == "" || len(provider) > 160 || cleanText(provider) != provider {
+			return JSONError(http.StatusBadRequest, "invalid", "配置型上游凭证标识无效")
+		}
+		displayName := boundedLogValue(item.DisplayName, 160)
+		if displayName == "" {
+			displayName = "未配置 API Key"
+		}
+		status := "active"
+		if item.Disabled {
+			status = "disabled"
+		}
+		next[ref] = credentialView{
+			Ref: ref, Source: billing.CredentialSourceAIProviders, Provider: provider,
+			DisplayName: displayName, Status: status, Disabled: item.Disabled,
+		}
+	}
+
+	a.routingMu.Lock()
+	for id, ref := range a.credentialsByRawID {
+		if _, synced := a.syncedCredentialRefs[ref]; synced {
+			delete(a.credentialsByRawID, id)
+		}
+	}
+	for ref := range a.syncedCredentialRefs {
+		delete(a.credentials, ref)
+	}
+	a.syncedCredentialRefs = make(map[string]struct{}, len(next))
+	for ref, item := range next {
+		a.credentials[ref] = item
+		a.syncedCredentialRefs[ref] = struct{}{}
+	}
+	a.routingMu.Unlock()
+
+	return JSONResponse(http.StatusOK, map[string]any{"credentials": a.credentialInventory()})
 }
 
 func shortCredentialRef(ref string) string {

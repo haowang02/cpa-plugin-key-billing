@@ -37,6 +37,7 @@ const (
 	routeKeysLabel       = "/keys/label"
 	routeKeysConcurrency = "/keys/concurrency"
 	routeKeysSync        = "/keys/sync"
+	routeCredentialsSync = "/credentials/sync"
 	routeEvents          = "/events"
 	routeErrors          = "/errors"
 	routeAnalysis        = "/analysis"
@@ -75,6 +76,7 @@ var managementEndpoints = []managementEndpoint{
 	{http.MethodPost, routeKeysLabel, "设置 API Key 备注。", (*App).labelKey},
 	{http.MethodPost, routeKeysConcurrency, "设置 API Key 最大并发请求数。", (*App).setKeyConcurrency},
 	{http.MethodPost, routeKeysSync, "同步 CLIProxyAPI 中的 API Key 列表。", (*App).syncKeys},
+	{http.MethodPost, routeCredentialsSync, "同步配置型上游凭证。", (*App).syncConfiguredCredentials},
 	{http.MethodGet, routeEvents, "分页查看请求事件。", func(a *App, req ManagementRequest) ManagementResponse {
 		return a.listRequestEvents(req, viewAccess{})
 	}},
