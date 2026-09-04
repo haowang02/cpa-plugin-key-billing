@@ -23,6 +23,7 @@
         --text-secondary: #6d6760;
         --text-tertiary: #a29c95;
         --border-color: #e3e1db;
+        --analysis-grid-color: rgb(45 42 38 / 0.08);
         --border-primary: #d5d2cb;
         --border-hover: #cecac4;
         --primary-color: #8b8680;
@@ -98,6 +99,7 @@
         --text-secondary: #c9c3bb;
         --text-tertiary: #9c958d;
         --border-color: #3a3530;
+        --analysis-grid-color: rgb(246 244 241 / 0.07);
         --border-primary: #4a453f;
         --border-hover: #5a544d;
         --primary-hover: #9a948e;
@@ -4456,8 +4458,8 @@
       }
 
       function compactDistribution(rows) {
-        const visible = (rows || []).slice(0, 5).map((row) => ({ ...row }));
-        const rest = (rows || []).slice(5);
+        const visible = rows.slice(0, 5).map((row) => ({ ...row }));
+        const rest = rows.slice(5);
         if (rest.length) {
           visible.push({
             key: "other",
@@ -4545,9 +4547,7 @@
                       "Token 总数 " + tokens(row.total_tokens),
                       "请求数 " + int(row.requests),
                       "总成本 " +
-                        (row.cost_available === false
-                          ? "—"
-                          : usd(row.cost_usd)),
+                        (row.cost_available ? usd(row.cost_usd) : "—"),
                     ];
                   },
                 },
@@ -4562,7 +4562,7 @@
         analysisCharts[role].trend?.destroy();
         analysisCharts[role].trend = null;
         const canvas = $(account ? "account-usage-trend-chart" : "usage-trend-chart");
-        const points = trends.total_tokens || [];
+        const points = trends.total_tokens;
         if (!canvas || !points.length) return;
         if (typeof Chart === "undefined") {
           canvas.parentElement.replaceChildren(
@@ -4571,7 +4571,7 @@
           return;
         }
         const values = (name) =>
-          (trends[name] || []).map((point) => Number(point.value || 0));
+          trends[name].map((point) => Number(point.value || 0));
         const totalTokens = values("total_tokens");
         const cacheWriteTokens = values("cache_write_tokens");
         const average = totalTokens.reduce((sum, value) => sum + value, 0) /
@@ -4654,7 +4654,10 @@
           pointRadius: 0,
           pointHoverRadius: 0,
         });
-        const gridColor = themeColor("--border-color", "#e3e1db");
+        const gridColor = themeColor(
+          "--analysis-grid-color",
+          "rgba(45, 42, 38, 0.08)",
+        );
         const narrow = canvas.parentElement.clientWidth <= 520;
         const legend = canvas.closest(".usage-trend-card").querySelector(
           ".usage-trend-legend",
@@ -4681,6 +4684,7 @@
             animation: { duration: 300 },
             onResize: (chart, size) => {
               const compact = size.width <= 520;
+              chart.options.scales.x.ticks.maxTicksLimit = compact ? 4 : 8;
               chart.options.scales.requests.display = !compact;
               chart.options.scales.cost.display = !compact && costs.length > 0;
             },
@@ -4720,14 +4724,25 @@
             scales: {
               x: {
                 stacked: true,
-                grid: { color: gridColor, drawTicks: false },
-                ticks: { color: textColor, maxRotation: 0, autoSkip: true },
+                grid: { display: false, drawTicks: false },
+                border: { color: gridColor },
+                ticks: {
+                  color: textColor,
+                  maxRotation: 0,
+                  autoSkip: true,
+                  maxTicksLimit: narrow ? 4 : 8,
+                },
               },
               tokens: {
                 stacked: true,
                 beginAtZero: true,
                 grid: { color: gridColor },
-                ticks: { color: textColor, callback: (value) => tokens(value) },
+                border: { color: gridColor },
+                ticks: {
+                  color: textColor,
+                  maxTicksLimit: 5,
+                  callback: (value) => tokens(value),
+                },
               },
               requests: {
                 beginAtZero: true,
@@ -4749,7 +4764,7 @@
       }
 
       function drawAnalysisTrend(canvas, points) {
-        const values = (points || []).map((point) => Number(point.value || 0));
+        const values = points.map((point) => Number(point.value || 0));
         if (!values.length) return;
         if (values.length === 1) values.push(values[0]);
         const context = canvas.getContext("2d");
@@ -4887,6 +4902,113 @@
         );
       }
 
+      function renderAnalysisDistribution(account, colors = analysisColors()) {
+        const role = account ? "account" : "admin";
+        const analysis = (account ? accountState : state).analysis;
+        const target = $(
+          account ? "account-usage-distribution" : "usage-distribution",
+        );
+        const labels = {
+          api_keys: "API Key",
+          models: "模型",
+          sources: "来源",
+        };
+        if (account || $("analysis-key").value) delete labels.api_keys;
+        let dimension = analysisDimensions[role];
+        if (!labels[dimension]) {
+          dimension = "models";
+          analysisDimensions[role] = dimension;
+          saveViewPreference(role, "analysis-dimension", dimension);
+        }
+        const rows = compactDistribution(
+          analysis.usage_distribution[dimension],
+        );
+        const tabs = Object.entries(labels).map(([key, label]) =>
+          el("button", {
+            type: "button",
+            class: key === dimension ? "active" : "",
+            text: label,
+            onclick: () => {
+              analysisDimensions[role] = key;
+              saveViewPreference(role, "analysis-dimension", key);
+              renderAnalysisDistribution(account);
+            },
+          }),
+        );
+        const list = rows.map((row, index) => {
+          const metric = (label, value) =>
+            el("span", {}, label + " " + value);
+          return el(
+            "div",
+            {
+              class: "usage-distribution-row",
+              style:
+                "--distribution-color:" + colors[index % colors.length],
+            },
+            el(
+              "div",
+              { class: "usage-distribution-heading" },
+              el("b", {}, row.label || row.key || "未知"),
+              el(
+                "b",
+                { class: "mono" },
+                Number(row.percent || 0).toFixed(2) + "%",
+              ),
+            ),
+            el(
+              "div",
+              { class: "usage-distribution-track" },
+              el("i", {
+                style: "width:" + Math.max(0, Number(row.percent || 0)) + "%",
+              }),
+            ),
+            el(
+              "div",
+              { class: "usage-distribution-metrics" },
+              metric("Token 总数", tokens(row.total_tokens)),
+              metric("请求数", int(row.requests)),
+              metric(
+                "总成本",
+                row.cost_available ? usd(row.cost_usd) : "—",
+              ),
+            ),
+          );
+        });
+        target.replaceChildren(
+          el(
+            "div",
+            { class: "row spread usage-distribution-header" },
+            el("h2", {}, "用量分布"),
+            el("div", { class: "usage-distribution-tabs" }, tabs),
+          ),
+          rows.length
+            ? el(
+                "div",
+                { class: "usage-distribution-layout" },
+                el(
+                  "div",
+                  { class: "usage-distribution-chart" },
+                  el("canvas", {
+                    id: account ? "account-usage-chart" : "usage-chart",
+                    role: "img",
+                    "aria-label": labels[dimension] + "用量占比环形图",
+                  }),
+                ),
+                el("div", { class: "usage-distribution-list" }, list),
+              )
+            : el("div", {
+                class: "empty",
+                text: "当前时间范围内暂无请求事件",
+              }),
+        );
+        renderUsageDistributionChart(
+          account,
+          rows,
+          labels[dimension],
+          colors,
+        );
+      }
+
       function renderAnalysis(account) {
         const owner = account ? accountState : state;
         const target = $(account ? "account-analysis-body" : "analysis-body");
@@ -4919,92 +5041,27 @@
           );
         }
         const analysis = owner.analysis;
-        const role = account ? "account" : "admin";
-        const labels = {
-          api_keys: "API Key",
-          models: "模型",
-          sources: "来源",
-        };
-        if (account || $("analysis-key").value) delete labels.api_keys;
-        let dimension = analysisDimensions[role];
-        if (!labels[dimension]) {
-          dimension = "models";
-          analysisDimensions[role] = dimension;
-          saveViewPreference(role, "analysis-dimension", dimension);
-        }
-        const rows = compactDistribution(
-          analysis.usage_distribution[dimension],
-        );
         const summary = analysis.summary;
         const trends = analysis.trends;
         const renderSignature = JSON.stringify([
           document.documentElement.getAttribute("data-theme") || "",
-          dimension,
           summary,
           trends,
-          rows,
+          analysis.usage_distribution,
         ]);
-        const canvasID = account ? "account-usage-chart" : "usage-chart";
         const trendCanvasID = account
           ? "account-usage-trend-chart"
           : "usage-trend-chart";
+        const distributionID = account
+          ? "account-usage-distribution"
+          : "usage-distribution";
         if (
           target.dataset.analysisSignature === renderSignature &&
-          document.getElementById(canvasID)
+          (!trends.total_tokens.length || document.getElementById(trendCanvasID))
         ) {
           return;
         }
         const colors = analysisColors();
-        const tabs = Object.entries(labels).map(([key, label]) =>
-          el("button", {
-            type: "button",
-            class: key === dimension ? "active" : "",
-            text: label,
-            onclick: () => {
-              analysisDimensions[role] = key;
-              saveViewPreference(role, "analysis-dimension", key);
-              renderAnalysis(account);
-            },
-          }),
-        );
-        const list = rows.map((row, index) => {
-          const color = colors[index % colors.length];
-          const metric = (label, value) => el("span", {}, label + " " + value);
-          return el(
-            "div",
-            {
-              class: "usage-distribution-row",
-              style: "--distribution-color:" + color,
-            },
-            el(
-              "div",
-              { class: "usage-distribution-heading" },
-              el("b", {}, row.label || row.key || "未知"),
-              el(
-                "b",
-                { class: "mono" },
-                Number(row.percent || 0).toFixed(2) + "%",
-              ),
-            ),
-            el(
-              "div",
-              { class: "usage-distribution-track" },
-              el("i", {
-                style: "width:" + Math.max(0, Number(row.percent || 0)) + "%",
-              }),
-            ),
-            el(
-              "div",
-              { class: "usage-distribution-metrics" },
-              metric("Token 总数", tokens(row.total_tokens)),
-              metric("请求数", int(row.requests)),
-              metric(
-                "总成本",
-                row.cost_available ? usd(row.cost_usd) : "—",
-              ),
-            ),
-          );
-        });
         replaceContent(
           target,
           renderAnalysisSummary(summary),
@@ -5032,32 +5089,10 @@
           ),
           el(
             "section",
-            { class: "card usage-distribution-card" },
-            el(
-              "div",
-              { class: "row spread usage-distribution-header" },
-              el("h2", {}, "用量分布"),
-              el("div", { class: "usage-distribution-tabs" }, tabs),
-            ),
-            rows.length
-              ? el(
-                  "div",
-                  { class: "usage-distribution-layout" },
-                  el(
-                    "div",
-                    { class: "usage-distribution-chart" },
-                    el("canvas", {
-                      id: canvasID,
-                      role: "img",
-                      "aria-label": labels[dimension] + "用量占比环形图",
-                    }),
-                  ),
-                  el("div", { class: "usage-distribution-list" }, list),
-                )
-              : el("div", {
-                  class: "empty",
-                  text: "当前时间范围内暂无请求事件",
-                }),
+            {
+              id: distributionID,
+              class: "card usage-distribution-card",
+            },
           ),
         );
         target.dataset.analysisSignature = renderSignature;
@@ -5065,7 +5100,7 @@
           drawAnalysisTrend(canvas, trends[canvas.dataset.analysisTrend]);
         }
         renderUsageTrendChart(account, trends, colors);
-        renderUsageDistributionChart(account, rows, labels[dimension], colors);
+        renderAnalysisDistribution(account, colors);
       }
 
       function populateErrorFilters(view, account) {
