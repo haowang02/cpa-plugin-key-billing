@@ -23,21 +23,25 @@
 插件会在请求到达上游前检查模型权限、API Key 最大并发请求数和订阅额度。通过检查的生成请求占用一个并发槽位，并在请求结束后释放。非流式和流式请求遵循相同规则。上游调用结束后，CLIProxyAPI 通过 `usage.handle` 提供用量。插件据此记录请求事件、计算费用并更新周期消费额，不复制或解析上游响应。
 
 ```mermaid
-flowchart LR
-    A[下游 API<br/>请求] --> M{路由允许<br/>的模型？}
-    M -- 否 --> N[返回<br/>HTTP 403]
-    M -- 是 --> L{API Key 并发<br/>是否饱和？}
-    L -- 是 --> R[返回<br/>HTTP 429]
-    L -- 否 --> B[检查<br/>订阅额度]
-    B --> C{额度是否<br/>充足？}
-    C -- 否 --> D[返回<br/>HTTP 429]
-    C -- 是 --> U{路由允许<br/>的凭证？}
-    U -- 无可用凭证 --> V[返回<br/>HTTP 503]
-    U -- 选择或交给 CPA --> E[CLIProxyAPI<br/>调用上游模型]
-    E --> X[发布 request.complete<br/>释放并发槽位]
-    E --> F[发布<br/>usage.handle]
-    F --> H[归一化<br/>Token 用量]
-    H --> G[根据模型定价<br/>更新周期消费额]
+---
+config:
+  themeVariables:
+    fontSize: "13px"
+  flowchart:
+    diagramPadding: 4
+    nodeSpacing: 20
+    rankSpacing: 28
+    padding: 3
+---
+flowchart TB
+    A[下游请求] --> B["request.intercept_before<br/>模型 · 并发 · 额度"]
+    B -- 拒绝 --> R[返回 HTTP 403 / 429]
+    B -- 通过并占用并发槽 --> C["scheduler.pick<br/>选择路由允许的上游凭证"]
+    C -- 无可用凭证 --> S[返回 HTTP 503]
+    C -- 成功 --> D[CLIProxyAPI 调用上游模型]
+    D --> E["request.complete<br/>释放并发槽位"]
+    D --> F["usage.handle<br/>记录请求事件与用量"]
+    F --> G["归一化 Token 并计费<br/>更新周期消费额"]
 ```
 
 ## 环境要求
