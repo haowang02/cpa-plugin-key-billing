@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
@@ -265,6 +266,9 @@ func TestCodexQuotaPreservesAdditionalDynamicWindows(t *testing.T) {
 	if result.Plan != "pro-20x" || len(result.Quota) != 3 {
 		t.Fatalf("quota = %+v", result)
 	}
+	if result.Quota[0].RemainingPercent == nil || *result.Quota[0].RemainingPercent != 62 {
+		t.Fatalf("remaining percent = %+v", result.Quota[0].RemainingPercent)
+	}
 	wantLabels := []string{"周限额", "GPT-5.3-Codex-Spark 5 小时限额", "GPT-5.3-Codex-Spark 周限额"}
 	for index, want := range wantLabels {
 		if result.Quota[index].Label != want {
@@ -274,8 +278,8 @@ func TestCodexQuotaPreservesAdditionalDynamicWindows(t *testing.T) {
 }
 
 func TestCodexQuotaOrdersAndLabelsWindows(t *testing.T) {
-	rows := []quotaRow{}
-	appendCodexRateLimit(&rows, "", map[string]any{
+	result := authQuotaResponse{Quota: []quotaRow{}}
+	appendCodexRateLimit(&result, "", map[string]any{
 		"allowed": false,
 		"primary_window": map[string]any{
 			"limit_window_seconds": float64(29 * 24 * 60 * 60),
@@ -284,8 +288,8 @@ func TestCodexQuotaOrdersAndLabelsWindows(t *testing.T) {
 			"limit_window_seconds": float64(5 * 60 * 60),
 		},
 	})
-	if len(rows) != 2 || rows[0].Label != "5 小时限额" || rows[1].Label != "月限额" || rows[0].UsedPercent == nil || *rows[0].UsedPercent != 100 {
-		t.Fatalf("rows = %+v", rows)
+	if len(result.Quota) != 2 || result.Quota[0].Label != "5 小时限额" || result.Quota[1].Label != "月限额" || result.Quota[0].RemainingPercent == nil || *result.Quota[0].RemainingPercent != 0 {
+		t.Fatalf("rows = %+v", result.Quota)
 	}
 }
 
@@ -372,9 +376,10 @@ func TestAntigravityQuotaReadsNestedCredentialFields(t *testing.T) {
 func TestKimiQuotaReadsNestedLimitShape(t *testing.T) {
 	app := newConfiguredApp(t)
 	app.SetHostCaller(func(string, any) (json.RawMessage, error) {
-		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"limits":[{"detail":{"title":"Coding 5 小时限额","used":20,"limit":100,"duration":5,"timeUnit":"H","ttl":3600}}]}`)}), nil
+		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"limits":[{"detail":{"title":"Coding 5 小时限额","used":20,"limit":100,"duration":5,"timeUnit":"H","reset_at":"invalid","ttl":3600}}]}`)}), nil
 	})
-	result := authQuotaResponse{Quota: []quotaRow{}}
+	fetchedAt := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	result := authQuotaResponse{FetchedAt: fetchedAt, Quota: []quotaRow{}}
 	if errFetch := app.fetchKimiQuota("", "token", &result); errFetch != nil {
 		t.Fatal(errFetch)
 	}
@@ -382,7 +387,7 @@ func TestKimiQuotaReadsNestedLimitShape(t *testing.T) {
 		t.Fatalf("quota = %+v", result.Quota)
 	}
 	row := result.Quota[0]
-	if row.Label != "Coding 5 小时限额" || row.Remaining == nil || *row.Remaining != 80 || row.ResetAfterSeconds == nil || *row.ResetAfterSeconds != 3600 {
+	if row.Label != "Coding 5 小时限额" || row.RemainingPercent == nil || *row.RemainingPercent != 80 || row.ResetAt != fetchedAt.Add(time.Hour).Format(time.RFC3339) {
 		t.Fatalf("quota = %+v", result.Quota)
 	}
 }
@@ -401,7 +406,7 @@ func TestXAIQuotaDeduplicatesProductLimits(t *testing.T) {
 	if errFetch := app.fetchXAIQuota("", "token", "user", &result); errFetch != nil {
 		t.Fatal(errFetch)
 	}
-	if len(result.Quota) != 2 || result.Quota[0].Label != "grok code 用量" || result.Quota[0].UsedPercent == nil || *result.Quota[0].UsedPercent != 45 || result.Quota[1].Label != "Grok Vision 用量" {
+	if len(result.Quota) != 2 || result.Quota[0].Label != "grok code 用量" || result.Quota[0].RemainingPercent == nil || *result.Quota[0].RemainingPercent != 55 || result.Quota[1].Label != "Grok Vision 用量" {
 		t.Fatalf("quota = %+v", result.Quota)
 	}
 }
@@ -446,6 +451,10 @@ func TestXAIQuotaCombinesWeeklyMonthlyAndOnDemand(t *testing.T) {
 		if result.Quota[index].Label != label {
 			t.Fatalf("quota[%d].Label = %q, want %q", index, result.Quota[index].Label, label)
 		}
+	}
+	monthly := result.Quota[1]
+	if monthly.Currency != "USD" || monthly.Used == nil || *monthly.Used != 10 || monthly.Limit == nil || *monthly.Limit != 10 || monthly.RemainingPercent == nil || *monthly.RemainingPercent != 0 {
+		t.Fatalf("monthly quota = %+v", monthly)
 	}
 }
 

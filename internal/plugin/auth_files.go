@@ -78,17 +78,14 @@ type hostHTTPResponse struct {
 }
 
 type quotaRow struct {
-	Label             string   `json:"label,omitempty"`
-	MoneyCents        bool     `json:"money_cents,omitempty"`
-	GroupLabel        string   `json:"group_label,omitempty"`
-	Used              *float64 `json:"used,omitempty"`
-	Limit             *float64 `json:"limit,omitempty"`
-	Remaining         *float64 `json:"remaining,omitempty"`
-	UsedPercent       *float64 `json:"used_percent,omitempty"`
-	RemainingFraction *float64 `json:"remaining_fraction,omitempty"`
-	ResetAt           string   `json:"reset_at,omitempty"`
-	ResetAfterSeconds *int64   `json:"reset_after_seconds,omitempty"`
-	windowSeconds     int64
+	Label            string   `json:"label,omitempty"`
+	GroupLabel       string   `json:"group_label,omitempty"`
+	RemainingPercent *float64 `json:"remaining_percent,omitempty"`
+	Used             *float64 `json:"used,omitempty"`
+	Limit            *float64 `json:"limit,omitempty"`
+	Currency         string   `json:"currency,omitempty"`
+	ResetAt          string   `json:"reset_at,omitempty"`
+	windowSeconds    int64
 }
 
 type authQuotaResponse struct {
@@ -384,8 +381,8 @@ func (a *App) fetchCodexQuota(callbackID, token, accountID string, result *authQ
 	if plan := firstString(object, "plan_type", "planType"); plan != "" {
 		result.Plan = normalizeCodexPlan(plan)
 	}
-	appendCodexRateLimit(&result.Quota, "", objectMap(object, "rate_limit", "rateLimit"))
-	appendCodexRateLimit(&result.Quota, "Code Review ", objectMap(object, "code_review_rate_limit", "codeReviewRateLimit"))
+	appendCodexRateLimit(result, "", objectMap(object, "rate_limit", "rateLimit"))
+	appendCodexRateLimit(result, "Code Review ", objectMap(object, "code_review_rate_limit", "codeReviewRateLimit"))
 	for _, raw := range objectSlice(object, "additional_rate_limits", "additionalRateLimits") {
 		additional, ok := raw.(map[string]any)
 		if !ok {
@@ -395,7 +392,7 @@ func (a *App) fetchCodexQuota(callbackID, token, accountID string, result *authQ
 		if name == "" {
 			name = "Additional"
 		}
-		appendCodexRateLimit(&result.Quota, name+" ", objectMap(additional, "rate_limit", "rateLimit"))
+		appendCodexRateLimit(result, name+" ", objectMap(additional, "rate_limit", "rateLimit"))
 	}
 	if credits := objectMap(object, "rate_limit_reset_credits", "rateLimitResetCredits"); credits != nil {
 		if count, ok := intValue(credits, "available_count", "availableCount"); ok {
@@ -406,7 +403,7 @@ func (a *App) fetchCodexQuota(callbackID, token, accountID string, result *authQ
 	return nil
 }
 
-func appendCodexRateLimit(rows *[]quotaRow, labelPrefix string, info map[string]any) {
+func appendCodexRateLimit(result *authQuotaResponse, labelPrefix string, info map[string]any) {
 	if info == nil {
 		return
 	}
@@ -447,17 +444,16 @@ func appendCodexRateLimit(rows *[]quotaRow, labelPrefix string, info map[string]
 		}
 		row := quotaRow{Label: labelPrefix + label}
 		if used, ok := floatValue(value, "used_percent", "usedPercent"); ok {
-			row.UsedPercent = floatPointer(used)
+			row.RemainingPercent = remainingPercent(100 - used)
 		} else if hasReached && reached || hasAllowed && !allowed {
-			row.UsedPercent = floatPointer(100)
-		}
-		if reset, ok := intValue(value, "reset_after_seconds", "resetAfterSeconds"); ok {
-			row.ResetAfterSeconds = intPointer(reset)
+			row.RemainingPercent = remainingPercent(0)
 		}
 		if resetAt, ok := intValue(value, "reset_at", "resetAt"); ok && resetAt > 0 {
 			row.ResetAt = time.Unix(resetAt, 0).UTC().Format(time.RFC3339)
+		} else if reset, ok := intValue(value, "reset_after_seconds", "resetAfterSeconds"); ok {
+			row.ResetAt = resetAtAfter(result.FetchedAt, reset)
 		}
-		*rows = append(*rows, row)
+		result.Quota = append(result.Quota, row)
 	}
 }
 
@@ -519,28 +515,28 @@ func (a *App) fetchClaudeQuota(callbackID, token string, result *authQuotaRespon
 		if value == nil {
 			continue
 		}
-		row := quotaRow{Label: window.label, ResetAt: firstString(value, "resets_at", "resetsAt")}
+		row := quotaRow{Label: window.label, ResetAt: quotaResetAt(firstString(value, "resets_at", "resetsAt"))}
 		if percent, ok := floatValue(value, "utilization"); ok {
-			row.UsedPercent = floatPointer(percent)
+			row.RemainingPercent = remainingPercent(100 - percent)
 		}
 		result.Quota = append(result.Quota, row)
 	}
 	if fable != nil {
 		percent, _ := floatValue(fable, "percent")
-		result.Quota = append(result.Quota, quotaRow{Label: "Fable 周限额", UsedPercent: floatPointer(percent), ResetAt: firstString(fable, "resets_at", "resetsAt")})
+		result.Quota = append(result.Quota, quotaRow{Label: "Fable 周限额", RemainingPercent: remainingPercent(100 - percent), ResetAt: quotaResetAt(firstString(fable, "resets_at", "resetsAt"))})
 	}
 	if extra := objectMap(usage, "extra_usage", "extraUsage"); extra != nil {
 		enabled, hasEnabled := boolValue(extra, "is_enabled", "isEnabled")
 		if !hasEnabled || enabled {
-			row := quotaRow{Label: "额外用量", MoneyCents: true}
-			if value, ok := floatValue(extra, "used_credits", "usedCredits"); ok {
+			row := quotaRow{Label: "额外用量", Currency: "USD"}
+			if value, ok := usdValue(extra, "used_credits", "usedCredits"); ok {
 				row.Used = floatPointer(value)
 			}
-			if value, ok := floatValue(extra, "monthly_limit", "monthlyLimit"); ok {
+			if value, ok := usdValue(extra, "monthly_limit", "monthlyLimit"); ok {
 				row.Limit = floatPointer(value)
 			}
 			if value, ok := floatValue(extra, "utilization"); ok {
-				row.UsedPercent = floatPointer(value)
+				row.RemainingPercent = remainingPercent(100 - value)
 			}
 			result.Quota = append(result.Quota, row)
 		}
@@ -584,18 +580,22 @@ func (a *App) fetchKimiQuota(callbackID, token string, result *authQuotaResponse
 		windowSeconds := kimiWindowSeconds(limit)
 		label := firstNonEmptyString(firstString(limit, "name", "title"), firstString(detail, "name", "title"), windowLabel(windowSeconds), "限额")
 		row := quotaRow{Label: label,
-			ResetAt: firstNonEmptyString(firstString(limit, "reset_at", "resetAt", "resetTime"), firstString(detail, "reset_at", "resetAt", "resetTime"))}
+			ResetAt: quotaResetAt(firstString(limit, "reset_at", "resetAt", "resetTime"), firstString(detail, "reset_at", "resetAt", "resetTime"))}
 		fillQuotaValues(&row, values)
-		if reset, ok := resetSeconds(limit, detail); ok {
-			row.ResetAfterSeconds = intPointer(reset)
+		if row.ResetAt == "" {
+			if reset, ok := resetSeconds(limit, detail); ok {
+				row.ResetAt = resetAtAfter(result.FetchedAt, reset)
+			}
 		}
 		result.Quota = append(result.Quota, row)
 	}
 	if summary := objectMap(usage, "usage"); meaningfulQuotaValues(summary) {
-		row := quotaRow{Label: firstNonEmptyString(firstString(summary, "title"), "周限额"), ResetAt: firstString(summary, "reset_at", "resetAt", "resetTime")}
+		row := quotaRow{Label: firstNonEmptyString(firstString(summary, "title"), "周限额"), ResetAt: quotaResetAt(firstString(summary, "reset_at", "resetAt", "resetTime"))}
 		fillQuotaValues(&row, summary)
-		if reset, ok := resetSeconds(summary); ok {
-			row.ResetAfterSeconds = intPointer(reset)
+		if row.ResetAt == "" {
+			if reset, ok := resetSeconds(summary); ok {
+				row.ResetAt = resetAtAfter(result.FetchedAt, reset)
+			}
 		}
 		result.Quota = append(result.Quota, row)
 	}
@@ -620,19 +620,19 @@ func (a *App) fetchXAIQuota(callbackID, token, userID string, result *authQuotaR
 		monthlyConfig = objectMap(objectMap(monthly, "body"), "config")
 	}
 	if percent, ok := floatValue(weeklyConfig, "creditUsagePercent", "credit_usage_percent"); ok {
-		row := quotaRow{Label: "周限额", UsedPercent: floatPointer(percent), ResetAt: xaiResetAt(weeklyConfig)}
+		row := quotaRow{Label: "周限额", RemainingPercent: remainingPercent(100 - percent), ResetAt: xaiResetAt(weeklyConfig)}
 		result.Quota = append(result.Quota, row)
 	}
-	monthlyLimit, hasLimit := moneyValue(monthlyConfig, "monthlyLimit", "monthly_limit")
-	totalUsed, hasUsed := moneyValue(monthlyConfig, "used")
-	onDemandCap, hasOnDemandCap := moneyValue(monthlyConfig, "onDemandCap", "on_demand_cap")
-	onDemandUsed, hasOnDemandUsed := moneyValue(monthlyConfig, "onDemandUsed", "on_demand_used")
+	monthlyLimit, hasLimit := usdValue(monthlyConfig, "monthlyLimit", "monthly_limit")
+	totalUsed, hasUsed := usdValue(monthlyConfig, "used")
+	onDemandCap, hasOnDemandCap := usdValue(monthlyConfig, "onDemandCap", "on_demand_cap")
+	onDemandUsed, hasOnDemandUsed := usdValue(monthlyConfig, "onDemandUsed", "on_demand_used")
 	if !hasOnDemandUsed && hasUsed && hasLimit {
 		onDemandUsed = math.Max(0, totalUsed-monthlyLimit)
 		hasOnDemandUsed = true
 	}
 	if hasLimit || hasUsed {
-		row := quotaRow{Label: "月度额度", MoneyCents: true, ResetAt: firstString(monthlyConfig, "billingPeriodEnd", "billing_period_end")}
+		row := quotaRow{Label: "月度额度", Currency: "USD", ResetAt: quotaResetAt(firstString(monthlyConfig, "billingPeriodEnd", "billing_period_end"))}
 		if hasLimit {
 			row.Limit = floatPointer(monthlyLimit)
 		}
@@ -643,21 +643,18 @@ func (a *App) fetchXAIQuota(callbackID, token, userID string, result *authQuotaR
 			}
 			row.Used = floatPointer(included)
 			if hasLimit {
-				remaining := math.Max(0, monthlyLimit-included)
-				row.Remaining = floatPointer(remaining)
 				if monthlyLimit > 0 {
-					row.UsedPercent = floatPointer(included / monthlyLimit * 100)
+					row.RemainingPercent = remainingPercent((1 - included/monthlyLimit) * 100)
 				}
 			}
 		}
 		result.Quota = append(result.Quota, row)
 	}
 	if hasOnDemandCap && onDemandCap > 0 {
-		row := quotaRow{Label: "按量付费额度", MoneyCents: true, Limit: floatPointer(onDemandCap), ResetAt: firstString(monthlyConfig, "billingPeriodEnd", "billing_period_end")}
+		row := quotaRow{Label: "按量付费额度", Currency: "USD", Limit: floatPointer(onDemandCap), ResetAt: quotaResetAt(firstString(monthlyConfig, "billingPeriodEnd", "billing_period_end"))}
 		if hasOnDemandUsed {
 			row.Used = floatPointer(onDemandUsed)
-			row.Remaining = floatPointer(math.Max(0, onDemandCap-onDemandUsed))
-			row.UsedPercent = floatPointer(onDemandUsed / onDemandCap * 100)
+			row.RemainingPercent = remainingPercent((1 - onDemandUsed/onDemandCap) * 100)
 		}
 		result.Quota = append(result.Quota, row)
 	}
@@ -688,7 +685,7 @@ func (a *App) fetchXAIQuota(callbackID, token, userID string, result *authQuotaR
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].normalized < ordered[j].normalized })
 	for _, product := range ordered {
 		name, percent := product.name, product.percent
-		result.Quota = append(result.Quota, quotaRow{Label: name + " 用量", UsedPercent: floatPointer(percent), ResetAt: xaiResetAt(weeklyConfig)})
+		result.Quota = append(result.Quota, quotaRow{Label: name + " 用量", RemainingPercent: remainingPercent(100 - percent), ResetAt: xaiResetAt(weeklyConfig)})
 	}
 	return nil
 }
@@ -742,7 +739,7 @@ func (a *App) fetchAntigravityQuota(callbackID, token, projectID string, result 
 				label = "周限额"
 				windowSeconds = 604800
 			}
-			groupRows = append(groupRows, quotaRow{Label: label, GroupLabel: groupLabel, RemainingFraction: floatPointer(remaining), windowSeconds: windowSeconds, ResetAt: firstString(bucket, "resetTime", "reset_time")})
+			groupRows = append(groupRows, quotaRow{Label: label, GroupLabel: groupLabel, RemainingPercent: remainingPercent(remaining * 100), windowSeconds: windowSeconds, ResetAt: quotaResetAt(firstString(bucket, "resetTime", "reset_time"))})
 		}
 		sort.SliceStable(groupRows, func(i, j int) bool {
 			return quotaWindowOrder(groupRows[i].windowSeconds) < quotaWindowOrder(groupRows[j].windowSeconds)
@@ -940,7 +937,24 @@ func boolValue(object map[string]any, keys ...string) (bool, bool) {
 	return false, false
 }
 func floatPointer(value float64) *float64 { return &value }
-func intPointer(value int64) *int64       { return &value }
+func remainingPercent(value float64) *float64 {
+	return floatPointer(math.Max(0, math.Min(100, value)))
+}
+func resetAtAfter(fetchedAt time.Time, seconds int64) string {
+	if fetchedAt.IsZero() || seconds < 0 {
+		return ""
+	}
+	return fetchedAt.Add(time.Duration(seconds) * time.Second).UTC().Format(time.RFC3339)
+}
+func quotaResetAt(values ...string) string {
+	for _, value := range values {
+		parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+		if err == nil {
+			return parsed.UTC().Format(time.RFC3339)
+		}
+	}
+	return ""
+}
 func camelKey(value string) string {
 	parts := strings.Split(value, "_")
 	for i := 1; i < len(parts); i++ {
@@ -965,19 +979,12 @@ func fillQuotaValues(row *quotaRow, object map[string]any) {
 	used, hasUsed := floatValue(object, "used")
 	limit, hasLimit := floatValue(object, "limit")
 	remaining, hasRemaining := floatValue(object, "remaining")
-	if !hasUsed && hasLimit && hasRemaining {
-		used = limit - remaining
-		hasUsed = true
-	}
-	if !hasRemaining && hasLimit && hasUsed {
-		remaining = math.Max(0, limit-used)
-		hasRemaining = true
-	}
 	if !hasUsed && hasLimit {
 		used = 0
+		if hasRemaining {
+			used = limit - remaining
+		}
 		hasUsed = true
-		remaining = limit
-		hasRemaining = true
 	}
 	if hasUsed {
 		row.Used = floatPointer(used)
@@ -985,11 +992,8 @@ func fillQuotaValues(row *quotaRow, object map[string]any) {
 	if hasLimit {
 		row.Limit = floatPointer(limit)
 	}
-	if hasRemaining {
-		row.Remaining = floatPointer(remaining)
-	}
 	if hasLimit && limit > 0 && hasUsed {
-		row.UsedPercent = floatPointer(used / limit * 100)
+		row.RemainingPercent = remainingPercent((1 - used/limit) * 100)
 	}
 }
 func kimiWindowSeconds(limit map[string]any) int64 {
@@ -1034,22 +1038,21 @@ func windowLabel(seconds int64) string {
 	}
 	return ""
 }
-func moneyValue(object map[string]any, keys ...string) (float64, bool) {
+func usdValue(object map[string]any, keys ...string) (float64, bool) {
 	for _, key := range keys {
 		if nested := objectMap(object, key); nested != nil {
-			return floatValue(nested, "val")
+			value, ok := floatValue(nested, "val")
+			return value / 100, ok
 		}
 		if value, ok := floatValue(object, key); ok {
-			return value, true
+			return value / 100, true
 		}
 	}
 	return 0, false
 }
 func xaiResetAt(config map[string]any) string {
-	if period := objectMap(config, "currentPeriod", "current_period"); period != nil {
-		if value := firstString(period, "end"); value != "" {
-			return value
-		}
-	}
-	return firstString(config, "billingPeriodEnd", "billing_period_end")
+	return quotaResetAt(
+		firstString(objectMap(config, "currentPeriod", "current_period"), "end"),
+		firstString(config, "billingPeriodEnd", "billing_period_end"),
+	)
 }

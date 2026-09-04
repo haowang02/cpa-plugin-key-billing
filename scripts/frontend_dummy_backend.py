@@ -348,11 +348,11 @@ AUTH_FILES.sort(
 )
 
 
-def quota_row(label, used_percent, reset_after_seconds, **extra):
+def quota_row(label, remaining_percent, reset_seconds, **extra):
     return {
         "label": label,
-        "used_percent": used_percent,
-        "reset_after_seconds": reset_after_seconds,
+        "remaining_percent": remaining_percent,
+        "reset_at": iso(NOW + timedelta(seconds=reset_seconds)),
         **extra,
     }
 
@@ -362,15 +362,15 @@ AUTH_FILE_QUOTAS = {
         "plan": "pro-20x",
         "rate_limit_reset_credits_available_count": 1,
         "quota": [
-            quota_row("周限额", 38, 432000),
+            quota_row("周限额", 62, 432000),
             quota_row(
                 "GPT-5.3-Codex-Spark 5 小时限额",
-                0,
+                100,
                 18000,
             ),
             quota_row(
                 "GPT-5.3-Codex-Spark 周限额",
-                0,
+                100,
                 604800,
             ),
         ],
@@ -379,22 +379,21 @@ AUTH_FILE_QUOTAS = {
         "plan": "plus",
         "rate_limit_reset_credits_available_count": 1,
         "quota": [
-            quota_row("5 小时限额", 65, 14400),
-            quota_row("周限额", 10, 518400),
+            quota_row("5 小时限额", 35, 14400),
+            quota_row("周限额", 90, 518400),
         ],
     },
     "auth-demo-claude": {
         "plan": "Team",
         "quota": [
-            quota_row("5 小时限额", 24, 12600),
-            quota_row("周限额", 41, 388800),
+            quota_row("5 小时限额", 76, 12600),
+            quota_row("周限额", 59, 388800),
             {
                 "label": "额外用量",
-                "used": 1250,
-                "limit": 10000,
-                "remaining": 8750,
-                "used_percent": 12.5,
-                "money_cents": True,
+                "used": 12.5,
+                "limit": 100,
+                "remaining_percent": 87.5,
+                "currency": "USD",
             },
         ],
     },
@@ -403,13 +402,13 @@ AUTH_FILE_QUOTAS = {
         "quota": [
             quota_row(
                 "5 小时限额",
-                18,
+                82,
                 64800,
                 group_label="Gemini Models",
             ),
             quota_row(
                 "周限额",
-                7,
+                93,
                 64800,
                 group_label="Gemini Models",
             ),
@@ -417,21 +416,20 @@ AUTH_FILE_QUOTAS = {
     },
     "auth-demo-kimi": {
         "quota": [
-            quota_row("5 小时限额", 52, 7200),
-            quota_row("周限额", 31, 345600),
+            quota_row("5 小时限额", 48, 7200),
+            quota_row("周限额", 69, 345600),
         ],
     },
     "auth-demo-xai-active": {
         "quota": [
-            quota_row("周限额", 22, 410400),
+            quota_row("周限额", 78, 410400),
             {
                 "label": "月度额度",
-                "used": 850,
-                "limit": 5000,
-                "remaining": 4150,
-                "used_percent": 17,
-                "money_cents": True,
-                "reset_after_seconds": 1814400,
+                "used": 8.5,
+                "limit": 50,
+                "remaining_percent": 83,
+                "currency": "USD",
+                "reset_at": iso(NOW + timedelta(seconds=1814400)),
             },
         ],
     },

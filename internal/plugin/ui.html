@@ -5181,7 +5181,7 @@
         };
       }
 
-      const AUTH_QUOTA_CACHE_PREFIX = "cpa-key-billing.auth-quotas.v1.";
+      const AUTH_QUOTA_CACHE_PREFIX = "cpa-key-billing.auth-quotas.v2.";
 
       function resetAuthQuotaMemory(account) {
         const role = account ? "account" : "admin";
@@ -5371,28 +5371,7 @@
         });
       }
 
-      function quotaRemaining(row) {
-        let percent = null;
-        if (Number.isFinite(Number(row.remaining_fraction)))
-          percent = Number(row.remaining_fraction) * 100;
-        else if (Number.isFinite(Number(row.used_percent)))
-          percent = 100 - Number(row.used_percent);
-        else if (
-          Number(row.limit) > 0 &&
-          Number.isFinite(Number(row.remaining))
-        )
-          percent = (Number(row.remaining) / Number(row.limit)) * 100;
-        if (percent === null) return null;
-        percent = Math.max(0, Math.min(100, percent));
-        return {
-          percent,
-          level: percent >= 70 ? "high" : percent >= 30 ? "medium" : "low",
-        };
-      }
-
-      function compactResetDate(value) {
-        const date = value instanceof Date ? value : new Date(value);
-        if (isNaN(date.getTime())) return "";
+      function compactResetDate(date) {
         const pad = (part) => String(part).padStart(2, "0");
         return (
           pad(date.getMonth() + 1) +
@@ -5406,80 +5385,57 @@
       }
 
       function compactResetAfter(seconds) {
-        if (!Number.isFinite(seconds) || seconds < 0) return "";
         if (seconds < 60) return "不到1分钟后";
         if (seconds >= 86400) return Math.floor(seconds / 86400) + "天后";
         if (seconds >= 3600) return Math.floor(seconds / 3600) + "小时后";
         return Math.floor(seconds / 60) + "分钟后";
       }
 
-      function quotaResetMeta(row, fetchedAt) {
-        const seconds = Number(row.reset_after_seconds);
-        let resetAt = row.reset_at ? new Date(row.reset_at) : null;
-        if (
-          (!resetAt || isNaN(resetAt.getTime())) &&
-          Number.isFinite(seconds) &&
-          seconds >= 0
-        ) {
-          const fetched = new Date(fetchedAt);
-          const base = isNaN(fetched.getTime())
-            ? Date.now()
-            : fetched.getTime();
-          resetAt = new Date(base + seconds * 1000);
-        }
-        const after =
-          Number.isFinite(seconds) && seconds >= 0
-            ? seconds
-            : resetAt && !isNaN(resetAt.getTime())
-              ? Math.max(0, Math.floor((resetAt.getTime() - Date.now()) / 1000))
-              : NaN;
+      function quotaResetMeta(row) {
+        const resetAt = row.reset_at ? new Date(row.reset_at) : null;
+        if (!resetAt || isNaN(resetAt.getTime())) return { at: "", after: "" };
+        const after = Math.max(
+          0,
+          Math.floor((resetAt.getTime() - Date.now()) / 1000),
+        );
         return {
-          at: resetAt ? compactResetDate(resetAt) : "",
+          at: compactResetDate(resetAt),
           after: compactResetAfter(after),
         };
       }
 
       function quotaAmount(row) {
-        if (
-          !Number.isFinite(Number(row.used)) &&
-          !Number.isFinite(Number(row.limit)) &&
-          !Number.isFinite(Number(row.remaining))
-        )
-          return "";
-        const money = row.money_cents === true;
+        const hasUsed = row.used !== undefined;
+        const hasLimit = row.limit !== undefined;
+        if (!hasUsed && !hasLimit) return "";
+        const money = row.currency === "USD";
         const format = (value) =>
           money
-            ? usd(Number(value) / 100)
-            : Number(value).toLocaleString("zh-CN", {
+            ? usd(value)
+            : value.toLocaleString("zh-CN", {
                 maximumFractionDigits: 2,
               });
-        if (
-          Number.isFinite(Number(row.used)) &&
-          Number.isFinite(Number(row.limit))
-        )
+        if (hasUsed && hasLimit)
           return format(row.used) + " / " + format(row.limit);
-        if (Number.isFinite(Number(row.remaining)))
-          return "剩余 " + format(row.remaining);
-        if (Number.isFinite(Number(row.used)))
-          return "已用 " + format(row.used);
-        if (Number.isFinite(Number(row.limit)))
-          return "额度 " + format(row.limit);
-        return "";
+        return hasUsed
+          ? "已用 " + format(row.used)
+          : "额度 " + format(row.limit);
       }
 
       function quotaLabel(row) {
-        const label = String(row.label || "");
-        const group = String(row.group_label || "");
-        return group && group.toLocaleLowerCase() !== label.toLocaleLowerCase()
-          ? group + " · " + label
-          : group || label;
+        return row.group_label &&
+          row.group_label.toLocaleLowerCase() !== row.label.toLocaleLowerCase()
+          ? row.group_label + " · " + row.label
+          : row.group_label || row.label;
       }
 
-      function renderQuotaRow(row, fetchedAt) {
+      function renderQuotaRow(row) {
         const label = quotaLabel(row);
-        const remaining = quotaRemaining(row);
-        const value = remaining ? remaining.percent.toFixed(0) + "%" : "—";
-        const reset = quotaResetMeta(row, fetchedAt);
+        const percent = row.remaining_percent;
+        const hasPercent = percent !== undefined;
+        const value = hasPercent ? percent.toFixed(0) + "%" : "—";
+        const level = percent >= 70 ? "high" : percent >= 30 ? "medium" : "low";
+        const reset = quotaResetMeta(row);
         const amount = quotaAmount(row);
         const stats = [el("span", { class: "auth-quota-value", text: value })];
         if (amount) stats.push(el("span", { text: amount }));
@@ -5506,11 +5462,11 @@
               "aria-label": label,
               "aria-valuemin": "0",
               "aria-valuemax": "100",
-              "aria-valuenow": remaining ? Math.round(remaining.percent) : null,
+              "aria-valuenow": hasPercent ? Math.round(percent) : null,
             },
             el("i", {
-              class: "quota-fill " + (remaining?.level || "high"),
-              style: "width:" + (remaining?.percent || 0) + "%",
+              class: "quota-fill " + (hasPercent ? level : "high"),
+              style: "width:" + (hasPercent ? percent : 0) + "%",
             }),
           ),
         );
@@ -5556,7 +5512,7 @@
               text: when(result.fetched_at) + " 更新",
             }),
           );
-        const rows = result.quota || [];
+        const rows = result.quota;
         return el(
           "div",
           { class: "auth-file-quota" },
@@ -5567,7 +5523,7 @@
             ? el(
                 "div",
                 { class: "auth-quota-list" },
-                rows.map((row) => renderQuotaRow(row, result.fetched_at)),
+                rows.map(renderQuotaRow),
               )
             : el("div", {
                 class: "muted small",
