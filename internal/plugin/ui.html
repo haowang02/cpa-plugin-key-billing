@@ -2303,7 +2303,12 @@
           });
         } else {
           window.addEventListener("storage", (event) => {
-            if (!event.key || event.key === STORE_KEY) sync();
+            if (
+              !event.key ||
+              event.key === STORE_KEY ||
+              event.key === PLUGIN_STORE_KEY
+            )
+              sync();
           });
         }
         if (window.matchMedia) {
@@ -2835,6 +2840,7 @@
       const CREDENTIAL_DB = "cpa-key-billing-credentials";
       const CREDENTIAL_STORE = "vault";
       const CREDENTIAL_KEY = "wrapping-key";
+      const VIEW_PREFERENCE_PREFIX = "cpa-key-billing.view.v1.";
 
       function panelDeobfuscate(raw) {
         if (typeof raw !== "string" || !raw.startsWith(PANEL_PREFIX))
@@ -2972,7 +2978,7 @@
       let state = emptyAdminState();
       let accountState = emptyAccountState();
       let authQuotaGeneration = { admin: 0, account: 0 };
-      let authQuotaScope = { admin: "", account: "" };
+      let credentialScope = { admin: "", account: "" };
       let accountTab =
         initialRoute.role === "account" ? initialRoute.tab : "subscription";
 
@@ -3213,6 +3219,111 @@
         account: { mode: "30d" },
       };
 
+      function viewPreferenceKey(role, name) {
+        const scope = credentialScope[role];
+        return scope
+          ? VIEW_PREFERENCE_PREFIX + role + "." + scope + "." + name
+          : "";
+      }
+
+      function viewPreference(role, name, fallback) {
+        const key = viewPreferenceKey(role, name);
+        if (!key) return fallback;
+        try {
+          const raw = localStorage.getItem(key);
+          return raw === null ? fallback : JSON.parse(raw);
+        } catch (_) {
+          return fallback;
+        }
+      }
+
+      function saveViewPreference(role, name, value) {
+        const key = viewPreferenceKey(role, name);
+        if (!key) return;
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+        } catch (_) {}
+      }
+
+      function restoreChoice(role, id, fallback) {
+        const control = $(id);
+        const value = viewPreference(role, id, fallback);
+        if (control.type === "checkbox") {
+          control.checked = typeof value === "boolean" ? value : fallback;
+          return;
+        }
+        if (typeof value !== "string") return;
+        if (
+          value &&
+          !Array.from(control.options).some((option) => option.value === value)
+        ) {
+          control.add(el("option", { value, text: value }));
+        }
+        control.value = value;
+      }
+
+      function saveChoice(role, id) {
+        const control = $(id);
+        saveViewPreference(
+          role,
+          id,
+          control.type === "checkbox" ? control.checked : control.value,
+        );
+      }
+
+      function storedTimeRange(role) {
+        const range = viewPreference(role, "time-range", { mode: "30d" });
+        if (!range || !Object.hasOwn(SHARED_TIME_LABELS, range.mode))
+          return { mode: "30d" };
+        if (range.mode !== "custom") return { mode: range.mode };
+        const from = new Date(range.from);
+        const to = new Date(range.to);
+        if (
+          !Number.isFinite(from.getTime()) ||
+          !Number.isFinite(to.getTime()) ||
+          from >= to ||
+          to.getTime() - from.getTime() > 30 * 86400000
+        ) {
+          return { mode: "30d" };
+        }
+        return {
+          mode: "custom",
+          from: from.toISOString(),
+          to: to.toISOString(),
+        };
+      }
+
+      function restoreRolePreferences(role) {
+        const account = role === "account";
+        for (const id of REQUEST_EVENT_FILTER_IDS[role])
+          restoreChoice(role, id, "");
+        const prefix = account ? "account-" : "";
+        restoreChoice(role, prefix + "error-model", "");
+        restoreChoice(role, prefix + "error-source", "");
+        restoreChoice(role, prefix + "auth-enabled-only", true);
+        restoreChoice(role, prefix + "auth-provider", "");
+        if (!account) {
+          restoreChoice(role, "analysis-key", "");
+          restoreChoice(role, "plugin-log-level", "all");
+        }
+        sharedTimeRanges[role] = storedTimeRange(role);
+        const defaultDimension = account ? "models" : "api_keys";
+        const dimension = viewPreference(
+          role,
+          "analysis-dimension",
+          defaultDimension,
+        );
+        const allowedDimensions = account
+          ? ["models", "sources"]
+          : ["api_keys", "models", "sources"];
+        analysisDimensions[role] = allowedDimensions.includes(dimension)
+          ? dimension
+          : defaultDimension;
+        updateSharedTimeControl(account);
+        updateFilterClearButton($(prefix + "request-events-filter-clear"));
+        updateFilterClearButton($(prefix + "errors-filter-clear"));
+      }
+
       function resetLoadState(load) {
         load.generation++;
         load.promise = null;
@@ -3222,29 +3333,18 @@
       function resetRoleControls(role) {
         const account = role === "account";
         const prefix = account ? "account-" : "";
-        for (const id of REQUEST_EVENT_FILTER_IDS[role]) $(id).value = "";
-        sharedTimeRanges[role] = { mode: "30d" };
-        updateSharedTimeControl(account);
         closeSharedTimePopover(account);
-        $(prefix + "error-model").value = "";
-        $(prefix + "error-source").value = "";
-        updateFilterClearButton($(prefix + "request-events-filter-clear"));
-        updateFilterClearButton($(prefix + "errors-filter-clear"));
         const requestEventScroller = $(
           account ? "account-request-events-body" : "request-events-body",
         );
         requestEventScroller.scrollTop = 0;
         requestEventScroller.scrollLeft = 0;
 
-        $(prefix + "auth-enabled-only").checked = true;
-        $(prefix + "auth-provider").value = "";
         $(prefix + "auth-search").value = "";
         if (!account) {
-          $("analysis-key").value = "";
           $("key-filter").value = "";
           $("price-filter").value = "";
           $("plugin-log-filter").value = "";
-          $("plugin-log-level").value = "all";
           $("plugin-logs-body").scrollTop = 0;
           $("plugin-logs-body").scrollLeft = 0;
         }
@@ -3603,7 +3703,7 @@
       function showGate(mode, error) {
         stopAutoRefresh();
         if (currentRole) {
-          clearAuthQuotaCache(currentRole === "account");
+          clearCredentialScope(currentRole === "account");
           resetRoleData(currentRole);
         }
         authKey = "";
@@ -4038,7 +4138,8 @@
       async function startAdmin(key) {
         currentRole = "admin";
         authKey = key;
-        await activateAuthQuotaCache(false, key);
+        await activateCredentialScope(false, key);
+        restoreRolePreferences("admin");
         const route = pageRoute();
         setAdminTab(route.role === "admin" ? route.tab : "keys");
         const summary = await autoSyncKeys();
@@ -4057,7 +4158,8 @@
         // currently valid. The plugin endpoint only uses the key to select its hash.
         const modelList = await api("GET", "/v1/models", null, { raw: true });
         accountState.models = modelList.data.map((item) => item.id);
-        await activateAuthQuotaCache(true, key);
+        await activateCredentialScope(true, key);
+        restoreRolePreferences("account");
         $("gate").classList.add("hidden");
         $("app").classList.add("hidden");
         $("account-app").classList.remove("hidden");
@@ -4828,6 +4930,7 @@
         if (!labels[dimension]) {
           dimension = "models";
           analysisDimensions[role] = dimension;
+          saveViewPreference(role, "analysis-dimension", dimension);
         }
         const rows = compactDistribution(
           analysis.usage_distribution[dimension],
@@ -4859,6 +4962,7 @@
             text: label,
             onclick: () => {
               analysisDimensions[role] = key;
+              saveViewPreference(role, "analysis-dimension", key);
               renderAnalysis(account);
             },
           }),
@@ -5136,7 +5240,7 @@
       }
 
       function authQuotaStorageKey(role) {
-        const scope = authQuotaScope[role];
+        const scope = credentialScope[role];
         return scope ? AUTH_QUOTA_CACHE_PREFIX + role + "." + scope : "";
       }
 
@@ -5153,7 +5257,7 @@
         } catch (_) {}
       }
 
-      function clearAuthQuotaCache(account) {
+      function clearCredentialScope(account) {
         const role = account ? "account" : "admin";
         const key = authQuotaStorageKey(role);
         if (key) {
@@ -5161,14 +5265,14 @@
             sessionStorage.removeItem(key);
           } catch (_) {}
         }
-        authQuotaScope[role] = "";
+        credentialScope[role] = "";
         resetAuthQuotaMemory(account);
       }
 
-      async function activateAuthQuotaCache(account, credential) {
+      async function activateCredentialScope(account, credential) {
         const role = account ? "account" : "admin";
         resetAuthQuotaMemory(account);
-        authQuotaScope[role] = "";
+        credentialScope[role] = "";
         if (!window.crypto?.subtle) return;
         let digest;
         try {
@@ -5177,7 +5281,7 @@
         } catch (_) {
           return;
         }
-        authQuotaScope[role] = [...digest]
+        credentialScope[role] = [...digest]
           .slice(0, 16)
           .map((value) => value.toString(16).padStart(2, "0"))
           .join("");
@@ -6180,7 +6284,11 @@
           credentialIDs: new Set(bindings.credential_ids),
           credentialProviders: [...bindings.credential_providers],
           expanded: { routes: true, credentials: true, models: true },
-          enabledOnly: true,
+          enabledOnly: viewPreference(
+            "admin",
+            "route-picker-enabled-only",
+            true,
+          ),
           searching: false,
           beforeSearch: null,
           anchor,
@@ -6322,7 +6430,21 @@
               el("span", { class: "route-picker-chevron", "aria-hidden": "true" }, actionIcon("chevron")),
               el("span", { text: title }),
             ),
-            kind === "credentials" ? compactEnabledToggle(routePicker.enabledOnly, (checked) => { routePicker.enabledOnly = checked; renderRoutePicker(); }, "仅显示启用的上游凭证") : null,
+            kind === "credentials"
+              ? compactEnabledToggle(
+                  routePicker.enabledOnly,
+                  (checked) => {
+                    routePicker.enabledOnly = checked;
+                    saveViewPreference(
+                      "admin",
+                      "route-picker-enabled-only",
+                      checked,
+                    );
+                    renderRoutePicker();
+                  },
+                  "仅显示启用的上游凭证",
+                )
+              : null,
             el("span", { class: "route-picker-section-count", text: selected + "/" + options.length }),
           ),
           expanded ? el("div", {}, ...(options.length ? options : [el("div", { class: "route-picker-empty", text: emptyText })])) : null,
@@ -6626,7 +6748,7 @@
         $("route-id").value = "";
         $("route-name").value = "";
         $("route-rule-search").value = "";
-        $("route-credential-enabled-only").checked = true;
+        restoreChoice("admin", "route-credential-enabled-only", true);
         routeModels = new Set();
         routeCredentialIDs = new Set();
         routeProviders = [];
@@ -6641,7 +6763,7 @@
         $("route-save").textContent = "保存";
         $("route-name").value = route.name || "";
         $("route-rule-search").value = "";
-        $("route-credential-enabled-only").checked = true;
+        restoreChoice("admin", "route-credential-enabled-only", true);
         routeModels = new Set(route.rule.models);
         routeCredentialIDs = new Set(route.rule.credential_ids);
         routeProviders = [...route.rule.credential_providers];
@@ -7050,7 +7172,9 @@
       }
 
       function applyTimeRange(account, range) {
-        sharedTimeRanges[account ? "account" : "admin"] = range;
+        const role = account ? "account" : "admin";
+        sharedTimeRanges[role] = range;
+        saveViewPreference(role, "time-range", range);
         updateSharedTimeControl(account);
         closeSharedTimePopover(account);
         return applySharedTimeRange(account);
@@ -8351,7 +8475,10 @@
         };
       });
       $("analysis-key").addEventListener("change", () =>
-        guard(() => applySharedTimeRange(false)),
+        guard(() => {
+          saveChoice("admin", "analysis-key");
+          return applySharedTimeRange(false);
+        }),
       );
 
       function resetRequestEventLoad(account) {
@@ -8381,6 +8508,7 @@
       }
 
       for (const account of [false, true]) {
+        const role = account ? "account" : "admin";
         const prefix = account ? "account-" : "";
         const load = account
           ? detailLoads.accountErrors
@@ -8389,13 +8517,17 @@
         const clear = $(prefix + "errors-filter-clear");
         for (const id of ids) {
           $(id).addEventListener("change", () => {
+            saveChoice(role, id);
             updateFilterClearButton(clear);
             resetLoadState(load);
             guard(() => loadErrors(account, false));
           });
         }
         clear.onclick = () => {
-          for (const id of ids) $(id).value = "";
+          for (const id of ids) {
+            $(id).value = "";
+            saveChoice(role, id);
+          }
           updateFilterClearButton(clear);
           resetLoadState(load);
           guard(() => loadErrors(account, false));
@@ -8403,11 +8535,16 @@
       }
       for (const account of [false, true]) {
         const ui = authUI(account);
+        const role = account ? "account" : "admin";
         setLabeledActionIcon(ui.bulk, "refresh", "更新限额");
-        ui.enabledOnly.addEventListener("change", () =>
-          renderAuthFiles(account),
-        );
-        ui.provider.addEventListener("change", () => renderAuthFiles(account));
+        ui.enabledOnly.addEventListener("change", () => {
+          saveChoice(role, ui.enabledOnly.id);
+          renderAuthFiles(account);
+        });
+        ui.provider.addEventListener("change", () => {
+          saveChoice(role, ui.provider.id);
+          renderAuthFiles(account);
+        });
         ui.search.addEventListener("input", () => renderAuthFiles(account));
         ui.bulk.onclick = () => guard(() => refreshFilteredAuthQuotas(account));
       }
@@ -8543,7 +8680,10 @@
       });
       $("route-credential-enabled-only").addEventListener(
         "change",
-        renderRouteCredentialList,
+        () => {
+          saveChoice("admin", "route-credential-enabled-only");
+          renderRouteCredentialList();
+        },
       );
       $("route-rule-all").onclick = () => {
         routeModels = new Set(catalogModels());
@@ -8593,7 +8733,12 @@
         });
 
       $("plugin-log-filter").addEventListener("input", renderPluginLogs);
-      $("plugin-log-level").addEventListener("change", () => { state.pluginLogs = null; state.pluginLogsNext = 0; guard(() => loadPluginLogs()); });
+      $("plugin-log-level").addEventListener("change", () => {
+        saveChoice("admin", "plugin-log-level");
+        state.pluginLogs = null;
+        state.pluginLogsNext = 0;
+        guard(() => loadPluginLogs());
+      });
       $("plugin-logs-more").onclick = () => guard(() => loadPluginLogs({ append: true }));
       $("plugin-logs-clear").onclick = () =>
         guard(async () => {
@@ -8615,12 +8760,16 @@
         );
         for (const id of REQUEST_EVENT_FILTER_IDS[role]) {
           $(id).addEventListener("change", () => {
+            saveChoice(role, id);
             updateFilterClearButton(clear);
             guard(() => loadRequestEvents(false, account));
           });
         }
         clear.onclick = () => {
-          for (const id of REQUEST_EVENT_FILTER_IDS[role]) $(id).value = "";
+          for (const id of REQUEST_EVENT_FILTER_IDS[role]) {
+            $(id).value = "";
+            saveChoice(role, id);
+          }
           updateFilterClearButton(clear);
           guard(() => loadRequestEvents(false, account));
         };
