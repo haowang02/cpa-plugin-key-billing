@@ -50,7 +50,7 @@ func TestRepositoryRoundTrip(t *testing.T) {
 	state := billing.NewState()
 	state.Plans = []billing.Plan{{ID: "weekly", Name: "Weekly 10", AmountUSD: 10, PeriodSeconds: 604800}}
 	state.Prices = []billing.PriceRule{{Pattern: "gpt-5.5", InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: price(.1)}}
-	state.Routes = []billing.Route{billing.SystemAllRoute(), {ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
+	state.Routes = []billing.Route{{ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
 	state.Keys["scope-a"] = &billing.KeyState{Preview: "sk-tes…0001", Label: "Alice", InConfig: true,
 		PlanID: "weekly", ConcurrencyLimit: 7, RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}, {Kind: "model", Value: "other"}},
 		Cycle: billing.Cycle{PlanID: "weekly", StartAt: start, EndAt: start.Add(7 * 24 * time.Hour), SpentUSD: 1.5}}
@@ -92,7 +92,7 @@ func TestSaveWritesOnlyNamedKeys(t *testing.T) {
 func TestKeyGrantIsRewrittenWithTheKey(t *testing.T) {
 	database := openTestDB(t)
 	state := billing.NewState()
-	state.Routes = []billing.Route{billing.SystemAllRoute(), {ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
+	state.Routes = []billing.Route{{ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
 	state.Keys["scope-a"] = &billing.KeyState{RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}, {Kind: "model", Value: "claude"}}}
 	state.Keys["scope-b"] = &billing.KeyState{RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}}}
 	mustSave(t, database, state, billing.Changes{AllKeys: true, Routes: true})

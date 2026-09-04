@@ -553,7 +553,7 @@ assert_route_model_policy() {
   scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/access.json")"
   if ! jq -e --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)) | (.route_bindings | length) == 0' \
     "$runtime_dir/access.json" >/dev/null; then
-    echo "API Key 的默认路由不是全部模型、全部凭证。" >&2
+    echo "未绑定路由的 API Key 仍然受到限制。" >&2
     return 1
   fi
 
@@ -605,11 +605,11 @@ assert_route_model_policy() {
     return 1
   fi
 
-  # Back to every model and Credential, which is what selecting system:all means: the
-  # request that follows has to be billed exactly like any other.
+  # Clear the routing restrictions. The request that follows has to be billed
+  # exactly like any other.
   management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, bindings: [{kind:"route",value:"system:all"}]}')" \
+    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, bindings: []}')" \
     >/dev/null
   management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/routes?id=$route" >/dev/null
 
@@ -728,7 +728,7 @@ assert_route_credential_policy() {
 
   management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg scope "$scope" '{scope:$scope,bindings:[{kind:"route",value:"system:all"}]}')" \
+    --data "$(jq -nc --arg scope "$scope" '{scope:$scope,bindings:[]}')" \
     >/dev/null
   management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/routes?id=$route" >/dev/null
 }
@@ -1287,7 +1287,7 @@ run_target() {
   log_step "并发限制：SSE 占槽、HTTP 拦截与完成释放"
   assert_concurrency_limit "$port" "$runtime_dir" "$expected_requests"
   expected_requests=$((expected_requests + 1))
-  log_step "路由模型规则：默认规则、3 次拦截与恢复"
+  log_step "路由模型规则：无绑定状态、3 次拦截与恢复"
   assert_route_model_policy "$port" "$runtime_dir" "$expected_requests"
   expected_requests=$((expected_requests + 1))
   log_step "路由凭证规则：整类与指定凭证均限制真实候选集"

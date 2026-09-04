@@ -271,10 +271,9 @@ CREDENTIALS = [
 SYNCED_CREDENTIAL_REFS = set()
 
 ROUTES = [
-    {"id": "system:all", "name": "默认", "rule": {"models": [], "credential_ids": [], "credential_providers": []}, "bound_key_count": 1},
-    {"id": "coding", "name": "代码开发", "rule": {"models": ["gpt-5.6-sol", "gpt-5.5"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}, "bound_key_count": 3, "fully_unrestricted_keys": 3},
-    {"id": "analytics", "name": "数据分析", "rule": {"models": ["claude/deepseek-v4-pro", "claude/deepseek-v4-flash"], "credential_ids": ["sha256:" + "b" * 64], "credential_providers": []}, "bound_key_count": 2, "fully_unrestricted_keys": 2},
-    {"id": "economy", "name": "轻量任务", "rule": {"models": ["gpt-5.6-luna"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}, "bound_key_count": 1, "fully_unrestricted_keys": 1},
+    {"id": "coding", "name": "代码开发", "rule": {"models": ["gpt-5.6-sol", "gpt-5.5"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}},
+    {"id": "analytics", "name": "数据分析", "rule": {"models": ["claude/deepseek-v4-pro", "claude/deepseek-v4-flash"], "credential_ids": ["sha256:" + "b" * 64], "credential_providers": []}},
+    {"id": "economy", "name": "轻量任务", "rule": {"models": ["gpt-5.6-luna"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}},
 ]
 
 
@@ -804,10 +803,6 @@ def account_access(index):
 
 def refresh_route_counts():
     for route in ROUTES:
-        if route["id"] == "system:all":
-            route["bound_key_count"] = sum(not key.get("route_bindings") for key in KEYS)
-            route["fully_unrestricted_keys"] = 0
-            continue
         binding = {"kind": "route", "value": route["id"]}
         bound = [key for key in KEYS if binding in key.get("route_bindings", [])]
         route["bound_key_count"] = len(bound)
@@ -1304,7 +1299,7 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(request_body or b"{}")
             route_id = f"route-dummy-{len(ROUTES)}"
             scopes = set(body.get("scopes", []))
-            stored = {"id": route_id, "name": body.get("name", "新路由"), "rule": body.get("rule", {}), "bound_key_count": len(scopes)}
+            stored = {"id": route_id, "name": body.get("name", "新路由"), "rule": body.get("rule", {})}
             ROUTES.append(stored)
             for key in KEYS:
                 if key["scope"] in scopes:
@@ -1313,7 +1308,10 @@ class Handler(BaseHTTPRequestHandler):
         elif route == ("PATCH", f"{API_BASE}/routes"):
             body = json.loads(request_body or b"{}")
             route_id = body.get("id", "")
-            stored = next((item for item in ROUTES if item["id"] == route_id), ROUTES[1])
+            stored = next((item for item in ROUTES if item["id"] == route_id), None)
+            if stored is None:
+                self.send_json(404, {"error": {"message": "dummy backend: route not found"}})
+                return
             stored.update({key: body[key] for key in ("name", "rule") if key in body})
             if "scopes" in body:
                 scopes = set(body["scopes"])
@@ -1327,8 +1325,6 @@ class Handler(BaseHTTPRequestHandler):
         elif route == ("PUT", f"{API_BASE}/keys/routes"):
             body = json.loads(request_body or b"{}")
             bindings = body.get("bindings", [])
-            if bindings == [{"kind": "route", "value": "system:all"}]:
-                bindings = []
             for key in KEYS:
                 if key["scope"] == body.get("scope"):
                     key["route_bindings"] = bindings

@@ -103,17 +103,12 @@ func (d *DB) migrateV10ToV11() error {
 		if _, err := tx.Exec("ALTER TABLE api_keys ADD COLUMN route_bindings_json TEXT NOT NULL DEFAULT '[]'"); err != nil {
 			return fmt.Errorf("添加 API Key 路由绑定：%w", err)
 		}
-		systemRule, _ := json.Marshal(billing.SystemAllRoute().Rule)
-		if _, err := tx.Exec("INSERT INTO routes(position,id,name,rule_json) VALUES(0,?,?,?)", billing.SystemAllRouteID, billing.SystemAllRouteName, string(systemRule)); err != nil {
-			return fmt.Errorf("创建默认路由规则：%w", err)
-		}
-
 		type legacyGroup struct {
 			oldID, id, name string
 			models          []string
 		}
 		groups := []legacyGroup{}
-		usedRouteIDs := map[string]struct{}{billing.SystemAllRouteID: {}}
+		usedRouteIDs := map[string]struct{}{}
 		rows, err := tx.Query("SELECT id,name FROM model_groups ORDER BY position")
 		if err != nil {
 			return fmt.Errorf("读取旧模型分组：%w", err)
@@ -125,16 +120,6 @@ func (d *DB) migrateV10ToV11() error {
 				return fmt.Errorf("读取旧模型分组：%w", err)
 			}
 			group.id = strings.TrimSpace(group.oldID)
-			if strings.HasPrefix(group.id, "system:") {
-				base := "migrated-" + billing.CredentialFingerprint(group.id)[len("sha256:"):len("sha256:")+16]
-				group.id = base
-				for suffix := 2; ; suffix++ {
-					if _, exists := usedRouteIDs[group.id]; !exists {
-						break
-					}
-					group.id = fmt.Sprintf("%s-%d", base, suffix)
-				}
-			}
 			if _, exists := usedRouteIDs[group.id]; exists {
 				return fmt.Errorf("旧模型分组 ID %q 迁移后冲突", group.oldID)
 			}
@@ -172,7 +157,7 @@ func (d *DB) migrateV10ToV11() error {
 			return fmt.Errorf("读取旧模型分组成员：%w", err)
 		}
 		for i, group := range groups {
-			route, err := billing.NormalizeStoredRoute(billing.Route{ID: group.id, Name: group.name, Rule: billing.RouteRule{Models: group.models}})
+			route, err := billing.NormalizeRoute(billing.Route{ID: group.id, Name: group.name, Rule: billing.RouteRule{Models: group.models}})
 			if err != nil {
 				return fmt.Errorf("校验旧模型分组 %s：%w", group.oldID, err)
 			}
@@ -182,7 +167,7 @@ func (d *DB) migrateV10ToV11() error {
 			if err != nil {
 				return err
 			}
-			if _, err = tx.Exec("INSERT INTO routes(position,id,name,rule_json) VALUES(?,?,?,?)", i+1, route.ID, route.Name, string(raw)); err != nil {
+			if _, err = tx.Exec("INSERT INTO routes(position,id,name,rule_json) VALUES(?,?,?,?)", i, route.ID, route.Name, string(raw)); err != nil {
 				return fmt.Errorf("迁移模型分组 %s：%w", group.oldID, err)
 			}
 		}
@@ -253,9 +238,8 @@ func (d *DB) migrateV10ToV11() error {
 	})
 }
 
-// migrateV11ToV12 replaces named period kinds with their effective duration.
-// It validates every legacy row before replacing the table, so an unknown or
-// invalid period leaves the version-11 database untouched.
+// Validate every legacy row before replacing the table so an invalid period
+// leaves the version-11 database untouched.
 func (d *DB) migrateV11ToV12() error {
 	return d.transact(func(tx *sql.Tx) error {
 		var id, kind string
@@ -286,6 +270,9 @@ func (d *DB) migrateV11ToV12() error {
 		}
 		if _, err := tx.Exec("ALTER TABLE plans DROP COLUMN period_kind"); err != nil {
 			return fmt.Errorf("删除旧订阅周期类型：%w", err)
+		}
+		if _, err := tx.Exec("DELETE FROM routes WHERE id = 'system:all'"); err != nil {
+			return fmt.Errorf("清理旧路由规则：%w", err)
 		}
 		if _, err := tx.Exec("PRAGMA user_version = 12"); err != nil {
 			return fmt.Errorf("标记数据库格式版本：%w", err)

@@ -426,10 +426,10 @@ func TestRoutesRoundTripThroughTheManagementAPI(t *testing.T) {
 	}
 
 	callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
-		"scope": scope, "bindings": []map[string]string{{"kind": "route", "value": billing.SystemAllRouteID}},
+		"scope": scope, "bindings": []map[string]string{},
 	}, http.StatusOK, nil)
 	if key = keysByScope(t, app)[scope]; len(key.RouteBindings) != 0 {
-		t.Fatalf("key = %+v, want the default route to clear the rest", key)
+		t.Fatalf("key = %+v, want empty bindings to clear the restrictions", key)
 	}
 
 	name := "Renamed"
@@ -437,7 +437,7 @@ func TestRoutesRoundTripThroughTheManagementAPI(t *testing.T) {
 		"id": "fast-models", "name": name,
 	}, http.StatusOK, nil)
 	routes := readAccess(t, app).Routes
-	if len(routes) != 2 || routes[1].Name != name || len(routes[1].Rule.Models) != 2 {
+	if len(routes) != 1 || routes[0].Name != name || len(routes[0].Rule.Models) != 2 {
 		t.Fatalf("routes = %+v, want only the name changed", routes)
 	}
 

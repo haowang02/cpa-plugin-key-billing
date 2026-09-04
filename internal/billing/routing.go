@@ -10,9 +10,6 @@ import (
 )
 
 const (
-	SystemAllRouteID   = "system:all"
-	SystemAllRouteName = "默认"
-
 	RouteBindingRoute              = "route"
 	RouteBindingModel              = "model"
 	RouteBindingCredential         = "credential"
@@ -75,12 +72,6 @@ type RouteView struct {
 	Route
 	BoundKeyCount         int `json:"bound_key_count"`
 	FullyUnrestrictedKeys int `json:"fully_unrestricted_keys"`
-}
-
-func SystemAllRoute() Route {
-	return Route{ID: SystemAllRouteID, Name: SystemAllRouteName, Rule: RouteRule{
-		Models: []string{}, CredentialIDs: []string{}, CredentialProviders: []CredentialProviderSelector{},
-	}}
 }
 
 func CredentialFingerprint(rawID string) string {
@@ -224,15 +215,6 @@ func NormalizeRouteBindings(bindings []RouteBinding) ([]RouteBinding, error) {
 		seen[key] = struct{}{}
 		result = append(result, binding)
 	}
-	for _, binding := range result {
-		if binding.Kind != RouteBindingRoute || binding.Value != SystemAllRouteID {
-			continue
-		}
-		if len(result) == 1 {
-			return []RouteBinding{}, nil
-		}
-		return nil, invalidf("默认规则不能与其他选项同时选择")
-	}
 	return result, nil
 }
 
@@ -272,15 +254,6 @@ func (s *Store) RouteViews() []RouteView {
 	s.read(func(state *State) {
 		for _, route := range state.Routes {
 			view := RouteView{Route: cloneRoute(route)}
-			if route.ID == SystemAllRouteID {
-				for _, key := range state.Keys {
-					if key != nil && key.DeletedAt.IsZero() && len(key.RouteBindings) == 0 {
-						view.BoundKeyCount++
-					}
-				}
-				views = append(views, view)
-				continue
-			}
 			for _, key := range state.Keys {
 				if key == nil || !key.DeletedAt.IsZero() || !slices.Contains(key.RouteBindings, RouteBinding{Kind: RouteBindingRoute, Value: route.ID}) {
 					continue
@@ -298,8 +271,11 @@ func (s *Store) RouteViews() []RouteView {
 	return views
 }
 
-func normalizeRoute(route Route) (Route, error) {
+func NormalizeRoute(route Route) (Route, error) {
 	route.ID = strings.TrimSpace(route.ID)
+	if route.ID == "" {
+		return Route{}, invalidf("路由规则 ID 不能为空")
+	}
 	route.Name = strings.TrimSpace(route.Name)
 	if route.Name == "" {
 		return Route{}, invalidf("请输入规则名称")
@@ -315,21 +291,7 @@ func normalizeRoute(route Route) (Route, error) {
 	return route, nil
 }
 
-func NormalizeStoredRoute(route Route) (Route, error) {
-	route.ID = strings.TrimSpace(route.ID)
-	if route.ID == "" {
-		return Route{}, invalidf("路由规则 ID 不能为空")
-	}
-	if strings.HasPrefix(route.ID, "system:") && route.ID != SystemAllRouteID {
-		return Route{}, invalidf("system: 命名空间由系统保留")
-	}
-	return normalizeRoute(route)
-}
-
 func (s *Store) CreateRoute(route Route, scopes []string) (Route, error) {
-	if strings.HasPrefix(strings.TrimSpace(route.ID), "system:") {
-		return Route{}, invalidf("system: 命名空间由系统保留")
-	}
 	scopes = normalizeScopes(scopes)
 	return routingUpdateResult(s, func(state *State) (Route, Changes, error) {
 		for _, scope := range scopes {
@@ -338,9 +300,12 @@ func (s *Store) CreateRoute(route Route, scopes []string) (Route, error) {
 			}
 		}
 		if strings.TrimSpace(route.ID) == "" {
-			route.ID = state.freeRouteID(route.Name)
+			route.ID = freeID(route.Name, "route", func(id string) bool {
+				_, exists := state.findRoute(id)
+				return exists
+			})
 		}
-		validated, err := normalizeRoute(route)
+		validated, err := NormalizeRoute(route)
 		if err != nil {
 			return Route{}, Changes{}, err
 		}
@@ -357,17 +322,10 @@ func (s *Store) CreateRoute(route Route, scopes []string) (Route, error) {
 	})
 }
 
-func (s *State) freeRouteID(name string) string {
-	return freeID(name, "route", func(id string) bool { _, ok := s.findRoute(id); return ok || strings.HasPrefix(id, "system:") })
-}
-
 func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
 	patch.ID = strings.TrimSpace(patch.ID)
 	if patch.ID == "" {
 		return Route{}, invalidf("路由规则 ID 不能为空")
-	}
-	if strings.HasPrefix(patch.ID, "system:") {
-		return Route{}, invalidf("默认路由规则不能编辑或删除")
 	}
 	return routingUpdateResult(s, func(state *State) (Route, Changes, error) {
 		changed := []string{}
@@ -382,7 +340,7 @@ func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
 		if patch.Rule != nil {
 			updated.Rule = *patch.Rule
 		}
-		validated, err := normalizeRoute(updated)
+		validated, err := NormalizeRoute(updated)
 		if err != nil {
 			return Route{}, Changes{}, err
 		}
@@ -452,9 +410,6 @@ func (s *Store) DeleteRoute(id string) (RouteDeleteResult, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return RouteDeleteResult{}, invalidf("路由规则 ID 不能为空")
-	}
-	if strings.HasPrefix(id, "system:") {
-		return RouteDeleteResult{}, invalidf("默认路由规则不能编辑或删除")
 	}
 	return routingUpdateResult(s, func(state *State) (RouteDeleteResult, Changes, error) {
 		changed := []string{}

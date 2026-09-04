@@ -9,10 +9,6 @@ type State struct {
 	Prices []PriceRule
 	Plans  []Plan
 	Keys   map[string]*KeyState
-	// Routes are the reusable model/Credential policies. The reserved
-	// system:all route is materialized here so every management view has one
-	// canonical unrestricted choice, although API keys store unrestricted as
-	// an empty binding list.
 	Routes []Route
 	// Credentials names the upstream credentials seen so far, keyed by the
 	// host's runtime auth index. Request events store that index and read the name
@@ -78,7 +74,7 @@ type KeyState struct {
 	DeletedAt        time.Time      `json:"deleted_at,omitzero"`
 	PlanID           string         `json:"plan_id,omitempty"`
 	ConcurrencyLimit int            `json:"concurrency_limit,omitempty"`
-	RouteBindings    []RouteBinding `json:"route_bindings,omitempty"`
+	RouteBindings    []RouteBinding `json:"route_bindings,omitempty"` // Empty means all routes.
 	Cycle            Cycle          `json:"cycle"`
 }
 

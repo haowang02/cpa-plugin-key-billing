@@ -24,9 +24,6 @@ CREATE TABLE routes (
 	rule_json TEXT   NOT NULL DEFAULT '{}'
 );
 
-INSERT INTO routes (position, id, name, rule_json)
-VALUES (0, 'system:all', '默认', '{"models":[],"credential_ids":[],"credential_providers":[]}');
-
 CREATE TABLE plans (
 	position       INTEGER PRIMARY KEY,
 	id             TEXT    NOT NULL UNIQUE,

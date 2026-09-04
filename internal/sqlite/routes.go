@@ -39,7 +39,7 @@ func (d *DB) loadRoutes(state *billing.State) error {
 		if err := json.Unmarshal([]byte(raw), &route.Rule); err != nil {
 			return fmt.Errorf("解析路由规则 %s：%w", route.ID, err)
 		}
-		route, err = billing.NormalizeStoredRoute(route)
+		route, err = billing.NormalizeRoute(route)
 		if err != nil {
 			return fmt.Errorf("校验路由规则 %s：%w", route.ID, err)
 		}

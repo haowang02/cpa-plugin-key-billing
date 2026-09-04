@@ -1477,6 +1477,10 @@
       }
       .route-trigger .mono { font-size: 12px; }
       .route-trigger .tag { margin-right: 5px; }
+      .route-trigger-all {
+        color: var(--text-tertiary);
+        border-style: dashed;
+      }
       .route-picker {
         position: fixed;
         z-index: 1100;
@@ -1554,6 +1558,11 @@
       }
       .route-picker-section-count { margin-left: auto; padding-right: 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
       .route-picker-list > .route-picker-section:first-child > .route-picker-group { border-top: none; margin-top: 0; }
+      .route-picker-empty {
+        padding: 5px 30px 7px;
+        color: var(--text-tertiary);
+        font-size: 12px;
+      }
       .route-picker-option {
         display: flex;
         align-items: center;
@@ -1586,6 +1595,7 @@
       }
       .route-picker-option.disabled { cursor: not-allowed; opacity: 0.5; }
       .route-picker-actions { justify-content: flex-end; }
+      #route-picker-clear { margin-right: auto; }
       .route-rule-list { height: 210px; max-height: 210px; }
       @media (max-width: 768px) {
         /* Anchoring a popover to a cell inside a horizontally scrolling table stops
@@ -2806,6 +2816,7 @@
       <input id="route-picker-search" type="search" placeholder="搜索路由规则、上游凭证或模型" autocomplete="off" />
       <div id="route-picker-list" class="route-picker-list"></div>
       <div class="row route-picker-actions">
+        <button id="route-picker-clear">清空选择</button>
         <button id="route-picker-cancel">取消</button>
         <button id="route-picker-save" class="primary">保存</button>
       </div>
@@ -3083,9 +3094,6 @@
         }
       }
 
-      // The built-in empty route leaves both routing dimensions unrestricted.
-      const ALL_ROUTE_ID = "system:all";
-      const ALL_ROUTE_NAME = "默认";
       const CONCURRENCY_OPTIONS = [0, 1, 2, 3, 5, 10, 20, 50];
       const CUSTOM_CONCURRENCY = "__custom__";
       const PLAN_PERIOD_OPTIONS = new Map([
@@ -6222,9 +6230,10 @@
 
       function routeTrigger(view) {
         const bindings = view.route_bindings || [];
-        const names = bindings.length
-          ? bindings.map((binding) => ({ text: bindingName(binding), mono: binding.kind === "model", tag: binding.kind === "credential_provider" ? "整类" : "" }))
-          : [{ text: ALL_ROUTE_NAME, mono: false }];
+        const allRoutes = !bindings.length;
+        const names = allRoutes
+          ? [{ text: "全部路由", mono: false }]
+          : bindings.map((binding) => ({ text: bindingName(binding), mono: binding.kind === "model", tag: binding.kind === "credential_provider" ? "整类" : "" }));
         const parts = names.flatMap((entry, index) => [
           index ? "、" : null,
           el("span", { class: entry.mono ? "mono" : "" }, entry.text),
@@ -6233,7 +6242,7 @@
         return el(
           "button",
           {
-            class: "route-trigger",
+            class: "route-trigger" + (allRoutes ? " route-trigger-all" : ""),
             title: names.map((entry) => entry.text + (entry.tag ? " · " + entry.tag : "")).join("、"),
             "aria-label": keyName(view) + " 的路由规则",
             onclick: (event) => openRoutePicker(view, event.currentTarget),
@@ -6266,7 +6275,6 @@
 
       let routePicker = {
         scope: "",
-        all: true,
         bindings: new Map(),
         expanded: { routes: true, credentials: true, models: true },
         enabledOnly: true,
@@ -6278,7 +6286,6 @@
       function openRoutePicker(view, anchor) {
         routePicker = {
           scope: view.scope,
-          all: !(view.route_bindings || []).length,
           bindings: new Map((view.route_bindings || []).map((binding) => [bindingKey(binding), binding])),
           expanded: { routes: true, credentials: true, models: true },
           enabledOnly: true,
@@ -6319,15 +6326,14 @@
         node.style.top = Math.round(top) + "px";
       }
 
-      function pickerOption(checked, disabled, kind, label, note, onToggle, iconName, disabledReason, tag) {
+      function pickerOption(checked, kind, label, note, onToggle, iconName, disabledReason) {
+        const disabled = !!disabledReason;
         return el(
           "label",
           {
             class:
               "route-picker-option " + kind + (disabled ? " disabled" : ""),
-            title: disabled
-              ? disabledReason || "已选择「" + ALL_ROUTE_NAME + "」。如需设置其他范围，请先取消选择该规则。"
-              : null,
+            title: disabled ? disabledReason : null,
           },
           el("input", {
             type: "checkbox",
@@ -6337,7 +6343,7 @@
           }),
           iconName ? actionIcon(iconName) : null,
           el("span", { title: label }, label),
-          tag ? el("span", { class: "tag warn settings-item-chip", text: tag }) : null,
+          kind === "credential-provider" ? el("span", { class: "tag warn settings-item-chip", text: "整类" }) : null,
           note ? el("span", { class: "count" }, note) : null,
         );
       }
@@ -6348,29 +6354,12 @@
         const sections = [];
 
         const routeOptions = [];
-        if (matchesTerm(ALL_ROUTE_NAME, term)) {
-          routeOptions.push(
-            pickerOption(
-              routePicker.all,
-              false,
-              "route",
-              ALL_ROUTE_NAME,
-              "全部",
-              (checked) => {
-                routePicker.all = checked;
-                if (checked) routePicker.bindings.clear();
-                renderRoutePicker();
-              },
-            ),
-          );
-        }
-        for (const route of state.routes.filter((entry) => entry.id !== ALL_ROUTE_ID)) {
+        for (const route of state.routes) {
           if (!matchesTerm(route.name || route.id, term)) continue;
           const binding = { kind: "route", value: route.id };
           routeOptions.push(
             pickerOption(
-              !routePicker.all && routePicker.bindings.has(bindingKey(binding)),
-              routePicker.all,
+              routePicker.bindings.has(bindingKey(binding)),
               "route",
               route.name || route.id,
               "自定义",
@@ -6382,7 +6371,7 @@
             ),
           );
         }
-        for (const binding of routePicker.bindings.values()) if (binding.kind === "route" && !state.routes.some((route) => route.id === binding.value) && matchesTerm(binding.value, term)) routeOptions.push(pickerOption(true, false, "route", "路由规则已不存在，请重新选择", binding.value, (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }));
+        for (const binding of routePicker.bindings.values()) if (binding.kind === "route" && !state.routes.some((route) => route.id === binding.value) && matchesTerm(binding.value, term)) routeOptions.push(pickerOption(true, "route", "路由规则已不存在，请重新选择", binding.value, (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }));
         sections.push(pickerSection("routes", "路由规则", routeOptions, term ? "没有匹配的路由规则" : "暂无路由规则"));
 
         const selectedProviderValues = new Set([...routePicker.bindings.values()].filter((binding) => binding.kind === "credential_provider").map((binding) => binding.value));
@@ -6395,7 +6384,7 @@
           .map((item) => {
             const binding = { kind: "credential_provider", value: providerKey(item) };
             const label = credentialProviderLabel(item);
-            return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), routePicker.all, "credential-provider", label, credentialProviderAvailabilityNote(item), (checked) => {
+            return pickerOption(routePicker.bindings.has(bindingKey(binding)), "credential-provider", label, credentialProviderAvailabilityNote(item), (checked) => {
               if (checked) {
                 routePicker.bindings.set(bindingKey(binding), binding);
                 for (const credential of state.credentials) {
@@ -6403,17 +6392,16 @@
                 }
               } else routePicker.bindings.delete(bindingKey(binding));
               renderRoutePicker();
-            }, credentialIcon(item), null, "整类");
+            }, credentialIcon(item));
           });
         credentialOptions.push(...state.credentials.filter((item) => (!routePicker.enabledOnly || !item.disabled) && matchesTerm(credentialLabel(item), term)).sort(compareCredentials).map((item) => {
           const binding = { kind: "credential", value: item.ref };
           const providerBinding = { kind: "credential_provider", value: providerKey(item) };
           const covered = routePicker.bindings.has(bindingKey(providerBinding));
-          const disabled = routePicker.all || covered;
           const disabledReason = covered ? "已选择「" + credentialProviderLabel(item) + "」整类，该类别下的单个凭证无需重复选择。" : "";
-          return pickerOption(!routePicker.all && routePicker.bindings.has(bindingKey(binding)), disabled, "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.bindings.set(bindingKey(binding), binding); else routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, credentialIcon(item), disabledReason);
+          return pickerOption(routePicker.bindings.has(bindingKey(binding)), "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.bindings.set(bindingKey(binding), binding); else routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, credentialIcon(item), disabledReason);
         }));
-        for (const binding of routePicker.bindings.values()) if (binding.kind === "credential" && !state.credentials.some((item) => item.ref === binding.value) && matchesTerm(binding.value, term)) credentialOptions.push(pickerOption(true, routePicker.all, "credential", "上游凭证已不存在", binding.value.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "key"));
+        for (const binding of routePicker.bindings.values()) if (binding.kind === "credential" && !state.credentials.some((item) => item.ref === binding.value) && matchesTerm(binding.value, term)) credentialOptions.push(pickerOption(true, "credential", "上游凭证已不存在", binding.value.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "key"));
         sections.push(pickerSection("credentials", "上游凭证", credentialOptions, term ? "没有匹配的上游凭证" : "暂无上游凭证"));
 
         const modelOptions = catalogModels()
@@ -6421,8 +6409,7 @@
           .map((model) => {
             const binding = { kind: "model", value: model };
             return pickerOption(
-              !routePicker.all && routePicker.bindings.has(bindingKey(binding)),
-              routePicker.all,
+              routePicker.bindings.has(bindingKey(binding)),
               "model",
               model,
               "",
@@ -6433,17 +6420,16 @@
               },
             );
           });
-        for (const binding of routePicker.bindings.values()) if (binding.kind === "model" && !catalogModels().some((model) => model.toLowerCase() === binding.value.toLowerCase()) && matchesTerm(binding.value, term)) modelOptions.push(pickerOption(true, routePicker.all, "model", binding.value, "CPA 当前未公布此模型", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }));
+        for (const binding of routePicker.bindings.values()) if (binding.kind === "model" && !catalogModels().some((model) => model.toLowerCase() === binding.value.toLowerCase()) && matchesTerm(binding.value, term)) modelOptions.push(pickerOption(true, "model", binding.value, "CPA 当前未公布此模型", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }));
         sections.push(pickerSection("models", "模型", modelOptions, term ? "没有匹配的模型" : "暂无模型"));
 
         list.replaceChildren(...sections);
-        $("route-picker-save").disabled = false;
         positionRoutePicker();
       }
 
       function pickerSection(kind, title, options, emptyText) {
         const bindingKinds = kind === "routes" ? ["route"] : kind === "credentials" ? ["credential", "credential_provider"] : ["model"];
-        const selected = [...routePicker.bindings.values()].filter((binding) => bindingKinds.includes(binding.kind)).length + (kind === "routes" && routePicker.all ? 1 : 0);
+        const selected = [...routePicker.bindings.values()].filter((binding) => bindingKinds.includes(binding.kind)).length;
         const expanded = !!routePicker.expanded[kind];
         return el("div", { class: "route-picker-section" },
           el("div", { class: "route-picker-group" },
@@ -6454,7 +6440,7 @@
             kind === "credentials" ? compactEnabledToggle(routePicker.enabledOnly, (checked) => { routePicker.enabledOnly = checked; renderRoutePicker(); }, "仅显示启用的上游凭证") : null,
             el("span", { class: "route-picker-section-count", text: selected + "/" + options.length }),
           ),
-          expanded ? el("div", {}, ...(options.length ? options : [el("div", { class: "empty", text: emptyText })])) : null,
+          expanded ? el("div", {}, ...(options.length ? options : [el("div", { class: "route-picker-empty", text: emptyText })])) : null,
         );
       }
 
@@ -6469,7 +6455,7 @@
       async function saveRoutePicker() {
         const scope = routePicker.scope;
         if (!scope) return;
-        const body = { scope, bindings: routePicker.all ? [{ kind: "route", value: ALL_ROUTE_ID }] : [...routePicker.bindings.values()] };
+        const body = { scope, bindings: [...routePicker.bindings.values()] };
         const button = $("route-picker-save");
         button.disabled = true;
         button.textContent = "正在保存…";
@@ -6567,11 +6553,9 @@
               const credential = state.credentials.find((item) => item.ref === ref);
               return { text: credential ? credentialLabel(credential) : "凭证已不存在" };
             }));
-          const boundKeys = state.keys.filter((key) => route.id === ALL_ROUTE_ID
-            ? !(key.route_bindings || []).length
-            : (key.route_bindings || []).some((binding) => binding.kind === "route" && binding.value === route.id));
+          const boundKeys = state.keys.filter((key) =>
+            (key.route_bindings || []).some((binding) => binding.kind === "route" && binding.value === route.id));
           const name = route.name || route.id;
-          const system = route.id === ALL_ROUTE_ID;
           return el(
             "article",
             { class: "auth-file-card", role: "listitem" },
@@ -6579,7 +6563,7 @@
               "div",
               { class: "event-entry-head settings-entry-header" },
               el("div", { class: "settings-entry-title", text: name }),
-              system ? null : el("div", { class: "row settings-entry-actions" },
+              el("div", { class: "row settings-entry-actions" },
                 el("button", { class: "link", text: "编辑", onclick: () => editRoute(route) }),
                 el("button", {
                   class: "link danger",
@@ -6588,7 +6572,7 @@
                     if (!(await confirmAction(
                       "删除路由规则「" + name + "」？",
                       route.bound_key_count
-                        ? "该规则正被 " + route.bound_key_count + " 个 API Key 使用。删除后会从这些 API Key 中移除；其中 " + (route.fully_unrestricted_keys || 0) + " 个将恢复为「" + ALL_ROUTE_NAME + "」。此操作无法撤销。"
+                        ? "该规则正被 " + route.bound_key_count + " 个 API Key 使用。删除后会从这些 API Key 中移除；其中 " + (route.fully_unrestricted_keys || 0) + " 个将可使用全部路由。此操作无法撤销。"
                         : "此操作无法撤销。",
                     ))) return;
                     await plugin("DELETE", "/routes?id=" + encodeURIComponent(route.id));
@@ -6610,7 +6594,9 @@
           ...(state.access?.credential_inventory_error
             ? [el("div", { class: "notice warn show", text: "凭证信息暂时无法加载：" + state.access.credential_inventory_error })]
             : []),
-          el("div", { class: "event-list settings-card-list", role: "list" }, cards),
+          cards.length
+            ? el("div", { class: "event-list settings-card-list", role: "list" }, cards)
+            : el("div", { class: "empty", text: "暂无路由规则" }),
         );
         if ($("route-dialog").open) {
           renderRouteModelList();
@@ -8637,6 +8623,10 @@
       });
       $("route-picker-cancel").onclick = closeRoutePicker;
       $("route-picker-save").onclick = () => guard(saveRoutePicker);
+      $("route-picker-clear").onclick = () => {
+        routePicker.bindings.clear();
+        renderRoutePicker();
+      };
       addEventListener("scroll", positionRoutePicker, {
         passive: true,
         capture: true,
