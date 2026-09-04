@@ -5170,7 +5170,7 @@
                   ? null
                   : errorEventField(
                       "API Key",
-                      entry.label || entry.preview || entry.scope,
+                      requestEventKeyName(entry),
                     ),
                 errorEventField("模型", entry.billing_model || entry.upstream_model),
                 errorEventField("来源", entry.source),
@@ -6927,9 +6927,8 @@
       }
 
       function requestEventKeyName(entry) {
-        return (
-          entry.label || entry.preview || (entry.scope || "").slice(0, 12) + "…"
-        );
+        return entry.label || entry.preview ||
+          (entry.scope ? entry.scope.slice(0, 12) + "…" : "未归属");
       }
 
       function costTierText(cost) {

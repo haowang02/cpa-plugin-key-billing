@@ -125,9 +125,6 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 		return OKEnvelope(struct{}{})
 	}
 	scope := billing.CallerScope(record.APIKey)
-	if scope == "" || !record.Generate {
-		return OKEnvelope(struct{}{})
-	}
 	var recordError billing.RequestError
 	if record.Failed {
 		failure := usageFailureDetails(record.Failure)

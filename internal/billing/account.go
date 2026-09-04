@@ -33,17 +33,12 @@ func (s *Store) RecordUsageError(event UsageEvent, failure RequestError) {
 
 func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 	scope := strings.TrimSpace(event.Scope)
-	if scope == "" {
-		return
-	}
 	at := event.At
 	if at.IsZero() {
 		at = s.Now()
 	}
 	event.At = at
 	updateResult(s, func(state *State) (struct{}, Changes) {
-		key := state.ensureKey(scope)
-
 		upstreamModel := strings.TrimSpace(event.UpstreamModel)
 		if upstreamModel == "" {
 			upstreamModel = strings.TrimSpace(event.RouteModel)
@@ -74,16 +69,21 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 			Cost:              cost,
 			ReasoningTokens:   event.Breakdown.Output.ReasoningTokens,
 		}
-		if !failed || usageBreakdownPresent(event.Breakdown) {
-			chargeCycle(key, event, cost.TotalUSD)
-		}
-		// A completion may arrive after its period ended. Close it now, but do
-		// not start the next period until another request is admitted.
-		if plan, hasPlan := state.FindPlan(key.PlanID); hasPlan {
-			settleExpiredCycle(key, plan, at)
+		var changedKeys []string
+		if scope != "" {
+			key := state.ensureKey(scope)
+			if !failed || usageBreakdownPresent(event.Breakdown) {
+				chargeCycle(key, event, cost.TotalUSD)
+			}
+			// A completion may arrive after its period ended. Close it now, but do
+			// not start the next period until another request is admitted.
+			if plan, hasPlan := state.FindPlan(key.PlanID); hasPlan {
+				settleExpiredCycle(key, plan, at)
+			}
+			changedKeys = []string{scope}
 		}
 		changes := Changes{
-			Keys:               []string{scope},
+			Keys:               changedKeys,
 			Credentials:        learnCredential(state, scope, event.AuthIndex, event.Provider, event.AuthType, event.Account),
 			RequestEventCutoff: at.Add(-RequestEventRetention),
 		}

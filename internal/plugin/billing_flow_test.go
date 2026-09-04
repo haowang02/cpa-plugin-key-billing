@@ -187,16 +187,52 @@ func TestUsageHandleBillsTheSuccessfulRetryAttemptOnce(t *testing.T) {
 	}
 }
 
-func TestUsageHandleSkipsCountOnlyAndDoesNotGuessUnknownProviderAccounting(t *testing.T) {
+func TestUsageHandleBillsNonGeneratingRequest(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	publishUsageRecord(t, app, UsageRecord{
-		Provider: "openai", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
-		Generate: false, Detail: UsageDetail{InputTokens: 1000, TotalTokens: 1000},
+		Provider: "codex", ExecutorType: "CodexWebsocketsExecutor",
+		Model: flowModel, Alias: flowModel, APIKey: testAPIKey, Generate: false,
+		Detail: UsageDetail{InputTokens: 1000, CacheReadTokens: 400, TotalTokens: 1000},
 	})
-	if cost, requests := requestEventCost(t, app); cost != 0 || requests != 0 {
-		t.Fatalf("count-only cost = %v, requests = %d", cost, requests)
+	cost, requests := requestEventCost(t, app)
+	assertCostClose(t, cost, 0.0006+0.00004)
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
 	}
+	entries := requestEventEntries(t, app)
+	if len(entries) != 1 || entries[0].Cost.CacheReadTokens != 400 || entries[0].Cost.BilledOutputTokens != 0 {
+		t.Fatalf("entries = %+v", entries)
+	}
+}
 
+func TestUsageHandleRecordsUnscopedUsageWithoutCreatingKey(t *testing.T) {
+	app := newAppWithPrice(t, true)
+	now := app.store.Now()
+	publishUsageRecord(t, app, UsageRecord{
+		Provider: "codex", ExecutorType: "CodexWebsocketsExecutor",
+		Model: flowModel, Alias: flowModel, AuthIndex: "unscoped-auth",
+		AuthType: "oauth", Source: "upstream@example.com", Generate: true,
+		RequestedAt: now.Add(-time.Minute),
+		Detail:      UsageDetail{InputTokens: 1000, TotalTokens: 1000},
+	})
+
+	entries := requestEventEntries(t, app)
+	if len(entries) != 1 || entries[0].Scope != "" || entries[0].Source != "codex · upstream@example.com" {
+		t.Fatalf("entries = %+v", entries)
+	}
+	if keys := app.store.KeyViews(); len(keys) != 0 {
+		t.Fatalf("keys = %+v, want no synthetic API Key", keys)
+	}
+	analysis, err := app.store.Analysis(billing.RequestEventQuery{From: now.Add(-time.Hour), To: now})
+	if err != nil || analysis.Summary.Requests != 1 || len(analysis.UsageDistribution.APIKeys) != 1 ||
+		analysis.UsageDistribution.APIKeys[0].Label != "未归属" {
+		t.Fatalf("analysis = %+v, err = %v", analysis, err)
+	}
+	assertCostClose(t, analysis.Summary.Cost.TotalUSD, 0.001)
+}
+
+func TestUsageHandleDoesNotGuessUnknownProviderAccounting(t *testing.T) {
+	app := newAppWithPrice(t, true)
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "future-provider", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		Generate: true, Detail: UsageDetail{InputTokens: 100, OutputTokens: 20, TotalTokens: 120},

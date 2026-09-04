@@ -48,7 +48,7 @@ func (d *DB) Analysis(query billing.RequestEventQuery, since time.Time) (billing
 	if query.Scope == "" && query.KeyScope == "" {
 		dimensions = append(dimensions, analysisDimension{
 			name: "API Key", key: "r.scope",
-			label:  "coalesce(NULLIF(k.label, ''), NULLIF(k.preview, ''), r.scope)",
+			label:  "coalesce(NULLIF(k.label, ''), NULLIF(k.preview, ''), NULLIF(r.scope, ''), '未归属')",
 			target: &view.UsageDistribution.APIKeys,
 		})
 	}
