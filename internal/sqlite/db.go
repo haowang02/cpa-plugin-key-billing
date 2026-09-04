@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const schemaVersion = 11
+const schemaVersion = 12
 
 type DB struct {
 	db   *sql.DB
@@ -53,14 +54,19 @@ func (d *DB) init() error {
 	if err := d.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("读取计费数据库 %s：%w", d.path, err)
 	}
-	if version == 10 {
-		return d.migrateV10ToV11()
-	}
-	if version != 0 && version != schemaVersion {
-		return fmt.Errorf("计费数据库 %s 的格式版本为 %d；当前版本不迁移旧数据，请更换 state 文件", d.path, version)
-	}
-	if version == schemaVersion {
+	switch version {
+	case 10:
+		if err := d.migrateV10ToV11(); err != nil {
+			return err
+		}
+		return d.migrateV11ToV12()
+	case 11:
+		return d.migrateV11ToV12()
+	case schemaVersion:
 		return nil
+	case 0:
+	default:
+		return fmt.Errorf("计费数据库 %s 的格式版本为 %d；当前版本不迁移旧数据，请更换 state 文件", d.path, version)
 	}
 	var existingTables int
 	if err := d.db.QueryRow(`SELECT count(*) FROM sqlite_master
@@ -241,6 +247,47 @@ func (d *DB) migrateV10ToV11() error {
 			}
 		}
 		if _, err := tx.Exec("PRAGMA user_version = 11"); err != nil {
+			return fmt.Errorf("标记数据库格式版本：%w", err)
+		}
+		return nil
+	})
+}
+
+// migrateV11ToV12 replaces named period kinds with their effective duration.
+// It validates every legacy row before replacing the table, so an unknown or
+// invalid period leaves the version-11 database untouched.
+func (d *DB) migrateV11ToV12() error {
+	return d.transact(func(tx *sql.Tx) error {
+		var id, kind string
+		var seconds int64
+		err := tx.QueryRow(`
+			SELECT id, period_kind, period_seconds FROM plans
+			WHERE period_kind NOT IN ('daily', 'weekly', 'monthly', 'custom', 'never')
+			   OR (period_kind = 'custom' AND (period_seconds <= 0 OR period_seconds > ?))
+			LIMIT 1`, int64(math.MaxInt64)/int64(time.Second)).Scan(&id, &kind, &seconds)
+		if err == nil {
+			return fmt.Errorf("订阅计划 %s 的旧周期无效：%s (%d 秒)", id, kind, seconds)
+		}
+		if err != sql.ErrNoRows {
+			return fmt.Errorf("检查旧订阅计划：%w", err)
+		}
+
+		if _, err := tx.Exec(`
+			UPDATE plans SET period_seconds =
+				CASE period_kind
+					WHEN 'daily' THEN 86400
+					WHEN 'weekly' THEN 604800
+					WHEN 'monthly' THEN 2592000
+					WHEN 'custom' THEN period_seconds
+					WHEN 'never' THEN 0
+				END
+		`); err != nil {
+			return fmt.Errorf("迁移订阅计划：%w", err)
+		}
+		if _, err := tx.Exec("ALTER TABLE plans DROP COLUMN period_kind"); err != nil {
+			return fmt.Errorf("删除旧订阅周期类型：%w", err)
+		}
+		if _, err := tx.Exec("PRAGMA user_version = 12"); err != nil {
 			return fmt.Errorf("标记数据库格式版本：%w", err)
 		}
 		return nil

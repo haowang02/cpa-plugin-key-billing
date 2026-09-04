@@ -9,7 +9,7 @@ func TestBindingAndResetLeaveCycleInactive(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}}
+		state.Plans = []Plan{{ID: "p", AmountUSD: 10, PeriodSeconds: 86400}}
 		state.Keys["a"] = &KeyState{}
 	})
 
@@ -41,8 +41,8 @@ func TestResetAllCyclesSparesPlansThatNeverReset(t *testing.T) {
 	spent := Cycle{PlanID: "weekly", StartAt: now, EndAt: now.Add(time.Hour), SpentUSD: 3}
 	store.ReplaceAll(func(state *State) {
 		state.Plans = []Plan{
-			{ID: "weekly", AmountUSD: 10, Period: Period{Kind: PeriodWeekly}},
-			{ID: "once", AmountUSD: 10, Period: Period{Kind: PeriodNever}},
+			{ID: "weekly", AmountUSD: 10, PeriodSeconds: 604800},
+			{ID: "once", AmountUSD: 10},
 		}
 		state.Keys["periodic"] = &KeyState{PlanID: "weekly", Cycle: spent}
 		state.Keys["one-time"] = &KeyState{PlanID: "once", Cycle: Cycle{PlanID: "once", StartAt: now, SpentUSD: 3}}
@@ -66,7 +66,7 @@ func TestKeyViewsSettleExpiredCycleWithoutRestartingIt(t *testing.T) {
 	now := time.Date(2026, 8, 8, 7, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", AmountUSD: 10, Period: Period{Kind: PeriodDaily}}}
+		state.Plans = []Plan{{ID: "p", AmountUSD: 10, PeriodSeconds: 86400}}
 		state.Keys["a"] = &KeyState{PlanID: "p", Cycle: Cycle{
 			PlanID: "p", StartAt: now.Add(-48 * time.Hour), EndAt: now.Add(-24 * time.Hour), SpentUSD: 2,
 		}}
@@ -91,10 +91,10 @@ func TestPlanBindingTransactions(t *testing.T) {
 		state.Keys["a"] = &KeyState{}
 		state.Keys["b"] = &KeyState{}
 		state.Keys["owned"] = &KeyState{PlanID: "other"}
-		state.Plans = []Plan{{ID: "other", AmountUSD: 1, Period: Period{Kind: PeriodNever}}}
+		state.Plans = []Plan{{ID: "other", AmountUSD: 1}}
 	})
 
-	created, err := store.CreatePlanWithBindings(Plan{ID: "p", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}, []string{"a"})
+	created, err := store.CreatePlanWithBindings(Plan{ID: "p", AmountUSD: 5, PeriodSeconds: 86400}, []string{"a"})
 	if err != nil || created.ID != "p" {
 		t.Fatalf("CreatePlanWithBindings = %+v, %v", created, err)
 	}
@@ -131,7 +131,7 @@ func newSyncStore(t *testing.T, clock *time.Time) *Store {
 	store := newAccountStore(t, *clock)
 	store.now = func() time.Time { return *clock }
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", Name: "Weekly", AmountUSD: 10, Period: Period{Kind: PeriodWeekly}}}
+		state.Plans = []Plan{{ID: "p", Name: "Weekly", AmountUSD: 10, PeriodSeconds: 604800}}
 	})
 	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext, deletedKeyPlaintext}, false); errSync != nil {
 		t.Fatalf("SyncKeys error = %v", errSync)

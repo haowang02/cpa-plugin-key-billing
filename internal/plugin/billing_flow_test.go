@@ -260,7 +260,7 @@ func TestUsageHandleSpendDrivesQuotaEnforcement(t *testing.T) {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
 	if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{
-		ID: "p", Name: "Tiny", AmountUSD: 0.0015, Period: billing.Period{Kind: billing.PeriodDaily},
+		ID: "p", Name: "Tiny", AmountUSD: 0.0015, PeriodSeconds: 86400,
 	}, []string{flowScope()}); errCreate != nil {
 		t.Fatalf("CreatePlanWithBindings error = %v", errCreate)
 	}

@@ -113,11 +113,11 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 		Plan billing.Plan `json:"plan"`
 	}
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
-		"name":       "Team Monthly",
-		"amount_usd": 20,
-		"period":     map[string]any{"kind": "monthly"},
+		"name":           "Team Monthly",
+		"amount_usd":     20,
+		"period_seconds": 2592000,
 	}, http.StatusCreated, &created)
-	if created.Plan.ID != "team-monthly" {
+	if created.Plan.ID != "team-monthly" || created.Plan.PeriodSeconds != 2592000 {
 		t.Fatalf("plan = %+v", created.Plan)
 	}
 
@@ -125,11 +125,12 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 		Plan billing.Plan `json:"plan"`
 	}
 	callOK(t, app, http.MethodPatch, routePlans, nil, map[string]any{
-		"id":         "team-monthly",
-		"amount_usd": 50,
+		"id":             "team-monthly",
+		"amount_usd":     50,
+		"period_seconds": 0,
 	}, http.StatusOK, &patched)
-	if patched.Plan.AmountUSD != 50 || patched.Plan.Name != "Team Monthly" {
-		t.Fatalf("plan = %+v, want only the amount changed", patched.Plan)
+	if patched.Plan.AmountUSD != 50 || patched.Plan.PeriodSeconds != 0 || patched.Plan.Name != "Team Monthly" {
+		t.Fatalf("plan = %+v", patched.Plan)
 	}
 
 	if plans := readAccess(t, app).Plans; len(plans) != 1 {
@@ -152,7 +153,7 @@ func TestPlanBindingsRoundTripThroughTheManagementAPI(t *testing.T) {
 
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
 		"id": "team", "name": "Team", "amount_usd": 10,
-		"period": map[string]any{"kind": "never"}, "scopes": []string{firstScope},
+		"period_seconds": 0, "scopes": []string{firstScope},
 	}, http.StatusCreated, nil)
 	byScope := keysByScope(t, app)
 	if len(byScope) != 2 || byScope[firstScope].PlanID != "team" || byScope[secondScope].PlanID != "" {
@@ -213,8 +214,8 @@ func TestManagementErrorsMapToStatusCodes(t *testing.T) {
 		body       any
 		wantStatus int
 	}{
-		{"zero plan amount", http.MethodPost, routePlans, map[string]any{"id": "x", "amount_usd": 0, "period": map[string]any{"kind": "daily"}}, http.StatusBadRequest},
-		{"invalid plan period", http.MethodPost, routePlans, map[string]any{"id": "x", "amount_usd": 1, "period": map[string]any{"kind": "custom"}}, http.StatusBadRequest},
+		{"zero plan amount", http.MethodPost, routePlans, map[string]any{"id": "x", "amount_usd": 0, "period_seconds": 86400}, http.StatusBadRequest},
+		{"invalid plan period", http.MethodPost, routePlans, map[string]any{"id": "x", "amount_usd": 1, "period_seconds": -1}, http.StatusBadRequest},
 		{"unknown plan", http.MethodPatch, routePlans, map[string]any{"id": "ghost", "amount_usd": 1}, http.StatusNotFound},
 		{"bind to unknown plan", http.MethodPost, routeKeysBind, map[string]any{"scope": "abc", "plan_id": "ghost"}, http.StatusNotFound},
 		{"no scope", http.MethodPost, routeKeysUnbind, map[string]any{}, http.StatusBadRequest},
@@ -235,7 +236,7 @@ func TestManagementErrorsMapToStatusCodes(t *testing.T) {
 
 func TestDuplicatePlanReportsConflict(t *testing.T) {
 	app := newConfiguredApp(t)
-	body := map[string]any{"id": "daily", "name": "Daily", "amount_usd": 1, "period": map[string]any{"kind": "daily"}}
+	body := map[string]any{"id": "daily", "name": "Daily", "amount_usd": 1, "period_seconds": 86400}
 	callOK(t, app, http.MethodPost, routePlans, nil, body, http.StatusCreated, nil)
 	if resp := callManagement(t, app, http.MethodPost, routePlans, nil, body); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d, want 409 (body=%s)", resp.StatusCode, resp.Body)
@@ -392,7 +393,7 @@ func TestManagementRoutesWorkWhileDisabled(t *testing.T) {
 		t.Fatalf("prices = %+v", prices)
 	}
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
-		"id": "daily", "amount_usd": 1, "period": map[string]any{"kind": "daily"},
+		"id": "daily", "amount_usd": 1, "period_seconds": 86400,
 	}, http.StatusCreated, nil)
 }
 

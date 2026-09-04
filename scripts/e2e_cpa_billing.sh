@@ -876,7 +876,7 @@ assert_quota_exhausted() {
   management_call POST "$port" "/v0/management/plugins/cpa-key-billing/plans" \
     -H "Content-Type: application/json" \
     --data "$(jq -nc --arg name "$plan_name" --arg scope "$scope" \
-      '{name: $name, amount_usd: 0.0001, period: {kind: "daily"}, scopes: [$scope]}')" \
+      '{name: $name, amount_usd: 0.0001, period_seconds: 86400, scopes: [$scope]}')" \
     >"$runtime_dir/plan.json"
   plan="$(jq -er '.plan.id' "$runtime_dir/plan.json")"
 

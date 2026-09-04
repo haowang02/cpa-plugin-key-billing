@@ -43,7 +43,7 @@ func TestAuthorizeFailsOpen(t *testing.T) {
 	t.Run("invalid plan with a zero amount", func(t *testing.T) {
 		store := newEnforceStore(t, now)
 		store.ReplaceAll(func(state *State) {
-			state.Plans = []Plan{{ID: "p", AmountUSD: 0, Period: Period{Kind: PeriodDaily}}}
+			state.Plans = []Plan{{ID: "p", AmountUSD: 0, PeriodSeconds: 86400}}
 			state.Keys["s"] = &KeyState{PlanID: "p", Cycle: Cycle{SpentUSD: 999}}
 		})
 		if decision := store.Authorize("s", now); decision.Allowed {
@@ -56,7 +56,7 @@ func TestAuthorizeBlocksWhenCycleBudgetIsSpent(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "daily-5", Name: "Daily 5", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
+		state.Plans = []Plan{{ID: "daily-5", Name: "Daily 5", AmountUSD: 5, PeriodSeconds: 86400}}
 		state.Keys["s"] = &KeyState{
 			PlanID: "daily-5",
 			Cycle: Cycle{
@@ -92,7 +92,7 @@ func TestAuthorizeNeverResetPlanHasNoAutomaticReset(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newEnforceStore(t, now)
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "once", Name: "One-time", AmountUSD: 5, Period: Period{Kind: PeriodNever}}}
+		state.Plans = []Plan{{ID: "once", Name: "One-time", AmountUSD: 5}}
 		state.Keys["s"] = &KeyState{PlanID: "once", Cycle: Cycle{
 			PlanID: "once", StartAt: now.Add(-365 * 24 * time.Hour), SpentUSD: 5,
 		}}
@@ -116,7 +116,7 @@ func TestAuthorizeNeverResetPlanHasNoAutomaticReset(t *testing.T) {
 func TestAuthorizeRollsIdleCycle(t *testing.T) {
 	store := newEnforceStore(t, time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
+		state.Plans = []Plan{{ID: "p", AmountUSD: 5, PeriodSeconds: 86400}}
 		state.Keys["s"] = &KeyState{
 			PlanID: "p",
 			Cycle: Cycle{
@@ -169,7 +169,7 @@ func TestAuthorizeAndRecordUsageAgreeOnTheCycle(t *testing.T) {
 	store := newAccountStore(t, now)
 	const limitUSD = 0.004
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", AmountUSD: limitUSD, Period: Period{Kind: PeriodDaily}}}
+		state.Plans = []Plan{{ID: "p", AmountUSD: limitUSD, PeriodSeconds: 86400}}
 		state.Keys["scope-a"] = &KeyState{PlanID: "p"}
 	})
 

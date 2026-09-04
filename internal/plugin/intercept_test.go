@@ -19,12 +19,9 @@ func exhaustedApp(t *testing.T, resetAfter time.Duration) *App {
 	if _, errSync := app.store.SyncKeys([]string{testAPIKey}, false); errSync != nil {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
-	period := billing.Period{Kind: billing.PeriodCustom, Seconds: int64(resetAfter / time.Second)}
-	if resetAfter == 0 {
-		period = billing.Period{Kind: billing.PeriodNever}
-	}
 	if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{
-		ID: "plan-5", Name: "Plan 5", AmountUSD: 5, Period: period,
+		ID: "plan-5", Name: "Plan 5", AmountUSD: 5,
+		PeriodSeconds: int64(resetAfter / time.Second),
 	}, []string{billing.CallerScope(testAPIKey)}); errCreate != nil {
 		t.Fatalf("CreatePlanWithBindings error = %v", errCreate)
 	}

@@ -6,25 +6,22 @@ import (
 	"time"
 )
 
-func TestPlanValidateLengthsAndNever(t *testing.T) {
-	valid := []Period{
-		{Kind: PeriodDaily},
-		{Kind: PeriodWeekly},
-		{Kind: PeriodMonthly},
-		{Kind: PeriodCustom, Seconds: 3600},
-		{Kind: PeriodNever},
+func TestPlanValidate(t *testing.T) {
+	valid := []int64{
+		0,
+		5 * 60 * 60,
 	}
-	for _, period := range valid {
-		if errValidate := (Plan{ID: "p", AmountUSD: 1, Period: period}).Validate(); errValidate != nil {
-			t.Fatalf("period %+v rejected: %v", period, errValidate)
+	for _, seconds := range valid {
+		if errValidate := (Plan{ID: "p", AmountUSD: 1, PeriodSeconds: seconds}).Validate(); errValidate != nil {
+			t.Fatalf("period %d rejected: %v", seconds, errValidate)
 		}
 	}
 	invalid := []Plan{
-		{AmountUSD: 1, Period: Period{Kind: PeriodDaily}},
-		{ID: "p", Period: Period{Kind: PeriodDaily}},
-		{ID: "p", AmountUSD: 1, Period: Period{Kind: PeriodCustom}},
-		{ID: "p", AmountUSD: 1, Period: Period{Kind: "yearly"}},
-		{ID: "p", AmountUSD: math.Inf(1), Period: Period{Kind: PeriodDaily}},
+		{AmountUSD: 1, PeriodSeconds: 86400},
+		{ID: "p", PeriodSeconds: 86400},
+		{ID: "p", AmountUSD: 1, PeriodSeconds: -1},
+		{ID: "p", AmountUSD: 1, PeriodSeconds: maxPeriodSeconds + 1},
+		{ID: "p", AmountUSD: math.Inf(1), PeriodSeconds: 86400},
 	}
 	for _, plan := range invalid {
 		if plan.Validate() == nil {
@@ -33,37 +30,14 @@ func TestPlanValidateLengthsAndNever(t *testing.T) {
 	}
 }
 
-func TestCycleLengthsStartAtEachKeysFirstUse(t *testing.T) {
-	start := time.Date(2026, 3, 8, 1, 30, 0, 0, time.FixedZone("browser-like", -5*3600))
-	tests := []struct {
-		kind    PeriodKind
-		seconds int64
-		want    time.Duration
-	}{
-		{kind: PeriodDaily, want: 24 * time.Hour},
-		{kind: PeriodWeekly, want: 7 * 24 * time.Hour},
-		{kind: PeriodMonthly, want: 30 * 24 * time.Hour},
-		{kind: PeriodCustom, seconds: 90, want: 90 * time.Second},
-	}
-	for _, test := range tests {
-		plan := Plan{Period: Period{Kind: test.kind, Seconds: test.seconds}}
-		if got := plan.CycleEnd(start).Sub(start); got != test.want {
-			t.Fatalf("%s length = %v, want %v", test.kind, got, test.want)
-		}
-	}
-	if end := (Plan{Period: Period{Kind: PeriodNever}}).CycleEnd(start); !end.IsZero() {
-		t.Fatalf("never-reset end = %v, want zero", end)
-	}
-}
-
 func TestCycleIsInactiveUntilUseAndAgainAfterReset(t *testing.T) {
-	plan := Plan{ID: "p", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}
+	plan := Plan{ID: "p", AmountUSD: 5, PeriodSeconds: 5 * 60 * 60}
 	key := &KeyState{PlanID: "p"}
 	firstUse := time.Date(2026, 8, 3, 10, 15, 0, 0, time.UTC)
 	if settleExpiredCycle(key, plan, firstUse) || !key.Cycle.StartAt.IsZero() {
 		t.Fatalf("an idle key started unexpectedly: %+v", key.Cycle)
 	}
-	if !activateCycle(key, plan, firstUse) || !key.Cycle.StartAt.Equal(firstUse) || !key.Cycle.EndAt.Equal(firstUse.Add(24*time.Hour)) {
+	if !activateCycle(key, plan, firstUse) || !key.Cycle.StartAt.Equal(firstUse) || !key.Cycle.EndAt.Equal(firstUse.Add(5*time.Hour)) {
 		t.Fatalf("first cycle = %+v", key.Cycle)
 	}
 	key.Cycle.SpentUSD = 3

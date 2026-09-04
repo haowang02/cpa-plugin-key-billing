@@ -10,7 +10,7 @@ import (
 
 func TestConfigureLoadsTheDocumentBehindTheNewPath(t *testing.T) {
 	first := &memoryRepository{state: NewState()}
-	first.state.Plans = []Plan{{ID: "monthly-20", AmountUSD: 20, Period: Period{Kind: PeriodMonthly}}}
+	first.state.Plans = []Plan{{ID: "monthly-20", AmountUSD: 20, PeriodSeconds: 2592000}}
 	second := &memoryRepository{state: NewState()}
 
 	opened := 0
@@ -89,7 +89,7 @@ func TestConfigureKeepsTheLiveDocumentWhenTheNewPathFails(t *testing.T) {
 func TestMutationsWriteOnlyWhatTheyTouched(t *testing.T) {
 	store, repo := newStoreWithRepository(t)
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
+		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, PeriodSeconds: 86400}}
 		state.Keys["scope-a"] = &KeyState{}
 		state.Keys["scope-b"] = &KeyState{}
 	})

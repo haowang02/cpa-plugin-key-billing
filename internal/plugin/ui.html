@@ -2435,13 +2435,7 @@
               <label class="field">额度（USD）<input id="plan-amount" type="number" step="any" min="0.000001" /></label>
               <label class="field">周期
                 <span class="native-select">
-                  <select id="plan-kind">
-                    <option value="daily">24 小时</option>
-                    <option value="weekly">7 天</option>
-                    <option value="monthly">30 天</option>
-                    <option value="custom">自定义周期</option>
-                    <option value="never">不重置</option>
-                  </select>
+                  <select id="plan-period"></select>
                 </span>
               </label>
               <label class="field hidden" id="plan-seconds-field">时长（秒）<input id="plan-seconds" type="number" min="1" value="3600" /></label>
@@ -3094,6 +3088,14 @@
       const ALL_ROUTE_NAME = "默认";
       const CONCURRENCY_OPTIONS = [0, 1, 2, 3, 5, 10, 20, 50];
       const CUSTOM_CONCURRENCY = "__custom__";
+      const PLAN_PERIOD_OPTIONS = new Map([
+        ["18000", "5 小时"],
+        ["86400", "24 小时"],
+        ["604800", "7 天"],
+        ["2592000", "30 天"],
+        ["custom", "自定义周期"],
+        ["0", "不重置"],
+      ]);
       const REQUEST_EVENT_BATCH_SIZE = 50;
       const REQUEST_EVENT_EXPORT_BATCH_SIZE = 1000;
       const REQUEST_EVENT_LOAD_MORE_THRESHOLD_PX = 320;
@@ -3524,22 +3526,6 @@
           return;
         target.replaceChildren(...children);
       }
-      function periodText(period) {
-        if (!period) return "—";
-        switch (period.kind) {
-          case "weekly":
-            return "7 天";
-          case "monthly":
-            return "30 天";
-          case "custom":
-            return "每 " + int(period.seconds) + " 秒";
-          case "never":
-            return "不重置";
-          default:
-            return "24 小时";
-        }
-      }
-
       let noticeTimer = 0;
       function notify(message, kind) {
         const node = $(currentRole === "account" ? "account-notice" : "notice");
@@ -5925,6 +5911,12 @@
           )
           .map((view) => {
             const name = keyName(view);
+            const plan = state.plans.find((plan) => plan.id === view.plan_id);
+            const cycleStatus = view.unlimited
+              ? "—"
+              : plan?.period_seconds === 0
+                ? "不重置"
+                : "未开始";
             const identity =
               view.preview || (view.scope || "").slice(0, 12) + "…";
             const hasLabel = view.label && view.label !== identity;
@@ -6046,12 +6038,6 @@
               }),
             );
 
-            const hasExpiry =
-              !view.unlimited &&
-              view.cycle_end_at &&
-              state.plans.find((plan) => plan.id === view.plan_id)?.period
-                ?.kind !== "never";
-
             return el(
               "tr",
               {},
@@ -6093,9 +6079,13 @@
               el(
                 "td",
                 {},
-                hasExpiry
+                view.cycle_end_at
                   ? dateTimeLines(view.cycle_end_at)
-                  : el("div", { class: "muted small" }, cycleNote(view)),
+                  : el(
+                      "div",
+                      { class: "muted small" },
+                      cycleStatus,
+                    ),
               ),
               el(
                 "td",
@@ -6169,15 +6159,6 @@
             rows,
           ),
         );
-      }
-
-      function cycleNote(view, periodKind) {
-        if (view.unlimited) return "—";
-        const kind =
-          periodKind ||
-          state.plans.find((plan) => plan.id === view.plan_id)?.period?.kind;
-        if (kind === "never") return "不重置";
-        return view.cycle_end_at ? when(view.cycle_end_at) : "未开始";
       }
 
       function routeName(id) {
@@ -6533,6 +6514,9 @@
         const cards = state.plans.map((plan) => {
           const boundKeys = state.keys.filter((key) => key.plan_id === plan.id);
           const name = plan.name || plan.id;
+          const periodLabel =
+            PLAN_PERIOD_OPTIONS.get(String(plan.period_seconds)) ||
+            "每 " + int(plan.period_seconds) + " 秒";
           return el(
             "article",
             { class: "auth-file-card", role: "listitem" },
@@ -6560,7 +6544,7 @@
             el("div", { class: "settings-entry-fields" },
               el("div", { class: "event-request-meta" },
                 settingsEntryField("额度", el("b", { class: "mono", text: usd(plan.amount_usd) })),
-                settingsEntryField("周期", periodText(plan.period)),
+                settingsEntryField("周期", periodLabel),
               ),
               settingsEntryField("已绑定 Key", settingsChipList(keyChipItems(boundKeys), "—")),
             ),
@@ -7870,8 +7854,10 @@
       }
 
       function syncPlanFields() {
-        const kind = $("plan-kind").value;
-        $("plan-seconds-field").classList.toggle("hidden", kind !== "custom");
+        $("plan-seconds-field").classList.toggle(
+          "hidden",
+          $("plan-period").value !== "custom",
+        );
       }
       function renderPlanKeyPicker(planID) {
         const picker = $("plan-key-picker");
@@ -7911,21 +7897,13 @@
         );
       }
 
-      function selectedPlanScopes() {
-        return Array.from(
-          $("plan-key-picker").querySelectorAll(
-            'input[type="checkbox"]:checked',
-          ),
-        ).map((input) => input.value);
-      }
-
       function resetPlanForm() {
         $("plan-form-title").textContent = "新建订阅计划";
         $("plan-save").textContent = "创建";
         $("plan-id").value = "";
         $("plan-name").value = "";
         $("plan-amount").value = "";
-        $("plan-kind").value = "daily";
+        $("plan-period").value = "86400";
         $("plan-seconds").value = "3600";
         syncPlanFields();
         renderPlanKeyPicker("");
@@ -7937,25 +7915,35 @@
         $("plan-save").textContent = "保存";
         $("plan-name").value = plan.name || "";
         $("plan-amount").value = plan.amount_usd ?? 0;
-        $("plan-kind").value = plan.period?.kind || "daily";
-        $("plan-seconds").value = String(plan.period?.seconds || 3600);
+        const seconds = Number(plan.period_seconds);
+        const preset = String(seconds);
+        $("plan-period").value = PLAN_PERIOD_OPTIONS.has(preset)
+          ? preset
+          : "custom";
+        $("plan-seconds").value = String(seconds || 3600);
         syncPlanFields();
         renderPlanKeyPicker(plan.id);
         $("plan-dialog").showModal();
         $("plan-name").focus();
       }
       function planFromForm() {
-        const kind = $("plan-kind").value;
-        const period = { kind };
-        if (kind === "custom") period.seconds = Number($("plan-seconds").value);
+        const selected = $("plan-period").value;
+        const seconds = Number(
+          selected === "custom" ? $("plan-seconds").value : selected,
+        );
         const amount = Number($("plan-amount").value);
         if (!Number.isFinite(amount) || amount <= 0)
           throw new Error("额度必须大于 0");
         return {
           name: $("plan-name").value.trim(),
           amount_usd: amount,
-          period,
-          scopes: selectedPlanScopes(),
+          period_seconds: seconds,
+          scopes: Array.from(
+            $("plan-key-picker").querySelectorAll(
+              'input[type="checkbox"]:checked',
+            ),
+            (input) => input.value,
+          ),
         };
       }
 
@@ -8616,7 +8604,12 @@
         };
 
       $("key-filter").addEventListener("input", renderKeys);
-      $("plan-kind").addEventListener("change", syncPlanFields);
+      $("plan-period").replaceChildren(
+        ...Array.from(PLAN_PERIOD_OPTIONS, ([value, label]) =>
+          el("option", { value, text: label }),
+        ),
+      );
+      $("plan-period").addEventListener("change", syncPlanFields);
       $("plan-new").onclick = () => {
         resetPlanForm();
         $("plan-dialog").showModal();

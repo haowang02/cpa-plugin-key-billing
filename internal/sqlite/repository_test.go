@@ -48,7 +48,7 @@ func TestRepositoryRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	start := time.Date(2026, 8, 12, 9, 30, 0, 0, time.UTC)
 	state := billing.NewState()
-	state.Plans = []billing.Plan{{ID: "weekly", Name: "Weekly 10", AmountUSD: 10, Period: billing.Period{Kind: billing.PeriodWeekly}}}
+	state.Plans = []billing.Plan{{ID: "weekly", Name: "Weekly 10", AmountUSD: 10, PeriodSeconds: 604800}}
 	state.Prices = []billing.PriceRule{{Pattern: "gpt-5.5", InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: price(.1)}}
 	state.Routes = []billing.Route{billing.SystemAllRoute(), {ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
 	state.Keys["scope-a"] = &billing.KeyState{Preview: "sk-tes…0001", Label: "Alice", InConfig: true,

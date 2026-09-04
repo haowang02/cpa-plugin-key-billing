@@ -111,7 +111,7 @@ func TestConcurrentLateCompletionDoesNotChargeNewCycle(t *testing.T) {
 	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, start)
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
+		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, PeriodSeconds: 86400}}
 		state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
 	})
 	firstCycle := store.Authorize("scope-a", start)
@@ -139,7 +139,7 @@ func TestFutureRequestedAtDoesNotClearCurrentCycle(t *testing.T) {
 	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, start.Add(time.Hour))
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}}}
+		state.Plans = []Plan{{ID: "daily", AmountUSD: 5, PeriodSeconds: 86400}}
 		state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
 	})
 	cycle := store.Authorize("scope-a", start)
@@ -173,8 +173,8 @@ func TestCompletionDoesNotOpenCycleAfterAdministrativeChange(t *testing.T) {
 			store := newAccountStore(t, start)
 			store.ReplaceAll(func(state *State) {
 				state.Plans = []Plan{
-					{ID: "daily", AmountUSD: 5, Period: Period{Kind: PeriodDaily}},
-					{ID: "weekly", AmountUSD: 5, Period: Period{Kind: PeriodWeekly}},
+					{ID: "daily", AmountUSD: 5, PeriodSeconds: 86400},
+					{ID: "weekly", AmountUSD: 5, PeriodSeconds: 604800},
 				}
 				state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
 			})

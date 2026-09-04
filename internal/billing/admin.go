@@ -274,9 +274,6 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 	plan.ID = strings.TrimSpace(plan.ID)
 	plan.Name = strings.TrimSpace(plan.Name)
 	scopes = normalizeScopes(scopes)
-	if plan.Period.Kind == "" {
-		plan.Period.Kind = PeriodDaily
-	}
 	var errApply error
 	stored := updateResult(s, func(state *State) (Plan, Changes) {
 		if plan.ID == "" {
@@ -315,10 +312,10 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 }
 
 type PlanPatch struct {
-	ID        string   `json:"id"`
-	Name      *string  `json:"name,omitempty"`
-	AmountUSD *float64 `json:"amount_usd,omitempty"`
-	Period    *Period  `json:"period,omitempty"`
+	ID            string   `json:"id"`
+	Name          *string  `json:"name,omitempty"`
+	AmountUSD     *float64 `json:"amount_usd,omitempty"`
+	PeriodSeconds *int64   `json:"period_seconds,omitempty"`
 }
 
 // UpdatePlanWithBindings applies a plan edit and, when scopes is non-nil,
@@ -343,8 +340,8 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 			if patch.AmountUSD != nil {
 				updated.AmountUSD = *patch.AmountUSD
 			}
-			if patch.Period != nil {
-				updated.Period = *patch.Period
+			if patch.PeriodSeconds != nil {
+				updated.PeriodSeconds = *patch.PeriodSeconds
 			}
 			if errValidate := updated.Validate(); errValidate != nil {
 				errApply = errValidate
@@ -368,7 +365,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				}
 			}
 
-			periodChanged := updated.Period != state.Plans[i].Period
+			periodChanged := updated.PeriodSeconds != state.Plans[i].PeriodSeconds
 			if periodChanged || scopes != nil {
 				for scope, key := range state.Keys {
 					// A deleted key is absent from the editor, so its absence

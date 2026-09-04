@@ -219,7 +219,7 @@ func (s *Store) ResetAllCycles() int {
 				continue
 			}
 			plan, exists := state.FindPlan(key.PlanID)
-			if !exists || plan.Period.Kind == PeriodNever {
+			if !exists || plan.PeriodSeconds == 0 {
 				continue
 			}
 			key.Cycle = Cycle{}

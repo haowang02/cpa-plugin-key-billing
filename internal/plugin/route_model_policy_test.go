@@ -82,7 +82,7 @@ func TestForbiddenModelIsRefusedInEveryClientFormat(t *testing.T) {
 func TestForbiddenModelLeavesTheSubscriptionUntouched(t *testing.T) {
 	app := restrictApp(t, "chat/fast")
 	if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{
-		ID: "daily", Name: "Daily 1", AmountUSD: 1, Period: billing.Period{Kind: billing.PeriodDaily},
+		ID: "daily", Name: "Daily 1", AmountUSD: 1, PeriodSeconds: 86400,
 	}, nil); errCreate != nil {
 		t.Fatalf("CreatePlanWithBindings error = %v", errCreate)
 	}

@@ -244,19 +244,19 @@ PLANS = [
         "id": "engineering-monthly",
         "name": "研发团队",
         "amount_usd": 300,
-        "period": {"kind": "monthly"},
+        "period_seconds": 2592000,
     },
     {
         "id": "production-monthly",
         "name": "生产服务",
         "amount_usd": 1000,
-        "period": {"kind": "monthly"},
+        "period_seconds": 2592000,
     },
     {
         "id": "project-credit",
         "name": "项目额度",
         "amount_usd": 100,
-        "period": {"kind": "never"},
+        "period_seconds": 0,
     },
 ]
 
@@ -484,7 +484,7 @@ def make_key(index):
         "spent_usd": profile["spent_usd"],
         "used_percent": profile["spent_usd"] / limit * 100 if limit else 0,
     }
-    if plan and plan["period"]["kind"] == "monthly":
+    if plan and plan["period_seconds"] > 0:
         result["cycle_end_at"] = iso(NOW + timedelta(days=profile["cycle_days"]))
     return result
 

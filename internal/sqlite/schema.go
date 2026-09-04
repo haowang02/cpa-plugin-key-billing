@@ -32,7 +32,6 @@ CREATE TABLE plans (
 	id             TEXT    NOT NULL UNIQUE,
 	name           TEXT    NOT NULL DEFAULT '',
 	amount_usd     REAL    NOT NULL DEFAULT 0,
-	period_kind    TEXT    NOT NULL DEFAULT '',
 	period_seconds INTEGER NOT NULL DEFAULT 0
 );
 

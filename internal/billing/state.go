@@ -51,28 +51,12 @@ type LongContextPrice struct {
 	CacheWritePer1M      *float64 `json:"cache_write_per_1m,omitempty"`
 }
 
-type PeriodKind string
-
-const (
-	PeriodDaily   PeriodKind = "daily"
-	PeriodWeekly  PeriodKind = "weekly"
-	PeriodMonthly PeriodKind = "monthly"
-	PeriodCustom  PeriodKind = "custom"
-	PeriodNever   PeriodKind = "never"
-)
-
-// Period describes only a subscription length. Every key supplies its own
-// start time on first use; a plan has no shared reset boundary.
-type Period struct {
-	Kind    PeriodKind `json:"kind"`
-	Seconds int64      `json:"seconds,omitempty"`
-}
-
 type Plan struct {
 	ID        string  `json:"id"`
 	Name      string  `json:"name"`
 	AmountUSD float64 `json:"amount_usd"`
-	Period    Period  `json:"period"`
+	// PeriodSeconds is zero for a budget that never resets.
+	PeriodSeconds int64 `json:"period_seconds"`
 }
 
 // KeyState is identified by caller scope; plaintext keys are never stored.
