@@ -551,7 +551,7 @@ assert_route_model_policy() {
     >/dev/null
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/access" >"$runtime_dir/access.json"
   scope="$(jq -er 'first(.keys[] | select(.in_config) | .scope)' "$runtime_dir/access.json")"
-  if ! jq -e --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)) | (.route_bindings | length) == 0' \
+  if ! jq -e --arg scope "$scope" 'first(.keys[] | select(.scope == $scope)) | all(.route_bindings[]; length == 0)' \
     "$runtime_dir/access.json" >/dev/null; then
     echo "未绑定路由的 API Key 仍然受到限制。" >&2
     return 1
@@ -564,7 +564,7 @@ assert_route_model_policy() {
   route="$(jq -er '.route.id' "$runtime_dir/route.json")"
   management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg scope "$scope" --arg route "$route" '{scope: $scope, bindings: [{kind:"route",value:$route},{kind:"credential_provider",value:"ai-providers\u0000openai-compatible-dummy-chat-e2e"}]}')" \
+    --data "$(jq -nc --arg scope "$scope" --arg route "$route" '{scope: $scope, bindings: {route_ids:[$route],models:[],credential_ids:[],credential_providers:[{source:"ai-providers",provider:"openai-compatible-dummy-chat-e2e"}]}}')" \
     >/dev/null
 
   # A thinking suffix is a request option rather than a model of its own, so it
@@ -609,7 +609,7 @@ assert_route_model_policy() {
   # exactly like any other.
   management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, bindings: []}')" \
+    --data "$(jq -nc --arg scope "$scope" '{scope: $scope, bindings: {}}')" \
     >/dev/null
   management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/routes?id=$route" >/dev/null
 
@@ -728,7 +728,7 @@ assert_route_credential_policy() {
 
   management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg scope "$scope" '{scope:$scope,bindings:[]}')" \
+    --data "$(jq -nc --arg scope "$scope" '{scope:$scope,bindings:{}}')" \
     >/dev/null
   management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/routes?id=$route" >/dev/null
 }

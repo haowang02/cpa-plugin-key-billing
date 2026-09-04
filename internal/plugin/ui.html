@@ -6205,35 +6205,34 @@
         );
       }
 
-      function credentialProviderFromValue(value) {
-        const separator = String(value).indexOf("\u0000");
-        if (separator <= 0 || separator === String(value).length - 1) return null;
-        return { source: String(value).slice(0, separator), provider: String(value).slice(separator + 1) };
-      }
-
       function credentialProviderLabel(item) {
         return credentialSourceLabel(item.source) + " · " + item.provider;
       }
 
-      function bindingKey(binding) { return binding.kind + "\u0000" + binding.value; }
+      function sameCredentialProvider(a, b) {
+        return a.source === b.source && a.provider === b.provider;
+      }
 
-      function bindingName(binding) {
-        if (binding.kind === "route") return routeName(binding.value);
-        if (binding.kind === "model") return "单模型 · " + binding.value;
-        if (binding.kind === "credential_provider") {
-          const provider = credentialProviderFromValue(binding.value);
-          return provider ? credentialProviderLabel(provider) : "凭证类别已不存在";
-        }
-        const credential = state.credentials.find((item) => item.ref === binding.value);
-        return credential ? credentialLabel(credential) : "上游凭证已不存在";
+      function hasCredentialProvider(providers, item) {
+        return providers.some((provider) => sameCredentialProvider(provider, item));
       }
 
       function routeTrigger(view) {
-        const bindings = view.route_bindings || [];
-        const allRoutes = !bindings.length;
+        const bindings = view.route_bindings;
+        const routeIDs = bindings.route_ids;
+        const models = bindings.models;
+        const credentialIDs = bindings.credential_ids;
+        const providers = bindings.credential_providers;
+        const allRoutes = !routeIDs.length && !models.length && !credentialIDs.length && !providers.length;
         const names = allRoutes
           ? [{ text: "全部路由", mono: false }]
-          : bindings.map((binding) => ({ text: bindingName(binding), mono: binding.kind === "model", tag: binding.kind === "credential_provider" ? "整类" : "" }));
+          : routeIDs.map((id) => ({ text: routeName(id), mono: false }))
+            .concat(models.map((model) => ({ text: "单模型 · " + model, mono: true })))
+            .concat(providers.map((provider) => ({ text: credentialProviderLabel(provider), mono: false, tag: "整类" })))
+            .concat(credentialIDs.map((ref) => {
+              const credential = state.credentials.find((item) => item.ref === ref);
+              return { text: credential ? credentialLabel(credential) : "上游凭证已不存在", mono: false };
+            }));
         const parts = names.flatMap((entry, index) => [
           index ? "、" : null,
           el("span", { class: entry.mono ? "mono" : "" }, entry.text),
@@ -6275,7 +6274,10 @@
 
       let routePicker = {
         scope: "",
-        bindings: new Map(),
+        routeIDs: new Set(),
+        models: new Set(),
+        credentialIDs: new Set(),
+        credentialProviders: [],
         expanded: { routes: true, credentials: true, models: true },
         enabledOnly: true,
         searching: false,
@@ -6284,9 +6286,13 @@
       };
 
       function openRoutePicker(view, anchor) {
+        const bindings = view.route_bindings;
         routePicker = {
           scope: view.scope,
-          bindings: new Map((view.route_bindings || []).map((binding) => [bindingKey(binding), binding])),
+          routeIDs: new Set(bindings.route_ids),
+          models: new Set(bindings.models),
+          credentialIDs: new Set(bindings.credential_ids),
+          credentialProviders: [...bindings.credential_providers],
           expanded: { routes: true, credentials: true, models: true },
           enabledOnly: true,
           searching: false,
@@ -6356,71 +6362,61 @@
         const routeOptions = [];
         for (const route of state.routes) {
           if (!matchesTerm(route.name || route.id, term)) continue;
-          const binding = { kind: "route", value: route.id };
           routeOptions.push(
             pickerOption(
-              routePicker.bindings.has(bindingKey(binding)),
+              routePicker.routeIDs.has(route.id),
               "route",
               route.name || route.id,
               "自定义",
               (checked) => {
-                if (checked) routePicker.bindings.set(bindingKey(binding), binding);
-                else routePicker.bindings.delete(bindingKey(binding));
+                if (checked) routePicker.routeIDs.add(route.id);
+                else routePicker.routeIDs.delete(route.id);
                 renderRoutePicker();
               },
             ),
           );
         }
-        for (const binding of routePicker.bindings.values()) if (binding.kind === "route" && !state.routes.some((route) => route.id === binding.value) && matchesTerm(binding.value, term)) routeOptions.push(pickerOption(true, "route", "路由规则已不存在，请重新选择", binding.value, (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }));
+        for (const id of routePicker.routeIDs) if (!state.routes.some((route) => route.id === id) && matchesTerm(id, term)) routeOptions.push(pickerOption(true, "route", "路由规则已不存在，请重新选择", id, (checked) => { if (!checked) routePicker.routeIDs.delete(id); renderRoutePicker(); }));
         sections.push(pickerSection("routes", "路由规则", routeOptions, term ? "没有匹配的路由规则" : "暂无路由规则"));
 
-        const selectedProviderValues = new Set([...routePicker.bindings.values()].filter((binding) => binding.kind === "credential_provider").map((binding) => binding.value));
         for (const item of state.credentials) {
-          if (selectedProviderValues.has(providerKey(item))) routePicker.bindings.delete(bindingKey({ kind: "credential", value: item.ref }));
+          if (hasCredentialProvider(routePicker.credentialProviders, item)) routePicker.credentialIDs.delete(item.ref);
         }
-        const credentialOptions = routeProviderChoices(selectedProviderValues)
+        const credentialOptions = routeProviderChoices(routePicker.credentialProviders)
           .filter((item) => !routePicker.enabledOnly || item.available)
           .filter((item) => matchesTerm(credentialProviderLabel(item) + " 整类 类别", term))
           .map((item) => {
-            const binding = { kind: "credential_provider", value: providerKey(item) };
             const label = credentialProviderLabel(item);
-            return pickerOption(routePicker.bindings.has(bindingKey(binding)), "credential-provider", label, credentialProviderAvailabilityNote(item), (checked) => {
-              if (checked) {
-                routePicker.bindings.set(bindingKey(binding), binding);
-                for (const credential of state.credentials) {
-                  if (credential.source === item.source && credential.provider.toLowerCase() === item.provider.toLowerCase()) routePicker.bindings.delete(bindingKey({ kind: "credential", value: credential.ref }));
-                }
-              } else routePicker.bindings.delete(bindingKey(binding));
+            return pickerOption(hasCredentialProvider(routePicker.credentialProviders, item), "credential-provider", label, credentialProviderAvailabilityNote(item), (checked) => {
+              if (checked) routePicker.credentialProviders.push({ source: item.source, provider: item.provider });
+              else routePicker.credentialProviders = routePicker.credentialProviders.filter((provider) => !sameCredentialProvider(provider, item));
               renderRoutePicker();
             }, credentialIcon(item));
           });
         credentialOptions.push(...state.credentials.filter((item) => (!routePicker.enabledOnly || !item.disabled) && matchesTerm(credentialLabel(item), term)).sort(compareCredentials).map((item) => {
-          const binding = { kind: "credential", value: item.ref };
-          const providerBinding = { kind: "credential_provider", value: providerKey(item) };
-          const covered = routePicker.bindings.has(bindingKey(providerBinding));
+          const covered = hasCredentialProvider(routePicker.credentialProviders, item);
           const disabledReason = covered ? "已选择「" + credentialProviderLabel(item) + "」整类，该类别下的单个凭证无需重复选择。" : "";
-          return pickerOption(routePicker.bindings.has(bindingKey(binding)), "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.bindings.set(bindingKey(binding), binding); else routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, credentialIcon(item), disabledReason);
+          return pickerOption(routePicker.credentialIDs.has(item.ref), "credential", credentialLabel(item), item.unavailable ? "不可用" : "", (checked) => { if (checked) routePicker.credentialIDs.add(item.ref); else routePicker.credentialIDs.delete(item.ref); renderRoutePicker(); }, credentialIcon(item), disabledReason);
         }));
-        for (const binding of routePicker.bindings.values()) if (binding.kind === "credential" && !state.credentials.some((item) => item.ref === binding.value) && matchesTerm(binding.value, term)) credentialOptions.push(pickerOption(true, "credential", "上游凭证已不存在", binding.value.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }, "key"));
+        for (const ref of routePicker.credentialIDs) if (!state.credentials.some((item) => item.ref === ref) && matchesTerm(ref, term)) credentialOptions.push(pickerOption(true, "credential", "上游凭证已不存在", ref.slice(0, 16) + "…", (checked) => { if (!checked) routePicker.credentialIDs.delete(ref); renderRoutePicker(); }, "key"));
         sections.push(pickerSection("credentials", "上游凭证", credentialOptions, term ? "没有匹配的上游凭证" : "暂无上游凭证"));
 
         const modelOptions = catalogModels()
           .filter((model) => matchesTerm(model, term))
           .map((model) => {
-            const binding = { kind: "model", value: model };
             return pickerOption(
-              routePicker.bindings.has(bindingKey(binding)),
+              routePicker.models.has(model),
               "model",
               model,
               "",
               (checked) => {
-                if (checked) routePicker.bindings.set(bindingKey(binding), binding);
-                else routePicker.bindings.delete(bindingKey(binding));
+                if (checked) routePicker.models.add(model);
+                else routePicker.models.delete(model);
                 renderRoutePicker();
               },
             );
           });
-        for (const binding of routePicker.bindings.values()) if (binding.kind === "model" && !catalogModels().some((model) => model.toLowerCase() === binding.value.toLowerCase()) && matchesTerm(binding.value, term)) modelOptions.push(pickerOption(true, "model", binding.value, "CPA 当前未公布此模型", (checked) => { if (!checked) routePicker.bindings.delete(bindingKey(binding)); renderRoutePicker(); }));
+        for (const model of routePicker.models) if (!catalogModels().some((item) => item.toLowerCase() === model.toLowerCase()) && matchesTerm(model, term)) modelOptions.push(pickerOption(true, "model", model, "CPA 当前未公布此模型", (checked) => { if (!checked) routePicker.models.delete(model); renderRoutePicker(); }));
         sections.push(pickerSection("models", "模型", modelOptions, term ? "没有匹配的模型" : "暂无模型"));
 
         list.replaceChildren(...sections);
@@ -6428,8 +6424,11 @@
       }
 
       function pickerSection(kind, title, options, emptyText) {
-        const bindingKinds = kind === "routes" ? ["route"] : kind === "credentials" ? ["credential", "credential_provider"] : ["model"];
-        const selected = [...routePicker.bindings.values()].filter((binding) => bindingKinds.includes(binding.kind)).length;
+        const selected = kind === "routes"
+          ? routePicker.routeIDs.size
+          : kind === "credentials"
+            ? routePicker.credentialIDs.size + routePicker.credentialProviders.length
+            : routePicker.models.size;
         const expanded = !!routePicker.expanded[kind];
         return el("div", { class: "route-picker-section" },
           el("div", { class: "route-picker-group" },
@@ -6455,7 +6454,12 @@
       async function saveRoutePicker() {
         const scope = routePicker.scope;
         if (!scope) return;
-        const body = { scope, bindings: [...routePicker.bindings.values()] };
+        const body = { scope, bindings: {
+          route_ids: [...routePicker.routeIDs],
+          models: [...routePicker.models],
+          credential_ids: [...routePicker.credentialIDs],
+          credential_providers: routePicker.credentialProviders,
+        } };
         const button = $("route-picker-save");
         button.disabled = true;
         button.textContent = "正在保存…";
@@ -6545,16 +6549,16 @@
 
       function renderRoutes() {
         const cards = state.routes.map((route) => {
-          const rule = route.rule || {};
-          const models = rule.models || [];
-          const credentials = (rule.credential_providers || [])
+          const rule = route.rule;
+          const models = rule.models;
+          const credentials = rule.credential_providers
             .map((item) => ({ text: credentialProviderLabel(item), tag: "整类" }))
-            .concat((rule.credential_ids || []).map((ref) => {
+            .concat(rule.credential_ids.map((ref) => {
               const credential = state.credentials.find((item) => item.ref === ref);
               return { text: credential ? credentialLabel(credential) : "凭证已不存在" };
             }));
           const boundKeys = state.keys.filter((key) =>
-            (key.route_bindings || []).some((binding) => binding.kind === "route" && binding.value === route.id));
+            key.route_bindings.route_ids.includes(route.id));
           const name = route.name || route.id;
           return el(
             "article",
@@ -6607,38 +6611,32 @@
 
       let routeModels = new Set();
       let routeCredentialIDs = new Set();
-      let routeProviders = new Set();
-
-      function providerKey(item) { return item.source + "\u0000" + item.provider; }
+      let routeProviders = [];
 
       function routeRuleSearchTerm() {
         return $("route-rule-search").value.trim().toLowerCase();
       }
 
-      function routeProviderChoices(selected = routeProviders) {
-        const providers = new Map();
+      function routeProviderChoices(selected) {
+        const providers = [];
         for (const item of state.credentials) {
-          const key = providerKey(item);
-          const existing = providers.get(key);
-          providers.set(key, {
-            source: item.source,
-            provider: item.provider,
-            available:
-              (!item.disabled && !item.unavailable) || !!existing?.available,
-            hasCredentials: true,
-          });
-        }
-        for (const key of selected) {
-          if (providers.has(key)) continue;
-          const item = credentialProviderFromValue(key);
-          if (item)
-            providers.set(key, {
-              ...item,
-              available: false,
-              hasCredentials: false,
+          const existing = providers.find((provider) => sameCredentialProvider(provider, item));
+          if (existing) {
+            existing.available ||= !item.disabled && !item.unavailable;
+          } else {
+            providers.push({
+              source: item.source,
+              provider: item.provider,
+              available: !item.disabled && !item.unavailable,
+              hasCredentials: true,
             });
+          }
         }
-        return [...providers.values()].sort(compareCredentialProviders);
+        for (const item of selected) {
+          if (hasCredentialProvider(providers, item)) continue;
+          providers.push({ ...item, available: false, hasCredentials: false });
+        }
+        return providers.sort(compareCredentialProviders);
       }
 
       function credentialProviderAvailabilityNote(item) {
@@ -6648,31 +6646,27 @@
 
       function renderRouteCredentialList() {
         for (const item of state.credentials) {
-          if (routeProviders.has(providerKey(item))) routeCredentialIDs.delete(item.ref);
+          if (hasCredentialProvider(routeProviders, item)) routeCredentialIDs.delete(item.ref);
         }
         const term = routeRuleSearchTerm();
         const enabledOnly = $("route-credential-enabled-only").checked;
-        const options = routeProviderChoices().filter((item) => (!enabledOnly || item.available) && matchesTerm(credentialProviderLabel(item) + " 整类", term)).map((item) => {
+        const options = routeProviderChoices(routeProviders).filter((item) => (!enabledOnly || item.available) && matchesTerm(credentialProviderLabel(item) + " 整类", term)).map((item) => {
           const label = credentialProviderLabel(item);
-          return el("label", {}, el("input", { type: "checkbox", checked: routeProviders.has(providerKey(item)) || undefined, onchange: (event) => {
-            if (event.target.checked) {
-              routeProviders.add(providerKey(item));
-              for (const credential of state.credentials) {
-                if (credential.source === item.source && credential.provider.toLowerCase() === item.provider.toLowerCase()) routeCredentialIDs.delete(credential.ref);
-              }
-            } else routeProviders.delete(providerKey(item));
+          return el("label", {}, el("input", { type: "checkbox", checked: hasCredentialProvider(routeProviders, item) || undefined, onchange: (event) => {
+            if (event.target.checked) routeProviders.push({ source: item.source, provider: item.provider });
+            else routeProviders = routeProviders.filter((provider) => !sameCredentialProvider(provider, item));
             renderRouteCredentialList();
           } }), actionIcon(credentialIcon(item)), el("span", { title: label + " · 整类" }, label), el("span", { class: "tag warn settings-item-chip", text: "整类" }), item.available ? null : el("span", { class: "muted small", text: credentialProviderAvailabilityNote(item) }));
         });
         const credentials = state.credentials.filter((item) => (!enabledOnly || !item.disabled) && matchesTerm(credentialLabel(item), term)).sort(compareCredentials);
         for (const item of credentials) {
           const label = credentialLabel(item);
-          const covered = routeProviders.has(providerKey(item));
+          const covered = hasCredentialProvider(routeProviders, item);
           options.push(el("label", { class: covered ? "disabled" : "" }, el("input", { type: "checkbox", checked: routeCredentialIDs.has(item.ref) || undefined, disabled: covered || undefined, onchange: (event) => { if (event.target.checked) routeCredentialIDs.add(item.ref); else routeCredentialIDs.delete(item.ref); renderRouteCredentialList(); } }), actionIcon(credentialIcon(item)), el("span", { title: label }, label)));
         }
         for (const ref of routeCredentialIDs) if (!state.credentials.some((item) => item.ref === ref) && matchesTerm(ref, term)) options.push(el("label", {}, el("input", { type: "checkbox", checked: true, onchange: (event) => { if (!event.target.checked) routeCredentialIDs.delete(ref); renderRouteCredentialList(); } }), actionIcon("key"), el("span", { title: ref }, "凭证已不存在")));
         $("route-credential-list").replaceChildren(...(options.length ? options : [el("div", { class: "empty", text: "没有匹配项" })]));
-        const credentialCount = routeCredentialIDs.size + routeProviders.size;
+        const credentialCount = routeCredentialIDs.size + routeProviders.length;
         $("route-credential-count").textContent = credentialCount ? String(credentialCount) : "全部";
       }
 
@@ -6725,7 +6719,7 @@
           return;
         }
         list.replaceChildren(...state.keys.map((key) => {
-          const checked = !!routeID && (key.route_bindings || []).some((binding) => binding.kind === "route" && binding.value === routeID);
+          const checked = !!routeID && key.route_bindings.route_ids.includes(routeID);
           return el(
             "label",
             {},
@@ -6749,7 +6743,7 @@
         $("route-credential-enabled-only").checked = true;
         routeModels = new Set();
         routeCredentialIDs = new Set();
-        routeProviders = new Set();
+        routeProviders = [];
         renderRouteModelList();
         renderRouteCredentialList();
         renderRouteKeyList("");
@@ -6762,9 +6756,9 @@
         $("route-name").value = route.name || "";
         $("route-rule-search").value = "";
         $("route-credential-enabled-only").checked = true;
-        routeModels = new Set(route.rule?.models || []);
-        routeCredentialIDs = new Set(route.rule?.credential_ids || []);
-        routeProviders = new Set((route.rule?.credential_providers || []).map(providerKey));
+        routeModels = new Set(route.rule.models);
+        routeCredentialIDs = new Set(route.rule.credential_ids);
+        routeProviders = [...route.rule.credential_providers];
         renderRouteModelList();
         renderRouteCredentialList();
         renderRouteKeyList(route.id);
@@ -8625,7 +8619,10 @@
       $("route-picker-cancel").onclick = closeRoutePicker;
       $("route-picker-save").onclick = () => guard(saveRoutePicker);
       $("route-picker-clear").onclick = () => {
-        routePicker.bindings.clear();
+        routePicker.routeIDs.clear();
+        routePicker.models.clear();
+        routePicker.credentialIDs.clear();
+        routePicker.credentialProviders = [];
         renderRoutePicker();
       };
       addEventListener("scroll", positionRoutePicker, {
@@ -8664,14 +8661,14 @@
       $("route-rule-all").onclick = () => {
         routeModels = new Set(catalogModels());
         routeCredentialIDs = new Set();
-        routeProviders = new Set(routeProviderChoices().map(providerKey));
+        routeProviders = routeProviderChoices(routeProviders).map((item) => ({ source: item.source, provider: item.provider }));
         renderRouteModelList();
         renderRouteCredentialList();
       };
       $("route-rule-none").onclick = () => {
         routeModels = new Set();
         routeCredentialIDs = new Set();
-        routeProviders = new Set();
+        routeProviders = [];
         renderRouteModelList();
         renderRouteCredentialList();
       };
@@ -8692,8 +8689,7 @@
             const name = $("route-name").value.trim();
             if (!name) throw new Error("请输入规则名称");
             const id = $("route-id").value;
-            const credential_providers = [...routeProviders].map((key) => { const [source, provider] = key.split("\u0000"); return { source, provider }; });
-            const rule = { models: [...routeModels], credential_ids: [...routeCredentialIDs], credential_providers };
+            const rule = { models: [...routeModels], credential_ids: [...routeCredentialIDs], credential_providers: routeProviders };
             const scopes = selectedRouteScopes();
             if (id) {
               const route = state.routes.find((item) => item.id === id);

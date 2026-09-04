@@ -70,12 +70,12 @@ type KeyState struct {
 	// A deleted key is marked rather than dropped because the record is what
 	// gives request history its identity: each event stores a scope and reads the
 	// masked key and remark from here.
-	InConfig         bool           `json:"in_config,omitempty"`
-	DeletedAt        time.Time      `json:"deleted_at,omitzero"`
-	PlanID           string         `json:"plan_id,omitempty"`
-	ConcurrencyLimit int            `json:"concurrency_limit,omitempty"`
-	RouteBindings    []RouteBinding `json:"route_bindings,omitempty"` // Empty means all routes.
-	Cycle            Cycle          `json:"cycle"`
+	InConfig         bool          `json:"in_config,omitempty"`
+	DeletedAt        time.Time     `json:"deleted_at,omitzero"`
+	PlanID           string        `json:"plan_id,omitempty"`
+	ConcurrencyLimit int           `json:"concurrency_limit,omitempty"`
+	RouteBindings    RouteBindings `json:"route_bindings"`
+	Cycle            Cycle         `json:"cycle"`
 }
 
 type Cycle struct {

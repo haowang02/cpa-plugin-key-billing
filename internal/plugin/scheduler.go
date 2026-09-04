@@ -146,7 +146,7 @@ func candidateAllowed(candidate SchedulerAuthCandidate, decision billing.Routing
 	}
 	provider := strings.ToLower(strings.TrimSpace(candidate.Provider))
 	for _, item := range decision.CredentialProviders {
-		if item.Source == source && strings.EqualFold(item.Provider, provider) {
+		if item.Source == source && item.Provider == provider {
 			return true
 		}
 	}

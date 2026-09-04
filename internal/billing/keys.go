@@ -1,7 +1,6 @@
 package billing
 
 import (
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -14,11 +13,11 @@ type KeyView struct {
 	InConfig  bool      `json:"in_config"`
 	DeletedAt time.Time `json:"deleted_at,omitzero"`
 
-	PlanID             string         `json:"plan_id,omitempty"`
-	PlanName           string         `json:"plan_name,omitempty"`
-	ConcurrencyLimit   int            `json:"concurrency_limit"`
-	CurrentConcurrency int            `json:"current_concurrency"`
-	RouteBindings      []RouteBinding `json:"route_bindings"`
+	PlanID             string        `json:"plan_id,omitempty"`
+	PlanName           string        `json:"plan_name,omitempty"`
+	ConcurrencyLimit   int           `json:"concurrency_limit"`
+	CurrentConcurrency int           `json:"current_concurrency"`
+	RouteBindings      RouteBindings `json:"route_bindings"`
 	// Keys without a plan are still fully accounted for.
 	Unlimited   bool      `json:"unlimited"`
 	Blocked     bool      `json:"blocked"`
@@ -64,10 +63,15 @@ func keyView(scope string, key *KeyState, plans map[string]Plan, currentConcurre
 		PlanID:             key.PlanID,
 		ConcurrencyLimit:   key.ConcurrencyLimit,
 		CurrentConcurrency: currentConcurrency,
-		RouteBindings:      slices.Clone(key.RouteBindings),
-		Unlimited:          true,
-		SpentUSD:           key.Cycle.SpentUSD,
-		CycleEndAt:         key.Cycle.EndAt,
+		RouteBindings: RouteBindings{
+			RouteIDs:            append([]string{}, key.RouteBindings.RouteIDs...),
+			Models:              append([]string{}, key.RouteBindings.Models...),
+			CredentialIDs:       append([]string{}, key.RouteBindings.CredentialIDs...),
+			CredentialProviders: append([]CredentialProviderSelector{}, key.RouteBindings.CredentialProviders...),
+		},
+		Unlimited:  true,
+		SpentUSD:   key.Cycle.SpentUSD,
+		CycleEndAt: key.Cycle.EndAt,
 	}
 	if plan, exists := plans[key.PlanID]; exists {
 		view.PlanName = plan.Name

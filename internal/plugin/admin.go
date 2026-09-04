@@ -192,8 +192,8 @@ func (a *App) deleteRoute(req ManagementRequest) ManagementResponse {
 
 func (a *App) setKeyRoutes(req ManagementRequest) ManagementResponse {
 	var body struct {
-		Scope    string                 `json:"scope"`
-		Bindings []billing.RouteBinding `json:"bindings"`
+		Scope    string                `json:"scope"`
+		Bindings billing.RouteBindings `json:"bindings"`
 	}
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
@@ -204,19 +204,9 @@ func (a *App) setKeyRoutes(req ManagementRequest) ManagementResponse {
 	}
 	var existing []string
 	if key, ok := a.store.KeyViewForScope(body.Scope); ok {
-		for _, binding := range key.RouteBindings {
-			if binding.Kind == billing.RouteBindingCredential {
-				existing = append(existing, binding.Value)
-			}
-		}
+		existing = key.RouteBindings.CredentialIDs
 	}
-	refs := []string{}
-	for _, binding := range bindings {
-		if binding.Kind == billing.RouteBindingCredential {
-			refs = append(refs, binding.Value)
-		}
-	}
-	if response := a.validateNewCredentialRefs(refs, existing); response != nil {
+	if response := a.validateNewCredentialRefs(bindings.CredentialIDs, existing); response != nil {
 		return *response
 	}
 	if errApply := a.store.SetKeyRoutes(body.Scope, bindings); errApply != nil {

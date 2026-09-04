@@ -52,7 +52,10 @@ func TestRepositoryRoundTrip(t *testing.T) {
 	state.Prices = []billing.PriceRule{{Pattern: "gpt-5.5", InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: price(.1)}}
 	state.Routes = []billing.Route{{ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
 	state.Keys["scope-a"] = &billing.KeyState{Preview: "sk-tes…0001", Label: "Alice", InConfig: true,
-		PlanID: "weekly", ConcurrencyLimit: 7, RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}, {Kind: "model", Value: "other"}},
+		PlanID: "weekly", ConcurrencyLimit: 7, RouteBindings: billing.RouteBindings{
+			RouteIDs: []string{"fast"}, Models: []string{"other"}, CredentialIDs: []string{},
+			CredentialProviders: []billing.CredentialProviderSelector{},
+		},
 		Cycle: billing.Cycle{PlanID: "weekly", StartAt: start, EndAt: start.Add(7 * 24 * time.Hour), SpentUSD: 1.5}}
 	state.Credentials["auth-1"] = billing.Credential{Provider: "codex", Account: "ops@example.com"}
 
@@ -93,13 +96,13 @@ func TestKeyGrantIsRewrittenWithTheKey(t *testing.T) {
 	database := openTestDB(t)
 	state := billing.NewState()
 	state.Routes = []billing.Route{{ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{}, CredentialProviders: []billing.CredentialProviderSelector{}}}}
-	state.Keys["scope-a"] = &billing.KeyState{RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}, {Kind: "model", Value: "claude"}}}
-	state.Keys["scope-b"] = &billing.KeyState{RouteBindings: []billing.RouteBinding{{Kind: "route", Value: "fast"}}}
+	state.Keys["scope-a"] = &billing.KeyState{RouteBindings: billing.RouteBindings{RouteIDs: []string{"fast"}, Models: []string{"claude"}}}
+	state.Keys["scope-b"] = &billing.KeyState{RouteBindings: billing.RouteBindings{RouteIDs: []string{"fast"}}}
 	mustSave(t, database, state, billing.Changes{AllKeys: true, Routes: true})
-	state.Keys["scope-a"].RouteBindings = []billing.RouteBinding{{Kind: "model", Value: "other"}}
+	state.Keys["scope-a"].RouteBindings = billing.RouteBindings{Models: []string{"other"}}
 	mustSave(t, database, state, billing.Changes{Keys: []string{"scope-a"}})
 	stored := mustLoad(t, database).State
-	if !reflect.DeepEqual(stored.Keys["scope-a"].RouteBindings, []billing.RouteBinding{{Kind: "model", Value: "other"}}) || len(stored.Keys["scope-b"].RouteBindings) != 1 {
+	if !reflect.DeepEqual(stored.Keys["scope-a"].RouteBindings.Models, []string{"other"}) || len(stored.Keys["scope-b"].RouteBindings.RouteIDs) != 1 {
 		t.Fatalf("stored grants = %+v", stored.Keys)
 	}
 }

@@ -12,7 +12,7 @@ func TestRoutingModelPrecedesCredentialPolicy(t *testing.T) {
 	ref := CredentialFingerprint("auth-a")
 	store.ReplaceAll(func(state *State) {
 		state.Routes = []Route{{ID: "codex", Name: "Codex", Rule: RouteRule{Models: []string{"gpt-5.6-sol"}, CredentialProviders: []CredentialProviderSelector{{Source: CredentialSourceAuthFiles, Provider: "codex"}}}}}
-		state.Keys["scope-a"] = &KeyState{RouteBindings: []RouteBinding{{Kind: RouteBindingRoute, Value: "codex"}, {Kind: RouteBindingCredential, Value: ref}}}
+		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{RouteIDs: []string{"codex"}, CredentialIDs: []string{ref}}}
 	})
 
 	denied := store.ResolveRouting("scope-a", "claude-sonnet-4-6", "claude-sonnet-4-6")
@@ -37,7 +37,7 @@ func TestConditionalRoutesUnionModelsAndFilterCredentialsByRequestedModel(t *tes
 			{ID: "gpt", Name: "GPT", Rule: RouteRule{Models: []string{"gpt-5.6-sol"}, CredentialProviders: []CredentialProviderSelector{{Source: CredentialSourceAuthFiles, Provider: "codex"}}}},
 			{ID: "claude", Name: "Claude", Rule: RouteRule{Models: []string{"claude-sonnet-4-6"}, CredentialProviders: []CredentialProviderSelector{{Source: CredentialSourceAuthFiles, Provider: "claude"}}}},
 		}
-		state.Keys["scope-a"] = &KeyState{RouteBindings: []RouteBinding{{Kind: RouteBindingRoute, Value: "gpt"}, {Kind: RouteBindingRoute, Value: "claude"}}}
+		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{RouteIDs: []string{"gpt", "claude"}}}
 	})
 
 	gpt := store.ResolveRouting("scope-a", "gpt-5.6-sol", "gpt-5.6-sol")
@@ -50,11 +50,11 @@ func TestConditionalRoutesUnionModelsAndFilterCredentialsByRequestedModel(t *tes
 	}
 }
 
-func TestVirtualModelAndCredentialBindingsComposeAcrossPhases(t *testing.T) {
+func TestDirectModelAndCredentialBindingsComposeAcrossPhases(t *testing.T) {
 	store := newStore(t)
 	ref := CredentialFingerprint("auth-a")
 	store.ReplaceAll(func(state *State) {
-		state.Keys["scope-a"] = &KeyState{RouteBindings: []RouteBinding{{Kind: RouteBindingModel, Value: "gpt-5.6-sol"}, {Kind: RouteBindingCredential, Value: ref}}}
+		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{Models: []string{"gpt-5.6-sol"}, CredentialIDs: []string{ref}}}
 	})
 
 	allowed := store.ResolveRouting("scope-a", "gpt-5.6-sol", "gpt-5.6-sol")
@@ -71,22 +71,21 @@ func TestRouteWritesReplaceOnlyThatRoutesKeyBindings(t *testing.T) {
 	store := newStore(t)
 	store.ReplaceAll(func(state *State) {
 		state.Keys["a"] = &KeyState{}
-		state.Keys["b"] = &KeyState{RouteBindings: []RouteBinding{{Kind: RouteBindingModel, Value: "gpt-5.5"}}}
+		state.Keys["b"] = &KeyState{RouteBindings: RouteBindings{Models: []string{"gpt-5.5"}}}
 	})
 	route, err := store.CreateRoute(Route{Name: "Codex", Rule: RouteRule{Models: []string{"gpt-5.6-sol"}}}, []string{"a", "b"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := RouteBinding{Kind: RouteBindingRoute, Value: route.ID}
-	bindings := func(scope string) []RouteBinding {
+	bindings := func(scope string) RouteBindings {
 		for _, key := range store.KeyViews() {
 			if key.Scope == scope {
 				return key.RouteBindings
 			}
 		}
-		return nil
+		return RouteBindings{}
 	}
-	if !slices.Contains(bindings("a"), binding) || !slices.Contains(bindings("b"), binding) {
+	if !slices.Contains(bindings("a").RouteIDs, route.ID) || !slices.Contains(bindings("b").RouteIDs, route.ID) {
 		t.Fatalf("route was not bound at create")
 	}
 	selected := []string{"a"}
@@ -94,11 +93,11 @@ func TestRouteWritesReplaceOnlyThatRoutesKeyBindings(t *testing.T) {
 	if _, err = store.UpdateRoute(RoutePatch{ID: route.ID, Name: &name}, &selected); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(bindings("a"), binding) {
+	if !slices.Contains(bindings("a").RouteIDs, route.ID) {
 		t.Fatal("selected key lost route binding")
 	}
 	bBindings := bindings("b")
-	if slices.Contains(bBindings, binding) || !slices.Contains(bBindings, RouteBinding{Kind: RouteBindingModel, Value: "gpt-5.5"}) {
+	if slices.Contains(bBindings.RouteIDs, route.ID) || !slices.Contains(bBindings.Models, "gpt-5.5") {
 		t.Fatalf("unselected key bindings=%+v", bBindings)
 	}
 }
@@ -118,7 +117,7 @@ func TestRoutingUsesTheBillingModelIdentity(t *testing.T) {
 	store.ReplaceAll(func(state *State) {
 		state.Prices = []PriceRule{{Pattern: "chat/fast"}, {Pattern: "chat/slow"}}
 		state.Routes = []Route{{ID: "fast", Name: "Fast", Rule: RouteRule{Models: []string{"CHAT/Fast"}}}}
-		state.Keys["scope-a"] = &KeyState{RouteBindings: []RouteBinding{{Kind: RouteBindingRoute, Value: "fast"}}}
+		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{RouteIDs: []string{"fast"}}}
 	})
 	tests := []struct {
 		name, upstream, requested string
@@ -149,12 +148,12 @@ func TestRoutingSeparatesConfiguredSuffixedModels(t *testing.T) {
 	store := newStore(t)
 	store.ReplaceAll(func(state *State) {
 		state.Prices = []PriceRule{{Pattern: "chat/fast"}, {Pattern: "chat/fast(high)"}}
-		state.Keys["scope-a"] = &KeyState{RouteBindings: []RouteBinding{{Kind: RouteBindingModel, Value: "chat/fast"}}}
+		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{Models: []string{"chat/fast"}}}
 	})
 	if decision := store.ResolveRouting("scope-a", "chat/fast", "chat/fast(high)"); decision.ModelAllowed {
 		t.Fatalf("configured suffixed model inherited base grant: %+v", decision)
 	}
-	if err := store.SetKeyRoutes("scope-a", []RouteBinding{{Kind: RouteBindingModel, Value: "chat/fast"}, {Kind: RouteBindingModel, Value: "chat/fast(high)"}}); err != nil {
+	if err := store.SetKeyRoutes("scope-a", RouteBindings{Models: []string{"chat/fast", "chat/fast(high)"}}); err != nil {
 		t.Fatal(err)
 	}
 	if decision := store.ResolveRouting("scope-a", "chat/fast", "chat/fast(high)"); !decision.ModelAllowed {
@@ -165,7 +164,7 @@ func TestRoutingSeparatesConfiguredSuffixedModels(t *testing.T) {
 func TestMissingRouteFailsClosed(t *testing.T) {
 	store := newStore(t)
 	store.ReplaceAll(func(state *State) {
-		state.Keys["scope-a"] = &KeyState{RouteBindings: []RouteBinding{{Kind: RouteBindingRoute, Value: "missing"}}}
+		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{RouteIDs: []string{"missing"}}}
 	})
 	decision := store.ResolveRouting("scope-a", "gpt-5.6", "gpt-5.6")
 	if decision.ModelAllowed || decision.ConfigurationError == "" {
@@ -183,13 +182,13 @@ func TestCredentialProviderSourceIsPartOfIdentity(t *testing.T) {
 	}
 }
 
-func TestVirtualCredentialProviderBindingRestrictsOneSource(t *testing.T) {
+func TestDirectCredentialProviderBindingRestrictsOneSource(t *testing.T) {
 	store := newStore(t)
 	provider := CredentialProviderSelector{Source: CredentialSourceAuthFiles, Provider: "Codex"}
 	store.ReplaceAll(func(state *State) {
 		state.Keys["scope-a"] = &KeyState{}
 	})
-	if err := store.SetKeyRoutes("scope-a", []RouteBinding{{Kind: RouteBindingCredentialProvider, Value: credentialProviderBindingValue(provider)}}); err != nil {
+	if err := store.SetKeyRoutes("scope-a", RouteBindings{CredentialProviders: []CredentialProviderSelector{provider}}); err != nil {
 		t.Fatal(err)
 	}
 	decision := store.ResolveRouting("scope-a", "gpt-5.6-sol", "gpt-5.6-sol")
@@ -200,17 +199,14 @@ func TestVirtualCredentialProviderBindingRestrictsOneSource(t *testing.T) {
 	if allowed.Source != CredentialSourceAuthFiles || allowed.Provider != "codex" {
 		t.Fatalf("provider=%+v", allowed)
 	}
-	if _, err := NormalizeRouteBindings([]RouteBinding{{Kind: RouteBindingCredentialProvider, Value: "codex"}}); KindOf(err) != KindInvalid {
-		t.Fatalf("invalid provider binding error=%v", err)
-	}
 }
 
 func TestDeleteRouteCascadesBindingsAndReportsWidening(t *testing.T) {
 	store := newStore(t)
 	store.ReplaceAll(func(state *State) {
 		state.Routes = []Route{{ID: "only", Name: "Only", Rule: RouteRule{Models: []string{"gpt"}, CredentialProviders: []CredentialProviderSelector{{Source: CredentialSourceAIProviders, Provider: "xai"}}}}}
-		state.Keys["scope-a"] = &KeyState{RouteBindings: []RouteBinding{{Kind: RouteBindingRoute, Value: "only"}}}
-		state.Keys["scope-deleted"] = &KeyState{DeletedAt: time.Now(), RouteBindings: []RouteBinding{{Kind: RouteBindingRoute, Value: "only"}}}
+		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{RouteIDs: []string{"only"}}}
+		state.Keys["scope-deleted"] = &KeyState{DeletedAt: time.Now(), RouteBindings: RouteBindings{RouteIDs: []string{"only"}}}
 	})
 	views := store.RouteViews()
 	if len(views) != 1 || views[0].BoundKeyCount != 1 {
@@ -221,7 +217,7 @@ func TestDeleteRouteCascadesBindingsAndReportsWidening(t *testing.T) {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	store.Read(func(state *State) {
-		if len(state.Keys["scope-deleted"].RouteBindings) != 0 {
+		if len(state.Keys["scope-deleted"].RouteBindings.RouteIDs) != 0 {
 			t.Fatalf("deleted key retained route binding: %+v", state.Keys["scope-deleted"].RouteBindings)
 		}
 	})

@@ -56,10 +56,7 @@ func (d *DB) init() error {
 	}
 	switch version {
 	case 10:
-		if err := d.migrateV10ToV11(); err != nil {
-			return err
-		}
-		return d.migrateV11ToV12()
+		return d.migrateV10ToV12()
 	case 11:
 		return d.migrateV11ToV12()
 	case schemaVersion:
@@ -87,10 +84,9 @@ func (d *DB) init() error {
 	})
 }
 
-// migrateV10ToV11 replaces the four model-access relation tables with the
-// compact JSON route representation. Every step is one transaction: an
-// incompatible legacy document leaves the version-10 database untouched.
-func (d *DB) migrateV10ToV11() error {
+// migrateV10ToV12 replaces the four model-access relation tables with routes.
+// Every step is one transaction so incompatible data leaves version 10 intact.
+func (d *DB) migrateV10ToV12() error {
 	return d.transact(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`CREATE TABLE routes (
 			position INTEGER PRIMARY KEY,
@@ -100,7 +96,7 @@ func (d *DB) migrateV10ToV11() error {
 		)`); err != nil {
 			return fmt.Errorf("创建路由规则表：%w", err)
 		}
-		if _, err := tx.Exec("ALTER TABLE api_keys ADD COLUMN route_bindings_json TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		if _, err := tx.Exec("ALTER TABLE api_keys ADD COLUMN route_bindings_json TEXT NOT NULL DEFAULT '{}'"); err != nil {
 			return fmt.Errorf("添加 API Key 路由绑定：%w", err)
 		}
 		type legacyGroup struct {
@@ -172,7 +168,7 @@ func (d *DB) migrateV10ToV11() error {
 			}
 		}
 
-		bindingsByScope := make(map[string][]billing.RouteBinding)
+		bindingsByScope := make(map[string]billing.RouteBindings)
 		groupRows, err := tx.Query("SELECT scope,group_id FROM key_model_groups ORDER BY scope,position")
 		if err != nil {
 			return fmt.Errorf("读取旧模型分组绑定：%w", err)
@@ -184,7 +180,9 @@ func (d *DB) migrateV10ToV11() error {
 				return fmt.Errorf("读取旧模型分组绑定：%w", err)
 			}
 			if i, ok := byOld[id]; ok && len(groups[i].models) > 0 {
-				bindingsByScope[scope] = append(bindingsByScope[scope], billing.RouteBinding{Kind: billing.RouteBindingRoute, Value: groups[i].id})
+				bindings := bindingsByScope[scope]
+				bindings.RouteIDs = append(bindings.RouteIDs, groups[i].id)
+				bindingsByScope[scope] = bindings
 			}
 		}
 		if err := groupRows.Close(); err != nil {
@@ -204,7 +202,9 @@ func (d *DB) migrateV10ToV11() error {
 				modelRows.Close()
 				return fmt.Errorf("读取旧模型绑定：%w", err)
 			}
-			bindingsByScope[scope] = append(bindingsByScope[scope], billing.RouteBinding{Kind: billing.RouteBindingModel, Value: model})
+			bindings := bindingsByScope[scope]
+			bindings.Models = append(bindings.Models, model)
+			bindingsByScope[scope] = bindings
 		}
 		if err := modelRows.Close(); err != nil {
 			return err
@@ -231,54 +231,112 @@ func (d *DB) migrateV10ToV11() error {
 				return fmt.Errorf("删除旧表 %s：%w", table, err)
 			}
 		}
-		if _, err := tx.Exec("PRAGMA user_version = 11"); err != nil {
-			return fmt.Errorf("标记数据库格式版本：%w", err)
-		}
-		return nil
+		return migratePeriodsToV12(tx)
 	})
 }
 
-// Validate every legacy row before replacing the table so an invalid period
-// leaves the version-11 database untouched.
 func (d *DB) migrateV11ToV12() error {
 	return d.transact(func(tx *sql.Tx) error {
-		var id, kind string
-		var seconds int64
-		err := tx.QueryRow(`
-			SELECT id, period_kind, period_seconds FROM plans
-			WHERE period_kind NOT IN ('daily', 'weekly', 'monthly', 'custom', 'never')
-			   OR (period_kind = 'custom' AND (period_seconds <= 0 OR period_seconds > ?))
-			LIMIT 1`, int64(math.MaxInt64)/int64(time.Second)).Scan(&id, &kind, &seconds)
-		if err == nil {
-			return fmt.Errorf("订阅计划 %s 的旧周期无效：%s (%d 秒)", id, kind, seconds)
+		updates := map[string]string{}
+		rows, err := tx.Query("SELECT scope,route_bindings_json FROM api_keys")
+		if err != nil {
+			return fmt.Errorf("读取旧 API Key 路由绑定：%w", err)
 		}
-		if err != sql.ErrNoRows {
-			return fmt.Errorf("检查旧订阅计划：%w", err)
+		defer rows.Close()
+		for rows.Next() {
+			var scope, raw string
+			if err = rows.Scan(&scope, &raw); err != nil {
+				return fmt.Errorf("读取旧 API Key 路由绑定：%w", err)
+			}
+			var legacy []struct {
+				Kind  string `json:"kind"`
+				Value string `json:"value"`
+			}
+			if err = json.Unmarshal([]byte(raw), &legacy); err != nil {
+				return fmt.Errorf("读取 API Key %s 的旧路由绑定：%w", scope, err)
+			}
+			var bindings billing.RouteBindings
+			for _, binding := range legacy {
+				switch binding.Kind {
+				case "route":
+					bindings.RouteIDs = append(bindings.RouteIDs, binding.Value)
+				case "model":
+					bindings.Models = append(bindings.Models, binding.Value)
+				case "credential":
+					bindings.CredentialIDs = append(bindings.CredentialIDs, binding.Value)
+				case "credential_provider":
+					source, provider, ok := strings.Cut(binding.Value, "\x00")
+					if !ok {
+						return fmt.Errorf("API Key %s 的旧凭证类别绑定无效", scope)
+					}
+					bindings.CredentialProviders = append(bindings.CredentialProviders,
+						billing.CredentialProviderSelector{Source: source, Provider: provider})
+				default:
+					return fmt.Errorf("API Key %s 的旧路由绑定类型 %q 无效", scope, binding.Kind)
+				}
+			}
+			bindings, err = billing.NormalizeRouteBindings(bindings)
+			if err != nil {
+				return fmt.Errorf("校验 API Key %s 的旧路由绑定：%w", scope, err)
+			}
+			converted, err := json.Marshal(bindings)
+			if err != nil {
+				return err
+			}
+			updates[scope] = string(converted)
 		}
-
-		if _, err := tx.Exec(`
-			UPDATE plans SET period_seconds =
-				CASE period_kind
-					WHEN 'daily' THEN 86400
-					WHEN 'weekly' THEN 604800
-					WHEN 'monthly' THEN 2592000
-					WHEN 'custom' THEN period_seconds
-					WHEN 'never' THEN 0
-				END
-		`); err != nil {
-			return fmt.Errorf("迁移订阅计划：%w", err)
+		if err = rows.Close(); err != nil {
+			return err
 		}
-		if _, err := tx.Exec("ALTER TABLE plans DROP COLUMN period_kind"); err != nil {
-			return fmt.Errorf("删除旧订阅周期类型：%w", err)
+		if err = rows.Err(); err != nil {
+			return fmt.Errorf("读取旧 API Key 路由绑定：%w", err)
 		}
-		if _, err := tx.Exec("DELETE FROM routes WHERE id = 'system:all'"); err != nil {
+		for scope, raw := range updates {
+			if _, err = tx.Exec("UPDATE api_keys SET route_bindings_json=? WHERE scope=?", raw, scope); err != nil {
+				return fmt.Errorf("迁移 API Key %s 的路由绑定：%w", scope, err)
+			}
+		}
+		if _, err = tx.Exec("DELETE FROM routes WHERE id = 'system:all'"); err != nil {
 			return fmt.Errorf("清理旧路由规则：%w", err)
 		}
-		if _, err := tx.Exec("PRAGMA user_version = 12"); err != nil {
-			return fmt.Errorf("标记数据库格式版本：%w", err)
-		}
-		return nil
+
+		return migratePeriodsToV12(tx)
 	})
+}
+
+func migratePeriodsToV12(tx *sql.Tx) error {
+	var id, kind string
+	var seconds int64
+	err := tx.QueryRow(`
+		SELECT id, period_kind, period_seconds FROM plans
+		WHERE period_kind NOT IN ('daily', 'weekly', 'monthly', 'custom', 'never')
+		   OR (period_kind = 'custom' AND (period_seconds <= 0 OR period_seconds > ?))
+		LIMIT 1`, int64(math.MaxInt64)/int64(time.Second)).Scan(&id, &kind, &seconds)
+	if err == nil {
+		return fmt.Errorf("订阅计划 %s 的旧周期无效：%s (%d 秒)", id, kind, seconds)
+	}
+	if err != sql.ErrNoRows {
+		return fmt.Errorf("检查旧订阅计划：%w", err)
+	}
+	if _, err = tx.Exec(`
+		UPDATE plans SET period_seconds =
+			CASE period_kind
+				WHEN 'daily' THEN 86400
+				WHEN 'weekly' THEN 604800
+				WHEN 'monthly' THEN 2592000
+				WHEN 'custom' THEN period_seconds
+				WHEN 'never' THEN 0
+			END
+	`); err != nil {
+		return fmt.Errorf("迁移订阅计划：%w", err)
+	}
+	if _, err = tx.Exec("ALTER TABLE plans DROP COLUMN period_kind"); err != nil {
+		return fmt.Errorf("删除旧订阅周期类型：%w", err)
+	}
+	if _, err = tx.Exec("PRAGMA user_version = 12"); err != nil {
+		return fmt.Errorf("标记数据库格式版本：%w", err)
+	}
+	return nil
 }
 
 func secureFiles(path string) error {

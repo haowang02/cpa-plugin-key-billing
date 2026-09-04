@@ -94,26 +94,28 @@ func (a *App) accountAccess(access viewAccess) ManagementResponse {
 		byRef[item.Ref] = item
 	}
 	credentials := make([]accountRouteCredential, 0, len(decision.CredentialIDs)+len(decision.CredentialProviders))
-	seen := map[string]struct{}{}
-	add := func(key string, item accountRouteCredential) {
-		if _, exists := seen[key]; exists {
+	seenRefs := map[string]struct{}{}
+	addCredential := func(item credentialView) {
+		if _, exists := seenRefs[item.Ref]; exists {
 			return
 		}
-		seen[key] = struct{}{}
-		credentials = append(credentials, item)
+		seenRefs[item.Ref] = struct{}{}
+		credentials = append(credentials, accountCredential(item))
 	}
+	missingCredential := false
 	for _, ref := range decision.CredentialIDs {
 		if credential, ok := byRef[ref]; ok {
-			add(credential.Ref, accountCredential(credential))
-		} else {
-			add("missing", accountRouteCredential{Name: "指定上游凭证当前不可用", Status: "missing"})
+			addCredential(credential)
+		} else if !missingCredential {
+			credentials = append(credentials, accountRouteCredential{Name: "指定上游凭证当前不可用", Status: "missing"})
+			missingCredential = true
 		}
 	}
 	for _, selector := range decision.CredentialProviders {
 		matched := false
 		for _, credential := range inventory {
-			if credential.Source == selector.Source && strings.EqualFold(credential.Provider, selector.Provider) {
-				add(credential.Ref, accountCredential(credential))
+			if credential.Source == selector.Source && credential.Provider == selector.Provider {
+				addCredential(credential)
 				matched = true
 			}
 		}
@@ -121,15 +123,20 @@ func (a *App) accountAccess(access viewAccess) ManagementResponse {
 			continue
 		}
 		name := sourceLabel(selector.Source) + " · " + selector.Provider
-		add("provider\x00"+selector.Source+"\x00"+selector.Provider, accountRouteCredential{
+		credentials = append(credentials, accountRouteCredential{
 			Source: selector.Source, Provider: selector.Provider, Status: "missing", ProviderWide: true,
 		})
 		warnings = append(warnings, "当前没有符合「"+name+"」的上游凭证")
 	}
 	sort.Slice(credentials, func(i, j int) bool {
-		left := credentials[i].Source + "\x00" + credentials[i].Provider + "\x00" + credentials[i].Name
-		right := credentials[j].Source + "\x00" + credentials[j].Provider + "\x00" + credentials[j].Name
-		return left < right
+		left, right := credentials[i], credentials[j]
+		if left.Source != right.Source {
+			return left.Source < right.Source
+		}
+		if left.Provider != right.Provider {
+			return left.Provider < right.Provider
+		}
+		return left.Name < right.Name
 	})
 	return apiKeyJSON(http.StatusOK, accountAccessResponse{
 		Role: "api_key", Models: decision.ModelScope, Credentials: credentials,

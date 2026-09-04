@@ -14,7 +14,7 @@ CREATE TABLE api_keys (
 	cycle_start_at        INTEGER NOT NULL DEFAULT 0,
 	cycle_end_at          INTEGER NOT NULL DEFAULT 0,
 	cycle_spent_usd       REAL    NOT NULL DEFAULT 0,
-	route_bindings_json   TEXT    NOT NULL DEFAULT '[]'
+	route_bindings_json   TEXT    NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE routes (

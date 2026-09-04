@@ -10,11 +10,6 @@ import (
 )
 
 const (
-	RouteBindingRoute              = "route"
-	RouteBindingModel              = "model"
-	RouteBindingCredential         = "credential"
-	RouteBindingCredentialProvider = "credential_provider"
-
 	CredentialSourceAuthFiles   = "auth-files"
 	CredentialSourceAIProviders = "ai-providers"
 
@@ -34,15 +29,17 @@ type RouteRule struct {
 	CredentialProviders []CredentialProviderSelector `json:"credential_providers"`
 }
 
+type RouteBindings struct {
+	RouteIDs            []string                     `json:"route_ids"`
+	Models              []string                     `json:"models"`
+	CredentialIDs       []string                     `json:"credential_ids"`
+	CredentialProviders []CredentialProviderSelector `json:"credential_providers"`
+}
+
 type Route struct {
 	ID   string    `json:"id"`
 	Name string    `json:"name"`
 	Rule RouteRule `json:"rule"`
-}
-
-type RouteBinding struct {
-	Kind  string `json:"kind"`
-	Value string `json:"value"`
 }
 
 type RoutePatch struct {
@@ -101,63 +98,44 @@ func normalizeCredentialProviderSelector(item CredentialProviderSelector) (Crede
 	return item, nil
 }
 
-func credentialProviderBindingValue(item CredentialProviderSelector) string {
-	return item.Source + "\x00" + item.Provider
-}
-
-func parseCredentialProviderBinding(value string) (CredentialProviderSelector, error) {
-	source, provider, ok := strings.Cut(value, "\x00")
-	if !ok || strings.Contains(provider, "\x00") {
-		return CredentialProviderSelector{}, invalidf("API Key 的凭证类别引用无效")
-	}
-	item, err := normalizeCredentialProviderSelector(CredentialProviderSelector{Source: source, Provider: provider})
-	if err != nil {
-		return CredentialProviderSelector{}, invalidf("API Key 的凭证类别引用无效")
-	}
-	return item, nil
-}
-
 func NormalizeRouteRule(rule RouteRule) (RouteRule, error) {
 	var err error
-	rule.Models, err = normalizeRouteStrings(rule.Models, false)
+	rule.Models, err = normalizeRouteStrings(rule.Models)
 	if err != nil {
 		return RouteRule{}, err
 	}
-	rule.CredentialIDs, err = normalizeRouteStrings(rule.CredentialIDs, true)
+	rule.CredentialIDs, err = normalizeCredentialIDs(rule.CredentialIDs)
 	if err != nil {
 		return RouteRule{}, err
 	}
-	if len(rule.CredentialProviders) > maxRouteEntries {
-		return RouteRule{}, invalidf("每条路由规则最多包含 %d 个 Provider", maxRouteEntries)
-	}
-	providers := make([]CredentialProviderSelector, 0, len(rule.CredentialProviders))
-	seen := make(map[string]struct{}, len(rule.CredentialProviders))
-	for _, item := range rule.CredentialProviders {
-		item, err = normalizeCredentialProviderSelector(item)
-		if err != nil {
-			return RouteRule{}, err
-		}
-		key := credentialProviderBindingValue(item)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		providers = append(providers, item)
-	}
-	rule.CredentialProviders = providers
-	if rule.Models == nil {
-		rule.Models = []string{}
-	}
-	if rule.CredentialIDs == nil {
-		rule.CredentialIDs = []string{}
-	}
-	if rule.CredentialProviders == nil {
-		rule.CredentialProviders = []CredentialProviderSelector{}
+	rule.CredentialProviders, err = normalizeCredentialProviders(rule.CredentialProviders)
+	if err != nil {
+		return RouteRule{}, err
 	}
 	return rule, nil
 }
 
-func normalizeRouteStrings(values []string, fingerprints bool) ([]string, error) {
+func normalizeCredentialProviders(values []CredentialProviderSelector) ([]CredentialProviderSelector, error) {
+	if len(values) > maxRouteEntries {
+		return nil, invalidf("每条路由规则最多包含 %d 个 Provider", maxRouteEntries)
+	}
+	result := make([]CredentialProviderSelector, 0, len(values))
+	seen := make(map[CredentialProviderSelector]struct{}, len(values))
+	for _, item := range values {
+		item, err := normalizeCredentialProviderSelector(item)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func normalizeRouteStrings(values []string) ([]string, error) {
 	if len(values) > maxRouteEntries {
 		return nil, invalidf("每条路由规则的单项选择最多为 %d 个", maxRouteEntries)
 	}
@@ -167,9 +145,6 @@ func normalizeRouteStrings(values []string, fingerprints bool) ([]string, error)
 		value = strings.TrimSpace(value)
 		if value == "" || len(value) > maxRouteValueBytes {
 			return nil, invalidf("路由规则值无效")
-		}
-		if fingerprints && !validCredentialFingerprint(value) {
-			return nil, invalidf("上游凭证引用无效")
 		}
 		key := strings.ToLower(value)
 		if _, ok := seen[key]; ok {
@@ -181,41 +156,41 @@ func normalizeRouteStrings(values []string, fingerprints bool) ([]string, error)
 	return result, nil
 }
 
-func NormalizeRouteBindings(bindings []RouteBinding) ([]RouteBinding, error) {
-	if len(bindings) > maxRouteEntries {
-		return nil, invalidf("每个 API Key 最多绑定 %d 项", maxRouteEntries)
+func normalizeCredentialIDs(values []string) ([]string, error) {
+	values, err := normalizeRouteStrings(values)
+	if err != nil {
+		return nil, err
 	}
-	result := make([]RouteBinding, 0, len(bindings))
-	seen := make(map[string]struct{}, len(bindings))
-	for _, binding := range bindings {
-		binding.Kind = strings.ToLower(strings.TrimSpace(binding.Kind))
-		binding.Value = strings.TrimSpace(binding.Value)
-		if binding.Value == "" || len(binding.Value) > maxRouteValueBytes {
-			return nil, invalidf("API Key 的路由绑定无效")
+	for _, value := range values {
+		if !validCredentialFingerprint(value) {
+			return nil, invalidf("上游凭证引用无效")
 		}
-		switch binding.Kind {
-		case RouteBindingRoute, RouteBindingModel:
-		case RouteBindingCredential:
-			if !validCredentialFingerprint(binding.Value) {
-				return nil, invalidf("API Key 的上游凭证引用无效")
-			}
-		case RouteBindingCredentialProvider:
-			item, err := parseCredentialProviderBinding(binding.Value)
-			if err != nil {
-				return nil, err
-			}
-			binding.Value = credentialProviderBindingValue(item)
-		default:
-			return nil, invalidf("未知的路由绑定类型 %q", binding.Kind)
-		}
-		key := binding.Kind + "\x00" + strings.ToLower(binding.Value)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		result = append(result, binding)
 	}
-	return result, nil
+	return values, nil
+}
+
+func NormalizeRouteBindings(bindings RouteBindings) (RouteBindings, error) {
+	if len(bindings.RouteIDs)+len(bindings.Models)+len(bindings.CredentialIDs)+len(bindings.CredentialProviders) > maxRouteEntries {
+		return RouteBindings{}, invalidf("每个 API Key 最多绑定 %d 项", maxRouteEntries)
+	}
+	var err error
+	bindings.RouteIDs, err = normalizeRouteStrings(bindings.RouteIDs)
+	if err != nil {
+		return RouteBindings{}, err
+	}
+	bindings.Models, err = normalizeRouteStrings(bindings.Models)
+	if err != nil {
+		return RouteBindings{}, err
+	}
+	bindings.CredentialIDs, err = normalizeCredentialIDs(bindings.CredentialIDs)
+	if err != nil {
+		return RouteBindings{}, err
+	}
+	bindings.CredentialProviders, err = normalizeCredentialProviders(bindings.CredentialProviders)
+	if err != nil {
+		return RouteBindings{}, err
+	}
+	return bindings, nil
 }
 
 func (s *State) findRouteIndex(id string) int {
@@ -255,12 +230,12 @@ func (s *Store) RouteViews() []RouteView {
 		for _, route := range state.Routes {
 			view := RouteView{Route: cloneRoute(route)}
 			for _, key := range state.Keys {
-				if key == nil || !key.DeletedAt.IsZero() || !slices.Contains(key.RouteBindings, RouteBinding{Kind: RouteBindingRoute, Value: route.ID}) {
+				if key == nil || !key.DeletedAt.IsZero() || !slices.Contains(key.RouteBindings.RouteIDs, route.ID) {
 					continue
 				}
 				view.BoundKeyCount++
 				copyKey := *key
-				copyKey.RouteBindings = slices.DeleteFunc(slices.Clone(key.RouteBindings), func(b RouteBinding) bool { return b.Kind == RouteBindingRoute && b.Value == route.ID })
+				copyKey.RouteBindings.RouteIDs = slices.DeleteFunc(slices.Clone(key.RouteBindings.RouteIDs), func(id string) bool { return id == route.ID })
 				if !routingRestricted(state, &copyKey) {
 					view.FullyUnrestrictedKeys++
 				}
@@ -318,9 +293,8 @@ func (s *Store) CreateRoute(route Route, scopes []string) (Route, error) {
 			return Route{}, Changes{}
 		}
 		state.Routes = append(state.Routes, route)
-		binding := RouteBinding{Kind: RouteBindingRoute, Value: route.ID}
 		for _, scope := range scopes {
-			state.Keys[scope].RouteBindings = append(state.Keys[scope].RouteBindings, binding)
+			state.Keys[scope].RouteBindings.RouteIDs = append(state.Keys[scope].RouteBindings.RouteIDs, route.ID)
 		}
 		return cloneRoute(route), Changes{Routes: true, Keys: scopes}
 	})
@@ -367,18 +341,17 @@ func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
 		updated = validated
 		state.Routes[i] = updated
 		if scopes != nil {
-			binding := RouteBinding{Kind: RouteBindingRoute, Value: patch.ID}
 			for scope, key := range state.Keys {
 				if key == nil || !key.DeletedAt.IsZero() {
 					continue
 				}
-				hasBinding := slices.Contains(key.RouteBindings, binding)
+				hasBinding := slices.Contains(key.RouteBindings.RouteIDs, patch.ID)
 				_, shouldBind := selected[scope]
 				if shouldBind && !hasBinding {
-					key.RouteBindings = append(key.RouteBindings, binding)
+					key.RouteBindings.RouteIDs = append(key.RouteBindings.RouteIDs, patch.ID)
 					changed = append(changed, scope)
 				} else if !shouldBind && hasBinding {
-					key.RouteBindings = slices.DeleteFunc(key.RouteBindings, func(item RouteBinding) bool { return item == binding })
+					key.RouteBindings.RouteIDs = slices.DeleteFunc(key.RouteBindings.RouteIDs, func(id string) bool { return id == patch.ID })
 					changed = append(changed, scope)
 				}
 			}
@@ -388,7 +361,7 @@ func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
 	return stored, errApply
 }
 
-func (s *Store) SetKeyRoutes(scope string, bindings []RouteBinding) error {
+func (s *Store) SetKeyRoutes(scope string, bindings RouteBindings) error {
 	scope = normalizeScope(scope)
 	if scope == "" {
 		return invalidf("API Key 标识不能为空")
@@ -404,12 +377,10 @@ func (s *Store) SetKeyRoutes(scope string, bindings []RouteBinding) error {
 			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
 			return struct{}{}, Changes{}
 		}
-		for _, binding := range bindings {
-			if binding.Kind == RouteBindingRoute {
-				if _, ok := state.findRoute(binding.Value); !ok {
-					errApply = notFoundf("路由规则 %q 不存在", binding.Value)
-					return struct{}{}, Changes{}
-				}
+		for _, id := range bindings.RouteIDs {
+			if _, ok := state.findRoute(id); !ok {
+				errApply = notFoundf("路由规则 %q 不存在", id)
+				return struct{}{}, Changes{}
 			}
 		}
 		key.RouteBindings = bindings
@@ -436,9 +407,9 @@ func (s *Store) DeleteRoute(id string) (RouteDeleteResult, error) {
 			if key == nil {
 				continue
 			}
-			before := len(key.RouteBindings)
-			key.RouteBindings = slices.DeleteFunc(key.RouteBindings, func(b RouteBinding) bool { return b.Kind == RouteBindingRoute && b.Value == id })
-			if len(key.RouteBindings) == before {
+			before := len(key.RouteBindings.RouteIDs)
+			key.RouteBindings.RouteIDs = slices.DeleteFunc(key.RouteBindings.RouteIDs, func(routeID string) bool { return routeID == id })
+			if len(key.RouteBindings.RouteIDs) == before {
 				continue
 			}
 			changed = append(changed, scope)
@@ -481,40 +452,20 @@ func (s *Store) KeyDescription(scope string) string {
 func resolveRoutingState(state *State, key *KeyState, model string) RoutingDecision {
 	model = strings.TrimSpace(model)
 	d := RoutingDecision{Model: model, ModelAllowed: true, ModelScope: []string{}, CredentialIDs: []string{}, CredentialProviders: []CredentialProviderSelector{}}
-	if key == nil || len(key.RouteBindings) == 0 {
+	if key == nil {
 		return d
 	}
 	modelSet := map[string]string{}
 	ids := map[string]string{}
-	providers := map[string]CredentialProviderSelector{}
-	for _, binding := range key.RouteBindings {
-		var rule RouteRule
-		switch binding.Kind {
-		case RouteBindingRoute:
-			route, ok := state.findRoute(binding.Value)
-			if !ok {
-				d.ConfigurationError = fmt.Sprintf("路由规则 %q 已不存在", binding.Value)
-				d.ModelAllowed = false
-				return d
-			}
-			rule = route.Rule
-		case RouteBindingModel:
-			rule.Models = []string{binding.Value}
-		case RouteBindingCredential:
-			rule.CredentialIDs = []string{binding.Value}
-		case RouteBindingCredentialProvider:
-			provider, err := parseCredentialProviderBinding(binding.Value)
-			if err != nil {
-				d.ConfigurationError = "API Key 的凭证类别绑定无效"
-				d.ModelAllowed = false
-				return d
-			}
-			rule.CredentialProviders = []CredentialProviderSelector{provider}
-		default:
-			d.ConfigurationError = "API Key 的路由绑定无效"
+	providers := map[CredentialProviderSelector]struct{}{}
+	for _, id := range key.RouteBindings.RouteIDs {
+		route, ok := state.findRoute(id)
+		if !ok {
+			d.ConfigurationError = fmt.Sprintf("路由规则 %q 已不存在", id)
 			d.ModelAllowed = false
 			return d
 		}
+		rule := route.Rule
 		for _, allowed := range rule.Models {
 			modelSet[strings.ToLower(allowed)] = allowed
 		}
@@ -528,8 +479,17 @@ func resolveRoutingState(state *State, key *KeyState, model string) RoutingDecis
 			ids[strings.ToLower(id)] = id
 		}
 		for _, provider := range rule.CredentialProviders {
-			providers[credentialProviderBindingValue(provider)] = provider
+			providers[provider] = struct{}{}
 		}
+	}
+	for _, allowed := range key.RouteBindings.Models {
+		modelSet[strings.ToLower(allowed)] = allowed
+	}
+	for _, id := range key.RouteBindings.CredentialIDs {
+		ids[strings.ToLower(id)] = id
+	}
+	for _, provider := range key.RouteBindings.CredentialProviders {
+		providers[provider] = struct{}{}
 	}
 	if len(modelSet) > 0 {
 		d.ModelRestricted = true
@@ -546,7 +506,7 @@ func resolveRoutingState(state *State, key *KeyState, model string) RoutingDecis
 		for _, id := range ids {
 			d.CredentialIDs = append(d.CredentialIDs, id)
 		}
-		for _, provider := range providers {
+		for provider := range providers {
 			d.CredentialProviders = append(d.CredentialProviders, provider)
 		}
 		sort.Strings(d.CredentialIDs)

@@ -452,14 +452,14 @@ def auth_file_quota(query):
 
 
 KEY_PROFILES = [
-    {"label": "代码审查机器人", "plan_id": "engineering-monthly", "spent_usd": 128.64, "concurrency_limit": 5, "current_concurrency": 2, "cycle_days": 18, "route_bindings": [{"kind": "route", "value": "coding"}]},
-    {"label": "CI 构建服务", "plan_id": "engineering-monthly", "spent_usd": 84.27, "concurrency_limit": 10, "current_concurrency": 3, "cycle_days": 24, "route_bindings": [{"kind": "route", "value": "coding"}]},
-    {"label": "数据分析平台", "plan_id": "production-monthly", "spent_usd": 368.91, "concurrency_limit": 5, "current_concurrency": 1, "cycle_days": 12, "route_bindings": [{"kind": "route", "value": "analytics"}]},
-    {"label": "客服助手", "plan_id": "production-monthly", "spent_usd": 241.36, "concurrency_limit": 8, "current_concurrency": 2, "cycle_days": 7, "route_bindings": [{"kind": "route", "value": "analytics"}, {"kind": "model", "value": "gpt-5.5"}]},
-    {"label": "文档生成", "plan_id": "engineering-monthly", "spent_usd": 56.48, "concurrency_limit": 3, "current_concurrency": 0, "cycle_days": 21, "route_bindings": [{"kind": "route", "value": "coding"}]},
-    {"label": "预发布环境", "plan_id": "project-credit", "spent_usd": 43.72, "concurrency_limit": 2, "current_concurrency": 1, "route_bindings": [{"kind": "route", "value": "economy"}]},
-    {"label": "内部工具", "plan_id": "", "spent_usd": 0, "concurrency_limit": 0, "current_concurrency": 1, "route_bindings": []},
-    {"label": "临时测试", "plan_id": "project-credit", "spent_usd": 87.19, "concurrency_limit": 1, "current_concurrency": 0, "route_bindings": [{"kind": "credential", "value": "sha256:" + "c" * 64}, {"kind": "model", "value": "gpt-5.5"}]},
+    {"label": "代码审查机器人", "plan_id": "engineering-monthly", "spent_usd": 128.64, "concurrency_limit": 5, "current_concurrency": 2, "cycle_days": 18, "route_bindings": {"route_ids": ["coding"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "CI 构建服务", "plan_id": "engineering-monthly", "spent_usd": 84.27, "concurrency_limit": 10, "current_concurrency": 3, "cycle_days": 24, "route_bindings": {"route_ids": ["coding"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "数据分析平台", "plan_id": "production-monthly", "spent_usd": 368.91, "concurrency_limit": 5, "current_concurrency": 1, "cycle_days": 12, "route_bindings": {"route_ids": ["analytics"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "客服助手", "plan_id": "production-monthly", "spent_usd": 241.36, "concurrency_limit": 8, "current_concurrency": 2, "cycle_days": 7, "route_bindings": {"route_ids": ["analytics"], "models": ["gpt-5.5"], "credential_ids": [], "credential_providers": []}},
+    {"label": "文档生成", "plan_id": "engineering-monthly", "spent_usd": 56.48, "concurrency_limit": 3, "current_concurrency": 0, "cycle_days": 21, "route_bindings": {"route_ids": ["coding"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "预发布环境", "plan_id": "project-credit", "spent_usd": 43.72, "concurrency_limit": 2, "current_concurrency": 1, "route_bindings": {"route_ids": ["economy"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "内部工具", "plan_id": "", "spent_usd": 0, "concurrency_limit": 0, "current_concurrency": 1, "route_bindings": {"route_ids": [], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "临时测试", "plan_id": "project-credit", "spent_usd": 87.19, "concurrency_limit": 1, "current_concurrency": 0, "route_bindings": {"route_ids": [], "models": ["gpt-5.5"], "credential_ids": ["sha256:" + "c" * 64], "credential_providers": []}},
 ]
 
 
@@ -750,36 +750,22 @@ def account_status(index):
 
 def account_access(index):
     key = LIVE_KEYS[index]
-    if not key["route_bindings"]:
-        return {
-            "role": "api_key",
-            "models": [],
-            "credentials": [],
-            "routing_valid": True,
-            "warnings": [],
-        }
-
-    models = set()
-    credential_refs = set()
-    credential_providers = set()
-    for binding in key["route_bindings"]:
-        kind = binding["kind"]
-        value = binding["value"]
-        if kind == "model":
-            models.add(value)
-        elif kind == "credential":
-            credential_refs.add(value)
-        elif kind == "credential_provider":
-            credential_providers.add(tuple(value.split("\0", 1)))
-        elif kind == "route":
-            route = next((item for item in ROUTES if item["id"] == value), None)
-            if route:
-                models.update(route["rule"]["models"])
-                credential_refs.update(route["rule"]["credential_ids"])
-                credential_providers.update(
-                    (item["source"], item["provider"])
-                    for item in route["rule"]["credential_providers"]
-                )
+    bindings = key["route_bindings"]
+    models = set(bindings["models"])
+    credential_refs = set(bindings["credential_ids"])
+    credential_providers = {
+        (item["source"], item["provider"])
+        for item in bindings["credential_providers"]
+    }
+    for route_id in bindings["route_ids"]:
+        route = next((item for item in ROUTES if item["id"] == route_id), None)
+        if route:
+            models.update(route["rule"]["models"])
+            credential_refs.update(route["rule"]["credential_ids"])
+            credential_providers.update(
+                (item["source"], item["provider"])
+                for item in route["rule"]["credential_providers"]
+            )
 
     credentials = [
         {
@@ -803,11 +789,13 @@ def account_access(index):
 
 def refresh_route_counts():
     for route in ROUTES:
-        binding = {"kind": "route", "value": route["id"]}
-        bound = [key for key in KEYS if binding in key.get("route_bindings", [])]
+        bound = [key for key in KEYS if route["id"] in key["route_bindings"]["route_ids"]]
         route["bound_key_count"] = len(bound)
         route["fully_unrestricted_keys"] = sum(
-            not [item for item in key.get("route_bindings", []) if item != binding]
+            len(key["route_bindings"]["route_ids"]) == 1
+            and not key["route_bindings"]["models"]
+            and not key["route_bindings"]["credential_ids"]
+            and not key["route_bindings"]["credential_providers"]
             for key in bound
         )
 
@@ -1289,11 +1277,11 @@ class Handler(BaseHTTPRequestHandler):
             unrestricted = 0
             ROUTES[:] = [item for item in ROUTES if item["id"] != route_id]
             for key in KEYS:
-                before = len(key.get("route_bindings", []))
-                key["route_bindings"] = [binding for binding in key.get("route_bindings", []) if not (binding["kind"] == "route" and binding["value"] == route_id)]
-                if before != len(key["route_bindings"]):
+                route_ids = key["route_bindings"]["route_ids"]
+                if route_id in route_ids:
+                    key["route_bindings"]["route_ids"] = [item for item in route_ids if item != route_id]
                     affected += 1
-                    unrestricted += not key["route_bindings"]
+                    unrestricted += not any(key["route_bindings"].values())
             self.send_json(200, {"deleted": route_id, "affected_keys": affected, "fully_unrestricted_keys": unrestricted})
         elif route == ("POST", f"{API_BASE}/routes"):
             body = json.loads(request_body or b"{}")
@@ -1303,7 +1291,7 @@ class Handler(BaseHTTPRequestHandler):
             ROUTES.append(stored)
             for key in KEYS:
                 if key["scope"] in scopes:
-                    key.setdefault("route_bindings", []).append({"kind": "route", "value": route_id})
+                    key["route_bindings"]["route_ids"].append(route_id)
             self.send_json(201, {"route": stored})
         elif route == ("PATCH", f"{API_BASE}/routes"):
             body = json.loads(request_body or b"{}")
@@ -1316,18 +1304,23 @@ class Handler(BaseHTTPRequestHandler):
             if "scopes" in body:
                 scopes = set(body["scopes"])
                 for key in KEYS:
-                    bindings = [binding for binding in key.get("route_bindings", []) if not (binding["kind"] == "route" and binding["value"] == route_id)]
+                    route_ids = [item for item in key["route_bindings"]["route_ids"] if item != route_id]
                     if key["scope"] in scopes:
-                        bindings.append({"kind": "route", "value": route_id})
-                    key["route_bindings"] = bindings
+                        route_ids.append(route_id)
+                    key["route_bindings"]["route_ids"] = route_ids
             refresh_route_counts()
             self.send_json(200, {"route": stored})
         elif route == ("PUT", f"{API_BASE}/keys/routes"):
             body = json.loads(request_body or b"{}")
-            bindings = body.get("bindings", [])
+            bindings = body.get("bindings", {})
             for key in KEYS:
                 if key["scope"] == body.get("scope"):
-                    key["route_bindings"] = bindings
+                    key["route_bindings"] = {
+                        "route_ids": bindings.get("route_ids", []),
+                        "models": bindings.get("models", []),
+                        "credential_ids": bindings.get("credential_ids", []),
+                        "credential_providers": bindings.get("credential_providers", []),
+                    }
                     break
             refresh_route_counts()
             self.send_json(200, {"ok": True})

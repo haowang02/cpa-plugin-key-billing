@@ -413,22 +413,22 @@ func TestRoutesRoundTripThroughTheManagementAPI(t *testing.T) {
 		t.Fatalf("route = %+v", created.Route)
 	}
 
-	if key := keysByScope(t, app)[scope]; len(key.RouteBindings) != 0 {
+	if key := keysByScope(t, app)[scope]; len(key.RouteBindings.RouteIDs)+len(key.RouteBindings.Models)+len(key.RouteBindings.CredentialIDs)+len(key.RouteBindings.CredentialProviders) != 0 {
 		t.Fatalf("key = %+v, want it unrestricted to begin with", key)
 	}
 
 	callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
-		"scope": scope, "bindings": []map[string]string{{"kind": "route", "value": "fast-models"}, {"kind": "model", "value": "claude-sonnet-4-5"}, {"kind": "credential_provider", "value": "auth-files\x00codex"}},
+		"scope": scope, "bindings": map[string]any{"route_ids": []string{"fast-models"}, "models": []string{"claude-sonnet-4-5"}, "credential_ids": []string{}, "credential_providers": []map[string]string{{"source": "auth-files", "provider": "codex"}}},
 	}, http.StatusOK, nil)
 	key := keysByScope(t, app)[scope]
-	if len(key.RouteBindings) != 3 || !slices.Contains(key.RouteBindings, billing.RouteBinding{Kind: billing.RouteBindingCredentialProvider, Value: "auth-files\x00codex"}) {
+	if len(key.RouteBindings.RouteIDs) != 1 || len(key.RouteBindings.Models) != 1 || !slices.Contains(key.RouteBindings.CredentialProviders, billing.CredentialProviderSelector{Source: "auth-files", Provider: "codex"}) {
 		t.Fatalf("key = %+v, want the selection recorded", key)
 	}
 
 	callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
-		"scope": scope, "bindings": []map[string]string{},
+		"scope": scope, "bindings": map[string]any{},
 	}, http.StatusOK, nil)
-	if key = keysByScope(t, app)[scope]; len(key.RouteBindings) != 0 {
+	if key = keysByScope(t, app)[scope]; len(key.RouteBindings.RouteIDs)+len(key.RouteBindings.Models)+len(key.RouteBindings.CredentialIDs)+len(key.RouteBindings.CredentialProviders) != 0 {
 		t.Fatalf("key = %+v, want empty bindings to clear the restrictions", key)
 	}
 
@@ -458,21 +458,20 @@ func TestRouteManagementWritesKeyMembershipAtomically(t *testing.T) {
 	callOK(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
 		"name": "Codex", "rule": map[string]any{"models": []string{"gpt-5.6-sol"}}, "scopes": []string{scopeA},
 	}, http.StatusCreated, &created)
-	binding := billing.RouteBinding{Kind: billing.RouteBindingRoute, Value: created.Route.ID}
-	if !slices.Contains(keysByScope(t, app)[scopeA].RouteBindings, binding) {
+	if !slices.Contains(keysByScope(t, app)[scopeA].RouteBindings.RouteIDs, created.Route.ID) {
 		t.Fatal("create did not bind selected API Key")
 	}
 	callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
-		"scope": scopeB, "bindings": []billing.RouteBinding{{Kind: billing.RouteBindingModel, Value: "gpt-5.5"}},
+		"scope": scopeB, "bindings": billing.RouteBindings{Models: []string{"gpt-5.5"}},
 	}, http.StatusOK, nil)
 	callOK(t, app, http.MethodPatch, routeRoutes, nil, map[string]any{
 		"id": created.Route.ID, "scopes": []string{scopeB},
 	}, http.StatusOK, nil)
 	views := keysByScope(t, app)
-	if slices.Contains(views[scopeA].RouteBindings, binding) {
+	if slices.Contains(views[scopeA].RouteBindings.RouteIDs, created.Route.ID) {
 		t.Fatal("update retained unchecked API Key")
 	}
-	if !slices.Contains(views[scopeB].RouteBindings, binding) || !slices.Contains(views[scopeB].RouteBindings, billing.RouteBinding{Kind: billing.RouteBindingModel, Value: "gpt-5.5"}) {
+	if !slices.Contains(views[scopeB].RouteBindings.RouteIDs, created.Route.ID) || !slices.Contains(views[scopeB].RouteBindings.Models, "gpt-5.5") {
 		t.Fatalf("update replaced unrelated bindings: %+v", views[scopeB].RouteBindings)
 	}
 }
@@ -509,7 +508,7 @@ func TestRouteMutationRefreshesInventoryAndNeverReturnsRawCredentialID(t *testin
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{key}}, http.StatusOK, nil)
 	response = callManagement(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
 		"scope":    billing.CallerScope(key),
-		"bindings": []map[string]string{{"kind": "Credential", "value": unknown}},
+		"bindings": map[string]any{"credential_ids": []string{unknown}},
 	})
 	if response.StatusCode != http.StatusBadRequest {
 		t.Fatalf("normalized unknown credential status=%d body=%s", response.StatusCode, response.Body)
