@@ -814,7 +814,6 @@
         .lucide-chevron-icon,
         .tabs-scroll::before,
         .tabs-scroll::after { transition: none; }
-        .auth-refresh-icon-button.loading .lucide-icon { animation: none; }
       }
       .concurrency-editor { display: flex; align-items: center; gap: 7px; min-width: 172px; }
       .concurrency-editor .native-select,
@@ -1319,9 +1318,14 @@
         line-height: 0;
       }
       .auth-refresh-icon-button .lucide-icon { width: 14px; height: 14px; transform-origin: center; }
-      .auth-refresh-icon-button.loading .lucide-icon { animation: auth-refresh-spin 0.8s linear infinite; }
+      .auth-refresh-icon-button.loading .lucide-icon,
+      [data-page-action="refresh"]:disabled .lucide-icon { animation: auth-refresh-spin 0.8s linear infinite; }
       @keyframes auth-refresh-spin {
         to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .auth-refresh-icon-button.loading .lucide-icon,
+        [data-page-action="refresh"]:disabled .lucide-icon { animation: none; }
       }
       .auth-file-quota {
         display: grid;
