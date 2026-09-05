@@ -3072,6 +3072,8 @@
       const expandedPluginLogIDs = new Set();
       let authKey = "";
       let currentRole = "";
+      let sessionGeneration = 0;
+      const activeRequests = new Set();
       let loginMode = initialRoute.role;
       let loginModeRequest = 0;
       function emptyAdminState() {
@@ -3081,7 +3083,6 @@
           prices: null,
           routes: [],
           credentials: [],
-          configuredCredentialsLoaded: false,
           access: null,
           requestEvents: null,
           errors: null,
@@ -3320,7 +3321,7 @@
         return {
           request: 0,
           promise: null,
-          requestKey: "",
+          range: null,
           loading: false,
           loadingMore: false,
           hasMore: false,
@@ -3341,6 +3342,8 @@
         adminPluginLogs: emptyLoadState(),
         adminAuthFiles: emptyLoadState(),
         accountAuthFiles: emptyLoadState(),
+        adminInventory: emptyLoadState(),
+        accountModels: emptyLoadState(),
       };
       const requestEventLoads = {
         admin: emptyRequestEventLoadState(),
@@ -3498,6 +3501,7 @@
               "accountAnalysis",
               "accountErrors",
               "accountAuthFiles",
+              "accountModels",
             ]
           : [
               "adminAccess",
@@ -3506,6 +3510,7 @@
               "adminErrors",
               "adminPluginLogs",
               "adminAuthFiles",
+              "adminInventory",
             ])
           resetLoadState(detailLoads[name]);
         resetRequestEventLoad(account);
@@ -3540,18 +3545,19 @@
       }
 
       class AuthError extends Error {}
+      class StaleRequestError extends Error {}
 
       async function api(method, path, body, opts) {
+        const generation = sessionGeneration;
         const init = {
           method,
-          headers: { Authorization: "Bearer " + authKey },
+          headers: { Authorization: "Bearer " + (opts?.key ?? authKey) },
         };
-        const timeoutMS = Number(opts?.timeoutMS || 0);
-        const controller = timeoutMS > 0 ? new AbortController() : null;
-        const timeout = controller
-          ? setTimeout(() => controller.abort(), timeoutMS)
-          : 0;
-        if (controller) init.signal = controller.signal;
+        const timeoutMS = Number(opts?.timeoutMS ?? 30000);
+        const controller = new AbortController();
+        activeRequests.add(controller);
+        const timeout = setTimeout(() => controller.abort(), timeoutMS);
+        init.signal = controller.signal;
         if (body !== undefined && body !== null) {
           init.headers["Content-Type"] = "application/json";
           init.body = JSON.stringify(body);
@@ -3560,12 +3566,15 @@
         try {
           resp = await fetch(location.origin + path, init);
           text = await resp.text();
+          if (generation !== sessionGeneration) throw new StaleRequestError();
         } catch (error) {
-          if (controller?.signal.aborted)
+          if (generation !== sessionGeneration) throw new StaleRequestError();
+          if (controller.signal.aborted)
             throw new Error("请求超时，请稍后重试");
           throw error;
         } finally {
           if (timeout) clearTimeout(timeout);
+          activeRequests.delete(controller);
         }
         let payload = null;
         if (text) {
@@ -3582,7 +3591,7 @@
               : text;
           const message =
             typeof detail === "string" ? unescapeDeep(detail).trim() : "";
-          if (resp.status === 401 || resp.status === 403) {
+          if ((resp.status === 401 || resp.status === 403) && !opts?.key) {
             throw new AuthError(
               message ||
                 (currentRole === "account"
@@ -3760,6 +3769,7 @@
         );
       }
       function fail(err) {
+        if (err instanceof StaleRequestError) return;
         if (err instanceof AuthError) {
           showGate(currentRole || loginMode, err.message);
           return;
@@ -3836,6 +3846,11 @@
 
       function showGate(mode, error) {
         stopAutoRefresh();
+        sessionGeneration++;
+        for (const controller of activeRequests) controller.abort();
+        pageRefreshPromise = null;
+        queuedForegroundRefresh = null;
+        setRefreshButtonsDisabled(false);
         if (currentRole) {
           clearCredentialScope(currentRole === "account");
           resetRoleData(currentRole);
@@ -3851,26 +3866,26 @@
         setLoginMode(mode, true);
       }
 
-      async function loadResource(load, request, apply, render, deferRender) {
+      function loadResource(load, request, apply, render) {
         if (load.promise) return load.promise;
         load.error = "";
         const generation = load.generation;
-        const task = (async () => {
-          const result = await request();
-          if (load.generation === generation) apply(result);
-        })();
-        load.promise = task;
-        if (!deferRender) render?.();
-        try {
-          return await task;
-        } catch (err) {
-          if (load.generation !== generation) return undefined;
+        const task = Promise.resolve().then(() => {
+          if (load.generation !== generation) throw new StaleRequestError();
+          return request();
+        }).then((result) => {
+          if (load.generation === generation) apply?.(result);
+        }).catch((err) => {
+          if (load.generation !== generation || err instanceof StaleRequestError) return;
           load.error = err.message || String(err);
           throw err;
-        } finally {
+        }).finally(() => {
           if (load.promise === task) load.promise = null;
-          if (!deferRender && load.generation === generation) render?.();
-        }
+          if (load.generation === generation) render?.();
+        });
+        load.promise = task;
+        render?.();
+        return task;
       }
 
       const CONFIGURED_CREDENTIAL_ENDPOINTS = [
@@ -3940,21 +3955,17 @@
       }
 
       async function configuredCredentialEntries(field) {
-        try {
-          const payload = await api(
-            "GET",
-            "/v0/management/" + field,
-            null,
-            { raw: true, timeoutMS: 5000 },
-          );
-          return Array.isArray(payload?.[field]) ? payload[field] : [];
-        } catch (err) {
-          if (err instanceof AuthError) throw err;
-          return [];
-        }
+        const payload = await api(
+          "GET",
+          "/v0/management/" + field,
+          null,
+          { raw: true, timeoutMS: 5000 },
+        );
+        return Array.isArray(payload?.[field]) ? payload[field] : [];
       }
 
       async function loadConfiguredCredentials() {
+        const generation = sessionGeneration;
         const counters = new Map();
         const credentials = [];
         const [configuredEntries, compatibilityEntries] = await Promise.all([
@@ -4024,70 +4035,56 @@
           }
         }
 
-        // Discard every plaintext configuration response before updating state.
-        const synced = await plugin("POST", "/credentials/sync", { credentials });
-        return synced.credentials || [];
+        if (generation !== sessionGeneration) throw new StaleRequestError();
+        await plugin("POST", "/credentials/sync", { credentials });
       }
 
-      function loadAdminAccess(deferRender) {
+      function loadAdminAccess() {
         return loadResource(
           detailLoads.adminAccess,
-          async () => {
-            const access = await plugin("GET", "/access");
-            let configuredCredentialsLoaded = state.configuredCredentialsLoaded;
-            if (!configuredCredentialsLoaded) {
-              access.credentials = await loadConfiguredCredentials();
-              configuredCredentialsLoaded = true;
-            }
-            return { access, configuredCredentialsLoaded };
-          },
-          ({ access, configuredCredentialsLoaded }) => {
+          () => plugin("GET", "/access"),
+          (access) => {
             state.access = access;
             state.keys = access.keys;
             state.plans = access.plans || [];
             state.routes = access.routes || [];
             state.credentials = access.credentials || [];
-            state.configuredCredentialsLoaded = configuredCredentialsLoaded;
             populateSharedKeyFilter();
           },
-          () => currentRole === "admin" && renderAdminPage(),
-          deferRender,
+          () => currentRole === "admin" && ["keys", "settings"].includes(activeAdminTab()) && renderAdminTab(activeAdminTab(), true),
         );
       }
 
-      function loadAdminPrices(deferRender) {
+      function loadAdminPrices() {
         return loadResource(
           detailLoads.adminPrices,
           () => plugin("GET", "/prices"),
           (prices) => {
             state.prices = prices || [];
           },
-          () => currentRole === "admin" && renderAdminPage(),
-          deferRender,
+          () => currentRole === "admin" && ["keys", "settings"].includes(activeAdminTab()) && renderAdminTab(activeAdminTab(), true),
         );
       }
 
-      function loadAccountAccess(deferRender) {
+      function loadAccountAccess() {
         return loadResource(
           detailLoads.accountAccess,
           () => accountAPI("/access"),
           (access) => {
             accountState.access = access;
           },
-          () => currentRole === "account" && renderAccount(),
-          deferRender,
+          () => currentRole === "account" && renderAccount(false),
         );
       }
 
-      function loadAccountPrices(deferRender) {
+      function loadAccountPrices() {
         return loadResource(
           detailLoads.accountPrices,
           () => accountAPI("/prices"),
           (prices) => {
             accountState.prices = prices || [];
           },
-          () => currentRole === "account" && renderAccount(),
-          deferRender,
+          () => currentRole === "account" && renderAccount(false),
         );
       }
 
@@ -4129,7 +4126,7 @@
         return recentTimeRange(range.mode);
       }
 
-      function loadAnalysis(account, deferRender) {
+      function loadAnalysis(account) {
         const load = account
           ? detailLoads.accountAnalysis
           : detailLoads.adminAnalysis;
@@ -4144,12 +4141,9 @@
         }
         const render = () =>
           currentRole === (account ? "account" : "admin") &&
+          activeTab(account) === "analysis" &&
           renderAnalysis(account);
-        const accessReady =
-          !account && state.access === null
-            ? loadAdminAccess(true)
-            : Promise.resolve();
-        const analysisReady = loadResource(
+        return loadResource(
           load,
           () =>
             account
@@ -4159,18 +4153,7 @@
             const target = account ? accountState : state;
             target.analysis = analysis;
           },
-          null,
-          true,
-        );
-        if (!deferRender) render();
-        return Promise.allSettled([accessReady, analysisReady]).then(
-          (results) => {
-            if (!deferRender && (account || state.access !== null)) render();
-            const failed = results.find(
-              (result) => result.status === "rejected",
-            );
-            if (failed) throw failed.reason;
-          },
+          render,
         );
       }
 
@@ -4198,7 +4181,7 @@
         return params;
       }
 
-      function loadErrors(account, deferRender, background = false) {
+      function loadErrors(account, background = false) {
         const load = account
           ? detailLoads.accountErrors
           : detailLoads.adminErrors;
@@ -4216,8 +4199,8 @@
           },
           () =>
             currentRole === (account ? "account" : "admin") &&
+            activeTab(account) === "errors" &&
             renderErrors(account),
-          deferRender,
         );
       }
 
@@ -4300,35 +4283,79 @@
         });
       }
 
-      function ensureViewInitialized(account) {
-        const tasks = [];
-        const owner = account ? accountState : state;
-        const tab = account ? accountTab : activeAdminTab();
-        if (account) {
-          if (owner.access === null) tasks.push(loadAccountAccess(false));
-          if (tab === "subscription" && owner.prices === null)
-            tasks.push(loadAccountPrices(false));
-        } else {
-          if (
-            owner.access === null &&
-            tab !== "analysis" &&
-            tab !== "auth-files"
-          )
-            tasks.push(loadAdminAccess(false));
-          if (["keys", "settings"].includes(tab) && owner.prices === null)
-            tasks.push(loadAdminPrices(false));
-          if (tab === "settings" && owner.pluginLogs === null)
-            tasks.push(loadPluginLogs());
+      const VIEW_DEPENDENCIES = {
+        admin: {
+          keys: ["access", "prices"],
+          analysis: ["access", "analysis"],
+          "request-events": ["access", "events"],
+          errors: ["access", "errors"],
+          "auth-files": ["authFiles"],
+          settings: ["access", "prices", "logs"],
+        },
+        account: {
+          subscription: ["access", "models", "prices"],
+          analysis: ["access", "analysis"],
+          "request-events": ["access", "events"],
+          errors: ["access", "errors"],
+          "auth-files": ["access", "authFiles"],
+        },
+      };
+
+      async function loadView(account, reason = "navigation") {
+        const role = account ? "account" : "admin";
+        const tab = activeTab(account);
+        const generation = sessionGeneration;
+        const background = reason === "background";
+        if (reason === "foreground") {
+          const names = { access: "Access", prices: "Prices", models: "Models", analysis: "Analysis", errors: "Errors", authFiles: "AuthFiles", logs: "PluginLogs" };
+          for (const resource of VIEW_DEPENDENCIES[role][tab]) {
+            if (resource === "events") resetRequestEventLoad(account);
+            else resetLoadState(detailLoads[role + names[resource]]);
+          }
         }
-        if (tab === "request-events" && owner.requestEvents === null)
-          tasks.push(loadRequestEvents(false, account));
-        if (tab === "errors" && owner.errors === null)
-          tasks.push(loadErrors(account, false));
-        if (tab === "analysis" && owner.analysis === null)
-          tasks.push(loadAnalysis(account, false));
-        if (tab === "auth-files" && owner.authFiles === null)
-          tasks.push(loadAuthFiles(account));
-        return Promise.all(tasks);
+        let syncError;
+        const inventory = !account && !background && ["keys", "settings"].includes(tab)
+          ? loadResource(detailLoads.adminInventory, async () => {
+              const summary = await autoSyncKeys();
+              if (summary) notify(summary);
+              await loadConfiguredCredentials();
+            }).catch((err) => { syncError = err; })
+          : Promise.resolve();
+        const loaders = {
+          access: async () => {
+            if (account) return loadAccountAccess();
+            await inventory;
+            if (generation !== sessionGeneration) return;
+            await loadAdminAccess();
+            if (syncError) throw syncError;
+          },
+          prices: async () => {
+            if (account) return loadAccountPrices();
+            await inventory;
+            if (generation === sessionGeneration) return loadAdminPrices();
+          },
+          models: () => reason === "login" ? undefined : loadResource(
+            detailLoads.accountModels,
+            () => api("GET", "/v1/models", null, { raw: true }),
+            (result) => { accountState.models = result.data.map((item) => item.id); },
+            () => currentRole === "account" && renderAccount(false),
+          ),
+          analysis: () => background ? undefined : loadAnalysis(account),
+          events: () => !background || canBackgroundRefreshRequestEvents(account)
+            ? loadRequestEvents(false, account, { background }) : undefined,
+          errors: () => !background || canBackgroundRefreshErrors(account)
+            ? loadErrors(account, background) : undefined,
+          authFiles: () => loadAuthFiles(account),
+          logs: () => !background || canBackgroundRefreshPluginLogs()
+            ? loadPluginLogs({ background }) : undefined,
+        };
+        const results = await Promise.allSettled(
+          VIEW_DEPENDENCIES[role][tab].map((resource) => loaders[resource]()),
+        );
+        if (generation !== sessionGeneration) return;
+        const failed = results.find((result) => result.status === "rejected" && result.reason instanceof AuthError)
+          || results.find((result) => result.status === "rejected");
+        if (failed) throw failed.reason;
       }
 
       async function startAdmin(key) {
@@ -4338,13 +4365,11 @@
         restoreRolePreferences("admin");
         const route = pageRoute();
         setAdminTab(route.role === "admin" ? route.tab : "keys");
-        const summary = await autoSyncKeys();
-        await ensureViewInitialized(false);
         $("gate").classList.add("hidden");
         $("account-app").classList.add("hidden");
         $("app").classList.remove("hidden");
-        if (summary) notify(summary);
         schedulePageTabLayout();
+        await loadView(false).catch(fail);
         scheduleAutoRefresh();
       }
 
@@ -4363,7 +4388,7 @@
         $("account-identity").textContent = previewCredential(key);
         const route = pageRoute();
         setAccountTab(route.role === "account" ? route.tab : "subscription");
-        await ensureViewInitialized(true);
+        await loadView(true, "login").catch(fail);
         schedulePageTabLayout();
         scheduleAutoRefresh();
       }
@@ -4407,10 +4432,11 @@
       }
 
       function renderAccount(renderDetail = true) {
-        const access = accountState.access || { tracked: false };
-        const tracked = access.tracked === true;
-        $("account-untracked").classList.toggle("hidden", tracked);
-        $("account-content").classList.toggle("hidden", !tracked);
+        const access = accountState.access;
+        const tracked = access?.tracked === true;
+        $("account-untracked").classList.toggle("hidden", !access || tracked);
+        $("account-content").classList.toggle("hidden", !!access && !tracked);
+        if (!access) return;
         const identity = access.identity || {};
         if (tracked)
           $("account-identity").textContent = apiKeyIdentity(identity).text;
@@ -4427,6 +4453,13 @@
             " / " +
             (Number(concurrency.limit || 0) > 0 ? int(concurrency.limit) : "∞");
         if (!tracked) return;
+        if (accountTab !== "subscription") {
+          if (renderDetail && accountTab === "analysis") renderAnalysis(true);
+          if (renderDetail && accountTab === "request-events") renderRequestEvents(true);
+          if (renderDetail && accountTab === "errors") renderErrors(true);
+          if (renderDetail && accountTab === "auth-files") renderAuthFiles(true);
+          return;
+        }
 
         $("account-plan-name").textContent =
           subscription.name ||
@@ -4477,11 +4510,6 @@
             : [el("span", { class: "muted", text: "暂无模型价格" })]),
         );
         renderAccountAccess(access);
-        if (renderDetail && accountTab === "analysis") renderAnalysis(true);
-        if (renderDetail && accountTab === "request-events")
-          renderRequestEvents(true);
-        if (renderDetail && accountTab === "errors") renderErrors(true);
-        if (renderDetail && accountTab === "auth-files") renderAuthFiles(true);
       }
 
       function renderAccountAccess(access) {
@@ -4701,7 +4729,7 @@
           data: {
             labels: rows.map((row) =>
               dimension === "api_keys" && row.key !== "other"
-                ? apiKeyIdentity(row).text
+                ? apiKeyIdentity(row, true).text
                 : row.label || row.key || "未知",
             ),
             datasets: [
@@ -5151,7 +5179,7 @@
               "div",
               { class: "usage-distribution-heading" },
               dimension === "api_keys" && row.key !== "other"
-                ? renderAPIKeyIdentity(row)
+                ? renderAPIKeyIdentity(row, { snapshot: true })
                 : el("b", {}, row.label || row.key || "未知"),
               el(
                 "b",
@@ -5244,13 +5272,6 @@
           summary,
           trends,
           analysis.usage_distribution,
-          account
-            ? null
-            : state.keys.map(({ scope, preview, label }) => [
-                scope,
-                preview,
-                label,
-              ]),
         ]);
         const trendCanvasID = account
           ? "account-usage-trend-chart"
@@ -5557,7 +5578,7 @@
         }
       }
 
-      function loadAuthFiles(account, deferRender) {
+      function loadAuthFiles(account) {
         account = account === true;
         const load = account
           ? detailLoads.accountAuthFiles
@@ -5567,8 +5588,7 @@
           () =>
             account ? accountAPI("/auth-files") : plugin("GET", "/auth-files"),
           (result) => updateAuthFiles(account, result.files || []),
-          () => renderAuthFiles(account),
-          deferRender,
+          () => currentRole === (account ? "account" : "admin") && activeTab(account) === "auth-files" && renderAuthFiles(account),
         );
       }
 
@@ -6077,13 +6097,9 @@
         }
       }
 
-      function renderAdminPage(renderTab = true) {
-        if (renderTab) renderAdminTab(activeAdminTab(), true);
-      }
-
-      function apiKeyIdentity(view) {
+      function apiKeyIdentity(view, snapshot = false) {
         const scope = String(view.scope || view.key || "");
-        const accessKey = scope
+        const accessKey = scope && !snapshot
           ? state.keys.find((key) => key.scope === scope)
           : null;
         const preview = String(accessKey?.preview || view.preview || "");
@@ -6103,7 +6119,7 @@
       }
 
       function renderAPIKeyIdentity(view, options = {}) {
-        const identity = apiKeyIdentity(view);
+        const identity = apiKeyIdentity(view, options.snapshot);
         const trailing = options.trailing || [];
         const line = (text, className, children = []) =>
           el(
@@ -7414,16 +7430,22 @@
       }
 
       function populateSharedKeyFilter() {
+        const select = $("analysis-key");
         populateEventFilterSelect(
-          $("analysis-key"),
+          select,
           "全部 API Key",
           state.keys,
           (item) => item.scope,
           (item) => apiKeyIdentity(item).text,
         );
+        if (select.value && !state.keys.some((key) => key.scope === select.value)) {
+          const option = select.selectedOptions[0];
+          const label = option.textContent.replace(/（已不可用）$/, "");
+          option.textContent = label + "（已不可用）";
+        }
       }
 
-      function requestEventPath(offset, limit, account) {
+      function requestEventPath(offset, limit, account, range = selectedRange(account)) {
         const params = new URLSearchParams({
           offset: String(offset),
           limit: String(limit || REQUEST_EVENT_BATCH_SIZE),
@@ -7437,7 +7459,6 @@
         if (model) params.set("model", model);
         if (source) params.set("source", source);
         if (failed) params.set("failed", failed);
-        const range = selectedRange(account);
         if (range.from) params.set("from", range.from);
         if (range.to) params.set("to", range.to);
         return "/events?" + params.toString();
@@ -7616,15 +7637,15 @@
         const button = $(account ? "account-request-events-export" : "request-events-export");
         button.disabled = true;
         setLabeledActionIcon(button, "download", "正在导出…");
+        const range = selectedRange(account);
+        range.to = new Date(Math.min(Date.now(), Date.parse(range.to))).toISOString();
+        const params = new URLSearchParams(requestEventPath(0, REQUEST_EVENT_EXPORT_BATCH_SIZE, account, range).split("?")[1]);
         try {
           const entries = [];
           let total = Infinity;
           while (entries.length < total) {
-            const path = requestEventPath(
-              entries.length,
-              REQUEST_EVENT_EXPORT_BATCH_SIZE,
-              account,
-            );
+            params.set("offset", String(entries.length));
+            const path = "/events?" + params;
             const page = account
               ? await accountAPI(path)
               : await plugin("GET", path);
@@ -7680,23 +7701,26 @@
         guard(() => loadRequestEvents(true, account));
       }
 
-      async function loadRequestEvents(append, account, options = {}) {
+      function loadRequestEvents(append, account, options = {}) {
         account = account === true;
         append = append === true;
         const background = options.background === true;
-        const deferRender = options.deferRender === true;
         const load = requestEventLoadState(account);
         if (append && (!load.hasMore || load.loading || load.loadingMore))
           return;
+        if (!append && load.promise && !load.loadingMore) return load.promise;
         const owner = account ? accountState : state;
-        const renderRequestEventsNow = () => renderRequestEvents(account);
+        const renderRequestEventsNow = () =>
+          currentRole === (account ? "account" : "admin") &&
+          activeTab(account) === "request-events" && renderRequestEvents(account);
         const existing =
           append && owner.requestEvents
             ? owner.requestEvents.entries || []
             : [];
         const offset = existing.length;
-        const path = requestEventPath(offset, REQUEST_EVENT_BATCH_SIZE, account);
-        if (load.promise && load.requestKey === path) return load.promise;
+        const range = append ? load.range : selectedRange(account);
+        if (!append) range.to = new Date(Math.min(Date.now(), Date.parse(range.to))).toISOString();
+        const path = requestEventPath(offset, REQUEST_EVENT_BATCH_SIZE, account, range);
         const ticket = ++load.request;
         if (append) {
           load.loadingMore = true;
@@ -7707,7 +7731,7 @@
           load.autoLoadMore = true;
           load.error = "";
         }
-        if ((!owner.requestEvents || append) && !deferRender)
+        if (!owner.requestEvents || append)
           renderRequestEventsNow();
         const task = (async () => {
           const page = account
@@ -7726,29 +7750,26 @@
               page.filter_options || owner.requestEvents?.filter_options,
             entries,
           };
+          load.range = range;
           load.hasMore =
             incoming.length > 0 && entries.length < Number(page.total || 0);
           load.autoLoadMore = true;
           load.error = "";
-        })();
-        load.promise = task;
-        load.requestKey = path;
-        try {
-          return await task;
-        } catch (err) {
-          if (ticket !== load.request) return undefined;
+        })().catch((err) => {
+          if (ticket !== load.request || err instanceof StaleRequestError) return;
           load.error = err.message || String(err);
           if (append) load.autoLoadMore = false;
           throw err;
-        } finally {
+        }).finally(() => {
           if (ticket === load.request) {
             load.promise = null;
-            load.requestKey = "";
             load.loading = false;
             load.loadingMore = false;
-            if (!deferRender) renderRequestEventsNow();
+            renderRequestEventsNow();
           }
-        }
+        });
+        load.promise = task;
+        return task;
       }
 
       function renderRequestEvents(account = false) {
@@ -8066,7 +8087,6 @@
 
       function loadPluginLogs(options = {}) {
         const background = options.background === true;
-        const deferRender = options.deferRender === true;
         const append = options.append === true;
         const before = append ? Number(state.pluginLogsNext || 0) : 0;
         if (append && !before) return Promise.resolve();
@@ -8090,7 +8110,6 @@
             currentRole === "admin" &&
             activeAdminTab() === "settings" &&
             renderPluginLogs(),
-          deferRender,
         );
       }
 
@@ -8453,13 +8472,7 @@
           .find(Boolean);
         if (!key) return "";
         try {
-          const resp = await fetch(location.origin + "/v1/models", {
-            headers: { Authorization: "Bearer " + key },
-          });
-          if (!resp.ok) {
-            throw new Error("HTTP " + resp.status);
-          }
-          const payload = await resp.json();
+          const payload = await api("GET", "/v1/models", null, { raw: true, key });
           const models = payload.data.map((item) => item.id);
           if (!models.length) {
             return "";
@@ -8478,7 +8491,7 @@
           }
           return "";
         } catch (err) {
-          if (err instanceof AuthError) throw err;
+          if (err instanceof AuthError || err instanceof StaleRequestError) throw err;
           notify("同步模型失败：" + (err.message || err), "err");
           return "";
         }
@@ -8508,7 +8521,7 @@
             summaries.push("CLIProxyAPI 尚未配置 API Key");
           }
         } catch (err) {
-          if (err instanceof AuthError) throw err;
+          if (err instanceof AuthError || err instanceof StaleRequestError) throw err;
           notify("同步 API Key 失败：" + (err.message || err), "err");
         }
         const priceCatalog = await syncPriceCatalog(keys);
@@ -8518,6 +8531,7 @@
 
       async function submitLogin() {
         const role = loginMode;
+        const generation = sessionGeneration;
         let key = $("gate-key").value.trim();
         if (!key) key = await recalledCredential(role);
         if (!key) {
@@ -8530,6 +8544,7 @@
         try {
           if (role === "account") await startAccount(key);
           else await startAdmin(key);
+          if (generation !== sessionGeneration) return;
           if ($("gate-remember").checked) {
             try {
               await rememberCredential(role, key);
@@ -8543,6 +8558,7 @@
           }
           $("gate-key").value = "";
         } catch (err) {
+          if (generation !== sessionGeneration || err instanceof StaleRequestError) return;
           if (err instanceof AuthError) await deleteCredential(role);
           showGate(
             role,
@@ -8708,63 +8724,6 @@
           scrollerAtTop("plugin-logs-body")
         );
       }
-
-      function shouldRenderRefreshedTab(background, tab, account) {
-        if (!background) return true;
-        if (tab === "analysis") return false;
-        if (tab === "request-events") {
-          return canBackgroundRefreshRequestEvents(account);
-        }
-        if (tab === "errors") return canBackgroundRefreshErrors(account);
-        return true;
-      }
-
-      async function refreshRolePage(account, reason) {
-        const background = reason === "background";
-        const tab = activeTab(account);
-        const tasks = [];
-        if (account) {
-          tasks.push(loadAccountAccess(true));
-          if (tab === "subscription") {
-            tasks.push(loadAccountPrices(true));
-          }
-        } else if (tab === "keys") {
-          tasks.push(loadAdminAccess(true));
-        } else if (tab === "settings") {
-          tasks.push(loadAdminAccess(true), loadAdminPrices(true));
-          if (!background || canBackgroundRefreshPluginLogs())
-            tasks.push(loadPluginLogs({ background, deferRender: true }));
-        }
-        if (
-          tab === "request-events" &&
-          (!background || canBackgroundRefreshRequestEvents(account))
-        ) {
-          tasks.push(
-            loadRequestEvents(false, account, {
-              background,
-              deferRender: true,
-            }),
-          );
-        } else if (
-          tab === "errors" &&
-          (!background || canBackgroundRefreshErrors(account))
-        ) {
-          tasks.push(loadErrors(account, true, background));
-        } else if (tab === "auth-files") {
-          tasks.push(loadAuthFiles(account, true));
-        } else if (tab === "analysis" && !background) {
-          tasks.push(loadAnalysis(account, true));
-        }
-        const results = await Promise.allSettled(tasks);
-        const renderDetail =
-          activeTab(account) === tab &&
-          shouldRenderRefreshedTab(background, tab, account);
-        if (account) renderAccount(renderDetail);
-        else renderAdminPage(renderDetail);
-        const failed = results.find((result) => result.status === "rejected");
-        if (failed) throw failed.reason;
-      }
-
       function scheduleAutoRefresh() {
         stopAutoRefresh();
         if (!currentRole || document.hidden) return;
@@ -8784,6 +8743,8 @@
 
       function refreshPage(reason) {
         const background = reason === "background";
+        const generation = sessionGeneration;
+        const role = currentRole;
         if (!currentRole || (background && document.hidden))
           return Promise.resolve();
         if (pageRefreshPromise) {
@@ -8791,6 +8752,7 @@
           if (!queuedForegroundRefresh) {
             setRefreshButtonsDisabled(true);
             queuedForegroundRefresh = pageRefreshPromise.then(() => {
+              if (generation !== sessionGeneration) return;
               queuedForegroundRefresh = null;
               if (!currentRole) {
                 setRefreshButtonsDisabled(false);
@@ -8805,11 +8767,12 @@
         if (!background) setRefreshButtonsDisabled(true);
         pageRefreshPromise = (async () => {
           try {
-            await refreshRolePage(currentRole === "account", reason);
+            await loadView(currentRole === "account", reason);
           } catch (err) {
+            if (generation !== sessionGeneration || err instanceof StaleRequestError) return;
             if (err instanceof AuthError) {
-              await deleteCredential(currentRole);
-              showGate(currentRole, err.message);
+              await deleteCredential(role);
+              if (generation === sessionGeneration) showGate(role, err.message);
               return;
             }
             const message =
@@ -8817,10 +8780,12 @@
               (err.message || err);
             notify(message, "err");
           } finally {
-            pageRefreshPromise = null;
-            if (!background && !queuedForegroundRefresh)
-              setRefreshButtonsDisabled(false);
-            if (!queuedForegroundRefresh) scheduleAutoRefresh();
+            if (generation === sessionGeneration) {
+              pageRefreshPromise = null;
+              if (!background && !queuedForegroundRefresh)
+                setRefreshButtonsDisabled(false);
+              if (!queuedForegroundRefresh) scheduleAutoRefresh();
+            }
           }
         })();
         return pageRefreshPromise;
@@ -8833,7 +8798,7 @@
       document.querySelectorAll("[data-account-tab]").forEach((button) => {
         button.onclick = () => {
           setAccountTab(button.dataset.accountTab);
-          guard(() => ensureViewInitialized(true));
+          guard(() => loadView(true));
         };
       });
       $("analysis-key").addEventListener("change", () =>
@@ -8863,8 +8828,8 @@
         );
         resetRequestEventLoad(account);
         const tab = account ? accountTab : activeAdminTab();
-        if (tab === "analysis") return loadAnalysis(account, false);
-        if (tab === "errors") return loadErrors(account, false);
+        if (tab === "analysis") return loadAnalysis(account);
+        if (tab === "errors") return loadErrors(account);
         if (tab === "request-events") return loadRequestEvents(false, account);
         return Promise.resolve();
       }
@@ -8882,7 +8847,7 @@
             saveChoice(role, id);
             updateFilterClearButton(clear);
             resetLoadState(load);
-            guard(() => loadErrors(account, false));
+            guard(() => loadErrors(account));
           });
         }
         clear.onclick = () => {
@@ -8892,7 +8857,7 @@
           }
           updateFilterClearButton(clear);
           resetLoadState(load);
-          guard(() => loadErrors(account, false));
+          guard(() => loadErrors(account));
         };
       }
       for (const account of [false, true]) {
@@ -8968,7 +8933,7 @@
       for (const tab of TABS)
         tab.onclick = () => {
           setAdminTab(tab.dataset.tab);
-          guard(() => ensureViewInitialized(false));
+          guard(() => loadView(false));
         };
 
       $("key-filter").addEventListener("input", renderKeys);
@@ -9098,6 +9063,7 @@
       $("plugin-log-filter").addEventListener("input", renderPluginLogs);
       $("plugin-log-level").addEventListener("change", () => {
         saveChoice("admin", "plugin-log-level");
+        resetLoadState(detailLoads.adminPluginLogs);
         state.pluginLogs = null;
         state.pluginLogsNext = 0;
         guard(() => loadPluginLogs());
