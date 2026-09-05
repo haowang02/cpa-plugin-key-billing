@@ -109,7 +109,8 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 		Scope: access.Scope, Model: strings.TrimSpace(req.Query.Get("model")),
 		Source: strings.TrimSpace(req.Query.Get("source")), Executor: strings.TrimSpace(req.Query.Get("executor")),
 		Provider: strings.TrimSpace(req.Query.Get("provider")), ErrorType: strings.TrimSpace(req.Query.Get("error_type")),
-		Limit: defaultEventPageSize,
+		ErrorTypeEmpty: req.Query.Get("error_type_empty") == "true",
+		Limit:          defaultEventPageSize,
 	}
 	if raw := strings.TrimSpace(req.Query.Get("status_code")); raw != "" {
 		value, err := strconv.Atoi(raw)

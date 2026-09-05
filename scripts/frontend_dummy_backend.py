@@ -834,7 +834,7 @@ def request_error(event_index, message, status=0, error_type="", code=""):
         "latency_ms": event["latency_ms"],
         "ttft_ms": event["ttft_ms"],
         "status_code": status,
-        "error_type": error_type,
+        "error_type": code or error_type,
         "reason": reason,
         "body": json.dumps({"error": error}, ensure_ascii=False, separators=(",", ":")),
     }
@@ -843,6 +843,15 @@ def request_error(event_index, message, status=0, error_type="", code=""):
 ERRORS = [
     request_error(
         28,
+        "Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue.",
+        status=400,
+        error_type="invalid_request_error",
+        code="websocket_connection_limit_reached",
+    ),
+    request_error(27, "The model is not supported.", status=400, error_type="invalid_request_error"),
+    request_error(26, "websocket: close 1012"),
+    request_error(
+        25,
         "upstream request timed out",
         status=504,
         error_type="timeout_error",
@@ -888,6 +897,8 @@ def error_view(query, scope=""):
         "error_type": query.get("error_type", [""])[0],
     }
     filtered = []
+    counts = {}
+    empty_type = query.get("error_type_empty", [""])[0] == "true"
     for entry in rows:
         if selected["api_key"] and entry["scope"] != selected["api_key"]:
             continue
@@ -901,7 +912,12 @@ def error_view(query, scope=""):
             continue
         if selected["status_code"] and str(entry["status_code"]) != selected["status_code"]:
             continue
-        if selected["error_type"] and entry["error_type"] != selected["error_type"]:
+        error_type = entry["error_type"]
+        counts[error_type] = counts.get(error_type, 0) + 1
+        if empty_type:
+            if error_type:
+                continue
+        elif selected["error_type"] and error_type != selected["error_type"]:
             continue
         filtered.append(entry)
     offset = max(0, int(query.get("offset", ["0"])[0] or 0))
@@ -910,7 +926,7 @@ def error_view(query, scope=""):
     if scope:
         page = [{key: value for key, value in entry.items()
                  if key not in {"scope", "preview", "label", "auth_index"}} for entry in page]
-    result = {"entries": page, "total": len(filtered)}
+    result = {"entries": page, "total": len(filtered), "error_type_counts": counts}
     if offset == 0:
         result["filter_options"] = {
             "models": sorted({entry["billing_model"] for entry in rows}),

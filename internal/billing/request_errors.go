@@ -35,15 +35,17 @@ type RequestErrorRow struct {
 type RequestErrorQuery struct {
 	Scope, KeyScope, Model, Source, Executor, Provider, ErrorType string
 	StatusCode                                                    int
+	ErrorTypeEmpty                                                bool
 	From, To                                                      time.Time
 	IncludeFilters                                                bool
 	Offset, Limit                                                 int
 }
 
 type RequestErrorView struct {
-	Entries []RequestErrorRow         `json:"entries"`
-	Total   int                       `json:"total"`
-	Filters *RequestErrorFilterValues `json:"filter_options,omitempty"`
+	ErrorTypeCounts map[string]int            `json:"error_type_counts"`
+	Entries         []RequestErrorRow         `json:"entries"`
+	Total           int                       `json:"total"`
+	Filters         *RequestErrorFilterValues `json:"filter_options,omitempty"`
 }
 
 type RequestErrorFilterValues struct {

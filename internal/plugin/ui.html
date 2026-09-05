@@ -2034,10 +2034,6 @@
         .section-actions.event-card-actions {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-        #tab-errors .event-card-actions,
-        #account-tab-errors .event-card-actions {
-          grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
-        }
         .section-actions.event-card-actions .native-select,
         .section-actions.event-card-actions select { width: 100%; min-width: 0; }
         .usage-distribution-layout { grid-template-columns: 1fr; }
@@ -2060,8 +2056,8 @@
         }
         .time-range-custom { grid-template-columns: 1fr; }
         .request-failure .event-entry-head {
-          grid-template-columns: minmax(0, 1fr) auto;
-          grid-template-areas: "time tags" "meta meta";
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-areas: "time" "tags" "meta";
           gap: 5px 10px;
         }
         .event-request-meta { flex-wrap: wrap; }
@@ -2074,6 +2070,8 @@
         }
         .event-entry-tags { gap: 4px; }
         .event-entry-tags .tag { padding-inline: 6px; }
+        .request-failure .event-entry-tags { justify-content: flex-start; min-width: 0; }
+        .request-failure .event-entry-tags .tag { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
         .gate { margin: 3vh auto; padding: 16px; }
         .app-header { align-items: center; }
         body:not(.embedded) .app-header { flex-wrap: nowrap; }
@@ -2678,6 +2676,9 @@
                 <span class="native-select"><select id="error-source" aria-label="按来源筛选">
                     <option value="">全部来源</option>
                   </select></span>
+                <span class="native-select"><select id="error-type" aria-label="按错误类型筛选">
+                    <option value="">全部错误类型</option>
+                  </select></span>
                 <button id="errors-filter-clear" class="link" type="button" disabled>清除筛选</button>
               </div>
             </div>
@@ -2863,6 +2864,9 @@
                     </select></span>
                   <span class="native-select"><select id="account-error-source">
                       <option value="">全部来源</option>
+                    </select></span>
+                  <span class="native-select"><select id="account-error-type" aria-label="按错误类型筛选">
+                      <option value="">全部错误类型</option>
                     </select></span>
                   <button id="account-errors-filter-clear" class="link" type="button" disabled>清除筛选</button>
                 </div>
@@ -3425,6 +3429,7 @@
         const prefix = account ? "account-" : "";
         restoreChoice(role, prefix + "error-model", "");
         restoreChoice(role, prefix + "error-source", "");
+        restoreChoice(role, prefix + "error-type", "");
         restoreChoice(role, prefix + "auth-enabled-only", true);
         restoreChoice(role, prefix + "auth-provider", "");
         if (!account) {
@@ -4179,6 +4184,12 @@
           if (value) {
             params.set(field, value);
           }
+        }
+        const typeChoice = $(prefix + "error-type").value;
+        if (typeChoice) {
+          const errorType = typeChoice.slice(5);
+          if (errorType) params.set("error_type", errorType);
+          else params.set("error_type_empty", "true");
         }
         return params;
       }
@@ -5294,6 +5305,18 @@
       function populateErrorFilters(view, account) {
         const prefix = account ? "account-" : "";
         const filters = view.filter_options || {};
+        const counts = view.error_type_counts || {};
+        const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+        const typeSelect = $(prefix + "error-type");
+        const types = Object.keys(counts);
+        if (typeSelect.value) types.push(typeSelect.value.slice(5));
+        populateEventFilterSelect(
+          typeSelect,
+          "全部错误类型 · " + int(total),
+          [...new Set(types)].sort(),
+          (value) => "type:" + value,
+          (value) => (value || "未分类") + " · " + int(counts[value]),
+        );
         for (const [name, label, values] of [
           ["model", "全部模型", filters.models],
           ["source", "全部来源", filters.sources],
@@ -8848,7 +8871,7 @@
         const load = account
           ? detailLoads.accountErrors
           : detailLoads.adminErrors;
-        const ids = [prefix + "error-model", prefix + "error-source"];
+        const ids = [prefix + "error-model", prefix + "error-source", prefix + "error-type"];
         const clear = $(prefix + "errors-filter-clear");
         for (const id of ids) {
           $(id).addEventListener("change", () => {

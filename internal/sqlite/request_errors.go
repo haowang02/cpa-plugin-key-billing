@@ -62,7 +62,9 @@ func requestErrorFilter(query billing.RequestErrorQuery, since time.Time) (strin
 		where += " AND e.status_code = ?"
 		args = append(args, query.StatusCode)
 	}
-	if value := strings.TrimSpace(query.ErrorType); value != "" {
+	if query.ErrorTypeEmpty {
+		where += " AND e.error_type = ''"
+	} else if value := strings.TrimSpace(query.ErrorType); value != "" {
 		where += " AND e.error_type = ?"
 		args = append(args, value)
 	}
@@ -71,6 +73,38 @@ func requestErrorFilter(query billing.RequestErrorQuery, since time.Time) (strin
 
 func (d *DB) RequestErrors(query billing.RequestErrorQuery, since time.Time) (billing.RequestErrorView, error) {
 	view := billing.RequestErrorView{Entries: []billing.RequestErrorRow{}}
+	countQuery := query
+	countQuery.ErrorType = ""
+	countQuery.ErrorTypeEmpty = false
+	countWhere, countArgs := requestErrorFilter(countQuery, since)
+	countRows, err := d.db.Query("SELECT e.error_type, count(*)"+countWhere+" GROUP BY e.error_type", countArgs...)
+	if err != nil {
+		return billing.RequestErrorView{}, fmt.Errorf("统计错误类型：%w", err)
+	}
+	view.ErrorTypeCounts = map[string]int{}
+	for countRows.Next() {
+		var errorType string
+		var count int
+		if err := countRows.Scan(&errorType, &count); err != nil {
+			countRows.Close()
+			return billing.RequestErrorView{}, fmt.Errorf("统计错误类型：%w", err)
+		}
+		view.ErrorTypeCounts[errorType] = count
+	}
+	countErr := countRows.Err()
+	countRows.Close()
+	if countErr != nil {
+		return billing.RequestErrorView{}, fmt.Errorf("统计错误类型：%w", countErr)
+	}
+	if query.ErrorTypeEmpty {
+		view.Total = view.ErrorTypeCounts[""]
+	} else if errorType := strings.TrimSpace(query.ErrorType); errorType != "" {
+		view.Total = view.ErrorTypeCounts[errorType]
+	} else {
+		for _, count := range view.ErrorTypeCounts {
+			view.Total += count
+		}
+	}
 	where, args := requestErrorFilter(query, since)
 	if query.IncludeFilters {
 		filters, err := d.requestErrorFilterValues(query, since)
@@ -78,9 +112,6 @@ func (d *DB) RequestErrors(query billing.RequestErrorQuery, since time.Time) (bi
 			return billing.RequestErrorView{}, err
 		}
 		view.Filters = filters
-	}
-	if err := d.db.QueryRow("SELECT count(*)"+where, args...).Scan(&view.Total); err != nil {
-		return billing.RequestErrorView{}, fmt.Errorf("统计错误事件：%w", err)
 	}
 	limit := query.Limit
 	if limit <= 0 {

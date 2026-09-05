@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -65,5 +66,44 @@ func TestEveryFailedRequestHasAnErrorEventEvenWithoutDetails(t *testing.T) {
 	requests := mustQueryRequestEvents(t, database, billing.RequestEventQuery{Failed: &failed, Limit: 10})
 	if requests.Total != 2 {
 		t.Fatalf("failed request events = %+v", requests)
+	}
+}
+
+func TestRequestErrorTypeCountsIgnoreTypeAndPagination(t *testing.T) {
+	database := requestErrorDatabase(t)
+	mustSave(t, database, billing.NewState(), billing.Changes{RequestErrorEvents: []billing.RequestErrorEvent{
+		{Event: requestEvent("scope-a", eventStart)},
+		{Event: requestEvent("scope-a", eventStart)},
+	}})
+	for _, test := range []struct {
+		name  string
+		query billing.RequestErrorQuery
+		want  map[string]int
+		total int
+	}{
+		{"type and pagination", billing.RequestErrorQuery{ErrorType: "rate_limit", Limit: 1, Offset: 1}, map[string]int{"": 2, "rate_limit": 1, "upstream_error": 1}, 1},
+		{"account scope", billing.RequestErrorQuery{Scope: "scope-a"}, map[string]int{"": 2, "rate_limit": 1}, 3},
+		{"unclassified", billing.RequestErrorQuery{ErrorTypeEmpty: true}, map[string]int{"": 2, "rate_limit": 1, "upstream_error": 1}, 2},
+		{"key filter", billing.RequestErrorQuery{KeyScope: "scope-b"}, map[string]int{"upstream_error": 1}, 1},
+		{"time filter", billing.RequestErrorQuery{From: eventStart.Add(2 * time.Minute)}, map[string]int{"upstream_error": 1}, 1},
+		{"status filter", billing.RequestErrorQuery{StatusCode: 429}, map[string]int{"rate_limit": 1}, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			view, err := database.RequestErrors(test.query, eventStart.Add(-time.Hour))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !maps.Equal(view.ErrorTypeCounts, test.want) {
+				t.Fatalf("counts = %+v, want %+v", view.ErrorTypeCounts, test.want)
+			}
+			if view.Total != test.total || len(view.Entries) != test.total-test.query.Offset {
+				t.Fatalf("view = %+v, want total %d", view, test.total)
+			}
+			for _, entry := range view.Entries {
+				if test.query.ErrorTypeEmpty && entry.ErrorType != "" {
+					t.Fatalf("classified entry in unclassified view: %+v", entry)
+				}
+			}
+		})
 	}
 }
