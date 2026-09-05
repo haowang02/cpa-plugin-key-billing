@@ -40,9 +40,13 @@ func usageFailureDetails(failure UsageFailure) usageFailureView {
 	if statusCode != 0 {
 		normalized.Status = statusCode
 	}
+	errorType := normalized.Code
+	if errorType == "" {
+		errorType = normalized.Type
+	}
 	return usageFailureView{
 		StatusCode: statusCode,
-		ErrorType:  normalized.Type,
+		ErrorType:  errorType,
 		Reason:     reason,
 		Body:       marshalNormalizedFailure(normalized),
 	}
