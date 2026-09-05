@@ -2468,9 +2468,9 @@
           <input id="gate-username" class="hidden" type="text" name="access-role" autocomplete="username" value="admin" />
           <div id="gate-error" class="notice err"></div>
           <label class="field"><span id="gate-key-label">管理密钥</span>
-            <input id="gate-key" type="password" autocomplete="current-password" placeholder="输入 Management Key" />
+            <input id="gate-key" type="password" autocomplete="current-password" placeholder="输入管理密钥" />
           </label>
-          <label class="remember-row"><input id="gate-remember" type="checkbox" />记住密码</label>
+          <label class="remember-row"><input id="gate-remember" type="checkbox" />记住密钥</label>
           <button id="gate-submit" type="submit" class="primary gate-submit">进入管理控制台</button>
         </form>
       </section>
@@ -3127,7 +3127,7 @@
       function openCredentialDB() {
         return new Promise((resolve, reject) => {
           if (!window.indexedDB || !window.crypto?.subtle) {
-            reject(new Error("当前浏览器不支持安全记住凭据"));
+            reject(new Error("当前环境不支持安全保存密钥"));
             return;
           }
           const request = indexedDB.open(CREDENTIAL_DB, 1);
@@ -3570,7 +3570,9 @@
         } catch (error) {
           if (generation !== sessionGeneration) throw new StaleRequestError();
           if (controller.signal.aborted)
-            throw new Error("请求超时，请稍后重试");
+            throw new Error("请求超时");
+          if (error instanceof TypeError)
+            throw new Error("无法连接服务");
           throw error;
         } finally {
           if (timeout) clearTimeout(timeout);
@@ -3581,25 +3583,29 @@
           try {
             payload = JSON.parse(text);
           } catch (_) {
-            payload = null;
+            if (resp.ok) throw new Error("服务响应格式异常");
           }
         }
         if (!resp.ok) {
-          const detail =
-            payload && payload.error
-              ? (payload.error.message ?? payload.error)
-              : text;
-          const message =
-            typeof detail === "string" ? unescapeDeep(detail).trim() : "";
+          const detail = payload?.error?.message ?? payload?.error;
+          const decoded = typeof detail === "string"
+            ? unescapeDeep(detail).replace(/\s+/g, " ").trim()
+            : "";
+          // Proxy error pages and response dumps are not user-facing messages.
+          const message = decoded && !/<[^>]+>/.test(decoded)
+            ? decoded.slice(0, 200) + (decoded.length > 200 ? "…" : "")
+            : "";
           if ((resp.status === 401 || resp.status === 403) && !opts?.key) {
             throw new AuthError(
               message ||
                 (currentRole === "account"
-                  ? "API Key 无效或已被拒绝"
-                  : "管理密钥无效或已被拒绝"),
+                  ? "API Key 无效或无访问权限"
+                  : "管理密钥无效或无访问权限"),
             );
           }
-          throw new Error(message || "HTTP " + resp.status);
+          throw new Error(message || (resp.status >= 500
+            ? "服务暂不可用（HTTP " + resp.status + "）"
+            : "服务返回错误（HTTP " + resp.status + "）"));
         }
         return opts && opts.raw ? payload : unescapeDeep(payload);
       }
@@ -3829,7 +3835,7 @@
         $("gate-username").value = account ? "api-key" : "administrator";
         $("gate-key").placeholder = account
           ? "输入 API Key"
-          : "输入 Management Key";
+          : "输入管理密钥";
         $("gate-submit").textContent = account
           ? "查看我的用量"
           : "进入管理控制台";
@@ -3840,7 +3846,7 @@
         }
         const saved = await recalledCredential(loginMode);
         if (ticket !== loginModeRequest) return;
-        if (saved) $("gate-key").placeholder = "已记住密码，可直接继续";
+        if (saved) $("gate-key").placeholder = "已记住密钥";
         $("gate-remember").checked = !!saved;
       }
 
@@ -4775,7 +4781,7 @@
         if (!canvas || !rows.length) return;
         if (typeof Chart === "undefined") {
           canvas.parentElement.replaceChildren(
-            el("div", { class: "empty", text: "图表组件加载失败" }),
+            el("div", { class: "empty", text: "图表加载失败" }),
           );
           return;
         }
@@ -4851,7 +4857,7 @@
         if (!canvas || !points.length) return;
         if (typeof Chart === "undefined") {
           canvas.parentElement.replaceChildren(
-            el("div", { class: "empty", text: "图表组件加载失败" }),
+            el("div", { class: "empty", text: "图表加载失败" }),
           );
           return;
         }
@@ -5313,7 +5319,7 @@
               text: load.promise
                 ? "加载中…"
                 : load.error
-                  ? "分析加载失败：" + load.error
+                  ? "分析数据加载失败：" + load.error
                   : "暂无分析数据",
             }),
           );
@@ -6218,7 +6224,7 @@
           input.select();
           if (!document.execCommand("copy")) throw new Error();
         } catch (_) {
-          throw new Error("复制失败，请检查浏览器剪贴板权限或使用 HTTPS 访问后重试");
+          throw new Error("复制失败，请检查剪贴板权限");
         } finally {
           input.remove();
           previousFocus?.focus({ preventScroll: true });
@@ -6241,7 +6247,7 @@
               break;
             }
           }
-          if (!key) throw new Error("该 API Key 已不在 CLIProxyAPI 配置中");
+          if (!key) throw new Error("API Key 已不存在，请刷新列表");
           await copyText(key);
           button.classList.add("copied");
           setActionIcon(button, "check", "已复制");
@@ -7103,7 +7109,7 @@
 
       function credentialProviderAvailabilityNote(item) {
         if (item.available) return "";
-        return item.hasCredentials ? "暂无启用凭证" : "暂无凭证";
+        return item.hasCredentials ? "暂无可用凭证" : "暂无凭证";
       }
 
       function renderRouteCredentialList() {
@@ -7656,7 +7662,7 @@
               !Number.isFinite(from.getTime()) ||
               !Number.isFinite(to.getTime())
             ) {
-              throw new Error("请选择完整的开始和结束时间");
+              throw new Error("请选择开始时间和结束时间");
             }
             if (from >= to) throw new Error("开始时间必须早于结束时间");
             if (to.getTime() - from.getTime() > 30 * 86400000) {
@@ -7871,7 +7877,7 @@
             );
           } else {
             scroller.replaceChildren(
-              el("div", { class: "empty", text: "暂无数据" }),
+              el("div", { class: "empty", text: "暂无请求事件" }),
             );
           }
           return;
@@ -8490,7 +8496,7 @@
         const request = ++priceReferenceRequest;
         if (!query) {
           $("price-reference-results").replaceChildren(
-            el("div", { class: "price-reference-empty", text: "输入模型名称" }),
+            el("div", { class: "price-reference-empty", text: "输入模型名称搜索" }),
           );
           return;
         }
@@ -8514,7 +8520,7 @@
             $("price-reference-results").replaceChildren(
               el("div", {
                 class: "price-reference-empty",
-                text: "搜索失败：" + (err.message || err),
+                text: "参考价格搜索失败：" + (err.message || err),
               }),
             );
           }
@@ -8617,7 +8623,7 @@
               await rememberCredential(role, key);
             } catch (err) {
               const message =
-                "已登录，但无法在此浏览器中记住凭据：" + (err.message || err);
+                "已登录，密钥未保存：" + (err.message || err);
               notify(message, "err");
             }
           } else {
@@ -8631,7 +8637,7 @@
             role,
             err instanceof AuthError
               ? err.message
-              : "连接失败：" + (err.message || err),
+              : "登录失败：" + (err.message || err),
           );
         } finally {
           $("gate-submit").disabled = false;
@@ -9343,7 +9349,7 @@
             loginMode,
             err instanceof AuthError
               ? err.message
-              : "连接失败：" + (err.message || err),
+              : "登录失败：" + (err.message || err),
           );
         }
       })();
