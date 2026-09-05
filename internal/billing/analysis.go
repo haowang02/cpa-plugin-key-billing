@@ -21,6 +21,7 @@ type AnalysisTrends struct {
 type AnalysisComposition struct {
 	Key           string  `json:"key"`
 	Label         string  `json:"label"`
+	Preview       string  `json:"preview,omitempty"`
 	TotalTokens   int64   `json:"total_tokens"`
 	Requests      int64   `json:"requests"`
 	CostUSD       float64 `json:"cost_usd"`

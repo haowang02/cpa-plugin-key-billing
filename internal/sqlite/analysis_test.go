@@ -21,6 +21,10 @@ func TestAnalysisAggregatesOnlyDisplayedUsageDistributions(t *testing.T) {
 	if len(usage.APIKeys) != 2 || len(usage.Models) != 1 || len(usage.Sources) != 1 {
 		t.Fatalf("usage distribution = %+v", usage)
 	}
+	if usage.APIKeys[0].Label != "Alice" || usage.APIKeys[0].Preview != "sk-aaa…0001" ||
+		usage.Models[0].Preview != "" || usage.Sources[0].Preview != "" {
+		t.Fatalf("distribution identities = %+v", usage)
+	}
 	if usage.Models[0].Requests != 3 || usage.Models[0].TotalTokens != 3000 || usage.Models[0].CostUSD != 1.5 {
 		t.Fatalf("model distribution = %+v", usage.Models)
 	}

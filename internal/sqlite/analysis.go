@@ -19,6 +19,7 @@ const (
 type analysisDimension struct {
 	name       string
 	key, label string
+	preview    string
 	target     *[]billing.AnalysisComposition
 }
 
@@ -48,8 +49,9 @@ func (d *DB) Analysis(query billing.RequestEventQuery, since time.Time) (billing
 	if query.Scope == "" && query.KeyScope == "" {
 		dimensions = append(dimensions, analysisDimension{
 			name: "API Key", key: "r.scope",
-			label:  "coalesce(NULLIF(k.label, ''), NULLIF(k.preview, ''), NULLIF(r.scope, ''), '未归属')",
-			target: &view.UsageDistribution.APIKeys,
+			label:   "coalesce(NULLIF(k.label, ''), NULLIF(k.preview, ''), NULLIF(r.scope, ''), '未归属')",
+			preview: "coalesce(k.preview, '')",
+			target:  &view.UsageDistribution.APIKeys,
 		})
 	}
 	dimensions = append(dimensions,
@@ -60,7 +62,11 @@ func (d *DB) Analysis(query billing.RequestEventQuery, since time.Time) (billing
 		},
 	)
 	for _, dimension := range dimensions {
-		rows, err := d.analysisComposition(where, args, dimension.key, dimension.label, dimension.name)
+		preview := dimension.preview
+		if preview == "" {
+			preview = "''"
+		}
+		rows, err := d.analysisComposition(where, args, dimension.key, dimension.label, preview, dimension.name)
 		if err != nil {
 			return billing.AnalysisView{}, err
 		}
@@ -184,11 +190,11 @@ func (d *DB) analysisTrends(query billing.RequestEventQuery, where string, args 
 	return result, nil
 }
 
-func (d *DB) analysisComposition(where string, args []any, keySQL, labelSQL, name string) ([]billing.AnalysisComposition, error) {
-	rows, err := d.db.Query(`SELECT `+keySQL+`, `+labelSQL+`, sum(`+analysisTokensSQL+`),
+func (d *DB) analysisComposition(where string, args []any, keySQL, labelSQL, previewSQL, name string) ([]billing.AnalysisComposition, error) {
+	rows, err := d.db.Query(`SELECT `+keySQL+`, `+labelSQL+`, `+previewSQL+`, sum(`+analysisTokensSQL+`),
 		count(*), sum(r.total_usd),
 		min(CASE WHEN `+analysisCostAvailableSQL+` THEN 1 ELSE 0 END)`+
-		where+` GROUP BY 1, 2`, args...)
+		where+` GROUP BY 1, 2, 3`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("聚合%s用量分布：%w", name, err)
 	}
@@ -197,7 +203,7 @@ func (d *DB) analysisComposition(where string, args []any, keySQL, labelSQL, nam
 	for rows.Next() {
 		var row billing.AnalysisComposition
 		var available int
-		if err := rows.Scan(&row.Key, &row.Label, &row.TotalTokens, &row.Requests, &row.CostUSD, &available); err != nil {
+		if err := rows.Scan(&row.Key, &row.Label, &row.Preview, &row.TotalTokens, &row.Requests, &row.CostUSD, &available); err != nil {
 			return nil, fmt.Errorf("读取%s用量分布：%w", name, err)
 		}
 		row.CostAvailable = available != 0
