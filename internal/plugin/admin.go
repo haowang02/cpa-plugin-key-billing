@@ -376,7 +376,7 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 		return errorResponse(errSync)
 	}
 	if result.Added > 0 || result.Removed > 0 {
-	a.store.AddPluginLog(billing.PluginLogInfo, "CLIProxyAPI API Key 已同步：新增 %d 个，移除 %d 个",
+		a.store.AddPluginLog(billing.PluginLogInfo, "CLIProxyAPI API Key 已同步：新增 %d 个，移除 %d 个",
 			result.Added, result.Removed)
 	}
 	live := make(map[string]struct{})
