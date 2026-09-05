@@ -110,7 +110,7 @@ func normalizeCredentialProviderSelector(item CredentialProviderSelector) (Crede
 		return CredentialProviderSelector{}, invalidf("上游凭证来源必须是 auth-files 或 ai-providers")
 	}
 	if item.Provider == "" || len(item.Provider) > maxRouteValueBytes || strings.ContainsAny(item.Provider, "*[]\x00") {
-		return CredentialProviderSelector{}, invalidf("Provider 无效")
+		return CredentialProviderSelector{}, invalidf("供应商标识无效")
 	}
 	return item, nil
 }
@@ -134,7 +134,7 @@ func NormalizeRouteRule(rule RouteRule) (RouteRule, error) {
 
 func normalizeCredentialProviders(values []CredentialProviderSelector) ([]CredentialProviderSelector, error) {
 	if len(values) > maxRouteEntries {
-		return nil, invalidf("每条路由规则最多包含 %d 个 Provider", maxRouteEntries)
+		return nil, invalidf("每条路由规则最多选择 %d 个供应商", maxRouteEntries)
 	}
 	result := make([]CredentialProviderSelector, 0, len(values))
 	seen := make(map[CredentialProviderSelector]struct{}, len(values))
@@ -154,14 +154,14 @@ func normalizeCredentialProviders(values []CredentialProviderSelector) ([]Creden
 
 func normalizeRouteStrings(values []string) ([]string, error) {
 	if len(values) > maxRouteEntries {
-		return nil, invalidf("每条路由规则的单项选择最多为 %d 个", maxRouteEntries)
+		return nil, invalidf("每条路由规则的每类选择最多 %d 项", maxRouteEntries)
 	}
 	result := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		value = strings.TrimSpace(value)
 		if value == "" || len(value) > maxRouteValueBytes {
-			return nil, invalidf("路由规则值无效")
+			return nil, invalidf("路由选项无效")
 		}
 		key := strings.ToLower(value)
 		if _, ok := seen[key]; ok {
@@ -270,10 +270,10 @@ func NormalizeRoute(route Route) (Route, error) {
 	}
 	route.Name = strings.TrimSpace(route.Name)
 	if route.Name == "" {
-		return Route{}, invalidf("请输入规则名称")
+		return Route{}, invalidf("路由规则名称不能为空")
 	}
 	if len([]byte(route.Name)) > maxRouteNameBytes {
-		return Route{}, invalidf("规则名称不能超过 %d 字节", maxRouteNameBytes)
+		return Route{}, invalidf("路由规则名称不能超过 %d 字节", maxRouteNameBytes)
 	}
 	rule, err := NormalizeRouteRule(route.Rule)
 	if err != nil {
@@ -289,7 +289,7 @@ func (s *Store) CreateRoute(route Route, scopes []string) (Route, error) {
 	stored := updateResult(s, func(state *State) (Route, Changes) {
 		for _, scope := range scopes {
 			if state.liveKey(scope) == nil {
-				errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+				errApply = notFoundf("API Key %q 不存在", scope)
 				return Route{}, Changes{}
 			}
 		}
@@ -349,7 +349,7 @@ func (s *Store) UpdateRoute(patch RoutePatch, scopes *[]string) (Route, error) {
 			selected = make(map[string]struct{}, len(normalized))
 			for _, scope := range normalized {
 				if state.liveKey(scope) == nil {
-					errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+					errApply = notFoundf("API Key %q 不存在", scope)
 					return Route{}, Changes{}
 				}
 				selected[scope] = struct{}{}
@@ -391,7 +391,7 @@ func (s *Store) SetKeyRoutes(scope string, bindings RouteBindings) error {
 	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.liveKey(scope)
 		if key == nil {
-			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+			errApply = notFoundf("API Key %q 不存在", scope)
 			return struct{}{}, Changes{}
 		}
 		for _, id := range bindings.RouteIDs {

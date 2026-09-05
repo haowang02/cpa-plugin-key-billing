@@ -90,7 +90,7 @@ func cliproxy_plugin_init(host *C.cliproxy_host_api, api *C.cliproxy_plugin_api)
 func callHost(method string, payload any) (json.RawMessage, error) {
 	rawPayload, errMarshal := json.Marshal(payload)
 	if errMarshal != nil {
-		return nil, fmt.Errorf("序列化 host callback %s：%w", method, errMarshal)
+		return nil, fmt.Errorf("编码宿主调用 %s 请求失败：%w", method, errMarshal)
 	}
 	cMethod := C.CString(method)
 	defer C.free(unsafe.Pointer(cMethod))
@@ -99,7 +99,7 @@ func callHost(method string, payload any) (json.RawMessage, error) {
 	if len(rawPayload) > 0 {
 		request := C.CBytes(rawPayload)
 		if request == nil {
-			return nil, fmt.Errorf("分配 host callback %s 请求失败", method)
+			return nil, fmt.Errorf("分配宿主调用 %s 请求内存失败", method)
 		}
 		defer C.free(request)
 		requestPtr = (*C.uint8_t)(request)
@@ -111,25 +111,25 @@ func callHost(method string, payload any) (json.RawMessage, error) {
 	var rawResponse []byte
 	if response.ptr != nil && response.len > 0 {
 		if response.len > C.size_t(^uint32(0)>>1) {
-			return nil, fmt.Errorf("host callback %s 响应过大", method)
+			return nil, fmt.Errorf("宿主调用 %s 响应过大", method)
 		}
 		rawResponse = C.GoBytes(response.ptr, C.int(response.len))
 	}
 	if len(rawResponse) == 0 {
-		return nil, fmt.Errorf("host callback %s 无响应，code=%d", method, int(callCode))
+		return nil, fmt.Errorf("宿主调用 %s 无响应，code=%d", method, int(callCode))
 	}
 	var envelope plugin.Envelope
 	if errUnmarshal := json.Unmarshal(rawResponse, &envelope); errUnmarshal != nil {
-		return nil, fmt.Errorf("解析 host callback %s 响应：%w", method, errUnmarshal)
+		return nil, fmt.Errorf("解析宿主调用 %s 响应失败：%w", method, errUnmarshal)
 	}
 	if !envelope.OK {
 		if envelope.Error != nil {
 			return nil, fmt.Errorf("%s：%s", envelope.Error.Code, envelope.Error.Message)
 		}
-		return nil, fmt.Errorf("host callback %s 失败", method)
+		return nil, fmt.Errorf("宿主调用 %s 失败", method)
 	}
 	if callCode != 0 {
-		return nil, fmt.Errorf("host callback %s 返回 code=%d", method, int(callCode))
+		return nil, fmt.Errorf("宿主调用 %s 返回 code=%d", method, int(callCode))
 	}
 	return append(json.RawMessage(nil), envelope.Result...), nil
 }

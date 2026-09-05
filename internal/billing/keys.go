@@ -149,7 +149,7 @@ func (s *Store) BindKey(scope, planID string) error {
 	scope = normalizeScope(scope)
 	planID = strings.TrimSpace(planID)
 	if scope == "" || planID == "" {
-		return invalidf("API Key 标识和订阅计划 ID 都不能为空")
+		return invalidf("API Key 标识和订阅计划 ID 不能为空")
 	}
 	var errApply error
 	updateResult(s, func(state *State) (struct{}, Changes) {
@@ -160,7 +160,7 @@ func (s *Store) BindKey(scope, planID string) error {
 		}
 		key := state.liveKey(scope)
 		if key == nil {
-			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+			errApply = notFoundf("API Key %q 不存在", scope)
 			return struct{}{}, Changes{}
 		}
 		if key.PlanID == plan.ID {
@@ -218,7 +218,7 @@ func (s *Store) SetLabel(scope, label string) error {
 	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.liveKey(scope)
 		if key == nil {
-			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+			errApply = notFoundf("API Key %q 不存在", scope)
 			return struct{}{}, Changes{}
 		}
 		key.Label = label

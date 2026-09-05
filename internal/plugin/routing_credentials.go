@@ -234,7 +234,7 @@ func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementRespons
 		return errorResponse(errDecode)
 	}
 	if len(body.Credentials) > 4096 {
-		return JSONError(http.StatusBadRequest, "invalid", "配置型上游凭证过多")
+		return JSONError(http.StatusBadRequest, "invalid", "配置凭证数量超限")
 	}
 
 	next := make(map[string]credentialView, len(body.Credentials))
@@ -242,7 +242,7 @@ func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementRespons
 		ref := strings.ToLower(strings.TrimSpace(item.Ref))
 		provider := strings.ToLower(strings.TrimSpace(item.Provider))
 		if !credentialFingerprint.MatchString(ref) || provider == "" || len(provider) > 160 || cleanText(provider) != provider {
-			return JSONError(http.StatusBadRequest, "invalid", "配置型上游凭证标识无效")
+			return JSONError(http.StatusBadRequest, "invalid", "配置凭证标识无效")
 		}
 		displayName := boundedLogValue(item.DisplayName, 160)
 		if displayName == "" {

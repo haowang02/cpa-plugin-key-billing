@@ -276,7 +276,7 @@ func TestPhysicalAPIKeyCredentialCannotReachUpstream(t *testing.T) {
 		return json.RawMessage(`{"auth_index":"xai-1","json":{"api_key":"dummy-paid-key"}}`), nil
 	})
 	_, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "xai-1"}, "xai")
-	if errFetch == nil || !strings.Contains(errFetch.Error(), "API Key 类型") {
+	if errFetch == nil || errFetch.Error() != "API Key 凭证不支持此限额查询" {
 		t.Fatalf("error = %v", errFetch)
 	}
 }

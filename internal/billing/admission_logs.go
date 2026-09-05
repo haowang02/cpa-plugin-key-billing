@@ -34,11 +34,9 @@ func (s *Store) ReportQuotaBlock(scope, endpoint string, decision Decision) {
 		message.WriteString("，计划 ")
 		message.WriteString(plan)
 	}
-	message.WriteString("。")
 	if !decision.ResetAt.IsZero() {
-		message.WriteString("额度将于 ")
+		message.WriteString("，重置时间 ")
 		message.WriteString(decision.ResetAt.UTC().Format(time.RFC3339))
-		message.WriteString(" 重置。")
 	}
 	// Enforcement working as configured is not a fault of the plugin's, so this
 	// stays out of the level an operator reads to find one.

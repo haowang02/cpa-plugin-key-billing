@@ -86,14 +86,14 @@ func (s *Store) SetConcurrencyLimit(scope string, limit int) error {
 		return invalidf("API Key 标识不能为空")
 	}
 	if limit < 0 || limit > MaxConcurrencyLimit {
-		return invalidf("并发数必须是 0 到 %d 之间的整数", MaxConcurrencyLimit)
+		return invalidf("并发限制必须为 0 到 %d 的整数", MaxConcurrencyLimit)
 	}
 
 	var errApply error
 	updateResult(s, func(state *State) (struct{}, Changes) {
 		key := state.liveKey(scope)
 		if key == nil {
-			errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+			errApply = notFoundf("API Key %q 不存在", scope)
 			return struct{}{}, Changes{}
 		}
 		if key.ConcurrencyLimit == limit {

@@ -79,7 +79,7 @@ func (a *App) accountAccess(access viewAccess) ManagementResponse {
 		return apiKeyJSON(http.StatusOK, response)
 	}
 	if err := a.refreshCredentialInventory(); err != nil {
-		response.Warnings = append(response.Warnings, "上游凭证信息暂时无法加载")
+		response.Warnings = append(response.Warnings, "上游凭证加载失败")
 	}
 	inventory := a.credentialInventory()
 	byRef := map[string]credentialView{}
@@ -100,7 +100,7 @@ func (a *App) accountAccess(access viewAccess) ManagementResponse {
 		if credential, ok := byRef[ref]; ok {
 			addCredential(credential)
 		} else if !missingCredential {
-			credentials = append(credentials, accountRouteCredential{Name: "指定上游凭证当前不可用", Status: "missing"})
+			credentials = append(credentials, accountRouteCredential{Name: "指定上游凭证不可用", Status: "missing"})
 			missingCredential = true
 		}
 	}
@@ -119,7 +119,7 @@ func (a *App) accountAccess(access viewAccess) ManagementResponse {
 		credentials = append(credentials, accountRouteCredential{
 			Source: selector.Source, Provider: selector.Provider, Status: "missing", ProviderWide: true,
 		})
-		response.Warnings = append(response.Warnings, "当前没有符合「"+name+"」的上游凭证")
+		response.Warnings = append(response.Warnings, "没有匹配「"+name+"」的上游凭证")
 	}
 	sort.Slice(credentials, func(i, j int) bool {
 		left, right := credentials[i], credentials[j]

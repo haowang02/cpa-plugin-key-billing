@@ -63,7 +63,7 @@ func TestUnwritableDatabaseIsReportedOnceAndOnRecovery(t *testing.T) {
 
 	repo.fail = nil
 	store.ReplaceAll(func(state *State) { state.Keys["scope-a"].Label = "Recovered" })
-	if events := mustPluginLogs(t, store); events[0].Message != "计费数据库恢复写入。" {
+	if events := mustPluginLogs(t, store); events[0].Message != "计费数据库写入已恢复" {
 		t.Fatalf("events = %+v, want the recovery reported", events[0])
 	}
 }

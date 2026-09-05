@@ -50,38 +50,38 @@ type managementEndpoint struct {
 }
 
 var managementEndpoints = []managementEndpoint{
-	{http.MethodGet, routeAccess, "查看 API Key、订阅计划和路由规则。", func(a *App, _ ManagementRequest) ManagementResponse { return a.access() }},
-	{http.MethodGet, routePrices, "查看模型定价。", func(a *App, _ ManagementRequest) ManagementResponse { return a.listPrices(viewAccess{}) }},
-	{http.MethodGet, routePriceCatalog, "搜索模型参考价。", (*App).searchPriceCatalog},
-	{http.MethodPost, routeCatalogRefresh, "从 models.dev 更新参考价目录。", func(a *App, _ ManagementRequest) ManagementResponse { return a.refreshPriceCatalog() }},
-	{http.MethodPut, routePrices, "更新模型定价。", (*App).putPrices},
-	{http.MethodPost, routePricesReset, "恢复模型参考价。", func(a *App, _ ManagementRequest) ManagementResponse { return a.resetPrices() }},
-	{http.MethodPost, routePricesSync, "同步模型价格目录。", (*App).syncPriceCatalog},
-	{http.MethodPost, routePlans, "新建订阅计划。", (*App).createPlan},
-	{http.MethodPatch, routePlans, "更新订阅计划。", (*App).updatePlan},
-	{http.MethodDelete, routePlans, "删除订阅计划并解除相关 Key 的绑定。", (*App).deletePlan},
-	{http.MethodPost, routeRoutes, "新建路由规则。", (*App).createRoute},
-	{http.MethodPatch, routeRoutes, "更新路由规则。", (*App).updateRoute},
-	{http.MethodDelete, routeRoutes, "删除路由规则并移除相关绑定。", (*App).deleteRoute},
-	{http.MethodPut, routeKeysRoutes, "替换一个 API Key 的路由绑定。", (*App).setKeyRoutes},
-	{http.MethodPost, routeKeysBind, "将 API Key 绑定到订阅计划。", (*App).bindKey},
-	{http.MethodPost, routeKeysUnbind, "解除 API Key 的订阅计划。", (*App).unbindKey},
-	{http.MethodPost, routeKeysReset, "重置指定 API Key 的订阅额度。", (*App).resetKeys},
-	{http.MethodPost, routeKeysLabel, "设置 API Key 备注。", (*App).labelKey},
-	{http.MethodPost, routeKeysConcurrency, "设置 API Key 最大并发请求数。", (*App).setKeyConcurrency},
-	{http.MethodPost, routeKeysSync, "同步 CLIProxyAPI 中的 API Key 列表。", (*App).syncKeys},
-	{http.MethodPost, routeCredentialsSync, "同步配置型上游凭证。", (*App).syncConfiguredCredentials},
-	{http.MethodGet, routeEvents, "分页查看请求事件。", func(a *App, req ManagementRequest) ManagementResponse {
+	{http.MethodGet, routeAccess, "查看 API Key、订阅计划和路由规则", func(a *App, _ ManagementRequest) ManagementResponse { return a.access() }},
+	{http.MethodGet, routePrices, "查看模型定价", func(a *App, _ ManagementRequest) ManagementResponse { return a.listPrices(viewAccess{}) }},
+	{http.MethodGet, routePriceCatalog, "搜索模型参考价", (*App).searchPriceCatalog},
+	{http.MethodPost, routeCatalogRefresh, "从 models.dev 更新参考价目录", func(a *App, _ ManagementRequest) ManagementResponse { return a.refreshPriceCatalog() }},
+	{http.MethodPut, routePrices, "更新模型定价", (*App).putPrices},
+	{http.MethodPost, routePricesReset, "恢复模型参考价", func(a *App, _ ManagementRequest) ManagementResponse { return a.resetPrices() }},
+	{http.MethodPost, routePricesSync, "同步模型价格目录", (*App).syncPriceCatalog},
+	{http.MethodPost, routePlans, "新建订阅计划", (*App).createPlan},
+	{http.MethodPatch, routePlans, "更新订阅计划", (*App).updatePlan},
+	{http.MethodDelete, routePlans, "删除订阅计划并解除 API Key 绑定", (*App).deletePlan},
+	{http.MethodPost, routeRoutes, "新建路由规则", (*App).createRoute},
+	{http.MethodPatch, routeRoutes, "更新路由规则", (*App).updateRoute},
+	{http.MethodDelete, routeRoutes, "删除路由规则并移除相关绑定", (*App).deleteRoute},
+	{http.MethodPut, routeKeysRoutes, "更新 API Key 路由绑定", (*App).setKeyRoutes},
+	{http.MethodPost, routeKeysBind, "将 API Key 绑定到订阅计划", (*App).bindKey},
+	{http.MethodPost, routeKeysUnbind, "解除 API Key 与订阅计划的绑定", (*App).unbindKey},
+	{http.MethodPost, routeKeysReset, "重置指定 API Key 的订阅额度", (*App).resetKeys},
+	{http.MethodPost, routeKeysLabel, "设置 API Key 备注", (*App).labelKey},
+	{http.MethodPost, routeKeysConcurrency, "设置 API Key 最大并发请求数", (*App).setKeyConcurrency},
+	{http.MethodPost, routeKeysSync, "同步 CLIProxyAPI 中的 API Key 列表", (*App).syncKeys},
+	{http.MethodPost, routeCredentialsSync, "同步配置凭证", (*App).syncConfiguredCredentials},
+	{http.MethodGet, routeEvents, "分页查看请求事件", func(a *App, req ManagementRequest) ManagementResponse {
 		return a.listRequestEvents(req, viewAccess{})
 	}},
-	{http.MethodGet, routeErrors, "分页查看错误事件。", func(a *App, req ManagementRequest) ManagementResponse {
+	{http.MethodGet, routeErrors, "分页查看错误事件", func(a *App, req ManagementRequest) ManagementResponse {
 		return a.listRequestErrors(req, viewAccess{})
 	}},
-	{http.MethodGet, routeAnalysis, "查看用量分布。", func(a *App, req ManagementRequest) ManagementResponse { return a.analysis(req, viewAccess{}) }},
-	{http.MethodGet, routePluginLogs, "分页查看插件运行日志。", (*App).listPluginLogs},
-	{http.MethodDelete, routePluginLogs, "清空插件运行日志。", func(a *App, _ ManagementRequest) ManagementResponse { return a.clearPluginLogs() }},
-	{http.MethodGet, routeAuthFiles, "查看认证文件。", func(a *App, _ ManagementRequest) ManagementResponse { return a.authFiles(viewAccess{}) }},
-	{http.MethodGet, routeAuthQuota, "按需查看认证文件限额。", func(a *App, req ManagementRequest) ManagementResponse { return a.authQuota(req, viewAccess{}) }},
+	{http.MethodGet, routeAnalysis, "查看用量分布", func(a *App, req ManagementRequest) ManagementResponse { return a.analysis(req, viewAccess{}) }},
+	{http.MethodGet, routePluginLogs, "分页查看插件运行日志", (*App).listPluginLogs},
+	{http.MethodDelete, routePluginLogs, "清空插件运行日志", func(a *App, _ ManagementRequest) ManagementResponse { return a.clearPluginLogs() }},
+	{http.MethodGet, routeAuthFiles, "查看认证文件", func(a *App, _ ManagementRequest) ManagementResponse { return a.authFiles(viewAccess{}) }},
+	{http.MethodGet, routeAuthQuota, "查询认证文件限额", func(a *App, req ManagementRequest) ManagementResponse { return a.authQuota(req, viewAccess{}) }},
 }
 
 type resourceEndpoint struct {

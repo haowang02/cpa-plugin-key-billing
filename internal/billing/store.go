@@ -85,7 +85,7 @@ func (s *Store) Configure(cfg Config) error {
 		s.cfg = normalized
 		s.mu.Unlock()
 		if changed {
-			s.AddPluginLog(PluginLogInfo, "配置已更新：%s。", normalized.describe())
+			s.AddPluginLog(PluginLogInfo, "配置已更新：%s", normalized.describe())
 		}
 		return nil
 	}
@@ -115,7 +115,7 @@ func (s *Store) Configure(cfg Config) error {
 		s.closeRepository(previous)
 	}
 
-	s.AddPluginLog(PluginLogInfo, "已加载计费数据库 %s：%d 个 API Key、%d 个订阅计划、%d 条请求事件。%s。",
+	s.AddPluginLog(PluginLogInfo, "已加载计费数据库：%s，%d 个 API Key、%d 个订阅计划、%d 条请求事件，%s",
 		path, len(snapshot.State.Keys), len(snapshot.State.Plans), snapshot.RequestEventCount, normalized.describe())
 	return nil
 }
@@ -208,7 +208,7 @@ func (s *Store) recordWriteSuccess() {
 	s.lastError = ""
 	s.errMu.Unlock()
 	if recovered {
-		s.AddPluginLog(PluginLogInfo, "计费数据库恢复写入。")
+		s.AddPluginLog(PluginLogInfo, "计费数据库写入已恢复")
 	}
 }
 

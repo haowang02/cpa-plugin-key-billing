@@ -16,7 +16,7 @@ func (p Plan) Validate() error {
 		return invalidf("订阅计划 %s：额度必须大于 0", p.ID)
 	}
 	if p.PeriodSeconds < 0 {
-		return invalidf("订阅计划 %s：周期不能小于 0 秒", p.ID)
+		return invalidf("订阅计划 %s：周期不能为负数", p.ID)
 	}
 	if p.PeriodSeconds > maxPeriodSeconds {
 		return invalidf("订阅计划 %s：周期不能超过 %d 秒", p.ID, maxPeriodSeconds)

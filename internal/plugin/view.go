@@ -115,7 +115,7 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 	if raw := strings.TrimSpace(req.Query.Get("status_code")); raw != "" {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 100 || value > 599 {
-			return viewJSONError(access, http.StatusBadRequest, "invalid", "status_code 必须是 100 到 599 之间的整数")
+			return viewJSONError(access, http.StatusBadRequest, "invalid", "HTTP 状态码必须为 100 到 599 的整数")
 		}
 		query.StatusCode = value
 	}
@@ -162,7 +162,7 @@ func (a *App) analysis(req ManagementRequest, access viewAccess) ManagementRespo
 		location, err := time.LoadLocation(name)
 		if err != nil {
 			return viewErrorResponse(access, &billing.Error{
-				Kind: billing.KindInvalid, Msg: "timezone 不是有效的 IANA 时区",
+				Kind: billing.KindInvalid, Msg: "时区必须为有效的 IANA 标识",
 			})
 		}
 		query.Timezone = location
@@ -191,10 +191,10 @@ func requestPageParams(values url.Values, offset, limit *int, from, to *time.Tim
 		return errTo
 	}
 	if !from.IsZero() && !to.IsZero() && !from.Before(*to) {
-		return &billing.Error{Kind: billing.KindInvalid, Msg: "from 必须早于 to"}
+		return &billing.Error{Kind: billing.KindInvalid, Msg: "开始时间必须早于结束时间"}
 	}
 	if *limit < 1 || *limit > maxEventPageSize {
-		return &billing.Error{Kind: billing.KindInvalid, Msg: "limit 必须是 1 到 1000 之间的整数"}
+		return &billing.Error{Kind: billing.KindInvalid, Msg: "查询条数必须为 1 到 1000 的整数"}
 	}
 	return nil
 }

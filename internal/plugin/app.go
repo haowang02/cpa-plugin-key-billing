@@ -49,7 +49,7 @@ func (a *App) HandleMethod(method string, request []byte) (response []byte, err 
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			response = nil
-			err = fmt.Errorf("插件处理 %s 时发生异常：%v", method, recovered)
+			err = fmt.Errorf("插件调用 %s 异常：%v", method, recovered)
 			if a != nil && a.store != nil {
 				a.store.AddPluginLog(billing.PluginLogError, "%v", err)
 			}
@@ -124,12 +124,12 @@ func registration() Registration {
 				{
 					Name:        "enabled",
 					Type:        "boolean",
-					Description: "启用 API Key 路由、计费、并发限制和订阅额度控制。",
+					Description: "启用 API Key 路由、计费、并发限制和订阅额度控制",
 				},
 				{
 					Name:        "state_file",
 					Type:        "string",
-					Description: "计费数据库文件路径。",
+					Description: "计费数据库文件路径",
 				},
 			},
 		},

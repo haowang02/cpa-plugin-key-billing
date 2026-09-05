@@ -33,7 +33,7 @@ func (a *App) searchPriceCatalog(req ManagementRequest) ManagementResponse {
 	if raw := strings.TrimSpace(req.Query.Get("limit")); raw != "" {
 		parsed, errParse := strconv.Atoi(raw)
 		if errParse != nil || parsed < 1 || parsed > 50 {
-			return JSONError(http.StatusBadRequest, "invalid", "limit 必须是 1 到 50 之间的整数")
+			return JSONError(http.StatusBadRequest, "invalid", "查询条数必须为 1 到 50 的整数")
 		}
 		limit = parsed
 	}
@@ -85,7 +85,7 @@ func (a *App) refreshPriceCatalog() ManagementResponse {
 		a.store.AddPluginLog(billing.PluginLogError, "更新 models.dev 参考价目录失败：%v", errRefresh)
 		return errorResponse(errRefresh)
 	}
-	a.store.AddPluginLog(billing.PluginLogInfo, "已更新 models.dev 参考价目录，%d 条定价随之调整。", result.UpdatedModels)
+	a.store.AddPluginLog(billing.PluginLogInfo, "models.dev 参考价目录已更新：%d 条定价调整", result.UpdatedModels)
 	return JSONResponse(http.StatusOK, result)
 }
 
@@ -245,21 +245,21 @@ func (a *App) listPluginLogs(req ManagementRequest) ManagementResponse {
 	if raw := strings.TrimSpace(req.Query.Get("limit")); raw != "" {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 1 || value > 500 {
-			return JSONError(http.StatusBadRequest, "invalid", "limit 必须是 1 到 500 之间的整数")
+			return JSONError(http.StatusBadRequest, "invalid", "查询条数必须为 1 到 500 的整数")
 		}
 		query.Limit = value
 	}
 	if raw := strings.TrimSpace(req.Query.Get("before_id")); raw != "" {
 		value, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil || value < 1 {
-			return JSONError(http.StatusBadRequest, "invalid", "before_id 无效")
+			return JSONError(http.StatusBadRequest, "invalid", "分页游标无效")
 		}
 		query.BeforeID = value
 	}
 	if raw := strings.TrimSpace(req.Query.Get("since")); raw != "" {
 		value, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			return JSONError(http.StatusBadRequest, "invalid", "since 必须是 RFC3339 时间")
+			return JSONError(http.StatusBadRequest, "invalid", "起始时间必须为 RFC3339 格式")
 		}
 		query.Since = value
 	}
@@ -268,7 +268,7 @@ func (a *App) listPluginLogs(req ManagementRequest) ManagementResponse {
 		for _, raw := range strings.Split(levels, ",") {
 			level := billing.PluginLogLevel(strings.TrimSpace(raw))
 			if level != billing.PluginLogDebug && level != billing.PluginLogInfo && level != billing.PluginLogError {
-				return JSONError(http.StatusBadRequest, "invalid", "level 无效")
+				return JSONError(http.StatusBadRequest, "invalid", "日志级别无效")
 			}
 			query.Levels = append(query.Levels, level)
 		}
@@ -376,7 +376,7 @@ func (a *App) syncKeys(req ManagementRequest) ManagementResponse {
 		return errorResponse(errSync)
 	}
 	if result.Added > 0 || result.Removed > 0 {
-		a.store.AddPluginLog(billing.PluginLogInfo, "已同步 CLIProxyAPI 的 API Key 列表：新增 %d 个，移除 %d 个。",
+	a.store.AddPluginLog(billing.PluginLogInfo, "CLIProxyAPI API Key 已同步：新增 %d 个，移除 %d 个",
 			result.Added, result.Removed)
 	}
 	live := make(map[string]struct{})
@@ -394,7 +394,7 @@ func decodeStrict(body []byte, target any) error {
 		return &billing.Error{Kind: billing.KindInvalid, Msg: fmt.Sprintf("请求内容无效：%v", errDecode)}
 	}
 	if errTrailing := decoder.Decode(&struct{}{}); errTrailing != io.EOF {
-		return &billing.Error{Kind: billing.KindInvalid, Msg: "请求内容无效：只能包含一个 JSON 值"}
+		return &billing.Error{Kind: billing.KindInvalid, Msg: "请求内容只能包含一个 JSON 值"}
 	}
 	return nil
 }

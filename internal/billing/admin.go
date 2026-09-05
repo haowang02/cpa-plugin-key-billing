@@ -135,7 +135,7 @@ func (s *Store) SyncPriceCatalog(models []string) (PriceCatalogSyncResult, error
 	if len(wanted) == 0 {
 		// An empty list is far more likely to be a failed read than a proxy
 		// that serves nothing, and wiping the table would discard every edit.
-		return PriceCatalogSyncResult{}, invalidf("模型列表为空，未执行同步")
+		return PriceCatalogSyncResult{}, invalidf("模型列表不能为空")
 	}
 
 	var result PriceCatalogSyncResult
@@ -192,26 +192,26 @@ func (r PriceRule) Validate() error {
 		return invalidf("模型名称或匹配规则不能为空")
 	}
 	if invalidPrice(r.InputPer1M) || invalidPrice(r.OutputPer1M) {
-		return invalidf("模型 %q：Token 单价必须是有限的非负数", pattern)
+		return invalidf("模型 %q：Token 单价必须是非负有限数", pattern)
 	}
 	if r.CacheReadPer1M != nil && invalidPrice(*r.CacheReadPer1M) {
-		return invalidf("模型 %q：缓存读取单价必须是有限的非负数", pattern)
+		return invalidf("模型 %q：缓存读取单价必须是非负有限数", pattern)
 	}
 	if r.CacheWritePer1M != nil && invalidPrice(*r.CacheWritePer1M) {
-		return invalidf("模型 %q：缓存写入单价必须是有限的非负数", pattern)
+		return invalidf("模型 %q：缓存写入单价必须是非负有限数", pattern)
 	}
 	if tier := r.LongContext; tier != nil {
 		if tier.ThresholdInputTokens <= 0 {
 			return invalidf("模型 %q：长上下文阈值必须大于 0", pattern)
 		}
 		if invalidPrice(tier.InputPer1M) || invalidPrice(tier.OutputPer1M) {
-			return invalidf("模型 %q：长上下文 Token 单价必须是有限的非负数", pattern)
+			return invalidf("模型 %q：长上下文 Token 单价必须是非负有限数", pattern)
 		}
 		if tier.CacheReadPer1M != nil && invalidPrice(*tier.CacheReadPer1M) {
-			return invalidf("模型 %q：长上下文缓存读取单价必须是有限的非负数", pattern)
+			return invalidf("模型 %q：长上下文缓存读取单价必须是非负有限数", pattern)
 		}
 		if tier.CacheWritePer1M != nil && invalidPrice(*tier.CacheWritePer1M) {
-			return invalidf("模型 %q：长上下文缓存写入单价必须是有限的非负数", pattern)
+			return invalidf("模型 %q：长上下文缓存写入单价必须是非负有限数", pattern)
 		}
 	}
 	return nil
@@ -293,7 +293,7 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 		for _, scope := range scopes {
 			key := state.liveKey(scope)
 			if key == nil {
-				errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+				errApply = notFoundf("API Key %q 不存在", scope)
 				return Plan{}, Changes{}
 			}
 			if key.PlanID != "" {
@@ -354,7 +354,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				for _, scope := range normalized {
 					key := state.liveKey(scope)
 					if key == nil {
-						errApply = notFoundf("API Key %q 不存在，请先同步 Key 列表", scope)
+						errApply = notFoundf("API Key %q 不存在", scope)
 						return Plan{}, Changes{}
 					}
 					if key.PlanID != "" && key.PlanID != patch.ID {

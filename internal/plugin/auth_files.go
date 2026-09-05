@@ -113,7 +113,7 @@ func (a *App) authQuota(req ManagementRequest, access viewAccess) ManagementResp
 	}
 	authIndex := strings.TrimSpace(req.Query.Get("auth_index"))
 	if authIndex == "" || len(authIndex) > 512 {
-		return viewJSONError(access, http.StatusBadRequest, "invalid", "auth_index 无效")
+		return viewJSONError(access, http.StatusBadRequest, "invalid", "认证文件标识无效")
 	}
 	files, errList := a.listHostAuthFiles()
 	if errList != nil {
@@ -143,10 +143,10 @@ func (a *App) authQuota(req ManagementRequest, access viewAccess) ManagementResp
 	}
 	provider := authCategory(selected.Type)
 	if authCategoryOrder(provider) == 5 {
-		return viewJSONError(access, http.StatusUnprocessableEntity, "unsupported", "该认证文件类型暂不支持限额查询")
+		return viewJSONError(access, http.StatusUnprocessableEntity, "unsupported", "此类认证文件不支持限额查询")
 	}
 	if selected.RuntimeOnly {
-		return viewJSONError(access, http.StatusUnprocessableEntity, "unsupported", "运行时认证文件没有可读取的物理凭据")
+		return viewJSONError(access, http.StatusUnprocessableEntity, "unsupported", "运行时认证文件无可读取凭据")
 	}
 	result, errQuota := a.fetchAuthQuota(req.HostCallbackID, *selected, provider)
 	if errQuota != nil {
@@ -209,10 +209,10 @@ func authQuotaAvailability(file hostAuthFile, category string) (bool, string) {
 		return false, "认证文件已停用"
 	}
 	if file.RuntimeOnly {
-		return false, "运行时认证文件没有可读取的物理凭据"
+		return false, "运行时认证文件无可读取凭据"
 	}
 	if authCategoryOrder(category) == 5 {
-		return false, "该认证文件类型暂不支持限额查询"
+		return false, "此类认证文件不支持限额查询"
 	}
 	return true, ""
 }
@@ -240,7 +240,7 @@ func normalizeCodexPlan(plan string) string {
 
 func (a *App) listHostAuthFiles() ([]hostAuthFile, error) {
 	if a == nil || a.hostCaller == nil {
-		return nil, fmt.Errorf("当前 CLIProxyAPI 不支持认证文件 host callback")
+		return nil, fmt.Errorf("当前 CLIProxyAPI 不支持读取认证文件")
 	}
 	raw, errCall := a.hostCaller(hostAuthList, map[string]any{})
 	if errCall != nil {
@@ -288,10 +288,10 @@ func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile, provider stri
 		return authQuotaResponse{}, fmt.Errorf("认证文件内容无效")
 	}
 	if credentialUsesAPIKey(credential) {
-		return authQuotaResponse{}, fmt.Errorf("API Key 类型的上游认证不属于认证文件限额")
+		return authQuotaResponse{}, fmt.Errorf("API Key 凭证不支持此限额查询")
 	}
 	if credentialString(credential, "proxy_url", "proxyUrl") != "" {
-		return authQuotaResponse{}, fmt.Errorf("当前 host callback 无法使用认证文件配置的独立代理")
+		return authQuotaResponse{}, fmt.Errorf("限额查询不支持认证文件的独立代理")
 	}
 	result := authQuotaResponse{AuthRevision: authFileRevision(file), FetchedAt: time.Now().UTC(), Quota: []quotaRow{}}
 	if provider == "xai" && paidXAICredential(credential) {
@@ -300,7 +300,7 @@ func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile, provider stri
 	}
 	token := credentialToken(credential)
 	if token == "" {
-		return authQuotaResponse{}, fmt.Errorf("认证文件中没有可用凭据")
+		return authQuotaResponse{}, fmt.Errorf("认证文件无可用凭据")
 	}
 	var err error
 	switch provider {
@@ -360,9 +360,9 @@ func (a *App) upstream(callbackID, method, endpoint, token string, headers http.
 		message := upstreamErrorMessage(object)
 		if response.StatusCode == http.StatusUnauthorized {
 			if message != "" {
-				message = "认证文件中的物理凭据已失效或过期：" + message
+				message = "认证凭据已失效或过期：" + message
 			} else {
-				message = "认证文件中的物理凭据已失效或过期"
+				message = "认证凭据已失效或过期"
 			}
 		}
 		if message == "" {
@@ -372,7 +372,7 @@ func (a *App) upstream(callbackID, method, endpoint, token string, headers http.
 		return nil, fmt.Errorf("上游返回 HTTP %d：%s", response.StatusCode, message)
 	}
 	if object == nil {
-		return nil, fmt.Errorf("上游返回了无效 JSON")
+		return nil, fmt.Errorf("上游响应格式异常")
 	}
 	return object, nil
 }
