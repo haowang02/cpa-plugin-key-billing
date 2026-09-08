@@ -138,6 +138,11 @@ func registration() Registration {
 					Description: "请求 Codex 上游时指定 priority 档位，按 2.5 倍计费",
 				},
 				{
+					Name:        "codex_fast_mode_billing_excluded_models",
+					Type:        "string",
+					Description: "不叠加 Codex Fast 2.5 倍计费的模型 ID，逗号分隔；仅影响计费，不改变请求档位",
+				},
+				{
 					Name:        "state_file",
 					Type:        "string",
 					Description: "计费数据库文件路径",
