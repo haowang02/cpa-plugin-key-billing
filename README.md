@@ -88,10 +88,18 @@ plugins:
       enabled: true
       debug: false # 是否记录 debug 日志，例如路由日志、匹配参考价日志
       codex_fast_mode_billing: false # Codex 的 priority 请求按 2.5 倍计费
+      codex_fast_mode_billing_excluded_models: "" # 不叠加 Fast 倍率的计费模型 ID，逗号分隔
       state_file: "plugins/cpa-key-billing-state-v1.db"
 ```
 
 `codex_fast_mode_billing` 开启后，请求 Codex 上游时在请求中指定 `service_tier=priority`，按普通费用的 **2.5 倍**结算。
+
+如果某些模型的价格已经包含 Fast 加价，可以将其加入
+`codex_fast_mode_billing_excluded_models`，例如 `"my-fast-alias, another-model"`。
+列表默认为空；按计费模型 ID 匹配，忽略大小写和末尾推理后缀，保留路由前缀，不支持通配符。
+命中的模型仍按已有的自定义价、内置价或参考价结算，只跳过额外的 2.5 倍倍率。
+此设置不会修改请求的 `service_tier`、模型路由或上游执行方式；未定价请求仍遵循原有规则。
+配置变更仅影响后续用量的结算，已保存的历史费用和倍率保持不变。
 
 > [!WARNING]
 > 升级前请备份数据文件。

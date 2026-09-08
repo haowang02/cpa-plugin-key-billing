@@ -12,10 +12,11 @@ import (
 const DefaultStateFile = "plugins/cpa-key-billing-state-v1.db"
 
 type Config struct {
-	Enabled              bool   `yaml:"enabled"`
-	Debug                bool   `yaml:"debug"`
-	StateFile            string `yaml:"state_file"`
-	CodexFastModeBilling bool   `yaml:"codex_fast_mode_billing"`
+	Enabled                            bool   `yaml:"enabled"`
+	Debug                              bool   `yaml:"debug"`
+	StateFile                          string `yaml:"state_file"`
+	CodexFastModeBilling               bool   `yaml:"codex_fast_mode_billing"`
+	CodexFastModeBillingExcludedModels string `yaml:"codex_fast_mode_billing_excluded_models"`
 }
 
 func DefaultConfig() Config {
@@ -60,4 +61,18 @@ func (c Config) normalized() Config {
 		c.StateFile = DefaultStateFile
 	}
 	return c
+}
+
+// Exclusions use billing model IDs and preserve routing prefixes.
+func (c Config) excludesCodexFastBilling(model string) bool {
+	model = NormalizeModelID(ModelWithoutThinkingSuffix(model))
+	if model == "" {
+		return false
+	}
+	for _, excluded := range strings.Split(c.CodexFastModeBillingExcludedModels, ",") {
+		if model == NormalizeModelID(ModelWithoutThinkingSuffix(strings.TrimSpace(excluded))) {
+			return true
+		}
+	}
+	return false
 }

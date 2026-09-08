@@ -54,6 +54,7 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 	updateResult(s, func(state *State) (struct{}, Changes) {
 		// ServiceTier is the client-requested tier, not the upstream response tier.
 		if s.cfg.CodexFastModeBilling && price.Source != PriceSourceNone && event.Breakdown.Billable() &&
+			!s.cfg.excludesCodexFastBilling(billingModel) &&
 			strings.EqualFold(strings.TrimSpace(event.Provider), "codex") &&
 			strings.EqualFold(strings.TrimSpace(event.AuthType), "oauth") &&
 			strings.EqualFold(strings.TrimSpace(event.ServiceTier), "priority") {
