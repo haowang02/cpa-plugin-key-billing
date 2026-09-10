@@ -77,6 +77,10 @@ plugins/cpa-key-billing.dll      # Windows
 
 ## 配置
 
+如需根据每个 API Key 的路由权限过滤客户端看到的模型列表，可使用可选的
+[模型目录代理](docs/model-catalog-proxy.md)。它独立运行，保留模型元数据，
+不影响推理请求和计费；路由权限仍由 Key Billing 管理。
+
 在 CLIProxyAPI 配置文件中加入：
 
 ```yaml
