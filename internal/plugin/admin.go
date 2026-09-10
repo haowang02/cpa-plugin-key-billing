@@ -281,7 +281,7 @@ func (a *App) resetKeys(req ManagementRequest) ManagementResponse {
 	if err := decodeStrict(req.Body, &body); err != nil {
 		return errorResponse(err)
 	}
-	result, err := a.store.ResetCycles(body)
+	result, err := a.store.ResetQuota(body)
 	if err != nil {
 		return errorResponse(err)
 	}

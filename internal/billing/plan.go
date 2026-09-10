@@ -16,14 +16,15 @@ type Plan struct {
 	Windows []QuotaWindow `json:"windows"`
 }
 
-// Zero disables a dimension within the window's independently timed cycle.
+// Zero disables a quota dimension. An absent anchor starts cycles on admission.
 type QuotaWindow struct {
-	ID            string  `json:"id"`
-	Name          string  `json:"name"`
-	PeriodSeconds int64   `json:"period_seconds"`
-	AmountUSD     float64 `json:"amount_usd"`
-	TokenLimit    int64   `json:"token_limit"`
-	RequestLimit  int64   `json:"request_limit"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	PeriodSeconds int64     `json:"period_seconds"`
+	AmountUSD     float64   `json:"amount_usd"`
+	TokenLimit    int64     `json:"token_limit"`
+	RequestLimit  int64     `json:"request_limit"`
+	CycleAnchorAt time.Time `json:"cycle_anchor_at,omitzero"`
 }
 
 const maxPeriodSeconds = int64(math.MaxInt64) / int64(time.Second)
@@ -67,30 +68,55 @@ func (p Plan) Validate() error {
 		if periods[window.PeriodSeconds] {
 			return invalidf("窗口 %q 的周期与其他窗口重复", name)
 		}
+		if window.CycleAnchorAt.IsZero() != p.Windows[0].CycleAnchorAt.IsZero() {
+			return invalidf("同一订阅计划的额度窗口必须使用相同周期模式")
+		}
+		if !window.CycleAnchorAt.IsZero() && (window.CycleAnchorAt.Year() < 1970 || window.CycleAnchorAt.Year() > 9999 || window.CycleAnchorAt.Nanosecond() != 0) {
+			return invalidf("窗口 %q：周期开始时间必须为 1970 到 9999 年之间、精确到秒的时间", name)
+		}
 		ids[window.ID], names[strings.ToLower(name)], periods[window.PeriodSeconds] = true, true, true
 	}
 	return nil
 }
 
-func prepareWindows(windows, existing []QuotaWindow) ([]QuotaWindow, error) {
+func prepareWindows(windows, existing []QuotaWindow, now time.Time) ([]QuotaWindow, error) {
 	windows = slices.Clone(windows)
 	for i := range windows {
 		window := &windows[i]
 		window.Name = strings.TrimSpace(window.Name)
+		oldIndex := slices.IndexFunc(existing, func(old QuotaWindow) bool { return old.ID == window.ID })
 		if window.ID == "" {
 			var id [16]byte
 			if _, err := rand.Read(id[:]); err != nil {
 				return nil, err
 			}
 			window.ID = hex.EncodeToString(id[:])
-		} else if !slices.ContainsFunc(existing, func(old QuotaWindow) bool { return old.ID == window.ID }) {
+		} else if oldIndex < 0 {
 			return nil, invalidf("额度窗口 %q 已不存在，请刷新后重试", window.Name)
+		}
+		if !window.CycleAnchorAt.IsZero() {
+			window.CycleAnchorAt = window.CycleAnchorAt.UTC()
+			if oldIndex >= 0 && window.sameSchedule(existing[oldIndex]) {
+				window.CycleAnchorAt = existing[oldIndex].CycleAnchorAt
+			} else if window.PeriodSeconds <= 0 || window.PeriodSeconds > maxPeriodSeconds ||
+				!window.CycleAnchorAt.After(now) || window.CycleAnchorAt.After(now.Add(time.Duration(window.PeriodSeconds)*time.Second)) {
+				return nil, invalidf("窗口 %q：下个周期开始时间必须晚于当前时间，且不超过一个周期", window.Name)
+			}
 		}
 	}
 	slices.SortFunc(windows, func(a, b QuotaWindow) int {
 		return cmp.Compare(a.PeriodSeconds, b.PeriodSeconds)
 	})
 	return windows, nil
+}
+
+func (w QuotaWindow) sameSchedule(other QuotaWindow) bool {
+	if w.PeriodSeconds != other.PeriodSeconds || w.CycleAnchorAt.IsZero() != other.CycleAnchorAt.IsZero() {
+		return false
+	}
+	return w.CycleAnchorAt.Equal(other.CycleAnchorAt) || w.PeriodSeconds > 0 &&
+		w.CycleAnchorAt.Nanosecond() == other.CycleAnchorAt.Nanosecond() &&
+		(w.CycleAnchorAt.Unix()-other.CycleAnchorAt.Unix())%w.PeriodSeconds == 0
 }
 
 func clonePlan(plan Plan) Plan {
@@ -131,7 +157,7 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 				return exists
 			})
 		}
-		windows, err := prepareWindows(plan.Windows, nil)
+		windows, err := prepareWindows(plan.Windows, nil, s.Now())
 		if err != nil {
 			return Plan{}, Changes{}, err
 		}
@@ -188,7 +214,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				updated.Name = strings.TrimSpace(*patch.Name)
 			}
 			if patch.Windows != nil {
-				windows, err := prepareWindows(*patch.Windows, updated.Windows)
+				windows, err := prepareWindows(*patch.Windows, updated.Windows, s.Now())
 				if err != nil {
 					return Plan{}, Changes{}, err
 				}
@@ -217,7 +243,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 			if patch.Windows != nil {
 				for _, old := range state.Plans[i].Windows {
 					if !slices.ContainsFunc(updated.Windows, func(window QuotaWindow) bool {
-						return window.ID == old.ID && window.PeriodSeconds == old.PeriodSeconds
+						return window.ID == old.ID && window.sameSchedule(old)
 					}) {
 						resetWindows = append(resetWindows, old.ID)
 					}

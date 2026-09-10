@@ -181,7 +181,7 @@ func TestConfigurationWriteFailureKeepsState(t *testing.T) {
 			_, err := s.UpdatePlanWithBindings(PlanPatch{ID: "p", Windows: &windows}, nil)
 			return err
 		}},
-		{"reset", func(s *Store) error { _, err := s.ResetCycles(ResetRequest{Mode: "global"}); return err }},
+		{"reset", func(s *Store) error { _, err := s.ResetQuota(ResetRequest{Mode: "global"}); return err }},
 		{"delete plan", func(s *Store) error { _, err := s.DeletePlan("p"); return err }},
 		{"edit route", func(s *Store) error {
 			rule := RouteRule{Models: []string{"gpt"}}
@@ -193,11 +193,16 @@ func TestConfigurationWriteFailureKeepsState(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, repo := newStoreWithRepository(t)
+			now := time.Now().UTC().Truncate(time.Second)
+			store.now = func() time.Time { return now }
 			store.ReplaceAll(func(state *State) {
-				state.Plans = []Plan{{ID: "p", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 10, PeriodSeconds: 3600}}}}
+				window := QuotaWindow{ID: "default", Name: "额度", AmountUSD: 10, PeriodSeconds: 3600, CycleAnchorAt: now.Add(time.Hour)}
+				state.Plans = []Plan{{ID: "p", Windows: []QuotaWindow{window}}}
+				cycle := window.newCycle("p", now)
+				cycle.SpentUSD = 5
 				state.Routes = []Route{{ID: "r", Name: "r", Rule: RouteRule{DeniedModels: []string{"gpt"}, DeniedCredentialIDs: []string{CredentialFingerprint("dummy")}}}, {ID: "keep", Name: "keep"}}
 				state.Keys["key"] = &KeyState{Preview: "unknown", InConfig: true, PlanID: "p",
-					Cycles:        map[string]QuotaCycle{"default": {PlanID: "p", StartAt: time.Now(), SpentUSD: 5}},
+					Cycles:        map[string]QuotaCycle{"default": cycle},
 					RouteBindings: RouteBindings{RouteIDs: []string{"r", "keep"}}}
 			})
 			before, err := json.Marshal(store.state)

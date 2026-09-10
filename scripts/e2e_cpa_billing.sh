@@ -958,7 +958,8 @@ assert_quota_exhausted() {
     --data "$(jq -nc --arg name "$plan_name" --arg scope "$scope" --arg dimension "$dimension" \
       '{name: $name, windows: [
         {name: "Short", period_seconds: 3600}, {name: "Budget", period_seconds: 86400}
-      ] | map(. + {
+      ] | map(. + (if $dimension == "requests"
+        then {cycle_anchor_at: ((now + .period_seconds / 2 | floor) | todateiso8601)} else {} end) + {
         amount_usd: (if $dimension == "amount_usd" then 0.0001 else 0 end),
         request_limit: (if $dimension == "requests" then 1 else 0 end),
         token_limit: (if $dimension == "tokens" then 1 else 0 end)
@@ -1048,13 +1049,21 @@ assert_quota_exhausted() {
     return 1
   fi
 
-  # Unbinding the plan makes the key unlimited again, which is what the panel
-  # does to release one, and the request that follows has to be billed as usual.
-  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/unbind" \
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/reset" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg scope "$scope" '{scope: $scope}')" \
-    >/dev/null
-  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/plans?id=$plan" >/dev/null
+    --data "$(jq -nc --arg scope "$scope" '{mode: "all", scopes: [$scope]}')" >/dev/null
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/keys" >"$runtime_dir/quota-reset.json"
+  if ! jq -e --arg scope "$scope" --arg dimension "$dimension" --slurpfile before "$runtime_dir/quota-access.json" '
+      first($before[0].keys[] | select(.scope == $scope)) as $old |
+      first(.keys[] | select(.scope == $scope)) |
+      (.blocked | not) and all(.windows[]; all(.dimensions[]; .used == 0)) and
+      (if $dimension == "requests"
+       then [.windows[].end_at] == [$old.windows[].end_at] and all(.windows[]; .started)
+       else all(.windows[]; .started | not) end)
+    ' "$runtime_dir/quota-reset.json" >/dev/null; then
+    echo "重置额度改变了周期安排或未清零消费。" >&2
+    return 1
+  fi
 
   body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
   api_call "$port" "额度拦截解除后：OpenAI Chat → OpenAI Chat 非流式" \
@@ -1062,6 +1071,11 @@ assert_quota_exhausted() {
   assert_billing_entry "$port" "$((expected_count + 1))" chat chat \
     "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/quota-restored-request-events.json" \
     "$runtime_dir/responses/quota-restored.json" false
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/unbind" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{scope: $scope}')" \
+    >/dev/null
+  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/plans?id=$plan" >/dev/null
 }
 
 assert_headless_price_admission() {

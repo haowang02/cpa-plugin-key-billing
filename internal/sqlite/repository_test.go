@@ -200,11 +200,11 @@ func TestOpenRejectsExistingSchemas(t *testing.T) {
 	}
 }
 
-func TestQuotaDimensionsExtendExistingJSON(t *testing.T) {
+func TestQuotaConfigurationExtendsExistingJSON(t *testing.T) {
 	const tokenLimit = int64(1<<53 - 1)
 	path := filepath.Join(t.TempDir(), "state.db")
 	database := openDatabase(t, path)
-	// Persist the original amount-only JSON, with no fields for new dimensions.
+	// Load the original JSON without counter or schedule extensions.
 	if _, err := database.db.Exec(`INSERT INTO plans (position, id, name, windows_json)
 		VALUES (0, 'p', '团队', '[{"id":"w","name":"额度","period_seconds":3600,"amount_usd":10}]')`); err != nil {
 		t.Fatal(err)
@@ -216,7 +216,7 @@ func TestQuotaDimensionsExtendExistingJSON(t *testing.T) {
 	state := mustLoad(t, database).State
 	cycle := state.Keys["dummy-scope"].Cycles["w"]
 	start := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
-	if cycle.SpentUSD != 3.5 || !cycle.StartAt.Equal(start) || cycle.UsedTokens != 0 || cycle.UsedRequests != 0 {
+	if cycle.SpentUSD != 3.5 || !cycle.StartAt.Equal(start) || cycle.UsedTokens != 0 || cycle.UsedRequests != 0 || !cycle.UsageSince.IsZero() || !state.Plans[0].Windows[0].CycleAnchorAt.IsZero() {
 		t.Fatalf("legacy cycle changed: %+v", cycle)
 	}
 	state.Plans[0].Windows[0].TokenLimit = tokenLimit
@@ -226,7 +226,16 @@ func TestQuotaDimensionsExtendExistingJSON(t *testing.T) {
 	state.Plans[0].Windows = append(state.Plans[0].Windows,
 		billing.QuotaWindow{ID: "tokens", Name: "Token", PeriodSeconds: 7200, TokenLimit: 1000},
 		billing.QuotaWindow{ID: "requests", Name: "请求", PeriodSeconds: 86400, RequestLimit: 100})
+	for i := range state.Plans[0].Windows {
+		state.Plans[0].Windows[i].CycleAnchorAt = start.Add(time.Duration(state.Plans[0].Windows[i].PeriodSeconds) * time.Second)
+	}
+	cycle.UsageSince = start.Add(30 * time.Minute)
+	state.Keys["dummy-scope"].Cycles["w"] = cycle
 	mustSave(t, database, state, billing.Changes{Plans: true, AllKeys: true})
+	var version int
+	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 14 {
+		t.Fatalf("schema changed: %d, %v", version, err)
+	}
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}

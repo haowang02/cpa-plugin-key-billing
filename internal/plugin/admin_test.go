@@ -119,15 +119,16 @@ func TestPricesRoundTripThroughTheManagementAPI(t *testing.T) {
 
 func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 	app := newConfiguredApp(t)
+	anchor := time.Now().UTC().Truncate(time.Second).Add(30 * time.Minute)
 
 	var created struct {
 		Plan billing.Plan `json:"plan"`
 	}
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
 		"name":    "Team Monthly",
-		"windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 20, PeriodSeconds: 2592000}},
+		"windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 20, PeriodSeconds: 2592000, CycleAnchorAt: anchor}},
 	}, http.StatusCreated, &created)
-	if created.Plan.ID != "team-monthly" || created.Plan.Windows[0].PeriodSeconds != 2592000 {
+	if created.Plan.ID != "team-monthly" || created.Plan.Windows[0].PeriodSeconds != 2592000 || !created.Plan.Windows[0].CycleAnchorAt.Equal(anchor) {
 		t.Fatalf("plan = %+v", created.Plan)
 	}
 
@@ -140,12 +141,24 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 	}
 	callOK(t, app, http.MethodPatch, routePlans, nil, map[string]any{
 		"id":      "team-monthly",
-		"windows": []billing.QuotaWindow{{ID: created.Plan.Windows[0].ID, Name: "额度", AmountUSD: 50, PeriodSeconds: 3600}},
+		"windows": []billing.QuotaWindow{{ID: created.Plan.Windows[0].ID, Name: "额度", AmountUSD: 50, PeriodSeconds: 3600, CycleAnchorAt: anchor}},
 	}, http.StatusOK, &patched)
 	if patched.Plan.Windows[0].AmountUSD != 50 || patched.Plan.Windows[0].PeriodSeconds != 3600 || patched.Plan.Name != "Team Monthly" {
 		t.Fatalf("plan = %+v", patched.Plan)
 	}
 
+	callOK(t, app, http.MethodPatch, routePlans, nil, map[string]any{"id": created.Plan.ID, "name": "Renamed"}, http.StatusOK, &patched)
+	if !patched.Plan.Windows[0].CycleAnchorAt.Equal(anchor) {
+		t.Fatal("name edit removed schedule")
+	}
+	for _, windows := range [][]billing.QuotaWindow{
+		{{ID: created.Plan.Windows[0].ID, Name: "额度", AmountUSD: 50, PeriodSeconds: 3600, CycleAnchorAt: time.Now().Add(-time.Hour)}},
+		{{ID: created.Plan.Windows[0].ID, Name: "额度", AmountUSD: 50, PeriodSeconds: 3600, CycleAnchorAt: anchor}, {Name: "独立", AmountUSD: 1, PeriodSeconds: 7200}},
+	} {
+		if resp := callManagement(t, app, http.MethodPatch, routePlans, nil, map[string]any{"id": created.Plan.ID, "windows": windows}); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("invalid schedule status: %d", resp.StatusCode)
+		}
+	}
 	var listed struct {
 		Plans []billing.Plan `json:"plans"`
 	}
@@ -161,31 +174,40 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 }
 
 func TestKeyResetAcceptsScopeList(t *testing.T) {
-	app := newConfiguredApp(t)
-	keys := []string{"sk-reset-first-000001", "sk-reset-second-00002"}
-	scopes := []string{billing.CallerScope(keys[0]), billing.CallerScope(keys[1])}
-	callOK(t, app, http.MethodPost, routeKeysSync, nil,
-		map[string]any{"keys": keys}, http.StatusOK, nil)
-	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
-		"id": "daily", "windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 10, PeriodSeconds: 86400}},
-		"scopes": scopes,
-	}, http.StatusCreated, nil)
-	for _, scope := range scopes {
-		if decision := app.store.Authorize(scope, time.Now()); !decision.Allowed {
-			t.Fatalf("Authorize(%q) = %+v", scope, decision)
-		}
-	}
+	for _, unified := range []bool{false, true} {
+		t.Run(fmt.Sprint(unified), func(t *testing.T) {
+			app := newConfiguredApp(t)
+			anchor := time.Time{}
+			if unified {
+				anchor = time.Now().UTC().Truncate(time.Second).Add(time.Hour)
+			}
+			keys := []string{"sk-reset-first-000001", "sk-reset-second-00002"}
+			scopes := []string{billing.CallerScope(keys[0]), billing.CallerScope(keys[1])}
+			callOK(t, app, http.MethodPost, routeKeysSync, nil,
+				map[string]any{"keys": keys}, http.StatusOK, nil)
+			callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
+				"id": "daily", "windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 10, PeriodSeconds: 86400, CycleAnchorAt: anchor}},
+				"scopes": scopes,
+			}, http.StatusCreated, nil)
+			for _, scope := range scopes {
+				if decision := app.store.Authorize(scope, time.Now()); !decision.Allowed {
+					t.Fatalf("Authorize(%q) = %+v", scope, decision)
+				}
+			}
 
-	var result billing.ResetResult
-	callOK(t, app, http.MethodPost, routeKeysReset, nil, billing.ResetRequest{Mode: "all", Scopes: scopes}, http.StatusOK, &result)
-	if result.Keys != 2 {
-		t.Fatalf("reset = %d, want 2", result.Keys)
-	}
-	byScope := keysByScope(t, app)
-	for _, scope := range scopes {
-		if !byScope[scope].Windows[0].EndAt.IsZero() {
-			t.Fatalf("cycle for %q remained active: %+v", scope, byScope[scope])
-		}
+			var result billing.ResetResult
+			callOK(t, app, http.MethodPost, routeKeysReset, nil, billing.ResetRequest{Mode: "all", Scopes: scopes}, http.StatusOK, &result)
+			if result.Keys != 2 {
+				t.Fatalf("reset = %d, want 2", result.Keys)
+			}
+			byScope := keysByScope(t, app)
+			for _, scope := range scopes {
+				if byScope[scope].Windows[0].Started != unified || unified && !byScope[scope].Windows[0].EndAt.Equal(anchor) {
+					t.Fatalf("reset changed schedule for %q: %+v", scope, byScope[scope])
+				}
+			}
+
+		})
 	}
 }
 
@@ -767,7 +789,7 @@ func TestManagementWriteFailureReturnsError(t *testing.T) {
 	if after.PlanID != before.PlanID || !reflect.DeepEqual(after.Windows[0].Dimensions, before.Windows[0].Dimensions) {
 		t.Fatalf("failed reset changed state: %+v", after)
 	}
-	reset, err := app.store.ResetCycles(billing.ResetRequest{Mode: "all", Scopes: []string{scope}})
+	reset, err := app.store.ResetQuota(billing.ResetRequest{Mode: "all", Scopes: []string{scope}})
 	if err != nil || reset.Keys != 1 {
 		t.Fatalf("cycle was reset despite write failure: reset=%+v, err=%v", reset, err)
 	}

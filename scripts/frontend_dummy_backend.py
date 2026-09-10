@@ -247,9 +247,12 @@ PLANS = [
         {"id": "budget", "name": "团队预算", "amount_usd": 300, "period_seconds": 2592000},
     ]},
     {"id": "production", "name": "生产服务", "windows": [
-        {"id": "short", "name": "峰值保护", "amount_usd": 0, "request_limit": 200, "token_limit": 0, "period_seconds": 7200},
-        {"id": "medium", "name": "服务额度", "amount_usd": 0, "request_limit": 0, "token_limit": 2000000, "period_seconds": 86400},
-        {"id": "budget", "name": "生产预算", "amount_usd": 1000, "period_seconds": 2592000},
+        {"id": "short", "name": "峰值保护", "amount_usd": 0, "request_limit": 200, "token_limit": 0,
+         "period_seconds": 7200, "cycle_anchor_at": iso(NOW + timedelta(hours=2))},
+        {"id": "medium", "name": "服务额度", "amount_usd": 0, "request_limit": 0, "token_limit": 2000000,
+         "period_seconds": 86400, "cycle_anchor_at": iso((NOW + timedelta(days=1)).replace(hour=0))},
+        {"id": "budget", "name": "生产预算", "amount_usd": 1000,
+         "period_seconds": 2592000, "cycle_anchor_at": iso((NOW + timedelta(days=15)).replace(hour=0))},
     ]},
     {"id": "project-credit", "name": "项目额度", "windows": [
         {"id": "budget", "name": "项目预算", "amount_usd": 100, "period_seconds": 864000},
@@ -264,14 +267,25 @@ def refresh_key_quota(key):
     plan = next((item for item in PLANS if item["id"] == key["plan_id"]), None)
     previous = QUOTA_CYCLES.get(key["scope"], {})
     cycles = {}
+    now = datetime.now(timezone.utc)
     key.update(plan_name=plan["name"] if plan else "", unlimited=plan is None, blocked=False, windows=[])
     key.pop("retry_at", None)
     for window in plan["windows"] if plan else []:
         cycle = previous.get(window["id"], {})
         started = (cycle.get("plan_id") == key["plan_id"]
-                   and cycle.get("period_seconds") == window["period_seconds"])
-        if not started:
+                   and cycle.get("period_seconds") == window["period_seconds"]
+                   and cycle.get("cycle_anchor_at") == window.get("cycle_anchor_at")
+                   and (key.get("deleted_at") or datetime.fromisoformat(cycle["end_at"].replace("Z", "+00:00")) > now))
+        if started:
+            cycles[window["id"]] = cycle
+        else:
             cycle = {}
+        if not started and window.get("cycle_anchor_at"):
+            anchor = datetime.fromisoformat(window["cycle_anchor_at"].replace("Z", "+00:00"))
+            period = timedelta(seconds=window["period_seconds"])
+            start = anchor + ((now - anchor) // period) * period
+            cycle = dict(start_at=iso(start), end_at=iso(start+period))
+            started = True
         dimensions = [dict(metric=metric, limit=limit, used=used, remaining=max(0, limit-used),
                            used_percent=min(100, used / limit * 100), blocked=used >= limit)
                       for metric, limit, used in [
@@ -281,8 +295,9 @@ def refresh_key_quota(key):
         view = dict(id=window["id"], name=window["name"], period_seconds=window["period_seconds"],
                     started=started, blocked=any(dimension["blocked"] for dimension in dimensions),
                     dimensions=dimensions)
+        if window.get("cycle_anchor_at"):
+            view["cycle_anchor_at"] = window["cycle_anchor_at"]
         if started:
-            cycles[window["id"]] = cycle
             view.update(start_at=cycle["start_at"], end_at=cycle["end_at"])
         if view["blocked"]:
             key["blocked"] = True
@@ -549,12 +564,14 @@ def make_key(index):
         "route_bindings": profile["route_bindings"],
     }
     cycles = {}
-    for position, window in enumerate(plan["windows"] if plan else []):
+    for position, window in enumerate(plan["windows"] if plan and index != 4 else []):
         ratio = profile["spent_usd"] / plan["windows"][-1]["amount_usd"]
         if index == 2 and position == 0 or index == 3 and position < 2:
             ratio = 1.05
-        end = NOW + timedelta(seconds=window["period_seconds"] * 0.4)
+        end = (datetime.fromisoformat(window["cycle_anchor_at"].replace("Z", "+00:00"))
+               if window.get("cycle_anchor_at") else NOW + timedelta(seconds=window["period_seconds"] * (0.3 + index * 0.04)))
         cycles[window["id"]] = dict(plan_id=result["plan_id"], period_seconds=window["period_seconds"],
+            cycle_anchor_at=window.get("cycle_anchor_at"),
             spent_usd=window["amount_usd"]*ratio,
             used_requests=int(window.get("request_limit", 1000)*ratio),
             used_tokens=int(window.get("token_limit", 10000000)*ratio),
@@ -1213,6 +1230,8 @@ def credential_labels(refs):
 
 
 def key_rows():
+    for key in LIVE_KEYS:
+        refresh_key_quota(key)
     return [dict(key, route_names={route["id"]: route["name"] for route in ROUTES
                                   if route["id"] in key["route_bindings"]["route_ids"]},
                  credential_labels=credential_labels(key["route_bindings"]["credential_ids"] + key["route_bindings"].get("denied_credential_ids", []))) for key in KEYS]
@@ -1386,6 +1405,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, {"tracked": True, "identity": {"preview": key["preview"], "label": key["label"]}})
             elif parsed.path.endswith("/subscription"):
                 key = LIVE_KEYS[index]
+                refresh_key_quota(key)
                 self.send_json(200, {"subscription": {"name": key["plan_name"], "unlimited": key["unlimited"], "blocked": key["blocked"], "windows": key["windows"], "retry_at": key.get("retry_at")}, "concurrency": {"limit": key["concurrency_limit"], "current": key["current_concurrency"]}})
             elif parsed.path.endswith("/routing"):
                 self.send_json(200, account_routing_view(index))
@@ -1476,7 +1496,7 @@ class Handler(BaseHTTPRequestHandler):
                        and (body.get("mode") == "global" or key["scope"] in body.get("scopes", []))]
             counts = {"keys": 0, "windows": 0}
             for key in targets:
-                count = sum(window["started"] for window in key["windows"])
+                count = len(QUOTA_CYCLES.get(key["scope"], {}))
                 counts["keys"] += bool(count)
                 counts["windows"] += count
                 QUOTA_CYCLES.pop(key["scope"], None)
@@ -1569,10 +1589,12 @@ class Handler(BaseHTTPRequestHandler):
             if "scopes" in body:
                 scopes = set(body["scopes"])
                 for key in KEYS:
-                    if key["scope"] in scopes:
+                    if key["scope"] in scopes and key["plan_id"] != plan_id:
                         key["plan_id"] = plan_id
-                    elif key["plan_id"] == plan_id:
+                        QUOTA_CYCLES.pop(key["scope"], None)
+                    elif key["scope"] not in scopes and key["plan_id"] == plan_id:
                         key["plan_id"] = ""
+                        QUOTA_CYCLES.pop(key["scope"], None)
             for key in KEYS:
                 refresh_key_quota(key)
             self.send_json(201 if self.command == "POST" else 200, {"plan": stored})
@@ -1608,6 +1630,7 @@ class Handler(BaseHTTPRequestHandler):
                     plan_id = body.get("plan_id", "")
                     if key["plan_id"] != plan_id:
                         key["plan_id"] = plan_id
+                        QUOTA_CYCLES.pop(key["scope"], None)
                         refresh_key_quota(key)
             self.send_json(200, {"ok": True})
         elif route == ("POST", f"{API_BASE}/keys/label"):

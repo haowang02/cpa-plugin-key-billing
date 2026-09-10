@@ -979,7 +979,9 @@
         gap: 10px;
         align-items: start;
       }
-      .plan-window input, .plan-dialog > .field input { width: 100%; min-width: 0; }
+      .plan-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+      .plan-details input, .plan-details select, .plan-window input { width: 100%; min-width: 0; }
+      .plan-window.unified { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
       .plan-window-limits {
         grid-column: 1 / -1;
         display: grid;
@@ -1011,9 +1013,21 @@
       }
       .field-error { color: var(--error-color); }
       .field-error:empty { display: none; }
-      .plan-window [aria-invalid="true"] { border-color: var(--error-color); }
+      :root .plan-window input[aria-invalid="true"] {
+        border-color: var(--error-color);
+        box-shadow: inset 0 0 0 1px var(--error-color);
+      }
+      .date-time-control { position: relative; min-width: 0; }
+      :root .date-time-control > input { padding-right: 36px; }
+      :root .date-time-control > .icon-action {
+        position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+        width: 28px; height: 28px; min-height: 0; padding: 6px; border: 0; background: transparent;
+      }
+      .date-time-clock { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+      .date-time-clock input { width: 100%; min-width: 0; }
       @media (max-width: 640px) {
-        .plan-window { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); padding: 10px; gap: 8px; }
+        .plan-details, .plan-window, .plan-window.unified { grid-template-columns: minmax(0, 1fr); }
+        .plan-window { padding: 10px; gap: 8px; }
         .plan-window-limits { gap: 8px; }
         .plan-window input { padding-left: 8px; padding-right: 6px; font-size: 12px; }
         .plan-window .field { font-size: 12px; }
@@ -1473,6 +1487,7 @@
       .settings-entry-actions { flex: none; gap: 2px; white-space: nowrap; }
       .settings-entry-fields { display: grid; gap: 9px; }
       .settings-entry-field { align-items: flex-start; }
+      .plan-window-summary { align-items: center; }
       .settings-entry-field > .error-event-field-label { max-width: 45%; overflow-wrap: anywhere; }
       .selection-list label > .tag { flex: none; }
       .settings-entry-value { flex: 1; min-width: 0; color: var(--text-primary); }
@@ -1707,11 +1722,10 @@
         transition: transform 0.15s ease;
       }
       .time-range-trigger[aria-expanded="true"] .time-range-chevron { transform: rotate(180deg); }
-      .time-range-popover {
-        position: absolute;
+      .time-range-popover { position: absolute; top: calc(100% + 6px); right: 0; }
+      .date-time-popover { position: fixed; margin: 0; inset: auto; color: var(--text-primary); }
+      .time-range-popover, .date-time-popover {
         z-index: 1200;
-        top: calc(100% + 6px);
-        right: 0;
         width: min(360px, calc(100vw - 24px));
         overflow: auto;
         padding: 12px;
@@ -1721,6 +1735,13 @@
         box-shadow: var(--floating-shadow);
         transform-origin: top right;
         animation: time-range-in 150ms ease-out both;
+      }
+      @media (max-width: 640px) {
+        .date-time-popover {
+          inset: auto 12px 12px;
+          margin-inline: auto;
+          max-height: calc(100dvh - 24px);
+        }
       }
       @keyframes time-range-in {
         from { opacity: 0; transform: translateY(-3px) scale(0.985); }
@@ -1753,30 +1774,31 @@
       }
       .time-range-endpoints button.active .muted { color: inherit; opacity: 0.8; }
       .time-range-endpoints.summary { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; }
-      .time-range-calendar {
+      .calendar-picker { display: grid; gap: 8px; font-size: 12px; }
+      .calendar-grid {
         display: grid;
         grid-template-columns: repeat(7, minmax(0, 1fr));
         gap: 2px 0;
         text-align: center;
       }
-      .time-range-calendar > span { padding-block: 6px; }
-      :root .time-range-popover .time-range-calendar button {
+      .calendar-grid > span { padding-block: 6px; }
+      :root .calendar-picker .calendar-grid button {
         padding: 8px 0;
         border-color: transparent;
         background: transparent;
       }
-      :root .time-range-popover .time-range-calendar button.in-range {
+      :root .calendar-picker .calendar-grid button.in-range {
         background: var(--bg-tertiary);
         border-radius: 0;
       }
-      :root .time-range-popover .time-range-calendar button.range-start {
+      :root .calendar-picker .calendar-grid button.range-start {
         border-radius: var(--radius-md) 0 0 var(--radius-md);
       }
-      :root .time-range-popover .time-range-calendar button.range-end {
+      :root .calendar-picker .calendar-grid button.range-end {
         border-radius: 0 var(--radius-md) var(--radius-md) 0;
       }
-      :root .time-range-popover .time-range-calendar button.range-start.range-end { border-radius: var(--radius-md); }
-      :root .time-range-popover .time-range-calendar .outside-month { color: var(--text-tertiary); }
+      :root .calendar-picker .calendar-grid button.range-start.range-end { border-radius: var(--radius-md); }
+      :root .calendar-picker .calendar-grid .outside-month { color: var(--text-tertiary); }
       .time-range-hour-list {
         position: relative;
         display: grid;
@@ -1793,7 +1815,8 @@
         gap: 4px;
         text-align: left;
       }
-      .time-range-actions { justify-content: flex-end; margin-left: auto; }
+      .picker-actions { justify-content: flex-end; margin-left: auto; }
+      .date-time-popover > .picker-actions { margin-top: 14px; }
       .time-range-rolling { display: grid; gap: 8px; margin-top: 16px; }
       :root .range-control input.range-input[type="range"] {
         --range-track: linear-gradient(
@@ -2220,7 +2243,8 @@
       .usage-distribution-controls { gap: 12px; }
       .usage-distribution-tabs { display: flex; gap: 8px; flex-wrap: nowrap; }
       :root .usage-distribution-tabs button.active,
-      :root .time-range-popover .time-range-options button.active {
+      :root .time-range-popover .time-range-options button.active,
+      :root .calendar-picker .calendar-grid button.active {
         border-color: var(--primary-color);
         color: var(--primary-active);
         box-shadow: inset 0 0 0 1px var(--primary-color);
@@ -2552,7 +2576,15 @@
             <h2 id="plan-dialog-title">新建订阅计划</h2>
             <div class="editor-state notice hidden"></div>
             <input id="plan-id" type="hidden" />
-            <label class="field"> 计划名称 <input id="plan-name" placeholder="团队额度" /> </label>
+            <div class="plan-details">
+              <label class="field"> 计划名称 <input id="plan-name" placeholder="团队额度" /> </label>
+              <label class="field"> 周期模式
+                <span class="native-select"><select id="plan-cycle-mode">
+                  <option value="independent">独立周期</option>
+                  <option value="unified">统一周期</option>
+                </select></span>
+              </label>
+            </div>
             <div class="row spread plan-windows-heading">
               <span class="small muted">额度窗口</span>
               <button id="plan-window-add" type="button" class="link small">添加窗口</button>
@@ -6704,7 +6736,9 @@
                   onclick: () =>
                     openActionDialog(
                       "重置订阅额度？",
-                      "所有额度周期将结束，下一次放行会开启新周期。",
+                      view.windows[0]?.cycle_anchor_at
+                        ? "清零所有窗口的消费，周期重置时间保持不变。"
+                        : "所有额度周期将结束，下一次放行会开启新周期。",
                       undefined,
                       async () => {
                         await mutateAdmin("POST", "/keys/reset", { mode: "all", scopes: [view.scope] });
@@ -7254,20 +7288,32 @@
           empty: "暂无订阅计划",
           render: ({ plan, boundKeys }) => {
             const name = plan.name || plan.id;
-            const windows = plan.windows.map((window) =>
-              settingsEntryField(
-                window.name + " · " + periodLabel(window.period_seconds),
-                settingsChipList(
-                  QUOTA_DIMENSIONS.filter((metric) => window[metric.key] > 0).map((metric) => ({
-                    text: metric.format(window[metric.key]) + (metric.planUnit ? " " + metric.planUnit : ""),
-                    title: metric.label + "：" + metric.exact(window[metric.key]),
-                  })),
-                ),
-              ),
-            );
+            const windows = plan.windows.map((window) => {
+              const quotas = settingsChipList(
+                QUOTA_DIMENSIONS.filter((metric) => window[metric.key] > 0).map((metric) => ({
+                  text: metric.format(window[metric.key]) + (metric.planUnit ? " " + metric.planUnit : ""),
+                  title: metric.label + "：" + metric.exact(window[metric.key]),
+                })),
+              );
+              if (window.cycle_anchor_at)
+                quotas.append(el("span", {
+                  class: "small muted",
+                  text: "下次重置：" + when(nextCycleStart(window)),
+                }));
+              const field = settingsEntryField(window.name + " · " + periodLabel(window.period_seconds), quotas);
+              field.classList.add("plan-window-summary");
+              return field;
+            });
             return settingsCard(
               name,
-              [...windows, boundKeyField(boundKeys)],
+              [
+                settingsEntryField(
+                  "周期模式",
+                  el("span", { text: plan.windows[0]?.cycle_anchor_at ? "统一周期" : "独立周期" }),
+                ),
+                ...windows,
+                boundKeyField(boundKeys),
+              ],
               () => editPlan(plan),
               () =>
                 openActionDialog(
@@ -7921,6 +7967,37 @@
         return date.getTime();
       }
 
+      function renderMonthCalendar({ month, start, end = start, min, max, onSelect, onMonthChange }) {
+        const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
+        const nextMonth = new Date(month.getFullYear(), month.getMonth() + 1, 1);
+        const grid = el("div", { class: "calendar-grid" });
+        for (const name of ["日", "一", "二", "三", "四", "五", "六"])
+          grid.append(el("span", { class: "small muted", text: name }));
+        const first = shiftLocalDay(monthStart.getTime(), -monthStart.getDay());
+        for (let i = 0; i < 42; i++) {
+          const day = shiftLocalDay(first, i);
+          const selected = day === start || day === end;
+          grid.append(el("button", {
+            type: "button", "data-calendar-day": String(day),
+            class: [selected ? "active" : "", day === start ? "range-start" : "", day === end ? "range-end" : "",
+              day >= start && day <= end ? "in-range" : "",
+              new Date(day).getMonth() !== month.getMonth() ? "outside-month" : ""].filter(Boolean).join(" "),
+            disabled: day < min || day > max,
+            "aria-label": new Date(day).toLocaleDateString("zh-CN"), "aria-pressed": String(selected),
+            text: String(new Date(day).getDate()), onclick: () => onSelect(day),
+          }));
+        }
+        return el("div", { class: "calendar-picker" },
+          el("div", { class: "row spread" },
+            el("button", { type: "button", class: "link small", text: "上一月", disabled: monthStart.getTime() <= min,
+              onclick: () => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1)) }),
+            el("span", { class: "small", text: month.toLocaleDateString("zh-CN", { year: "numeric", month: "long" }) }),
+            el("button", { type: "button", class: "link small", text: "下一月", disabled: nextMonth.getTime() > max,
+              onclick: () => onMonthChange(nextMonth) }),
+          ), grid,
+        );
+      }
+
       function defaultCustomTimeRange(draft, unit) {
         return unit === "hour"
           ? { unit, start: draft.hours[16], end: draft.hours[23] }
@@ -8033,78 +8110,23 @@
         if (custom.unit === "day")
           content.append(el("div", { class: "small muted", text: "可选择最近 365 天内的日期" }));
         if (draft.view === "day") {
-          const month = draft.month;
-          const monthStart = month.getTime();
-          const nextMonth = new Date(month.getFullYear(), month.getMonth() + 1, 1).getTime();
-          const moveMonth = (amount) => {
-            draft.month = new Date(month.getFullYear(), month.getMonth() + amount, 1);
-            redraw();
-          };
-          const grid = el("div", { class: "time-range-calendar time-range-options" });
-          for (const name of ["日", "一", "二", "三", "四", "五", "六"])
-            grid.append(el("span", { class: "small muted", text: name }));
-          const first = shiftLocalDay(monthStart, -month.getDay());
-          for (let i = 0; i < 42; i++) {
-            const day = shiftLocalDay(first, i);
-            const selected = day === custom.start || day === custom.end;
-            grid.append(
-              el("button", {
-                type: "button",
-                "data-range-day": String(day),
-                class: [
-                  selected ? "active" : "",
-                  day === custom.start ? "range-start" : "",
-                  day === custom.end ? "range-end" : "",
-                  day >= custom.start && day <= custom.end ? "in-range" : "",
-                  new Date(day).getMonth() !== month.getMonth() ? "outside-month" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" "),
-                disabled: day < draft.firstDay || day > draft.today,
-                "aria-label": new Date(day).toLocaleDateString("zh-CN"),
-                "aria-pressed": String(selected),
-                text: String(new Date(day).getDate()),
-                onclick: () => {
-                  if (draft.endpoint === "start") {
-                    custom.start = day;
-                    custom.end = Math.max(custom.end, day);
-                    draft.endpoint = "end";
-                    draft.month = new Date(custom.end);
-                    draft.month.setDate(1);
-                  } else {
-                    custom.end = day;
-                    custom.start = Math.min(custom.start, day);
-                  }
-                  redraw();
-                },
-              }),
-            );
-          }
-          content.append(
-            el(
-              "div",
-              { class: "row spread" },
-              el("button", {
-                type: "button",
-                class: "link small",
-                text: "上一月",
-                disabled: monthStart <= draft.firstDay,
-                onclick: () => moveMonth(-1),
-              }),
-              el("span", {
-                class: "small",
-                text: month.toLocaleDateString("zh-CN", { year: "numeric", month: "long" }),
-              }),
-              el("button", {
-                type: "button",
-                class: "link small",
-                text: "下一月",
-                disabled: nextMonth > draft.today,
-                onclick: () => moveMonth(1),
-              }),
-            ),
-            grid,
-          );
+          content.append(renderMonthCalendar({
+            month: draft.month, start: custom.start, end: custom.end, min: draft.firstDay, max: draft.today,
+            onMonthChange: (month) => { draft.month = month; redraw(); },
+            onSelect: (day) => {
+              if (draft.endpoint === "start") {
+                custom.start = day;
+                custom.end = Math.max(custom.end, day);
+                draft.endpoint = "end";
+                draft.month = new Date(custom.end);
+                draft.month.setDate(1);
+              } else {
+                custom.end = day;
+                custom.start = Math.min(custom.start, day);
+              }
+              redraw();
+            },
+          }));
         } else if (draft.view === "hour") {
           content.append(
             el(
@@ -8179,7 +8201,7 @@
               : el("span", { class: "small muted", text: format(custom.start) + " – " + format(custom.end) }),
             el(
               "div",
-              { class: "row time-range-actions" },
+              { class: "row picker-actions" },
               el("button", {
                 type: "button",
                 text: "取消",
@@ -8828,12 +8850,239 @@
         );
       }
 
+      function nextCycleStart(window, now = Date.now()) {
+        const anchor = Date.parse(window.cycle_anchor_at);
+        const period = window.period_seconds * 1000;
+        return new Date(anchor + (Math.floor((now - anchor) / period) + 1) * period);
+      }
+
+      function sameWindowSchedule(left, right) {
+        if (left.period_seconds !== right.period_seconds || !!left.cycle_anchor_at !== !!right.cycle_anchor_at)
+          return false;
+        return !left.cycle_anchor_at ||
+          (Date.parse(left.cycle_anchor_at) - Date.parse(right.cycle_anchor_at)) % (left.period_seconds * 1000) === 0;
+      }
+
+      function syncPlanWindows() {
+        const unified = $("plan-cycle-mode").value === "unified";
+        closeDateTimePickers();
+        const rows = Array.from($("plan-windows").children);
+        rows.forEach((row) => {
+          row.classList.toggle("unified", unified);
+          row.querySelector(".window-delete").disabled = rows.length === 1;
+          if (row.querySelector('[name="window_period"]').hasAttribute("aria-invalid")) validatePlanPeriod(row);
+          const field = row.querySelector(".plan-window-schedule");
+          field.classList.toggle("hidden", !unified);
+          field.querySelector('[name="window_anchor"]').disabled = !unified;
+          field.querySelector(".icon-action").disabled = !unified;
+          prefillPlanAnchor(row);
+          validatePlanAnchor(row, false);
+        });
+      }
+
+      function parseLocalDateTime(value, reference) {
+        const match = /^(\d{4})\/(\d{1,2})\/(\d{1,2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value.trim());
+        if (!match) return null;
+        const parts = match.slice(1).map(Number);
+        const [year, month, day, hour, minute, second] = parts;
+        // Keep the chosen occurrence when a clock change repeats a local hour.
+        if (reference && dateFormatter.format(reference) === year + "/" + month + "/" + day &&
+          reference.getHours() === hour && reference.getMinutes() === minute && reference.getSeconds() === second)
+          return reference;
+        const date = new Date(year, month - 1, day, hour, minute, second);
+        const actual = [date.getFullYear(), date.getMonth() + 1, date.getDate(),
+          date.getHours(), date.getMinutes(), date.getSeconds()];
+        return year >= 1970 && actual.every((part, index) => part === parts[index]) ? date : null;
+      }
+
+      function dateTimeValue(input) {
+        return parseLocalDateTime(input.value, input.dataset.timestamp ? new Date(input.dataset.timestamp) : null);
+      }
+
+      function setDateTimeValue(input, date) {
+        input.value = date ? when(date) : "";
+        if (date) input.dataset.timestamp = date.toISOString();
+        else delete input.dataset.timestamp;
+      }
+
+      function suggestedCycleStart(seconds, now = Date.now()) {
+        if (!seconds) return null;
+        const period = seconds * 1000;
+        const date = new Date(now);
+        const days = seconds / 86400;
+        if (days >= 365) date.setFullYear(date.getFullYear() + 1, 0, 1);
+        else if (days >= 90) date.setMonth((Math.floor(date.getMonth() / 3) + 1) * 3, 1);
+        else if (days >= 28) date.setMonth(date.getMonth() + 1, 1);
+        else if (days >= 7) date.setDate(date.getDate() + ((8 - date.getDay()) % 7 || 7));
+        else if (days >= 1) date.setDate(date.getDate() + 1);
+        else {
+          const start = localDay(date);
+          return new Date(start + (Math.floor((now - start) / period) + 1) * period);
+        }
+        date.setHours(0, 0, 0, 0);
+        // Calendar boundaries can exceed a fixed-length window across months or DST.
+        return new Date(Math.min(date.getTime(), Math.floor((now + period) / 1000) * 1000));
+      }
+
+      function prefillPlanAnchor(row) {
+        const input = row.querySelector('[name="window_anchor"]');
+        if (input.disabled || (input.value && !input.dataset.automatic)) return;
+        const date = suggestedCycleStart(planWindowPeriod(row));
+        setDateTimeValue(input, date);
+        if (date) input.dataset.automatic = "true";
+        else delete input.dataset.automatic;
+      }
+
+      function closeDateTimePickers() {
+        document.querySelectorAll(".date-time-popover:popover-open").forEach((popover) => popover.hidePopover());
+      }
+
+      function dateTimeControl(input, getLimits) {
+        input.addEventListener("input", () => {
+          delete input.dataset.timestamp;
+          delete input.dataset.automatic;
+        });
+        const popover = el("div", { class: "date-time-popover", popover: "auto", role: "dialog", "aria-label": "选择日期和时间" });
+        const button = el("button", {
+          type: "button", class: "icon-action", "aria-label": "选择日期和时间", "aria-haspopup": "dialog", "aria-expanded": "false",
+          onclick: () => {
+            if (popover.matches(":popover-open")) return popover.hidePopover();
+            const limits = getLimits();
+            if (!limits) return;
+            const parsed = dateTimeValue(input);
+            const date = parsed && parsed.getTime() > limits.min && parsed.getTime() <= limits.max
+              ? parsed : limits.initial;
+            let day = localDay(date), month = new Date(date.getFullYear(), date.getMonth(), 1);
+            const calendar = el("div");
+            const redraw = () => {
+              const label = document.activeElement.getAttribute("aria-label") || document.activeElement.textContent;
+              calendar.replaceChildren(renderMonthCalendar({
+                month, start: day, min: localDay(new Date(limits.min)), max: localDay(new Date(limits.max)),
+                onSelect: (value) => { day = value; redraw(); },
+                onMonthChange: (value) => { month = value; redraw(); },
+              }));
+              const focused = Array.from(calendar.querySelectorAll("button:not(:disabled)")).find((item) =>
+                (item.getAttribute("aria-label") || item.textContent) === label);
+              (focused || calendar.querySelector('[aria-pressed="true"]'))?.focus({ preventScroll: true });
+            };
+            const clock = [date.getHours(), date.getMinutes(), date.getSeconds()].map((value, index) =>
+              el("input", { type: "number", min: "0", max: index ? "59" : "23", step: "1", required: true,
+                value: String(value).padStart(2, "0"), "aria-label": ["时", "分", "秒"][index] }),
+            );
+            const error = el("div", { class: "field-error small", role: "alert" });
+            popover.replaceChildren(calendar,
+              el("div", { class: "date-time-clock" }, clock.map((field, index) =>
+                el("div", { class: "field" }, el("span", { text: ["时", "分", "秒"][index] }), field))),
+              error,
+              el("div", { class: "row picker-actions" },
+                el("button", { type: "button", text: "取消", onclick: () => { popover.hidePopover(); button.focus(); } }),
+                el("button", { type: "button", class: "primary", text: "确定", onclick: () => {
+                  for (const field of clock) field.removeAttribute("aria-invalid");
+                  const invalid = clock.find((field) => !field.validity.valid);
+                  if (invalid) {
+                    invalid.setAttribute("aria-invalid", "true");
+                    error.textContent = "小时须为 0–23，分钟和秒须为 0–59";
+                    invalid.focus();
+                    return;
+                  }
+                  input.value = dateFormatter.format(new Date(day)) + " " +
+                    clock.map((field) => String(field.valueAsNumber).padStart(2, "0")).join(":");
+                  delete input.dataset.automatic;
+                  delete input.dataset.timestamp;
+                  const selected = parseLocalDateTime(input.value, date);
+                  if (selected) setDateTimeValue(input, selected);
+                  input.dispatchEvent(new Event("change", { bubbles: true }));
+                  popover.hidePopover();
+                  input.focus();
+                } }),
+              ),
+            );
+            redraw();
+            popover.showPopover();
+            if (matchMedia("(max-width: 640px)").matches) popover.style.cssText = "";
+            else positionAnchoredPopover(popover, input, true);
+            calendar.querySelector('[aria-pressed="true"]')?.focus({ preventScroll: true });
+          },
+        }, actionIcon("clock"));
+        popover.addEventListener("toggle", (event) => button.setAttribute("aria-expanded", String(event.newState === "open")));
+        popover.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); popover.hidePopover(); button.focus(); }
+        });
+        return el("div", { class: "date-time-control" }, input, button, popover);
+      }
+
+      function planWindowPeriod(row) {
+        const value = row.querySelector('[name="window_period"]').value;
+        const seconds = Number(value) * Number(row.querySelector('[name="window_unit"]').value);
+        return /^[1-9][0-9]*$/.test(value) && Number.isInteger(seconds) && seconds <= 9223372036 ? seconds : 0;
+      }
+
+      function validatePlanPeriod(row) {
+        const seconds = planWindowPeriod(row);
+        let message = "";
+        if (!seconds)
+          message = "周期须为正整数";
+        else if (Array.from($("plan-windows").children).some((other) => other !== row && planWindowPeriod(other) === seconds))
+          message = "周期与其他窗口重复";
+        setPlanFieldError(row.querySelector('[name="window_period"]'), message);
+        return !message;
+      }
+
+      function setPlanFieldError(input, message) {
+        if (message) input.setAttribute("aria-invalid", "true");
+        else input.removeAttribute("aria-invalid");
+        input.closest(".field").querySelector(":scope > .field-error").textContent = message;
+      }
+
+      function validatePlanAnchor(row, required = true) {
+        const input = row.querySelector('[name="window_anchor"]');
+        let message = "", anchor;
+        if (!input.disabled && (required || input.value.trim())) {
+          const seconds = planWindowPeriod(row);
+          if (row.dataset.anchor && seconds === Number(row.dataset.period) && input.value === input.defaultValue) {
+            anchor = row.dataset.anchor;
+          } else {
+            const date = dateTimeValue(input);
+            const now = Date.now();
+            if (!date) message = "请输入有效时间（yyyy/MM/dd HH:mm:ss）";
+            else if (!seconds) message = "请先设置有效的重置周期";
+            else if (date.getTime() <= now) message = "下个周期开始时间必须晚于当前时间";
+            else if (date.getTime() > now + seconds * 1000) message = "下个周期开始时间不能超过当前时间加一个周期";
+            else anchor = date.toISOString().replace(".000Z", "Z");
+          }
+        }
+        setPlanFieldError(input, message);
+        return anchor;
+      }
+
       function addPlanWindow(quotaWindow = {}) {
         const seconds = quotaWindow.period_seconds;
         const unit = seconds ? PERIOD_UNITS.find(([value]) => seconds % value === 0)[0] : 3600;
-        const row = el("div", { class: "plan-window", "data-id": quotaWindow.id || "" });
-        const field = (label, input) =>
-          el("label", { class: "field" }, label, input, el("span", { class: "field-error small" }));
+        const row = el("div", {
+          class: "plan-window",
+          "data-id": quotaWindow.id || "",
+          "data-anchor": quotaWindow.cycle_anchor_at || "",
+          "data-period": String(seconds || ""),
+        });
+        const field = (label, input, className = "") =>
+          el("label", { class: "field " + className }, label, input, el("span", { class: "field-error small" }));
+        const anchorInput = el("input", {
+          name: "window_anchor", type: "text", placeholder: "yyyy/MM/dd HH:mm:ss",
+          autocomplete: "off", spellcheck: false, title: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          onchange: () => validatePlanAnchor(row, false),
+          onblur: () => { prefillPlanAnchor(row); validatePlanAnchor(row, false); },
+        });
+        setDateTimeValue(anchorInput, quotaWindow.cycle_anchor_at ? nextCycleStart(quotaWindow) : null);
+        anchorInput.defaultValue = anchorInput.value;
+        const scheduleField = field("下个周期开始时间", dateTimeControl(anchorInput, () => {
+          const seconds = planWindowPeriod(row);
+          if (!validatePlanPeriod(row)) {
+            row.querySelector('[name="window_period"]').focus();
+            return null;
+          }
+          const min = Date.now();
+          return { min, max: min + seconds * 1000, initial: suggestedCycleStart(seconds, min) };
+        }), "plan-window-schedule");
         row.append(
           field("窗口名称", el("input", { name: "window_name", value: quotaWindow.name || "", required: true })),
           field(
@@ -8843,10 +9092,19 @@
               { class: "period-input" },
               el("input", {
                 name: "window_period",
-                type: "number",
-                step: "any",
+                inputmode: "numeric",
+                pattern: "[1-9][0-9]*",
                 value: seconds ? seconds / unit : "",
                 required: true,
+                oninput: (event) => {
+                  const input = event.currentTarget;
+                  const cursor = input.value.slice(0, input.selectionStart).replace(/\D/g, "").replace(/^0+/, "").length;
+                  const value = input.value.replace(/\D/g, "").replace(/^0+/, "");
+                  if (input.value !== value) {
+                    input.value = value;
+                    input.setSelectionRange(cursor, cursor);
+                  }
+                },
               }),
               el(
                 "span",
@@ -8861,6 +9119,7 @@
               ),
             ),
           ),
+          scheduleField,
           el(
             "button",
             {
@@ -8870,12 +9129,16 @@
               title: "删除窗口",
               onclick: () => {
                 row.remove();
-                updateWindowDeleteButtons();
+                syncPlanWindows();
               },
             },
             actionIcon("x"),
           ),
         );
+        row.addEventListener("input", (event) => {
+          if (["window_period", "window_unit"].includes(event.target.name)) syncPlanWindows();
+          else if (event.target.name === "window_anchor") validatePlanAnchor(row, false);
+        });
         row.append(
           el(
             "div",
@@ -8895,13 +9158,8 @@
           ),
         );
         $("plan-windows").append(row);
-        updateWindowDeleteButtons();
+        syncPlanWindows();
         return row;
-      }
-
-      function updateWindowDeleteButtons() {
-        const buttons = $("plan-windows").querySelectorAll(".window-delete");
-        buttons.forEach((button) => (button.disabled = buttons.length === 1));
       }
 
       function renderPlanKeyList(planID, data) {
@@ -8947,6 +9205,7 @@
           $("plan-id").value = id || "";
           $("plan-save").textContent = current ? "保存" : "创建";
           $("plan-name").value = current?.name || "";
+          $("plan-cycle-mode").value = current?.windows[0]?.cycle_anchor_at ? "unified" : "independent";
           $("plan-windows").replaceChildren();
           (current ? current.windows : [{}]).forEach(addPlanWindow);
           renderPlanKeyList(id || "", data);
@@ -8962,14 +9221,13 @@
       }
       function planFromForm() {
         let firstInvalid = null;
-        const names = new Set(),
-          periods = new Set();
+        const names = new Set();
         const invalid = (input, message) => {
-          input.setAttribute("aria-invalid", "true");
-          input.closest(".field").querySelector(".field-error").textContent = message;
+          setPlanFieldError(input, message);
           firstInvalid ||= input;
         };
         const windows = Array.from($("plan-windows").children, (row) => {
+          prefillPlanAnchor(row);
           row.querySelectorAll("[aria-invalid]").forEach((input) => input.removeAttribute("aria-invalid"));
           row.querySelectorAll(".field-error").forEach((error) => (error.textContent = ""));
           const nameInput = row.querySelector('[name="window_name"]');
@@ -8977,7 +9235,7 @@
           const periodInput = row.querySelector('[name="window_period"]');
           const name = nameInput.value.trim();
 
-          const seconds = periodInput.valueAsNumber * Number(row.querySelector("select").value);
+          const seconds = planWindowPeriod(row);
           if (!name || new TextEncoder().encode(name).length > 128)
             invalid(nameInput, "名称不能为空且不能超过 128 字节");
           else if (names.has(name.toLowerCase())) invalid(nameInput, "窗口名称重复");
@@ -8991,15 +9249,16 @@
           }
           if (Object.values(limits).every((value) => value === 0))
             invalid(row.querySelector('[name="amount_usd"]'), "至少设置一种额度");
-          if (!Number.isInteger(seconds) || seconds <= 0 || seconds > 9223372036)
-            invalid(periodInput, "周期须为 1 到 9223372036 秒的整数");
-          else if (periods.has(seconds)) invalid(periodInput, "周期与其他窗口重复");
-          periods.add(seconds);
+          if (!validatePlanPeriod(row)) firstInvalid ||= periodInput;
+          const anchor = validatePlanAnchor(row);
+          const anchorInput = row.querySelector('[name="window_anchor"]');
+          if (anchorInput.hasAttribute("aria-invalid")) firstInvalid ||= anchorInput;
           return {
             ...(row.dataset.id ? { id: row.dataset.id } : {}),
             name,
             ...limits,
             period_seconds: seconds,
+            ...(anchor ? { cycle_anchor_at: anchor } : {}),
           };
         });
         if (firstInvalid) {
@@ -9419,6 +9678,10 @@
         saveChoice("admin", "keys-include-deleted");
         renderKeys();
       });
+      $("plan-dialog").addEventListener("close", closeDateTimePickers);
+      $("plan-dialog").addEventListener("scroll", closeDateTimePickers);
+      addEventListener("resize", closeDateTimePickers);
+      $("plan-cycle-mode").onchange = syncPlanWindows;
       $("plan-window-add").onclick = () => addPlanWindow().querySelector("input").focus();
       $("plan-new").onclick = () => editPlan();
       $("plan-save").onclick = () =>
@@ -9430,14 +9693,14 @@
           const affected = (existing?.windows || []).filter(
             (old) =>
               !plan.windows.some(
-                (quotaWindow) => quotaWindow.id === old.id && quotaWindow.period_seconds === old.period_seconds,
+                (quotaWindow) => quotaWindow.id === old.id && sameWindowSchedule(quotaWindow, old),
               ),
           );
           if (
             affected.length &&
             !(await openActionDialog(
               "更新额度周期？",
-              "以下窗口的当前周期和消费将清零：" +
+              "以下窗口的消费将清零，并按新的周期设置生效：" +
                 affected.map((quotaWindow) => quotaWindow.name).join("、") +
                 "。所有绑定 Key 均受影响，包括已删除 Key。",
             ))
@@ -9618,7 +9881,7 @@
       $("keys-reset-all").onclick = () =>
         openActionDialog(
           "重置全员订阅额度？",
-          "所有未删除且绑定计划的 API Key 将结束全部额度周期，下一次放行开启新周期。",
+          "清零所有未删除且绑定计划的 API Key 的消费。统一周期保持原重置时间，独立周期在下一次放行时重新开始。",
           undefined,
           async () => {
             const result = await mutateAdmin("POST", "/keys/reset", { mode: "global" });

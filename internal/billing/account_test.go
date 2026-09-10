@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -174,47 +175,70 @@ func TestUsageRequestTimesPreserveWindowAttribution(t *testing.T) {
 	}
 }
 
-func TestCompletionDoesNotOpenCycleAfterAdministrativeChange(t *testing.T) {
-	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	for _, test := range []struct {
-		name   string
-		change func(*Store) error
-		planID string
-	}{
-		{"reset", func(store *Store) error {
-			_, err := store.ResetCycles(ResetRequest{Mode: "all", Scopes: []string{"scope-a"}})
-			return err
-		}, "daily"},
-		{"rebind", func(store *Store) error { return store.BindKey("scope-a", "weekly") }, "weekly"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			store := newAccountStore(t, start)
-			store.ReplaceAll(func(state *State) {
-				state.Plans = []Plan{
-					{ID: "daily", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 5, PeriodSeconds: 86400}}},
-					{ID: "weekly", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 5, PeriodSeconds: 604800}}},
+func TestUsageAfterAdministrativeChange(t *testing.T) {
+	for _, unified := range []bool{false, true} {
+		for _, operation := range []string{"reset", "rebind", "schedule"} {
+			t.Run(fmt.Sprintf("%t/%s", unified, operation), func(t *testing.T) {
+				start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+				now := start
+				store := newAccountStore(t, start)
+				store.now = func() time.Time { return now }
+				store.ReplaceAll(func(state *State) {
+					state.Plans = []Plan{
+						{ID: "daily", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 5, PeriodSeconds: 86400}}},
+						{ID: "weekly", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 5, PeriodSeconds: 604800}}},
+					}
+					if unified {
+						for i := range state.Plans {
+							w := &state.Plans[i].Windows[0]
+							w.CycleAnchorAt = start.Add(time.Duration(w.PeriodSeconds) * time.Second)
+						}
+					}
+					state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
+				})
+				store.Authorize("scope-a", now)
+				store.RecordUsage(subsetEvent("scope-a", start))
+				now = start.Add(time.Hour)
+				var err error
+				switch operation {
+				case "reset":
+					_, err = store.ResetQuota(ResetRequest{Mode: "all", Scopes: []string{"scope-a"}})
+				case "rebind":
+					err = store.BindKey("scope-a", "weekly")
+				case "schedule":
+					windows := append([]QuotaWindow(nil), store.state.Plans[0].Windows...)
+					if unified {
+						windows[0].CycleAnchorAt = now.Add(12 * time.Hour)
+					} else {
+						windows[0].PeriodSeconds = 43200
+					}
+					_, err = store.UpdatePlanWithBindings(PlanPatch{ID: "daily", Windows: &windows}, nil)
 				}
-				state.Keys["scope-a"] = &KeyState{PlanID: "daily"}
-			})
-			store.Authorize("scope-a", start)
-			if errChange := test.change(store); errChange != nil {
-				t.Fatal(errChange)
-			}
-
-			event := subsetEvent("scope-a", start.Add(time.Hour))
-			event.RequestedAt = start
-			store.RecordUsage(event)
-
-			store.Read(func(state *State) {
-				key := state.Keys["scope-a"]
-				if key.PlanID != test.planID || key.Cycles["default"] != (QuotaCycle{}) {
-					t.Fatalf("key = %+v, want plan %q with no active cycle", key, test.planID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				late := subsetEvent("scope-a", now)
+				late.RequestedAt = start
+				store.RecordUsage(late)
+				if store.state.Keys["scope-a"].Cycles["default"].SpentUSD != 0 {
+					t.Fatal("old completion restored cleared usage")
+				}
+				store.Authorize("scope-a", now)
+				before := store.state.Keys["scope-a"].Cycles["default"]
+				store.RecordUsage(late)
+				if after := store.state.Keys["scope-a"].Cycles["default"]; after != before {
+					t.Fatalf("old request charged replacement cycle: %+v", after)
+				}
+				store.RecordUsage(subsetEvent("scope-a", now))
+				cycle := store.state.Keys["scope-a"].Cycles["default"]
+				if cycle.SpentUSD != wantSubsetCost || cycle.UsedRequests != 1 || cycle.UsedTokens != 1500 {
+					t.Fatalf("new usage lost: %+v", cycle)
+				}
+				if len(mustRequestEvents(t, store, RequestEventQuery{}).Entries) != 4 {
+					t.Fatal("administrative change lost request history")
 				}
 			})
-			if len(mustRequestEvents(t, store, RequestEventQuery{}).Entries) != 1 {
-				t.Fatal("completion request event was not preserved")
-			}
-		})
+		}
 	}
 }
 

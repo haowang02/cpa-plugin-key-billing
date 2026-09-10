@@ -117,8 +117,6 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 			}
 			missingCycleTime = event.RequestedAt.IsZero() && len(key.Cycles) > 0 && usage != (quotaUsage{})
 			key.chargeCycles(event.RequestedAt, usage)
-			// A usage record may arrive after its period ended. Close it now, but do
-			// not start the next period until another request is admitted.
 			if _, hasPlan := state.FindPlan(key.PlanID); hasPlan {
 				settleExpiredCycles(key, at)
 			}

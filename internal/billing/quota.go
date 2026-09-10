@@ -22,10 +22,12 @@ type quotaUsage struct {
 	Requests  int64
 }
 
+// UsageSince excludes requests admitted before binding or an administrative reset.
 type QuotaCycle struct {
 	PlanID       string    `json:"plan_id,omitempty"`
 	StartAt      time.Time `json:"start_at,omitzero"`
 	EndAt        time.Time `json:"end_at,omitzero"`
+	UsageSince   time.Time `json:"usage_since,omitzero"`
 	SpentUSD     float64   `json:"spent_usd"`
 	UsedTokens   int64     `json:"used_tokens"`
 	UsedRequests int64     `json:"used_requests"`
@@ -45,6 +47,7 @@ type QuotaWindowView struct {
 	ID            string         `json:"id"`
 	Name          string         `json:"name"`
 	PeriodSeconds int64          `json:"period_seconds"`
+	CycleAnchorAt time.Time      `json:"cycle_anchor_at,omitzero"`
 	Started       bool           `json:"started"`
 	Blocked       bool           `json:"blocked"`
 	StartAt       time.Time      `json:"start_at,omitzero"`
@@ -61,7 +64,7 @@ type QuotaView struct {
 
 func (w QuotaWindow) view(cycle QuotaCycle) QuotaWindowView {
 	view := QuotaWindowView{
-		ID: w.ID, Name: w.Name, PeriodSeconds: w.PeriodSeconds,
+		ID: w.ID, Name: w.Name, PeriodSeconds: w.PeriodSeconds, CycleAnchorAt: w.CycleAnchorAt,
 		Started: !cycle.StartAt.IsZero(), StartAt: cycle.StartAt, EndAt: cycle.EndAt,
 		Dimensions: make([]QuotaBalance, 0, 3),
 	}
@@ -74,10 +77,14 @@ func (w QuotaWindow) view(cycle QuotaCycle) QuotaWindowView {
 	return view
 }
 
-func quotaView(key *KeyState, plan Plan) QuotaView {
+func quotaView(key *KeyState, plan Plan, now time.Time) QuotaView {
 	view := QuotaView{Windows: make([]QuotaWindowView, 0, len(plan.Windows)), Unlimited: plan.ID == ""}
 	for _, window := range plan.Windows {
-		item := window.view(key.Cycles[window.ID])
+		cycle := key.Cycles[window.ID]
+		if cycle.StartAt.IsZero() && !window.CycleAnchorAt.IsZero() {
+			cycle = window.newCycle(plan.ID, now)
+		}
+		item := window.view(cycle)
 		if item.Blocked {
 			view.Blocked = true
 			if item.EndAt.After(view.RetryAt) {
@@ -87,6 +94,21 @@ func quotaView(key *KeyState, plan Plan) QuotaView {
 		view.Windows = append(view.Windows, item)
 	}
 	return view
+}
+
+func (w QuotaWindow) newCycle(planID string, now time.Time) QuotaCycle {
+	cycle := QuotaCycle{PlanID: planID, StartAt: now}
+	if !w.CycleAnchorAt.IsZero() {
+		// Reduce seconds before converting to Duration, including times before the anchor.
+		offset := (now.Unix() - w.CycleAnchorAt.Unix()) % w.PeriodSeconds
+		if offset < 0 {
+			offset += w.PeriodSeconds
+		}
+		cycle.StartAt = time.Unix(now.Unix()-offset, 0).UTC()
+		cycle.UsageSince = now
+	}
+	cycle.EndAt = cycle.StartAt.Add(time.Duration(w.PeriodSeconds) * time.Second)
+	return cycle
 }
 
 func appendQuotaBalance[T int64 | float64](balances []QuotaBalance, metric QuotaMetric, limit, used T) []QuotaBalance {
@@ -129,9 +151,7 @@ func activateCycles(key *KeyState, plan Plan, now time.Time) bool {
 	changed := false
 	for _, window := range plan.Windows {
 		if _, exists := key.Cycles[window.ID]; !exists {
-			key.Cycles[window.ID] = QuotaCycle{
-				PlanID: plan.ID, StartAt: now, EndAt: now.Add(time.Duration(window.PeriodSeconds) * time.Second),
-			}
+			key.Cycles[window.ID] = window.newCycle(plan.ID, now)
 			changed = true
 		}
 	}
@@ -150,6 +170,11 @@ func (key *KeyState) ValidateCycles(plan Plan) error {
 			cycle.UsedRequests < 0 || cycle.UsedTokens < 0 {
 			return invalidf("API Key 的额度周期数据无效")
 		}
+		window := plan.Windows[index]
+		if !window.CycleAnchorAt.IsZero() && !window.newCycle(plan.ID, cycle.StartAt).StartAt.Equal(cycle.StartAt) ||
+			!cycle.UsageSince.IsZero() && (cycle.UsageSince.Before(cycle.StartAt) || !cycle.UsageSince.Before(cycle.EndAt)) {
+			return invalidf("API Key 的额度周期数据无效")
+		}
 	}
 	return nil
 }
@@ -160,7 +185,7 @@ func (key *KeyState) chargeCycles(at time.Time, usage quotaUsage) {
 		return
 	}
 	for id, cycle := range key.Cycles {
-		if cycle.PlanID != key.PlanID || at.Before(cycle.StartAt) || !at.Before(cycle.EndAt) {
+		if cycle.PlanID != key.PlanID || at.Before(cycle.StartAt) || at.Before(cycle.UsageSince) || !at.Before(cycle.EndAt) {
 			continue
 		}
 		// Keep all dimensions, including currently disabled limits, so changing
