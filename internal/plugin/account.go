@@ -34,17 +34,20 @@ type accountSubscriptionResponse struct {
 }
 
 type accountRoutingResponse struct {
-	Models       []string                 `json:"models"`
-	Credentials  []accountRouteCredential `json:"credentials"`
-	RoutingValid bool                     `json:"routing_valid"`
-	Warnings     []string                 `json:"warnings"`
+	Models            []string                 `json:"models"`
+	Credentials       []accountRouteCredential `json:"credentials"`
+	DeniedModels      []string                 `json:"denied_models"`
+	DeniedCredentials []accountRouteCredential `json:"denied_credentials"`
+	RoutingValid      bool                     `json:"routing_valid"`
+	Warnings          []string                 `json:"warnings"`
 }
 
 type accountRouteCredential struct {
+	Denied       bool   `json:"denied,omitempty"`
 	Source       string `json:"source,omitempty"`
 	Provider     string `json:"provider,omitempty"`
 	Name         string `json:"name,omitempty"`
-	Status       string `json:"status"`
+	Status       string `json:"status,omitempty"`
 	ProviderWide bool   `json:"provider_wide,omitempty"`
 }
 
@@ -71,13 +74,12 @@ func (a *App) accountRouting(access viewAccess) ManagementResponse {
 	if !access.Tracked {
 		return apiKeyUnauthorized()
 	}
-	response := accountRoutingResponse{
-		Models: []string{}, Credentials: []accountRouteCredential{},
-		RoutingValid: true, Warnings: []string{},
-	}
 	decision := a.store.ResolveRouting(access.Scope, "", "")
-	response.Models = decision.ModelScope
-	response.RoutingValid = decision.ConfigurationError == ""
+	response := accountRoutingResponse{
+		Models: decision.Models, DeniedModels: decision.DeniedModels,
+		Credentials: []accountRouteCredential{}, DeniedCredentials: []accountRouteCredential{},
+		RoutingValid: decision.ConfigurationError == "", Warnings: []string{},
+	}
 	if decision.ConfigurationError != "" {
 		response.Warnings = append(response.Warnings, "路由规则已不存在，请联系管理员")
 	}
@@ -88,29 +90,47 @@ func (a *App) accountRouting(access viewAccess) ManagementResponse {
 		response.Warnings = append(response.Warnings, "上游凭证加载失败")
 	}
 	inventory := a.credentialInventory()
+	var warnings []string
+	response.Credentials, warnings = accountRoutingCredentials(inventory, decision.CredentialIDs, decision.CredentialProviders, decision)
+	response.Warnings = append(response.Warnings, warnings...)
+	// Denied provider selectors stay provider-wide, including future credentials.
+	for _, selector := range decision.DeniedCredentialProviders {
+		response.DeniedCredentials = append(response.DeniedCredentials, accountRouteCredential{
+			Source: selector.Source, Provider: selector.Provider, ProviderWide: true, Denied: true,
+		})
+	}
+	denied, _ := accountRoutingCredentials(inventory, decision.DeniedCredentialIDs, nil, decision)
+	response.DeniedCredentials = append(response.DeniedCredentials, denied...)
+	return apiKeyJSON(http.StatusOK, response)
+}
+
+func accountRoutingCredentials(inventory []credentialView, refs []string, providers []billing.CredentialProviderSelector, decision billing.RoutingDecision) ([]accountRouteCredential, []string) {
+	warnings := []string{}
 	byRef := map[string]credentialView{}
 	for _, item := range inventory {
 		byRef[item.Ref] = item
 	}
-	credentials := make([]accountRouteCredential, 0, len(decision.CredentialIDs)+len(decision.CredentialProviders))
+	credentials := make([]accountRouteCredential, 0, len(refs)+len(providers))
 	seenRefs := map[string]struct{}{}
 	addCredential := func(item credentialView) {
 		if _, exists := seenRefs[item.Ref]; exists {
 			return
 		}
 		seenRefs[item.Ref] = struct{}{}
-		credentials = append(credentials, accountCredential(item))
+		value := accountCredential(item)
+		value.Denied = !decision.AllowsCredential(item.Ref, item.Source, item.Provider)
+		credentials = append(credentials, value)
 	}
 	missingCredential := false
-	for _, ref := range decision.CredentialIDs {
+	for _, ref := range refs {
 		if credential, ok := byRef[ref]; ok {
 			addCredential(credential)
 		} else if !missingCredential {
-			credentials = append(credentials, accountRouteCredential{Name: "指定上游凭证不可用", Status: "missing"})
+			credentials = append(credentials, accountRouteCredential{Name: "指定上游凭证不可用", Status: "missing", Denied: !decision.AllowsCredential(ref, "", "")})
 			missingCredential = true
 		}
 	}
-	for _, selector := range decision.CredentialProviders {
+	for _, selector := range providers {
 		matched := false
 		for _, credential := range inventory {
 			if credential.Source == selector.Source && credential.Provider == selector.Provider {
@@ -124,8 +144,9 @@ func (a *App) accountRouting(access viewAccess) ManagementResponse {
 		name := sourceLabel(selector.Source) + " · " + selector.Provider
 		credentials = append(credentials, accountRouteCredential{
 			Source: selector.Source, Provider: selector.Provider, Status: "missing", ProviderWide: true,
+			Denied: !decision.AllowsCredential("", selector.Source, selector.Provider),
 		})
-		response.Warnings = append(response.Warnings, "没有匹配「"+name+"」的上游凭证")
+		warnings = append(warnings, "没有匹配「"+name+"」的上游凭证")
 	}
 	sort.Slice(credentials, func(i, j int) bool {
 		left, right := credentials[i], credentials[j]
@@ -137,8 +158,7 @@ func (a *App) accountRouting(access viewAccess) ManagementResponse {
 		}
 		return left.Name < right.Name
 	})
-	response.Credentials = credentials
-	return apiKeyJSON(http.StatusOK, response)
+	return credentials, warnings
 }
 
 func accountCredential(item credentialView) accountRouteCredential {

@@ -291,12 +291,17 @@ def refresh_key_quota(key):
     QUOTA_CYCLES[key["scope"]] = cycles
 
 
+AUTOMATION_CREDENTIAL_REF = "sha256:" + "f" * 64
+UNAVAILABLE_CREDENTIAL_REF = "sha256:" + "1" * 64
+
 CREDENTIALS = [
     {"ref": "sha256:" + "a" * 64, "source": "auth-files", "provider": "codex", "display_name": "dev-team@example.com", "status": "active", "disabled": False, "unavailable": False},
     {"ref": "sha256:" + "b" * 64, "source": "auth-files", "provider": "claude", "display_name": "platform@example.com", "status": "active", "disabled": False, "unavailable": False},
     {"ref": "sha256:" + "c" * 64, "source": "ai-providers", "provider": "codex", "display_name": "sk-proxy…7f3a", "status": "active", "disabled": False, "unavailable": False},
     {"ref": "sha256:" + "d" * 64, "source": "ai-providers", "provider": "deepseek", "display_name": "sk-live…91b2", "status": "disabled", "disabled": True, "unavailable": False},
     {"ref": "sha256:" + "e" * 64, "source": "auth-files", "provider": "xai", "display_name": "disabled@example.com", "status": "disabled", "disabled": True, "unavailable": False},
+    {"ref": AUTOMATION_CREDENTIAL_REF, "source": "auth-files", "provider": "codex", "display_name": "automation@example.com", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": UNAVAILABLE_CREDENTIAL_REF, "source": "auth-files", "provider": "kimi", "display_name": "research@example.com", "status": "error", "disabled": False, "unavailable": True},
 ]
 SYNCED_CREDENTIAL_REFS = set()
 
@@ -304,8 +309,29 @@ ROUTES = [
     {"id": "coding", "name": "代码开发", "rule": {"models": ["gpt-5.6-sol", "gpt-5.5", "codex/deepseek-v4-flash-vision-exp"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}},
     {"id": "analytics", "name": "数据分析", "rule": {"models": ["claude/deepseek-v4-pro", "claude/deepseek-v4-flash"], "credential_ids": ["sha256:" + "b" * 64], "credential_providers": []}},
     {"id": "economy", "name": "轻量任务", "rule": {"models": ["gpt-5.6-luna"], "credential_ids": [], "credential_providers": [{"source": "auth-files", "provider": "codex"}]}},
+    {
+        "id": "ci",
+        "name": "持续集成",
+        "rule": {
+            "models": ["gpt-5.6-luna", "gpt-5.6-terra"],
+            "credential_ids": [],
+            "credential_providers": [{"source": "auth-files", "provider": "codex"}],
+            "denied_models": ["gpt-5.6-sol"],
+            "denied_credential_ids": ["sha256:" + "a" * 64],
+            "denied_credential_providers": [{"source": "ai-providers", "provider": "deepseek"}],
+        },
+    },
+    {
+        "id": "text-only",
+        "name": "文本服务",
+        "rule": {
+            "models": [], "credential_ids": [], "credential_providers": [],
+            "denied_models": ["gpt-image-2"],
+            "denied_credential_ids": ["sha256:" + "d" * 64, "sha256:" + "e" * 64],
+            "denied_credential_providers": [],
+        },
+    },
 ]
-
 
 AUTH_FILES = [
     {
@@ -367,6 +393,8 @@ AUTH_FILES = [
 AUTH_FILE_CREDENTIAL_REFS = {
     "auth-demo-codex-plus": "sha256:" + "a" * 64,
     "auth-demo-claude": "sha256:" + "b" * 64,
+    "auth-demo-codex-pro": AUTOMATION_CREDENTIAL_REF,
+    "auth-demo-kimi": UNAVAILABLE_CREDENTIAL_REF,
     "auth-demo-xai-active": "sha256:" + "e" * 64,
 }
 
@@ -486,14 +514,24 @@ def auth_file_quota(query):
 
 
 KEY_PROFILES = [
-    {"label": "代码审查机器人", "plan_id": "engineering", "spent_usd": 128.64, "concurrency_limit": 5, "current_concurrency": 2, "route_bindings": {"route_ids": ["coding"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "CI 构建服务", "plan_id": "engineering", "spent_usd": 84.27, "concurrency_limit": 10, "current_concurrency": 3, "route_bindings": {"route_ids": ["coding"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "数据分析平台", "plan_id": "production", "spent_usd": 368.91, "concurrency_limit": 5, "current_concurrency": 1, "route_bindings": {"route_ids": ["analytics"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "客服助手", "plan_id": "production", "spent_usd": 241.36, "concurrency_limit": 8, "current_concurrency": 2, "route_bindings": {"route_ids": ["analytics"], "models": ["gpt-5.5"], "credential_ids": [], "credential_providers": []}},
-    {"label": "文档生成", "plan_id": "engineering", "spent_usd": 56.48, "concurrency_limit": 3, "current_concurrency": 0, "route_bindings": {"route_ids": ["coding"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "预发布环境", "plan_id": "project-credit", "spent_usd": 43.72, "concurrency_limit": 2, "current_concurrency": 1, "route_bindings": {"route_ids": ["economy"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "内部工具", "plan_id": "", "spent_usd": 0, "concurrency_limit": 0, "current_concurrency": 1, "route_bindings": {"route_ids": [], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "临时测试", "plan_id": "project-credit", "spent_usd": 87.19, "concurrency_limit": 1, "current_concurrency": 0, "route_bindings": {"route_ids": [], "models": ["gpt-5.5"], "credential_ids": ["sha256:" + "c" * 64], "credential_providers": []}},
+    {"label": "代码审查机器人", "plan_id": "engineering", "spent_usd": 128.64, "concurrency_limit": 5, "current_concurrency": 2,
+     "route_bindings": {"route_ids": ["coding", "analytics", "economy", "text-only"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "CI 构建服务", "plan_id": "engineering", "spent_usd": 84.27, "concurrency_limit": 10, "current_concurrency": 3,
+     "route_bindings": {"route_ids": ["ci"], "models": ["gpt-5.6-terra", "gpt-5.5"],
+                        "credential_ids": [AUTOMATION_CREDENTIAL_REF], "credential_providers": [],
+                        "denied_models": ["gpt-5.6-sol", "gpt-image-2"], "denied_credential_ids": ["sha256:" + "a" * 64], "denied_credential_providers": []}},
+    {"label": "数据分析平台", "plan_id": "production", "spent_usd": 368.91, "concurrency_limit": 5, "current_concurrency": 1,
+     "route_bindings": {"route_ids": ["analytics"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "客服助手", "plan_id": "production", "spent_usd": 241.36, "concurrency_limit": 8, "current_concurrency": 2,
+     "route_bindings": {"route_ids": ["analytics"], "models": ["gpt-5.5"], "denied_models": ["gpt-image-2"], "credential_ids": [], "credential_providers": []}},
+    {"label": "文档生成", "plan_id": "engineering", "spent_usd": 56.48, "concurrency_limit": 3, "current_concurrency": 0,
+     "route_bindings": {"route_ids": ["text-only"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "预发布环境", "plan_id": "project-credit", "spent_usd": 43.72, "concurrency_limit": 2, "current_concurrency": 1,
+     "route_bindings": {"route_ids": ["economy"], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "内部工具", "plan_id": "", "spent_usd": 0, "concurrency_limit": 0, "current_concurrency": 1,
+     "route_bindings": {"route_ids": [], "models": [], "credential_ids": [], "credential_providers": []}},
+    {"label": "临时测试", "plan_id": "project-credit", "spent_usd": 87.19, "concurrency_limit": 1, "current_concurrency": 0,
+     "route_bindings": {"route_ids": [], "models": ["gpt-5.5"], "credential_ids": ["sha256:" + "c" * 64], "credential_providers": []}},
 ]
 
 
@@ -779,59 +817,39 @@ def filter_event_time(entries, query):
 
 
 def account_routing(index):
-    key = LIVE_KEYS[index]
-    bindings = key["route_bindings"]
-    models = set(bindings["models"])
-    credential_refs = set(bindings["credential_ids"])
-    credential_providers = {
-        (item["source"], item["provider"])
-        for item in bindings["credential_providers"]
-    }
-    for route_id in bindings["route_ids"]:
-        route = next((item for item in ROUTES if item["id"] == route_id), None)
-        if route:
-            models.update(route["rule"]["models"])
-            credential_refs.update(route["rule"]["credential_ids"])
-            credential_providers.update(
-                (item["source"], item["provider"])
-                for item in route["rule"]["credential_providers"]
-            )
-
-    return models, credential_refs, credential_providers
+    bindings = LIVE_KEYS[index]["route_bindings"]
+    rules = [bindings] + [route["rule"] for route in ROUTES if route["id"] in bindings["route_ids"]]
+    result = []
+    for prefix in ("", "denied_"):
+        models, refs, providers = set(), set(), set()
+        for rule in rules:
+            models.update(rule.get(prefix + "models", []))
+            refs.update(rule.get(prefix + "credential_ids", []))
+            providers.update((item["source"], item["provider"]) for item in rule.get(prefix + "credential_providers", []))
+        result.extend((models, refs, providers))
+    return result
 
 
 def account_routing_view(index):
-    models, credential_refs, credential_providers = account_routing(index)
-
-    credentials = [
-        {
-            "source": credential["source"],
-            "provider": credential["provider"],
-            "name": credential["display_name"],
-            "status": credential["status"],
-        }
-        for credential in CREDENTIALS
-        if credential["ref"] in credential_refs
-        or (credential["source"], credential["provider"]) in credential_providers
-    ]
+    models, refs, providers, denied_models, denied_refs, denied_providers = account_routing(index)
+    def credential_view(item):
+        return {"source": item["source"], "provider": item["provider"], "name": item["display_name"], "status": item["status"],
+                "denied": item["ref"] in denied_refs or (item["source"], item["provider"]) in denied_providers}
     return {
-        "models": sorted(models),
-        "credentials": credentials,
-        "routing_valid": True,
-        "warnings": [],
+        "models": sorted(models), "denied_models": sorted(denied_models),
+        "credentials": [credential_view(item) for item in CREDENTIALS if item["ref"] in refs or (item["source"], item["provider"]) in providers],
+        "denied_credentials": [credential_view(item) for item in CREDENTIALS if item["ref"] in denied_refs] +
+            [{"source": source, "provider": provider, "provider_wide": True, "denied": True} for source, provider in sorted(denied_providers)],
+        "routing_valid": True, "warnings": [],
     }
 
 
 def account_auth_files(index):
-    _, credential_refs, credential_providers = account_routing(index)
-    if not credential_refs and not credential_providers:
-        return AUTH_FILES
-    return [
-        auth_file
-        for auth_file in AUTH_FILES
-        if AUTH_FILE_CREDENTIAL_REFS.get(auth_file["auth_index"]) in credential_refs
-        or ("auth-files", auth_file["category"]) in credential_providers
-    ]
+    _, refs, providers, _, denied_refs, denied_providers = account_routing(index)
+    return [item for item in AUTH_FILES
+            if (not refs and not providers or AUTH_FILE_CREDENTIAL_REFS.get(item["auth_index"]) in refs or ("auth-files", item["category"]) in providers)
+            and AUTH_FILE_CREDENTIAL_REFS.get(item["auth_index"]) not in denied_refs
+            and ("auth-files", item["category"]) not in denied_providers]
 
 
 def refresh_route_counts():
@@ -845,6 +863,7 @@ def refresh_route_counts():
             and not key["route_bindings"]["models"]
             and not key["route_bindings"]["credential_ids"]
             and not key["route_bindings"]["credential_providers"]
+            and not any(key["route_bindings"].get(field) for field in ("denied_models", "denied_credential_ids", "denied_credential_providers"))
             for key in bound
         )
 
@@ -1196,11 +1215,11 @@ def credential_labels(refs):
 def key_rows():
     return [dict(key, route_names={route["id"]: route["name"] for route in ROUTES
                                   if route["id"] in key["route_bindings"]["route_ids"]},
-                 credential_labels=credential_labels(key["route_bindings"]["credential_ids"])) for key in KEYS]
+                 credential_labels=credential_labels(key["route_bindings"]["credential_ids"] + key["route_bindings"].get("denied_credential_ids", []))) for key in KEYS]
 
 
 def route_rows():
-    return [dict(route, credential_labels=credential_labels(route["rule"]["credential_ids"])) for route in ROUTES]
+    return [dict(route, credential_labels=credential_labels(route["rule"].get("credential_ids", []) + route["rule"].get("denied_credential_ids", []))) for route in ROUTES]
 
 
 def payload_for(path, query):
@@ -1567,6 +1586,9 @@ class Handler(BaseHTTPRequestHandler):
                         "models": bindings.get("models", []),
                         "credential_ids": bindings.get("credential_ids", []),
                         "credential_providers": bindings.get("credential_providers", []),
+                        "denied_models": bindings.get("denied_models", []),
+                        "denied_credential_ids": bindings.get("denied_credential_ids", []),
+                        "denied_credential_providers": bindings.get("denied_credential_providers", []),
                     }
                     break
             refresh_route_counts()

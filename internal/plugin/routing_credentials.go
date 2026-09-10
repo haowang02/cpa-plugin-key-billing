@@ -81,21 +81,11 @@ func credentialSourceFromHost(file hostAuthFile) string {
 }
 
 func routingAllowsCredential(rawID, source, provider string, decision billing.RoutingDecision) bool {
+	ref := ""
 	if rawID = strings.TrimSpace(rawID); rawID != "" {
-		ref := billing.CredentialFingerprint(rawID)
-		for _, allowed := range decision.CredentialIDs {
-			if strings.EqualFold(allowed, ref) {
-				return true
-			}
-		}
+		ref = billing.CredentialFingerprint(rawID)
 	}
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	for _, allowed := range decision.CredentialProviders {
-		if allowed.Source == source && allowed.Provider == provider {
-			return true
-		}
-	}
-	return false
+	return decision.AllowsCredential(ref, source, provider)
 }
 
 func routingAllowsAuthFile(file hostAuthFile, decision billing.RoutingDecision) bool {

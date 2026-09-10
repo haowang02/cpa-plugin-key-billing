@@ -183,13 +183,19 @@ func TestConfigurationWriteFailureKeepsState(t *testing.T) {
 		}},
 		{"reset", func(s *Store) error { _, err := s.ResetCycles(ResetRequest{Mode: "global"}); return err }},
 		{"delete plan", func(s *Store) error { _, err := s.DeletePlan("p"); return err }},
+		{"edit route", func(s *Store) error {
+			rule := RouteRule{Models: []string{"gpt"}}
+			_, err := s.UpdateRoute(RoutePatch{ID: "r", Rule: &rule}, nil)
+			return err
+		}},
+		{"set routes", func(s *Store) error { return s.SetKeyRoutes("key", RouteBindings{}) }},
 		{"delete route", func(s *Store) error { _, err := s.DeleteRoute("r"); return err }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, repo := newStoreWithRepository(t)
 			store.ReplaceAll(func(state *State) {
 				state.Plans = []Plan{{ID: "p", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 10, PeriodSeconds: 3600}}}}
-				state.Routes = []Route{{ID: "r", Name: "r"}, {ID: "keep", Name: "keep"}}
+				state.Routes = []Route{{ID: "r", Name: "r", Rule: RouteRule{DeniedModels: []string{"gpt"}, DeniedCredentialIDs: []string{CredentialFingerprint("dummy")}}}, {ID: "keep", Name: "keep"}}
 				state.Keys["key"] = &KeyState{Preview: "unknown", InConfig: true, PlanID: "p",
 					Cycles:        map[string]QuotaCycle{"default": {PlanID: "p", StartAt: time.Now(), SpentUSD: 5}},
 					RouteBindings: RouteBindings{RouteIDs: []string{"r", "keep"}}}

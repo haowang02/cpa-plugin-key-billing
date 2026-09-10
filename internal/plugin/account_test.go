@@ -307,6 +307,26 @@ func TestAccountRoutingAndPricesRespectItsScope(t *testing.T) {
 	if strings.Contains(string(response.Body), `"bindings"`) || strings.Contains(string(response.Body), `"kind"`) {
 		t.Fatalf("account access exposed route internals: %s", response.Body)
 	}
+	t.Run("deny-only scope", func(t *testing.T) {
+		app, scope := configuredRoutingApp(t, billing.RouteRule{DeniedModels: []string{"gpt"}, DeniedCredentialIDs: []string{billing.CredentialFingerprint("dummy-denied")}, DeniedCredentialProviders: []billing.CredentialProviderSelector{{Source: "ai-providers", Provider: "claude"}}})
+		app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+			if method != hostAuthList {
+				t.Fatalf("unexpected method: %s", method)
+			}
+			return json.RawMessage(`{"files":[{"id":"dummy-denied","provider":"codex","source":"file","path":"/dummy/denied.json","email":"dummy@example.test"}]}`), nil
+		})
+		response := app.accountRouting(viewAccess{APIKey: true, Scope: scope, Tracked: true})
+		var access accountRoutingResponse
+		if err := json.Unmarshal(response.Body, &access); err != nil {
+			t.Fatal(err)
+		}
+		if !access.RoutingValid || len(access.Models) != 0 || len(access.Credentials) != 0 || len(access.DeniedModels) != 1 || len(access.DeniedCredentials) != 2 || len(access.Warnings) != 0 {
+			t.Fatalf("blacklist-only account: %+v", access)
+		}
+		if strings.Contains(string(response.Body), "sha256:") || strings.Contains(string(response.Body), "dummy-denied") {
+			t.Fatalf("account exposed internal refs: %s", response.Body)
+		}
+	})
 }
 
 func TestDeletedAccountCannotReadItsHistory(t *testing.T) {

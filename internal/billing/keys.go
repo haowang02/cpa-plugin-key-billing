@@ -57,12 +57,7 @@ func keyView(scope string, key *KeyState, plan Plan, currentConcurrency int) Key
 		QuotaView:          quotaView(key, plan),
 		ConcurrencyLimit:   key.ConcurrencyLimit,
 		CurrentConcurrency: currentConcurrency,
-		RouteBindings: RouteBindings{
-			RouteIDs:            append([]string{}, key.RouteBindings.RouteIDs...),
-			Models:              append([]string{}, key.RouteBindings.Models...),
-			CredentialIDs:       append([]string{}, key.RouteBindings.CredentialIDs...),
-			CredentialProviders: append([]CredentialProviderSelector{}, key.RouteBindings.CredentialProviders...),
-		},
+		RouteBindings:      key.RouteBindings.clone(),
 	}
 }
 

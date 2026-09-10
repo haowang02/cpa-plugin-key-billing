@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -230,10 +229,7 @@ func editConfiguration[T any](s *Store, fn func(*State) (T, Changes, error)) (T,
 			}
 			copyKey := *key
 			copyKey.Cycles = maps.Clone(key.Cycles)
-			copyKey.RouteBindings.RouteIDs = slices.Clone(key.RouteBindings.RouteIDs)
-			copyKey.RouteBindings.Models = slices.Clone(key.RouteBindings.Models)
-			copyKey.RouteBindings.CredentialIDs = slices.Clone(key.RouteBindings.CredentialIDs)
-			copyKey.RouteBindings.CredentialProviders = slices.Clone(key.RouteBindings.CredentialProviders)
+			copyKey.RouteBindings = key.RouteBindings.clone()
 			next.Keys[scope] = &copyKey
 		}
 

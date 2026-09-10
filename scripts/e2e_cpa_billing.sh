@@ -621,6 +621,79 @@ assert_route_model_policy() {
     "$runtime_dir/responses/model-restored.json" false
 }
 
+# Deny-only policies, direct allow conflicts, and exact exclusions must affect
+# the real host candidate set and leave no usage records for refused requests.
+assert_route_blacklist_policy() {
+  local port="$1" runtime_dir="$2" expected_count="$3"
+  local scope route denied_ref body http_status requested
+  local events_file="$runtime_dir/blacklist-events.json"
+  local response_file="$runtime_dir/responses/blacklist-blocked.json"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/keys" >"$runtime_dir/blacklist-keys.json"
+  scope="$(jq -er 'first(.keys[] | select(.in_config)).scope' "$runtime_dir/blacklist-keys.json")"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/credentials" >"$runtime_dir/blacklist-credentials.json"
+  denied_ref="$(jq -er 'first(.credentials[] | select(.provider == "openai-compatible-route-denied-e2e")).ref' "$runtime_dir/blacklist-credentials.json")"
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{name:"e2e-黑名单",scopes:[$scope],rule:{denied_credential_providers:[{source:"ai-providers",provider:"openai-compatible-route-denied-e2e"}]}}')" \
+    >"$runtime_dir/blacklist-route.json"
+  route="$(jq -er '.route.id' "$runtime_dir/blacklist-route.json")"
+  body="$(request_body chat "e2e-credential-route" false "Reply with exactly OK.")"
+  api_call "$port" "纯黑名单：排除 blocked 类别" "/v1/chat/completions" "$body" chat "$runtime_dir/responses/blacklist-provider.json"
+  wait_for_event_count "$port" "$((expected_count + 1))" "$events_file"
+  if ! jq -e '.entries[0].provider == "openai-compatible-route-allowed-e2e" and .entries[0].failed == false' "$events_file" >/dev/null; then
+    echo "纯类别黑名单未限制候选集。" >&2
+    return 1
+  fi
+
+  management_call PATCH "$port" "/v0/management/plugins/cpa-key-billing/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg id "$route" --arg ref "$denied_ref" '{id:$id,rule:{credential_providers:[{source:"ai-providers",provider:"openai-compatible-route-allowed-e2e"},{source:"ai-providers",provider:"openai-compatible-route-denied-e2e"}],denied_credential_ids:[$ref]}}')" >/dev/null
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" --arg route "$route" --arg ref "$denied_ref" '{scope:$scope,bindings:{route_ids:[$route],credential_ids:[$ref]}}')" >/dev/null
+  api_call "$port" "整类白名单：指定凭证黑名单优先于 Key 直接白名单" "/v1/chat/completions" "$body" chat "$runtime_dir/responses/blacklist-exact.json"
+  wait_for_event_count "$port" "$((expected_count + 2))" "$events_file"
+  if ! jq -e '.entries[0].provider == "openai-compatible-route-allowed-e2e" and .entries[0].failed == false' "$events_file" >/dev/null; then
+    echo "指定凭证黑名单被白名单覆盖。" >&2
+    return 1
+  fi
+
+  management_call PATCH "$port" "/v0/management/plugins/cpa-key-billing/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg id "$route" '{id:$id,rule:{denied_credential_providers:[{source:"ai-providers",provider:"openai-compatible-route-allowed-e2e"},{source:"ai-providers",provider:"openai-compatible-route-denied-e2e"}]}}')" >/dev/null
+  http_status="$(curl -sS --max-time 30 -H "Content-Type: application/json" -H "Authorization: Bearer e2e-downstream-key" --data "$body" --output "$response_file" --write-out '%{http_code}' "http://127.0.0.1:$port/v1/chat/completions")"
+  if [[ "$http_status" != "503" ]] || ! jq -e '(.error.message | contains("当前没有符合路由规则且可用的上游凭证"))' "$response_file" >/dev/null; then
+    echo "全部候选被黑名单排除后未返回 503。" >&2
+    return 1
+  fi
+
+  management_call PATCH "$port" "/v0/management/plugins/cpa-key-billing/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg id "$route" '{id:$id,rule:{denied_models:["gpt-5.6-sol"]}}')" >/dev/null
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" \
+    -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" --arg route "$route" '{scope:$scope,bindings:{route_ids:[$route],models:["gpt-5.6-sol"]}}')" >/dev/null
+  for requested in "gpt-5.6-sol" "gpt-5.6-sol(high)" "gpt-5.6-sol(max)"; do
+    http_status="$(curl -sS --max-time 30 -H "Content-Type: application/json" -H "Authorization: Bearer e2e-downstream-key" --data "$(request_body chat "$requested" false "Reply with exactly OK.")" --output "$response_file" --write-out '%{http_code}' "http://127.0.0.1:$port/v1/chat/completions")"
+    if [[ "$http_status" != "403" ]] || ! jq -e '(.error.message | contains("denied by a routing rule"))' "$response_file" >/dev/null; then
+      echo "模型黑名单被直接白名单或推理后缀绕过：$requested。" >&2
+      return 1
+    fi
+  done
+  account_call "$port" "/v0/resource/plugins/cpa-key-billing/routing" >"$runtime_dir/blacklist-account.json"
+  if ! jq -e '.models == ["gpt-5.6-sol"] and .denied_models == ["gpt-5.6-sol"] and .routing_valid == true' "$runtime_dir/blacklist-account.json" >/dev/null; then
+    echo "账户权限没有保留黑白名单冲突语义。" >&2
+    return 1
+  fi
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$events_file"
+  if [[ "$(jq -er '.entries | length' "$events_file")" != "$((expected_count + 2))" ]]; then
+    echo "黑名单拦截进入了计费用量。" >&2
+    return 1
+  fi
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/routes" -H "Content-Type: application/json" --data "$(jq -nc --arg scope "$scope" '{scope:$scope,bindings:{}}')" >/dev/null
+  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/routes?id=$route" >/dev/null
+}
+
 # Verify that a source-qualified Provider rule and an exact-Credential rule both
 # narrow CPA's candidate set instead of merely changing what the UI displays.
 assert_route_credential_policy() {
@@ -1397,6 +1470,9 @@ run_target() {
   log_step "路由凭证规则：整类与指定凭证均限制真实候选集"
   assert_route_credential_policy "$port" "$runtime_dir" "$expected_requests"
   expected_requests=$((expected_requests + 2))
+  log_step "黑名单：类别排除、单凭证例外、跨规则优先级、全部排除及推理后缀"
+  assert_route_blacklist_policy "$port" "$runtime_dir" "$expected_requests"
+  expected_requests=$((expected_requests + 2))
   for dimension in amount_usd requests tokens; do
     log_step "订阅额度 ${dimension}：消费、4 种协议拦截与恢复"
     assert_quota_exhausted "$port" "$runtime_dir" "$expected_requests" "$dimension"
@@ -1415,7 +1491,7 @@ run_target() {
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  log_ok "${host_label}：49 个上游请求（含 4 个参考价请求），1 次并发拦截，3 次模型拦截，2 次凭证路由，1 次凭证拦截，12 次额度拦截"
+  log_ok "${host_label}：51 个上游请求（含 4 个参考价请求），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，12 次额度拦截"
 }
 
 log_stage "启动 dummy provider"

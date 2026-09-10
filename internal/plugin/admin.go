@@ -34,7 +34,7 @@ func (a *App) keyRows() []keyRow {
 				names[id] = route.Name
 			}
 		}
-		rows = append(rows, keyRow{KeyView: key, RouteNames: names, CredentialLabels: a.credentialLabels(key.RouteBindings.CredentialIDs)})
+		rows = append(rows, keyRow{KeyView: key, RouteNames: names, CredentialLabels: a.credentialLabels(key.RouteBindings.CredentialRefs())})
 	}
 	return rows
 }
@@ -43,7 +43,7 @@ func (a *App) routeRows() []routeRow {
 	routes := a.store.RouteViews()
 	rows := make([]routeRow, 0, len(routes))
 	for _, route := range routes {
-		rows = append(rows, routeRow{RouteView: route, CredentialLabels: a.credentialLabels(route.Rule.CredentialIDs)})
+		rows = append(rows, routeRow{RouteView: route, CredentialLabels: a.credentialLabels(route.Rule.CredentialRefs())})
 	}
 	return rows
 }
@@ -92,7 +92,7 @@ func (a *App) createRoute(req ManagementRequest) ManagementResponse {
 		return errorResponse(errRule)
 	}
 	route := billing.Route{Name: body.Name, Rule: rule}
-	if response := a.validateNewCredentialRefs(rule.CredentialIDs, nil); response != nil {
+	if response := a.validateNewCredentialRefs(rule.CredentialRefs(), nil); response != nil {
 		return *response
 	}
 	stored, errCreate := a.store.CreateRoute(route, body.Scopes)
@@ -119,9 +119,9 @@ func (a *App) updateRoute(req ManagementRequest) ManagementResponse {
 		patch.Rule = &rule
 		var existing []string
 		if route, ok := a.store.Route(patch.ID); ok {
-			existing = route.Rule.CredentialIDs
+			existing = route.Rule.CredentialRefs()
 		}
-		if response := a.validateNewCredentialRefs(patch.Rule.CredentialIDs, existing); response != nil {
+		if response := a.validateNewCredentialRefs(patch.Rule.CredentialRefs(), existing); response != nil {
 			return *response
 		}
 	}
@@ -155,9 +155,9 @@ func (a *App) setKeyRoutes(req ManagementRequest) ManagementResponse {
 	}
 	var existing []string
 	if key, ok := a.store.KeyViewForScope(body.Scope); ok {
-		existing = key.RouteBindings.CredentialIDs
+		existing = key.RouteBindings.CredentialRefs()
 	}
-	if response := a.validateNewCredentialRefs(bindings.CredentialIDs, existing); response != nil {
+	if response := a.validateNewCredentialRefs(bindings.CredentialRefs(), existing); response != nil {
 		return *response
 	}
 	if errApply := a.store.SetKeyRoutes(body.Scope, bindings); errApply != nil {

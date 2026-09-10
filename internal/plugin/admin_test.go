@@ -446,7 +446,7 @@ func TestRouteManagementWritesKeyMembershipAtomically(t *testing.T) {
 		t.Fatal("create did not bind selected API Key")
 	}
 	callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
-		"scope": scopeB, "bindings": billing.RouteBindings{Models: []string{"gpt-5.5"}},
+		"scope": scopeB, "bindings": billing.RouteBindings{RouteRule: billing.RouteRule{Models: []string{"gpt-5.5"}}},
 	}, http.StatusOK, nil)
 	callOK(t, app, http.MethodPatch, routeRoutes, nil, map[string]any{
 		"id": created.Route.ID, "scopes": []string{scopeB},
@@ -461,41 +461,69 @@ func TestRouteManagementWritesKeyMembershipAtomically(t *testing.T) {
 }
 
 func TestRouteMutationRefreshesInventoryAndNeverReturnsRawCredentialID(t *testing.T) {
-	app := newConfiguredApp(t)
-	const rawID = "raw-upstream-auth-secret"
-	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
-		if method != hostAuthList {
-			t.Fatalf("host method=%q", method)
-		}
-		return json.RawMessage(`{"files":[{"id":"raw-upstream-auth-secret","provider":"codex","source":"file","path":"/auth/codex.json","name":"codex.json"}]}`), nil
-	})
-	ref := billing.CredentialFingerprint(rawID)
-	response := callManagement(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
-		"name": "Exact credential",
-		"rule": map[string]any{"models": []string{}, "credential_ids": []string{ref}, "credential_providers": []any{}},
-	})
-	if response.StatusCode != http.StatusCreated {
-		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
-	}
-	if strings.Contains(string(response.Body), rawID) {
-		t.Fatalf("route response leaked raw credential ID: %s", response.Body)
-	}
-	unknown := billing.CredentialFingerprint("unknown")
-	response = callManagement(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
-		"name": "Missing credential",
-		"rule": map[string]any{"models": []string{}, "credential_ids": []string{unknown}, "credential_providers": []any{}},
-	})
-	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("unknown credential status=%d body=%s", response.StatusCode, response.Body)
-	}
-	const key = "sk-route-case-check-0001"
-	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{key}}, http.StatusOK, nil)
-	response = callManagement(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
-		"scope":    billing.CallerScope(key),
-		"bindings": map[string]any{"credential_ids": []string{unknown}},
-	})
-	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("normalized unknown credential status=%d body=%s", response.StatusCode, response.Body)
+	for _, field := range []string{"credential_ids", "denied_credential_ids"} {
+		t.Run(field, func(t *testing.T) {
+			app := newConfiguredApp(t)
+			const rawID = "raw-upstream-auth-secret"
+			app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+				if method != hostAuthList {
+					t.Fatalf("host method=%q", method)
+				}
+				return json.RawMessage(`{"files":[{"id":"raw-upstream-auth-secret","provider":"codex","source":"file","path":"/auth/codex.json","name":"codex.json"}]}`), nil
+			})
+			ref := billing.CredentialFingerprint(rawID)
+			response := callManagement(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
+				"name": "Exact credential",
+				"rule": map[string]any{"models": []string{}, field: []string{ref}, "credential_providers": []any{}},
+			})
+			if response.StatusCode != http.StatusCreated {
+				t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
+			}
+			if strings.Contains(string(response.Body), rawID) {
+				t.Fatalf("route response leaked raw credential ID: %s", response.Body)
+			}
+			unknown := billing.CredentialFingerprint("unknown")
+			response = callManagement(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
+				"name": "Missing credential",
+				"rule": map[string]any{"models": []string{}, field: []string{unknown}, "credential_providers": []any{}},
+			})
+			if response.StatusCode != http.StatusBadRequest {
+				t.Fatalf("unknown credential status=%d body=%s", response.StatusCode, response.Body)
+			}
+			const key = "sk-route-case-check-0001"
+			callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{key}}, http.StatusOK, nil)
+			callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
+				"scope":    billing.CallerScope(key),
+				"bindings": map[string]any{field: []string{ref}},
+			}, http.StatusOK, nil)
+			response = callManagement(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
+				"scope":    billing.CallerScope(key),
+				"bindings": map[string]any{field: []string{unknown}},
+			})
+			if response.StatusCode != http.StatusBadRequest {
+				t.Fatalf("normalized unknown credential status=%d body=%s", response.StatusCode, response.Body)
+			}
+			route := app.store.RouteViews()[0]
+			if app.routeRows()[0].CredentialLabels[ref] == "" {
+				t.Fatal("credential label missing")
+			}
+			app.SetHostCaller(func(string, any) (json.RawMessage, error) {
+				t.Fatal("retained reference unexpectedly rediscovered")
+				return nil, nil
+			})
+			callOK(t, app, http.MethodPatch, routeRoutes, nil, map[string]any{"id": route.ID, "rule": map[string]any{field: []string{ref}, "denied_models": []string{"gpt"}}}, http.StatusOK, nil)
+			if refs := app.store.RouteViews()[0].Rule.CredentialRefs(); len(refs) != 1 || refs[0] != ref {
+				t.Fatal("retired reference lost on edit")
+			}
+			callOK(t, app, http.MethodPut, routeKeysRoutes, nil, map[string]any{
+				"scope":    billing.CallerScope(key),
+				"bindings": map[string]any{field: []string{ref}, "denied_models": []string{"gpt"}},
+			}, http.StatusOK, nil)
+			response = callManagement(t, app, http.MethodGet, routeKeys, nil, nil)
+			if !strings.Contains(string(response.Body), "denied_models") || strings.Contains(string(response.Body), key) || strings.Contains(string(response.Body), rawID) {
+				t.Fatalf("unsafe or incomplete routing view: %s", response.Body)
+			}
+		})
 	}
 }
 
@@ -508,7 +536,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	if _, err := app.store.SyncKeys([]string{accountTestKeyA}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.store.SetKeyRoutes(billing.CallerScope(accountTestKeyA), billing.RouteBindings{CredentialIDs: []string{ref}}); err != nil {
+	if err := app.store.SetKeyRoutes(billing.CallerScope(accountTestKeyA), billing.RouteBindings{RouteRule: billing.RouteRule{CredentialIDs: []string{ref}}}); err != nil {
 		t.Fatal(err)
 	}
 	response := callManagement(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []map[string]any{
@@ -756,7 +784,7 @@ func TestLargeRouteBindingsSurviveReload(t *testing.T) {
 	for i := range models {
 		models[i] = fmt.Sprintf("model-%d", i)
 	}
-	if err := app.store.SetKeyRoutes(scope, billing.RouteBindings{Models: models}); err != nil {
+	if err := app.store.SetKeyRoutes(scope, billing.RouteBindings{RouteRule: billing.RouteRule{Models: models}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"created", "edited"} {

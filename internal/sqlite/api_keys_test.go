@@ -47,7 +47,7 @@ func TestOldKeyPreviewRepairPreservesHistoryAndCanBeResolved(t *testing.T) {
 	state.Keys[scope] = &billing.KeyState{
 		Preview: billing.PreviewKey(apiKey), Label: "Legacy", PlanID: "plan",
 		ConcurrencyLimit: 3, DeletedAt: time.Unix(100, 0), Cycles: map[string]billing.QuotaCycle{"default": {PlanID: "plan", StartAt: time.Unix(1, 0), EndAt: time.Unix(3601, 0), SpentUSD: 2}},
-		RouteBindings: billing.RouteBindings{Models: []string{"gpt-5.5"}},
+		RouteBindings: billing.RouteBindings{RouteRule: billing.RouteRule{Models: []string{"gpt-5.5"}}},
 	}
 	mustSave(t, database, state, billing.Changes{AllKeys: true, Plans: true,
 		NormalRequestEvents: []billing.RequestEvent{requestEvent(scope, time.Now())},

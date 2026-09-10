@@ -290,28 +290,33 @@ func TestSchedulerSeparatesSameProviderBySource(t *testing.T) {
 	}
 }
 
-func TestUnclassifiedCandidateRequiresExactCredentialReference(t *testing.T) {
+func TestUnclassifiedCandidateRequiresExactAllowlistReference(t *testing.T) {
 	candidate := SchedulerAuthCandidate{ID: "opaque-auth", Provider: "codex", Attributes: map[string]string{"auth_kind": "apikey"}}
-	providerOnly := billing.RoutingDecision{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAIProviders, Provider: "codex"}}}
+	providerOnly := billing.RoutingDecision{RouteRule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAIProviders, Provider: "codex"}}}}
 	if candidateAllowed(candidate, providerOnly) {
 		t.Fatal("unclassified candidate matched a provider selector")
 	}
-	exact := billing.RoutingDecision{CredentialIDs: []string{billing.CredentialFingerprint(candidate.ID)}}
+	exact := billing.RoutingDecision{RouteRule: billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint(candidate.ID)}}}
 	if !candidateAllowed(candidate, exact) {
 		t.Fatal("unclassified candidate did not match its exact fingerprint")
 	}
 }
 
 func TestSchedulerDelegatesAnUnchangedCandidateSet(t *testing.T) {
-	app, scope := configuredRoutingApp(t, billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAIProviders, Provider: "codex"}}})
-	raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, SchedulerAuthCandidate{ID: "config-codex", Provider: "codex", Attributes: map[string]string{"source": "config:codex[abc]"}})))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var response SchedulerPickResponse
-	decodeResult(t, raw, &response)
-	if response.Handled {
-		t.Fatalf("response=%+v, want CPA delegation", response)
+	for _, rule := range []billing.RouteRule{
+		{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAIProviders, Provider: "codex"}}},
+		{DeniedCredentialIDs: []string{billing.CredentialFingerprint("outside")}},
+	} {
+		app, scope := configuredRoutingApp(t, rule)
+		raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, SchedulerAuthCandidate{ID: "config-codex", Provider: "codex", Attributes: map[string]string{"source": "config:codex[abc]"}})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var response SchedulerPickResponse
+		decodeResult(t, raw, &response)
+		if response.Handled {
+			t.Fatalf("rule=%+v response=%+v, want CPA delegation", rule, response)
+		}
 	}
 }
 
@@ -322,7 +327,7 @@ func TestSchedulerCredentialPolicyIsIndependentOfRequestedModel(t *testing.T) {
 			Source: billing.CredentialSourceAuthFiles, Provider: "codex",
 		}},
 	})
-	if err := app.store.SetKeyRoutes(scope, billing.RouteBindings{RouteIDs: []string{"route-test"}, Models: []string{"direct-model"}}); err != nil {
+	if err := app.store.SetKeyRoutes(scope, billing.RouteBindings{RouteIDs: []string{"route-test"}, RouteRule: billing.RouteRule{Models: []string{"direct-model"}}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
@@ -399,6 +404,13 @@ func TestSchedulerFailsClosedWithoutAUsableRoutedCandidate(t *testing.T) {
 			},
 		},
 		{
+			name: "all denied",
+			rule: billing.RouteRule{DeniedCredentialIDs: []string{billing.CredentialFingerprint("outside")}},
+			candidates: []SchedulerAuthCandidate{
+				{ID: "outside", Provider: "codex", Attributes: map[string]string{"path": "/outside"}},
+			},
+		},
+		{
 			name: "non-positive weight",
 			rule: billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("a")}},
 			candidates: []SchedulerAuthCandidate{
@@ -426,20 +438,41 @@ func TestSchedulerFailsClosedWithoutAUsableRoutedCandidate(t *testing.T) {
 }
 
 func TestSubsetSchedulerUsesCandidateWeights(t *testing.T) {
-	app, scope := configuredRoutingApp(t, billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("a"), billing.CredentialFingerprint("b")}})
-	candidates := []SchedulerAuthCandidate{{ID: "a", Provider: "codex", Attributes: map[string]string{"path": "/a", "weight": "2"}}, {ID: "b", Provider: "codex", Attributes: map[string]string{"path": "/b", "weight": "1"}}, {ID: "outside", Provider: "codex", Attributes: map[string]string{"path": "/outside"}}}
-	counts := map[string]int{}
-	for range 30 {
-		raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, candidates...)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var response SchedulerPickResponse
-		decodeResult(t, raw, &response)
-		counts[response.AuthID]++
+	candidates := []SchedulerAuthCandidate{
+		{ID: "a", Provider: "codex", Attributes: map[string]string{"path": "/a", "weight": "2"}},
+		{ID: "b", Provider: "codex", Attributes: map[string]string{"path": "/b", "weight": "1"}},
+		{ID: "outside", Provider: "codex", Attributes: map[string]string{"path": "/outside", "weight": "1000"}},
 	}
-	if counts["a"] != 20 || counts["b"] != 10 || counts["outside"] != 0 {
-		t.Fatalf("counts=%v", counts)
+	for _, test := range []struct {
+		name string
+		rule billing.RouteRule
+	}{
+		{"allow", billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("a"), billing.CredentialFingerprint("b")}}},
+		{"deny", billing.RouteRule{DeniedCredentialIDs: []string{billing.CredentialFingerprint("outside")}}},
+		{"provider with exception", billing.RouteRule{
+			CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAuthFiles, Provider: "codex"}},
+			DeniedCredentialIDs: []string{billing.CredentialFingerprint("outside")},
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			app, scope := configuredRoutingApp(t, test.rule)
+			counts := map[string]int{}
+			for range 30 {
+				raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, candidates...)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var response SchedulerPickResponse
+				decodeResult(t, raw, &response)
+				if !response.Handled {
+					t.Fatalf("response=%+v, want routed selection", response)
+				}
+				counts[response.AuthID]++
+			}
+			if counts["a"] != 20 || counts["b"] != 10 || counts["outside"] != 0 {
+				t.Fatalf("counts=%v", counts)
+			}
+		})
 	}
 }
 

@@ -24,16 +24,17 @@ type CredentialProviderSelector struct {
 }
 
 type RouteRule struct {
-	Models              []string                     `json:"models"`
-	CredentialIDs       []string                     `json:"credential_ids"`
-	CredentialProviders []CredentialProviderSelector `json:"credential_providers"`
+	Models                    []string                     `json:"models"`
+	CredentialIDs             []string                     `json:"credential_ids"`
+	CredentialProviders       []CredentialProviderSelector `json:"credential_providers"`
+	DeniedModels              []string                     `json:"denied_models"`
+	DeniedCredentialIDs       []string                     `json:"denied_credential_ids"`
+	DeniedCredentialProviders []CredentialProviderSelector `json:"denied_credential_providers"`
 }
 
 type RouteBindings struct {
-	RouteIDs            []string                     `json:"route_ids"`
-	Models              []string                     `json:"models"`
-	CredentialIDs       []string                     `json:"credential_ids"`
-	CredentialProviders []CredentialProviderSelector `json:"credential_providers"`
+	RouteIDs []string `json:"route_ids"`
+	RouteRule
 }
 
 type Route struct {
@@ -49,31 +50,70 @@ type RoutePatch struct {
 }
 
 type RoutingDecision struct {
-	Model               string
-	ModelScope          []string
-	CredentialIDs       []string
-	CredentialProviders []CredentialProviderSelector
-	ConfigurationError  string
+	RouteRule
+	Model              string
+	ConfigurationError string
 }
 
 func (d RoutingDecision) RestrictsModels() bool {
-	return len(d.ModelScope) > 0
+	return len(d.Models) > 0 || len(d.DeniedModels) > 0
 }
 
 func (d RoutingDecision) AllowsModel() bool {
 	if d.ConfigurationError != "" {
 		return false
 	}
-	if !d.RestrictsModels() || d.Model == "" {
+	if d.Model == "" {
 		return true
 	}
-	return slices.ContainsFunc(d.ModelScope, func(model string) bool {
-		return strings.EqualFold(model, d.Model)
-	})
+	return !containsRouteValue(d.DeniedModels, d.Model) &&
+		(len(d.Models) == 0 || containsRouteValue(d.Models, d.Model))
+}
+
+func containsRouteValue(values []string, value string) bool {
+	return slices.ContainsFunc(values, func(item string) bool { return strings.EqualFold(item, value) })
 }
 
 func (d RoutingDecision) RestrictsCredentials() bool {
-	return len(d.CredentialIDs) > 0 || len(d.CredentialProviders) > 0
+	return len(d.CredentialIDs) > 0 || len(d.CredentialProviders) > 0 ||
+		len(d.DeniedCredentialIDs) > 0 || len(d.DeniedCredentialProviders) > 0
+}
+
+// ref is a fingerprint, never the raw host credential ID or an API key.
+func (d RoutingDecision) AllowsCredential(ref, source, provider string) bool {
+	selector := CredentialProviderSelector{Source: strings.ToLower(strings.TrimSpace(source)), Provider: strings.ToLower(strings.TrimSpace(provider))}
+	if d.ConfigurationError != "" || containsRouteValue(d.DeniedCredentialIDs, ref) {
+		return false
+	}
+	for _, denied := range d.DeniedCredentialProviders {
+		// Incomplete host metadata cannot prove a candidate is outside a deny
+		// selector. Reject potential matches without inventing its source.
+		if (selector.Source == "" || selector.Source == denied.Source) &&
+			(selector.Provider == "" || selector.Provider == denied.Provider) {
+			return false
+		}
+	}
+	return len(d.CredentialIDs) == 0 && len(d.CredentialProviders) == 0 ||
+		containsRouteValue(d.CredentialIDs, ref) || slices.Contains(d.CredentialProviders, selector)
+}
+
+func (r RouteRule) CredentialRefs() []string {
+	return append(slices.Clone(r.CredentialIDs), r.DeniedCredentialIDs...)
+}
+
+func (r RouteRule) clone() RouteRule {
+	return RouteRule{
+		Models:                    append([]string{}, r.Models...),
+		CredentialIDs:             append([]string{}, r.CredentialIDs...),
+		CredentialProviders:       append([]CredentialProviderSelector{}, r.CredentialProviders...),
+		DeniedModels:              append([]string{}, r.DeniedModels...),
+		DeniedCredentialIDs:       append([]string{}, r.DeniedCredentialIDs...),
+		DeniedCredentialProviders: append([]CredentialProviderSelector{}, r.DeniedCredentialProviders...),
+	}
+}
+
+func (b RouteBindings) clone() RouteBindings {
+	return RouteBindings{RouteIDs: append([]string{}, b.RouteIDs...), RouteRule: b.RouteRule.clone()}
 }
 
 type RouteDeleteResult struct {
@@ -136,19 +176,45 @@ func normalizeCredentialProviderSelector(item CredentialProviderSelector) (Crede
 
 func NormalizeRouteRule(rule RouteRule) (RouteRule, error) {
 	var err error
-	rule.Models, err = normalizeRouteStrings(rule.Models)
+	rule.Models, rule.DeniedModels, err = normalizeRouteSelection(
+		rule.Models, rule.DeniedModels, normalizeRouteStrings, strings.EqualFold, "模型",
+	)
 	if err != nil {
 		return RouteRule{}, err
 	}
-	rule.CredentialIDs, err = normalizeCredentialIDs(rule.CredentialIDs)
+	rule.CredentialIDs, rule.DeniedCredentialIDs, err = normalizeRouteSelection(
+		rule.CredentialIDs, rule.DeniedCredentialIDs, normalizeCredentialIDs, strings.EqualFold, "凭证",
+	)
 	if err != nil {
 		return RouteRule{}, err
 	}
-	rule.CredentialProviders, err = normalizeCredentialProviders(rule.CredentialProviders)
+	rule.CredentialProviders, rule.DeniedCredentialProviders, err = normalizeRouteSelection(
+		rule.CredentialProviders, rule.DeniedCredentialProviders, normalizeCredentialProviders,
+		func(a, b CredentialProviderSelector) bool { return a == b }, "凭证类别",
+	)
 	if err != nil {
 		return RouteRule{}, err
 	}
 	return rule, nil
+}
+
+// Within one rule each item has exactly one state. Different bound rules may
+// disagree; resolution preserves both selections so that deny takes precedence.
+func normalizeRouteSelection[T any](allow, deny []T, normalize func([]T) ([]T, error), equal func(T, T) bool, name string) ([]T, []T, error) {
+	allow, err := normalize(allow)
+	if err != nil {
+		return nil, nil, err
+	}
+	deny, err = normalize(deny)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, value := range deny {
+		if slices.ContainsFunc(allow, func(item T) bool { return equal(item, value) }) {
+			return nil, nil, invalidf("同一%s不能同时加入黑白名单", name)
+		}
+	}
+	return allow, deny, nil
 }
 
 func normalizeCredentialProviders(values []CredentialProviderSelector) ([]CredentialProviderSelector, error) {
@@ -191,10 +257,11 @@ func normalizeCredentialIDs(values []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, value := range values {
+	for i, value := range values {
 		if !ValidCredentialFingerprint(value) {
 			return nil, invalidf("上游凭证引用无效")
 		}
+		values[i] = strings.ToLower(value)
 	}
 	return values, nil
 }
@@ -205,18 +272,11 @@ func NormalizeRouteBindings(bindings RouteBindings) (RouteBindings, error) {
 	if err != nil {
 		return RouteBindings{}, err
 	}
-	bindings.Models, err = normalizeRouteStrings(bindings.Models)
+	bindings.RouteRule, err = NormalizeRouteRule(bindings.RouteRule)
 	if err != nil {
 		return RouteBindings{}, err
 	}
-	bindings.CredentialIDs, err = normalizeCredentialIDs(bindings.CredentialIDs)
-	if err != nil {
-		return RouteBindings{}, err
-	}
-	bindings.CredentialProviders, err = normalizeCredentialProviders(bindings.CredentialProviders)
-	if err != nil {
-		return RouteBindings{}, err
-	}
+
 	return bindings, nil
 }
 
@@ -234,9 +294,7 @@ func (s *State) findRoute(id string) (Route, bool) {
 }
 
 func cloneRoute(route Route) Route {
-	route.Rule.Models = slices.Clone(route.Rule.Models)
-	route.Rule.CredentialIDs = slices.Clone(route.Rule.CredentialIDs)
-	route.Rule.CredentialProviders = slices.Clone(route.Rule.CredentialProviders)
+	route.Rule = route.Rule.clone()
 	return route
 }
 
@@ -466,63 +524,43 @@ func (s *Store) KeyDescription(scope string) string {
 	return result
 }
 
-// Merge every bound route and direct binding without consulting the request
-// model. Each dimension is unrestricted only when its merged allowlist is empty.
+// Merge each allow/deny dimension independently. Never subtract deny entries
+// from allowlists: an empty allowlist means unrestricted, not deny everything.
 func resolveRoutingState(state *State, key *KeyState) RoutingDecision {
-	d := RoutingDecision{ModelScope: []string{}, CredentialIDs: []string{}, CredentialProviders: []CredentialProviderSelector{}}
+	d := RoutingDecision{RouteRule: RouteRule{}.clone()}
 	if key == nil {
 		return d
 	}
-	modelSet := map[string]string{}
-	ids := map[string]string{}
-	providers := map[CredentialProviderSelector]struct{}{}
+	merge := func(rule RouteRule) {
+		d.Models = append(d.Models, rule.Models...)
+		d.CredentialIDs = append(d.CredentialIDs, rule.CredentialIDs...)
+		d.CredentialProviders = append(d.CredentialProviders, rule.CredentialProviders...)
+		d.DeniedModels = append(d.DeniedModels, rule.DeniedModels...)
+		d.DeniedCredentialIDs = append(d.DeniedCredentialIDs, rule.DeniedCredentialIDs...)
+		d.DeniedCredentialProviders = append(d.DeniedCredentialProviders, rule.DeniedCredentialProviders...)
+	}
 	for _, id := range key.RouteBindings.RouteIDs {
 		route, ok := state.findRoute(id)
 		if !ok {
 			d.ConfigurationError = fmt.Sprintf("路由规则 %q 已不存在", id)
 			return d
 		}
-		rule := route.Rule
-		for _, allowed := range rule.Models {
-			modelSet[strings.ToLower(allowed)] = allowed
-		}
-		for _, id := range rule.CredentialIDs {
-			ids[strings.ToLower(id)] = id
-		}
-		for _, provider := range rule.CredentialProviders {
-			providers[provider] = struct{}{}
-		}
+		merge(route.Rule)
 	}
-	for _, allowed := range key.RouteBindings.Models {
-		modelSet[strings.ToLower(allowed)] = allowed
+	merge(key.RouteBindings.RouteRule)
+	for _, values := range []*[]string{&d.Models, &d.CredentialIDs, &d.DeniedModels, &d.DeniedCredentialIDs} {
+		sort.SliceStable(*values, func(i, j int) bool { return strings.ToLower((*values)[i]) < strings.ToLower((*values)[j]) })
+		*values = slices.CompactFunc(*values, strings.EqualFold)
 	}
-	for _, id := range key.RouteBindings.CredentialIDs {
-		ids[strings.ToLower(id)] = id
-	}
-	for _, provider := range key.RouteBindings.CredentialProviders {
-		providers[provider] = struct{}{}
-	}
-	if len(modelSet) > 0 {
-		for _, display := range modelSet {
-			d.ModelScope = append(d.ModelScope, display)
-		}
-		sort.Slice(d.ModelScope, func(i, j int) bool { return strings.ToLower(d.ModelScope[i]) < strings.ToLower(d.ModelScope[j]) })
-	}
-	if len(ids) > 0 || len(providers) > 0 {
-		for _, id := range ids {
-			d.CredentialIDs = append(d.CredentialIDs, id)
-		}
-		for provider := range providers {
-			d.CredentialProviders = append(d.CredentialProviders, provider)
-		}
-		sort.Strings(d.CredentialIDs)
-		sort.Slice(d.CredentialProviders, func(i, j int) bool {
-			a, b := d.CredentialProviders[i], d.CredentialProviders[j]
+	for _, values := range []*[]CredentialProviderSelector{&d.CredentialProviders, &d.DeniedCredentialProviders} {
+		sort.Slice(*values, func(i, j int) bool {
+			a, b := (*values)[i], (*values)[j]
 			if a.Source != b.Source {
 				return a.Source < b.Source
 			}
 			return a.Provider < b.Provider
 		})
+		*values = slices.Compact(*values)
 	}
 	return d
 }

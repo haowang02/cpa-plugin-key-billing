@@ -42,10 +42,8 @@ func candidateWeight(candidate SchedulerAuthCandidate) int64 {
 func routingPoolKey(model string, decision billing.RoutingDecision) string {
 	// Keep round-robin progress separate per model; this does not change which
 	// credentials the key is allowed to use.
-	policy := struct {
-		IDs       []string                             `json:"ids"`
-		Providers []billing.CredentialProviderSelector `json:"providers"`
-	}{decision.CredentialIDs, decision.CredentialProviders}
+	policy := decision.RouteRule
+	policy.Models, policy.DeniedModels = nil, nil
 	raw, _ := json.Marshal(policy)
 	sum := sha256.Sum256(raw)
 	return strings.ToLower(strings.TrimSpace(model)) + "\x00" + hex.EncodeToString(sum[:])

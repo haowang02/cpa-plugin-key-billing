@@ -306,13 +306,28 @@ func quotaExhaustedMessage(decision billing.Decision) string {
 	return builder.String()
 }
 
-// The refusal names what the key may call instead, so the client can correct the
-// request rather than probe for a model that works.
 func modelForbiddenMessage(decision billing.RoutingDecision) string {
-	shown := min(len(decision.ModelScope), 5)
-	omitted := len(decision.ModelScope) - shown
+	for _, model := range decision.DeniedModels {
+		if strings.EqualFold(model, decision.Model) {
+			return "API key is not allowed to use model " + strconv.Quote(decision.Model) + ". The model is denied by a routing rule."
+		}
+	}
+	// Do not suggest allowlisted models that another bound route denies.
+	allowed := make([]string, 0, len(decision.Models))
+	for _, model := range decision.Models {
+		candidate := decision
+		candidate.Model = model
+		if candidate.AllowsModel() {
+			allowed = append(allowed, model)
+		}
+	}
+	if len(allowed) == 0 {
+		return "API key is not allowed to use model " + strconv.Quote(decision.Model) + ". No models are allowed by the routing rules."
+	}
+	shown := min(len(allowed), 5)
+	omitted := len(allowed) - shown
 	message := "API key is not allowed to use model " + strconv.Quote(decision.Model) +
-		". Allowed models: " + strings.Join(decision.ModelScope[:shown], ", ")
+		". Allowed models: " + strings.Join(allowed[:shown], ", ")
 	if omitted > 0 {
 		message += fmt.Sprintf(" and %d more", omitted)
 	}
