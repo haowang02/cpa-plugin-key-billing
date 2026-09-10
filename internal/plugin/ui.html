@@ -981,6 +981,9 @@
         align-items: start;
       }
       .plan-window input, .plan-dialog > .field input { width: 100%; min-width: 0; }
+      .plan-window.has-cycle-scope { grid-template-columns: minmax(0, .7fr) minmax(0, 1.2fr) minmax(0, 1.3fr); }
+      #plan-cycle-scope-help { grid-column: 1 / -1; }
+      #plan-cycle-scope { width: 100%; min-width: 0; }
       .plan-window-limits {
         grid-column: 1 / -1;
         display: grid;
@@ -1018,6 +1021,11 @@
         .plan-window-limits { gap: 8px; }
         .plan-window input { padding-left: 8px; padding-right: 6px; font-size: 12px; }
         .plan-window .field { font-size: 12px; }
+        .has-cycle-scope .period-input { grid-template-columns: minmax(0, 1fr) 50px; gap: 4px; }
+        .has-cycle-scope .period-input select { width: 100%; min-width: 0; padding-left: 6px; padding-right: 18px; font-size: 12px; }
+        .has-cycle-scope .period-input .native-select::after { right: 4px; }
+        .has-cycle-scope input[name="window_period"]::-webkit-inner-spin-button { appearance: none; margin: 0; }
+        .has-cycle-scope input[name="window_period"] { appearance: textfield; padding-left: 6px; padding-right: 4px; }
       }
       .account-models {
         display: grid;
@@ -2537,14 +2545,14 @@
             <div class="editor-state notice hidden"></div>
             <input id="plan-id" type="hidden" />
             <label class="field"> 计划名称 <input id="plan-name" placeholder="团队额度" /> </label>
-            <label class="field">
+            <label class="field plan-cycle-scope-field">
               周期起点
               <select id="plan-cycle-scope" aria-describedby="plan-cycle-scope-help">
                 <option value="key">Key 独立起点</option>
                 <option value="plan">计划统一起点</option>
               </select>
-              <span id="plan-cycle-scope-help" class="small muted"></span>
             </label>
+            <span id="plan-cycle-scope-help" class="small muted"></span>
             <div class="row spread plan-windows-heading">
               <span class="small muted">额度窗口</span>
               <button id="plan-window-add" type="button" class="link small">添加窗口</button>
@@ -8844,6 +8852,13 @@
       }
 
       function updateWindowDeleteButtons() {
+        const firstWindow = $("plan-windows").firstElementChild;
+        if (firstWindow) {
+          firstWindow.classList.add("has-cycle-scope");
+          const limits = firstWindow.querySelector(".plan-window-limits");
+          firstWindow.insertBefore(planCycleScopeField, limits);
+          firstWindow.insertBefore(planCycleScopeHelp, limits);
+        }
         const buttons = $("plan-windows").querySelectorAll(".window-delete");
         buttons.forEach((button) => (button.disabled = buttons.length === 1));
       }
@@ -8876,10 +8891,13 @@
         );
       }
 
+      const planCycleScopeField = $("plan-cycle-scope").closest("label");
+      const planCycleScopeHelp = $("plan-cycle-scope-help");
+
       function updatePlanCycleScopeHelp() {
         $("plan-cycle-scope-help").textContent = $("plan-cycle-scope").value === "plan"
-          ? "所有 Key 从计划首次扣除额度共同起算，额度各自独立。重置会清空同计划所有 Key 的周期和消费额，下次计费重新起算。"
-          : "各 Key 从首次放行独立起算；重置只清空该 Key 的周期和消费额，下次放行重新起算。";
+          ? "对整个计划生效。所有 Key 从计划首次扣除额度共同起算，额度各自独立。重置会清空同计划所有 Key 的周期和消费额，下次计费重新起算。"
+          : "对整个计划生效。各 Key 从首次放行独立起算；重置只清空该 Key 的周期和消费额，下次放行重新起算。";
       }
       $("plan-cycle-scope").onchange = updatePlanCycleScopeHelp;
 
