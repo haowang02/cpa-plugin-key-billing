@@ -139,7 +139,7 @@ func TestOpenSynchronizesIndexes(t *testing.T) {
 		t.Fatal("index synchronization changed history")
 	}
 	var format int
-	if err := d.db.QueryRow("PRAGMA user_version").Scan(&format); err != nil || format != 14 {
+	if err := d.db.QueryRow("PRAGMA user_version").Scan(&format); err != nil || format != schemaVersion {
 		t.Fatalf("format version=%d, err=%v", format, err)
 	}
 	version := ddlVersion(t, d)

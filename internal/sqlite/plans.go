@@ -23,9 +23,9 @@ func replacePlans(tx *sql.Tx, state *billing.State) error {
 			return err
 		}
 		_, errPlan := tx.Exec(`
-			INSERT INTO plans (position, id, name, windows_json)
-			VALUES (?, ?, ?, ?)`,
-			position, plan.ID, plan.Name, string(raw))
+			INSERT INTO plans (position, id, name, windows_json, started_at, cycle_scope)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			position, plan.ID, plan.Name, string(raw), nanos(plan.StartedAt), plan.CycleScope)
 		if errPlan != nil {
 			return fmt.Errorf("保存订阅计划 %s：%w", plan.ID, errPlan)
 		}
@@ -35,7 +35,7 @@ func replacePlans(tx *sql.Tx, state *billing.State) error {
 
 func (d *DB) loadPlans(state *billing.State) error {
 	rows, errQuery := d.db.Query(`
-		SELECT id, name, windows_json FROM plans ORDER BY position`)
+		SELECT id, name, windows_json, started_at, cycle_scope FROM plans ORDER BY position`)
 	if errQuery != nil {
 		return fmt.Errorf("读取订阅计划：%w", errQuery)
 	}
@@ -43,9 +43,11 @@ func (d *DB) loadPlans(state *billing.State) error {
 	for rows.Next() {
 		var plan billing.Plan
 		var raw string
-		if errScan := rows.Scan(&plan.ID, &plan.Name, &raw); errScan != nil {
+		var startedAt int64
+		if errScan := rows.Scan(&plan.ID, &plan.Name, &raw, &startedAt, &plan.CycleScope); errScan != nil {
 			return fmt.Errorf("读取订阅计划：%w", errScan)
 		}
+		plan.StartedAt = timeAt(startedAt)
 		if err := json.Unmarshal([]byte(raw), &plan.Windows); err != nil {
 			return fmt.Errorf("读取订阅计划 %s：%w", plan.ID, err)
 		}

@@ -395,7 +395,7 @@ func TestV13CredentialMigrationAndRollback(t *testing.T) {
 			}
 			database = openDatabase(t, path)
 			var version, credentials int
-			if err := raw.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 14 {
+			if err := raw.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 				t.Fatal("incorrect schema version", version, err)
 			}
 			if err := raw.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='credentials'").Scan(&credentials); err != nil || credentials != 0 {

@@ -41,8 +41,9 @@ type LongContextPrice struct {
 
 // KeyState is identified by caller scope; plaintext keys are never stored.
 type KeyState struct {
-	Preview string `json:"preview,omitempty"`
-	Label   string `json:"label,omitempty"`
+	BillingSince time.Time `json:"billing_since,omitzero"`
+	Preview      string    `json:"preview,omitempty"`
+	Label        string    `json:"label,omitempty"`
 	// These two tell the three kinds of record apart:
 	//
 	//	InConfig set     a key CPA currently holds

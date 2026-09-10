@@ -178,3 +178,39 @@ func addQuotaCount(current, delta int64) int64 {
 	}
 	return current + delta
 }
+
+// Plan periods remain aligned even across idle time and newly bound keys.
+func planCycle(plan Plan, window QuotaWindow, at time.Time) QuotaCycle {
+	if plan.StartedAt.IsZero() || at.Before(plan.StartedAt) {
+		return QuotaCycle{}
+	}
+	period := time.Duration(window.PeriodSeconds) * time.Second
+	start := plan.StartedAt.Add(at.Sub(plan.StartedAt) / period * period)
+	return QuotaCycle{PlanID: plan.ID, StartAt: start, EndAt: start.Add(period)}
+}
+
+func syncPlanCycles(key *KeyState, plan Plan, at time.Time) bool {
+	if plan.StartedAt.IsZero() {
+		return false
+	}
+	changed := false
+	for _, window := range plan.Windows {
+		cycle := planCycle(plan, window, at)
+		if cycle.StartAt.IsZero() {
+			continue
+		}
+		old, exists := key.Cycles[window.ID]
+		if exists && old.PlanID == plan.ID && old.StartAt.After(cycle.StartAt) {
+			continue
+		}
+		if exists && old.PlanID == cycle.PlanID && old.StartAt.Equal(cycle.StartAt) && old.EndAt.Equal(cycle.EndAt) {
+			continue
+		}
+		if key.Cycles == nil {
+			key.Cycles = make(map[string]QuotaCycle)
+		}
+		key.Cycles[window.ID] = cycle
+		changed = true
+	}
+	return changed
+}

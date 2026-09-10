@@ -28,6 +28,7 @@ var indexes = map[string][]index{
 // Time columns use Unix nanoseconds; JSON cycles use UTC RFC3339Nano.
 const schema = `
 CREATE TABLE api_keys (
+ billing_since INTEGER NOT NULL DEFAULT 0,
 	scope                 TEXT    PRIMARY KEY,
 	preview               TEXT    NOT NULL DEFAULT '',
 	label                 TEXT    NOT NULL DEFAULT '',
@@ -54,6 +55,8 @@ CREATE TABLE config_credentials (
 );
 
 CREATE TABLE plans (
+ started_at INTEGER NOT NULL DEFAULT 0,
+ cycle_scope TEXT NOT NULL DEFAULT '',
 	position        INTEGER PRIMARY KEY,
 	id              TEXT    NOT NULL UNIQUE,
 	name            TEXT    NOT NULL DEFAULT '',

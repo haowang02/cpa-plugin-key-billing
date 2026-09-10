@@ -33,11 +33,11 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 			return allowed, touched
 		}
 		var changed Changes
-		if settleExpiredCycles(key, at) {
+		if settleKeyPlan(key, plan, at) {
 			changed = touched
 		}
 		view := quotaView(key, plan)
-		if !view.Blocked && activateCycles(key, plan, at) {
+		if !plan.SharedCycles() && !view.Blocked && activateCycles(key, plan, at) {
 			changed = touched
 			view = quotaView(key, plan)
 		}

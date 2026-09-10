@@ -107,6 +107,7 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 			ReasoningTokens:   event.Breakdown.Output.ReasoningTokens,
 		}
 		var changedKeys []string
+		planStarted := false
 		if key := state.ensureKey(scope, event.KeyPreview); key != nil {
 			usage := quotaUsage{AmountUSD: cost.TotalUSD}
 			if !failed {
@@ -115,17 +116,45 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 			if event.Breakdown.Valid() && event.Breakdown.Quality != TokenAccountingInconsistent {
 				usage.Tokens = event.Breakdown.TotalTokens
 			}
-			missingCycleTime = event.RequestedAt.IsZero() && len(key.Cycles) > 0 && usage != (quotaUsage{})
-			key.chargeCycles(event.RequestedAt, usage)
-			// A usage record may arrive after its period ended. Close it now, but do
-			// not start the next period until another request is admitted.
-			if _, hasPlan := state.FindPlan(key.PlanID); hasPlan {
-				settleExpiredCycles(key, at)
+			plan, hasPlan := state.FindPlan(key.PlanID)
+			if hasPlan && plan.SharedCycles() {
+				missingCycleTime = event.RequestedAt.IsZero() && usage != (quotaUsage{})
+				if !event.RequestedAt.IsZero() && !event.RequestedAt.Before(key.BillingSince) && !event.RequestedAt.After(at) &&
+					(!plan.StartedAt.IsZero() || plan.startsWithUsage(usage)) {
+					// Price lookup may finish out of order. Serialize billing time
+					// with the plan clock so concurrent first records all count.
+					billedAt := at
+					if now := s.Now(); now.After(billedAt) {
+						billedAt = now
+					}
+					if plan.StartedAt.After(billedAt) {
+						billedAt = plan.StartedAt
+					}
+					if plan.StartedAt.IsZero() {
+						plan.StartedAt = billedAt
+						for i := range state.Plans {
+							if state.Plans[i].ID == plan.ID {
+								state.Plans[i].StartedAt = billedAt
+								break
+							}
+						}
+						planStarted = true
+					}
+					syncPlanCycles(key, plan, billedAt)
+					key.chargeCycles(billedAt, usage)
+				}
+			} else {
+				missingCycleTime = event.RequestedAt.IsZero() && len(key.Cycles) > 0 && usage != (quotaUsage{})
+				key.chargeCycles(event.RequestedAt, usage)
+				if hasPlan {
+					settleExpiredCycles(key, at)
+				}
 			}
 			changedKeys = []string{scope}
 		}
 		changes := Changes{
 			Keys:               changedKeys,
+			Plans:              planStarted,
 			RequestEventCutoff: at.Add(-RequestEventRetention),
 		}
 		if failure == nil {
