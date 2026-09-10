@@ -71,6 +71,9 @@ func settleKeyPlan(key *KeyState, plan Plan, now time.Time) bool {
 		return false
 	}
 	if plan.ID == key.PlanID {
+		if plan.SharedCycles() {
+			return syncPlanCycles(key, plan, now)
+		}
 		return settleExpiredCycles(key, now)
 	}
 	key.PlanID = ""
@@ -115,8 +118,7 @@ func sortKeyViews(views []KeyView) {
 	})
 }
 
-// Rebinding returns the subscription to its inactive state. Its first period
-// starts only when the key is next used.
+// Rebinding clears personal consumption and joins the destination plan clock.
 func (s *Store) BindKey(scope, planID string) error {
 	scope = normalizeScope(scope)
 	planID = strings.TrimSpace(planID)
@@ -137,6 +139,7 @@ func (s *Store) BindKey(scope, planID string) error {
 		}
 		key.Cycles = nil
 		key.PlanID = plan.ID
+		key.BillingSince = s.Now()
 		return struct{}{}, Changes{Keys: []string{scope}}, nil
 	})
 	return err
@@ -153,6 +156,7 @@ func (s *Store) UnbindKey(scope string) error {
 			return struct{}{}, Changes{}, nil
 		}
 		key.PlanID = ""
+		key.BillingSince = s.Now()
 		key.Cycles = nil
 		return struct{}{}, Changes{Keys: []string{scope}}, nil
 	})
@@ -197,19 +201,40 @@ func (s *Store) ResetCycles(req ResetRequest) (ResetResult, error) {
 				return ResetResult{}, Changes{}, invalidf("API Key 不存在或未绑定计划")
 			}
 		}
-		result := ResetResult{}
-		var changed []string
+		sharedPlans := make(map[string]bool)
+		targets := make(map[string]bool)
 		for _, scope := range scopes {
-			key := state.Keys[scope]
-			count := len(key.Cycles)
-			key.Cycles = nil
-			if count > 0 {
-				changed = append(changed, scope)
-				result.Keys++
-				result.Windows += count
+			targets[scope] = true
+			plan, _ := state.FindPlan(state.Keys[scope].PlanID)
+			if plan.SharedCycles() {
+				sharedPlans[plan.ID] = true
 			}
 		}
-		return result, Changes{Keys: changed}, nil
+		for i := range state.Plans {
+			if sharedPlans[state.Plans[i].ID] {
+				state.Plans[i].StartedAt = time.Time{}
+			}
+		}
+		result := ResetResult{}
+		var changed []string
+		now := s.Now()
+		for scope, key := range state.Keys {
+			if key == nil || (!targets[scope] && !sharedPlans[key.PlanID]) {
+				continue
+			}
+			count := len(key.Cycles)
+			if sharedPlans[key.PlanID] {
+				key.BillingSince = now
+				changed = append(changed, scope)
+				result.Keys++
+			} else if count > 0 {
+				changed = append(changed, scope)
+				result.Keys++
+			}
+			result.Windows += count
+			key.Cycles = nil
+		}
+		return result, Changes{Keys: changed, Plans: len(sharedPlans) > 0}, nil
 	})
 }
 
@@ -231,7 +256,7 @@ func (s *Store) SetLabel(scope, label string) error {
 	return err
 }
 
-// Deleted keys retain their settings but cannot be rebound or reset.
+// Deleted keys cannot be selected directly; a plan reset also clears their quota.
 func (s *State) liveKey(scope string) *KeyState {
 	key := s.Keys[scope]
 	if key == nil || !key.DeletedAt.IsZero() {

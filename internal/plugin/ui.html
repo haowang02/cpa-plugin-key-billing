@@ -2537,6 +2537,14 @@
             <div class="editor-state notice hidden"></div>
             <input id="plan-id" type="hidden" />
             <label class="field"> 计划名称 <input id="plan-name" placeholder="团队额度" /> </label>
+            <label class="field">
+              周期起点
+              <select id="plan-cycle-scope" aria-describedby="plan-cycle-scope-help">
+                <option value="key">Key 独立起点</option>
+                <option value="plan">计划统一起点</option>
+              </select>
+              <span id="plan-cycle-scope-help" class="small muted"></span>
+            </label>
             <div class="row spread plan-windows-heading">
               <span class="small muted">额度窗口</span>
               <button id="plan-window-add" type="button" class="link small">添加窗口</button>
@@ -6692,7 +6700,9 @@
                   onclick: () =>
                     openActionDialog(
                       "重置订阅额度？",
-                      "所有额度周期将结束，下一次放行会开启新周期。",
+                      plans.find((plan) => plan.id === view.plan_id)?.cycle_scope === "plan"
+                        ? "该计划所有 Key（包括已删除 Key）的额度和周期起点将清零，下次实际计费重新起算。"
+                        : "该 Key 的所有额度周期将结束，下一次放行开启新周期。",
                       undefined,
                       async () => {
                         await mutateAdmin("POST", "/keys/reset", { mode: "all", scopes: [view.scope] });
@@ -7210,7 +7220,7 @@
             );
             return settingsCard(
               name,
-              [...windows, boundKeyField(boundKeys)],
+              [settingsEntryField("周期起点", plan.cycle_scope === "plan" ? "计划统一起点" : "Key 独立起点"), ...windows, boundKeyField(boundKeys)],
               () => editPlan(plan),
               () =>
                 openActionDialog(
@@ -8866,6 +8876,13 @@
         );
       }
 
+      function updatePlanCycleScopeHelp() {
+        $("plan-cycle-scope-help").textContent = $("plan-cycle-scope").value === "plan"
+          ? "所有 Key 从计划首次扣除额度共同起算，额度各自独立。重置会清空同计划所有 Key 的周期和消费额，下次计费重新起算。"
+          : "各 Key 从首次放行独立起算；重置只清空该 Key 的周期和消费额，下次放行重新起算。";
+      }
+      $("plan-cycle-scope").onchange = updatePlanCycleScopeHelp;
+
       function editPlan(plan) {
         const id = plan?.id;
         openEditor("plan-dialog", "plan", (data) => {
@@ -8875,6 +8892,8 @@
           $("plan-id").value = id || "";
           $("plan-save").textContent = current ? "保存" : "创建";
           $("plan-name").value = current?.name || "";
+          $("plan-cycle-scope").value = current?.cycle_scope || "key";
+          updatePlanCycleScopeHelp();
           $("plan-windows").replaceChildren();
           (current ? current.windows : [{}]).forEach(addPlanWindow);
           renderPlanKeyList(id || "", data);
@@ -8937,6 +8956,7 @@
         }
         return {
           name: $("plan-name").value.trim(),
+          cycle_scope: $("plan-cycle-scope").value,
           windows,
           scopes: selectedKeyScopes("plan-key-list"),
         };
@@ -9359,6 +9379,8 @@
                 (quotaWindow) => quotaWindow.id === old.id && quotaWindow.period_seconds === old.period_seconds,
               ),
           );
+          if (existing && (existing.cycle_scope || "key") !== plan.cycle_scope &&
+              !(await openActionDialog("切换周期起点模式？", "该计划所有 Key 的周期和消费额将清零（包括已删除 Key）。历史请求事件及统计不受影响。"))) return false;
           if (
             affected.length &&
             !(await openActionDialog(
@@ -9372,6 +9394,7 @@
           if (!editorCurrent(editor)) return false;
           if (id && sameScopes(plan.scopes, editor.initial.scopes)) delete plan.scopes;
           if (id && plan.name === existing.name) delete plan.name;
+          if (id && plan.cycle_scope === (existing.cycle_scope || "key")) delete plan.cycle_scope;
           if (id && JSON.stringify(plan.windows) === JSON.stringify(existing.windows)) delete plan.windows;
           if (id && !Object.keys(plan).length) return;
           if (id) await mutateAdmin("PATCH", "/plans", { id, ...plan });
@@ -9555,7 +9578,7 @@
       $("keys-reset-all").onclick = () =>
         openActionDialog(
           "重置全员订阅额度？",
-          "所有未删除且绑定计划的 API Key 将结束全部额度周期，下一次放行开启新周期。",
+          "所有在用 Key 的额度和周期起点将清零。独立模式下次放行重新起算；统一模式同时重置同计划所有 Key（包括已删除 Key），下次实际计费重新起算。",
           undefined,
           async () => {
             const result = await mutateAdmin("POST", "/keys/reset", { mode: "global" });

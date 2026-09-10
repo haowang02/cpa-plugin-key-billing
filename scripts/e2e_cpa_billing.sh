@@ -882,8 +882,8 @@ assert_quota_exhausted() {
   # plan rather than the one that is refused.
   management_call POST "$port" "/v0/management/plugins/cpa-key-billing/plans" \
     -H "Content-Type: application/json" \
-    --data "$(jq -nc --arg name "$plan_name" --arg scope "$scope" --arg dimension "$dimension" \
-      '{name: $name, windows: [
+    --data "$(jq -nc --arg name "$plan_name" --arg scope "$scope" --arg cycle_scope "${CPA_E2E_CYCLE_SCOPE:-key}" --arg dimension "$dimension" \
+      '{name: $name, cycle_scope: $cycle_scope, windows: [
         {name: "Short", period_seconds: 3600}, {name: "Budget", period_seconds: 86400}
       ] | map(. + {
         amount_usd: (if $dimension == "amount_usd" then 0.0001 else 0 end),

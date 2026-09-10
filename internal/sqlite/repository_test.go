@@ -177,7 +177,7 @@ func TestQuotaDimensionsExtendExistingJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := database.db.Exec(insertKey, "dummy-scope", "sk-dum…0001", "", true, 0, "p", 0,
-		`{"w":{"plan_id":"p","start_at":"2026-09-08T12:00:00Z","end_at":"2026-09-08T13:00:00Z","spent_usd":3.5}}`, `{}`); err != nil {
+		`{"w":{"plan_id":"p","start_at":"2026-09-08T12:00:00Z","end_at":"2026-09-08T13:00:00Z","spent_usd":3.5}}`, `{}`, 0); err != nil {
 		t.Fatal(err)
 	}
 	state := mustLoad(t, database).State

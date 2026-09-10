@@ -11,9 +11,11 @@ import (
 )
 
 type Plan struct {
-	ID      string        `json:"id"`
-	Name    string        `json:"name"`
-	Windows []QuotaWindow `json:"windows"`
+	CycleScope string        `json:"cycle_scope,omitempty"`
+	StartedAt  time.Time     `json:"started_at,omitzero"`
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	Windows    []QuotaWindow `json:"windows"`
 }
 
 // Zero disables a dimension within the window's independently timed cycle.
@@ -31,7 +33,15 @@ const maxPeriodSeconds = int64(math.MaxInt64) / int64(time.Second)
 // Limits travel through browser number inputs and must be exactly representable.
 const maxQuotaCount = int64(1<<53 - 1)
 
+const CycleScopeKey = "key"
+const CycleScopePlan = "plan"
+
+func (p Plan) SharedCycles() bool { return p.CycleScope == CycleScopePlan }
+
 func (p Plan) Validate() error {
+	if p.CycleScope != "" && p.CycleScope != CycleScopeKey && p.CycleScope != CycleScopePlan {
+		return invalidf("周期起点模式无效")
+	}
 	if strings.TrimSpace(p.ID) == "" {
 		return invalidf("订阅计划 ID 不能为空")
 	}
@@ -121,15 +131,13 @@ func (s *Store) Plans() []Plan {
 // CreatePlanWithBindings creates a plan and binds the selected currently
 // unbound keys in the same state transaction.
 func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error) {
+	plan.StartedAt = time.Time{}
 	plan.ID = strings.TrimSpace(plan.ID)
 	plan.Name = strings.TrimSpace(plan.Name)
 	scopes = normalizeScopes(scopes)
 	return editConfiguration(s, func(state *State) (Plan, Changes, error) {
 		if plan.ID == "" {
-			plan.ID = freeID(plan.Name, "plan", func(id string) bool {
-				_, exists := state.FindPlan(id)
-				return exists
-			})
+			plan.ID = freeID(plan.Name, "plan", func(id string) bool { _, exists := state.FindPlan(id); return exists })
 		}
 		windows, err := prepareWindows(plan.Windows, nil)
 		if err != nil {
@@ -157,6 +165,7 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 		state.Plans = append(state.Plans, plan)
 		for _, scope := range scopes {
 			state.Keys[scope].PlanID = plan.ID
+			state.Keys[scope].BillingSince = s.Now()
 			state.Keys[scope].Cycles = nil
 		}
 		return clonePlan(plan), Changes{Plans: true, Keys: scopes}, nil
@@ -164,9 +173,10 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 }
 
 type PlanPatch struct {
-	ID      string         `json:"id"`
-	Name    *string        `json:"name,omitempty"`
-	Windows *[]QuotaWindow `json:"windows,omitempty"`
+	CycleScope *string        `json:"cycle_scope,omitempty"`
+	ID         string         `json:"id"`
+	Name       *string        `json:"name,omitempty"`
+	Windows    *[]QuotaWindow `json:"windows,omitempty"`
 }
 
 // UpdatePlanWithBindings applies a plan edit and, when scopes is non-nil,
@@ -184,6 +194,13 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				continue
 			}
 			updated := state.Plans[i]
+			if patch.CycleScope != nil {
+				updated.CycleScope = *patch.CycleScope
+			}
+			scopeChanged := updated.SharedCycles() != state.Plans[i].SharedCycles()
+			if scopeChanged {
+				updated.StartedAt = time.Time{}
+			}
 			if patch.Name != nil {
 				updated.Name = strings.TrimSpace(*patch.Name)
 			}
@@ -231,7 +248,12 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				_, shouldBind := selected[scope]
 				if scopes != nil && !shouldBind {
 					key.PlanID, key.Cycles = "", nil
+					key.BillingSince = s.Now()
 					continue
+				}
+				if scopeChanged {
+					key.Cycles = nil
+					key.BillingSince = s.Now()
 				}
 				for _, id := range resetWindows {
 					delete(key.Cycles, id)
@@ -242,6 +264,7 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 					key := state.Keys[scope]
 					if key.PlanID == "" {
 						key.PlanID = patch.ID
+						key.BillingSince = s.Now()
 						key.Cycles = nil
 					}
 				}
@@ -277,4 +300,15 @@ func (s *Store) DeletePlan(id string) (int, error) {
 		}
 		return released, Changes{Plans: true, AllKeys: true}, nil
 	})
+}
+
+// A free response starts a token/request plan only when it consumes an enabled
+// dimension; an amount-only plan waits for a positive monetary charge.
+func (p Plan) startsWithUsage(usage quotaUsage) bool {
+	for _, window := range p.Windows {
+		if window.AmountUSD > 0 && usage.AmountUSD > 0 || window.TokenLimit > 0 && usage.Tokens > 0 || window.RequestLimit > 0 && usage.Requests > 0 {
+			return true
+		}
+	}
+	return false
 }

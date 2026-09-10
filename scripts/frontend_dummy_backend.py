@@ -1543,7 +1543,7 @@ class Handler(BaseHTTPRequestHandler):
             if stored is None:
                 self.send_json(404, {"error": {"message": "dummy backend: plan not found"}})
                 return
-            stored.update({key: body[key] for key in ("name", "windows") if key in body})
+            stored.update({key: body[key] for key in ("name", "windows", "cycle_scope") if key in body})
             for index, window in enumerate(stored["windows"]):
                 window.setdefault("id", str(time.time_ns()) + "-" + str(index))
             stored["windows"].sort(key=lambda window: window["period_seconds"])
