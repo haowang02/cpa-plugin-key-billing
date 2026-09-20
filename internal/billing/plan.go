@@ -265,6 +265,22 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				for _, id := range resetWindows {
 					delete(key.Cycles, id)
 				}
+				// Credits survive limit/name edits, not disabled dimensions. Reject
+				// overflowing combined limits atomically across all bound keys.
+				settleExpiredCycles(key, s.Now())
+				for _, window := range updated.Windows {
+					cycle, exists := key.Cycles[window.ID]
+					if !exists {
+						continue
+					}
+					for _, dim := range quotaDimensions {
+						dim.resetTemporaryIfDisabled(window, &cycle.TemporaryQuota)
+					}
+					if err := cycle.TemporaryQuota.validate(window); err != nil {
+						return Plan{}, Changes{}, err
+					}
+					key.Cycles[window.ID] = cycle
+				}
 			}
 			if scopes != nil {
 				for scope := range selected {

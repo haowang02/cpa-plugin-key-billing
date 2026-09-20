@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -24,35 +25,39 @@ type quotaUsage struct {
 
 // UsageSince excludes requests admitted before binding or an administrative reset.
 type QuotaCycle struct {
-	PlanID       string    `json:"plan_id,omitempty"`
-	StartAt      time.Time `json:"start_at,omitzero"`
-	EndAt        time.Time `json:"end_at,omitzero"`
-	UsageSince   time.Time `json:"usage_since,omitzero"`
-	SpentUSD     float64   `json:"spent_usd"`
-	UsedTokens   int64     `json:"used_tokens"`
-	UsedRequests int64     `json:"used_requests"`
+	PlanID         string         `json:"plan_id,omitempty"`
+	StartAt        time.Time      `json:"start_at,omitzero"`
+	EndAt          time.Time      `json:"end_at,omitzero"`
+	UsageSince     time.Time      `json:"usage_since,omitzero"`
+	SpentUSD       float64        `json:"spent_usd"`
+	UsedTokens     int64          `json:"used_tokens"`
+	UsedRequests   int64          `json:"used_requests"`
+	TemporaryQuota TemporaryQuota `json:"temporary_quota,omitzero"`
 }
 
 // JSON numbers retain integer counters without float conversion.
 type QuotaBalance struct {
-	Metric      QuotaMetric `json:"metric"`
-	Limit       json.Number `json:"limit"`
-	Used        json.Number `json:"used"`
-	Remaining   json.Number `json:"remaining"`
-	UsedPercent float64     `json:"used_percent"`
-	Blocked     bool        `json:"blocked"`
+	Metric         QuotaMetric `json:"metric"`
+	BaseLimit      json.Number `json:"base_limit,omitempty"`
+	TemporaryLimit json.Number `json:"temporary_limit,omitempty"`
+	Limit          json.Number `json:"limit"`
+	Used           json.Number `json:"used"`
+	Remaining      json.Number `json:"remaining"`
+	UsedPercent    float64     `json:"used_percent"`
+	Blocked        bool        `json:"blocked"`
 }
 
 type QuotaWindowView struct {
-	ID            string         `json:"id"`
-	Name          string         `json:"name"`
-	PeriodSeconds int64          `json:"period_seconds"`
-	CycleAnchorAt time.Time      `json:"cycle_anchor_at,omitzero"`
-	Started       bool           `json:"started"`
-	Blocked       bool           `json:"blocked"`
-	StartAt       time.Time      `json:"start_at,omitzero"`
-	EndAt         time.Time      `json:"end_at,omitzero"`
-	Dimensions    []QuotaBalance `json:"dimensions"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	PeriodSeconds  int64          `json:"period_seconds"`
+	CycleAnchorAt  time.Time      `json:"cycle_anchor_at,omitzero"`
+	Started        bool           `json:"started"`
+	Blocked        bool           `json:"blocked"`
+	StartAt        time.Time      `json:"start_at,omitzero"`
+	EndAt          time.Time      `json:"end_at,omitzero"`
+	Dimensions     []QuotaBalance `json:"dimensions"`
+	CreditRevision string         `json:"credit_revision,omitempty"`
 }
 
 type QuotaView struct {
@@ -80,11 +85,12 @@ func (w QuotaWindow) view(cycle QuotaCycle) QuotaWindowView {
 func quotaView(key *KeyState, plan Plan, now time.Time) QuotaView {
 	view := QuotaView{Windows: make([]QuotaWindowView, 0, len(plan.Windows)), Unlimited: plan.ID == ""}
 	for _, window := range plan.Windows {
-		cycle := key.Cycles[window.ID]
+		cycle, persisted := key.Cycles[window.ID]
 		if cycle.StartAt.IsZero() && !window.CycleAnchorAt.IsZero() {
 			cycle = window.newCycle(plan.ID, now)
 		}
 		item := window.view(cycle)
+		item.CreditRevision = quotaCreditRevision(plan.ID, window, cycle, persisted)
 		if item.Blocked {
 			view.Blocked = true
 			if item.EndAt.After(view.RetryAt) {
@@ -111,16 +117,22 @@ func (w QuotaWindow) newCycle(planID string, now time.Time) QuotaCycle {
 	return cycle
 }
 
-func appendQuotaBalance[T int64 | float64](balances []QuotaBalance, metric QuotaMetric, limit, used T) []QuotaBalance {
-	if limit <= 0 {
+func appendQuotaBalance[T int64 | float64](balances []QuotaBalance, metric QuotaMetric, base, extra, used T) []QuotaBalance {
+	if base <= 0 {
 		return balances
 	}
-	return append(balances, QuotaBalance{
+	limit := base + extra
+	balance := QuotaBalance{
 		Metric: metric, Limit: json.Number(fmt.Sprint(limit)), Used: json.Number(fmt.Sprint(used)),
 		Remaining:   json.Number(fmt.Sprint(max(0, limit-used))),
 		UsedPercent: math.Min(float64(used)/float64(limit), 1) * 100,
 		Blocked:     used >= limit,
-	})
+	}
+	if extra > 0 {
+		balance.BaseLimit = json.Number(fmt.Sprint(base))
+		balance.TemporaryLimit = json.Number(fmt.Sprint(extra))
+	}
+	return append(balances, balance)
 }
 
 func (b QuotaBalance) Description() string {
@@ -174,6 +186,9 @@ func (key *KeyState) ValidateCycles(plan Plan) error {
 			}
 		}
 		window := plan.Windows[index]
+		if err := cycle.TemporaryQuota.validate(window); err != nil {
+			return err
+		}
 		if !window.CycleAnchorAt.IsZero() && !window.newCycle(plan.ID, cycle.StartAt).StartAt.Equal(cycle.StartAt) ||
 			!cycle.UsageSince.IsZero() && (cycle.UsageSince.Before(cycle.StartAt) || !cycle.UsageSince.Before(cycle.EndAt)) {
 			return invalidf("Invalid quota cycle data for this API key")
@@ -214,11 +229,28 @@ type quotaDimension interface {
 	validateCycle(cycle QuotaCycle) bool
 	validateWindow(name string, w QuotaWindow) error
 	hasLimit(w QuotaWindow) bool
+	validateTemporary(w QuotaWindow, q TemporaryQuota) error
+	resetTemporaryIfDisabled(w QuotaWindow, q *TemporaryQuota)
+	writeWindowLimit(b *strings.Builder, w QuotaWindow)
+	writeTemporaryLimit(b *strings.Builder, q TemporaryQuota)
 }
 
 func validateIntWindowLimit(name string, limit int64) error {
 	if limit < 0 || limit > maxQuotaCount {
 		return invalidf("Window %q: token and request limits must be integers from 0 to %d", name, maxQuotaCount)
+	}
+	return nil
+}
+
+func validateTemporaryInt(base, extra int64) error {
+	if extra < 0 || extra > maxQuotaCount {
+		return invalidf("Temporary credits must be finite non-negative values, and token and request credits must be safe integers")
+	}
+	if base == 0 && extra != 0 {
+		return invalidf("Unlimited quota dimensions do not need temporary credits")
+	}
+	if base > maxQuotaCount-extra {
+		return invalidf("The base quota plus temporary credits exceeds the supported range")
 	}
 	return nil
 }
@@ -230,7 +262,7 @@ func (amountDimension) metric() QuotaMetric {
 }
 
 func (amountDimension) appendBalance(balances []QuotaBalance, w QuotaWindow, cycle QuotaCycle) []QuotaBalance {
-	return appendQuotaBalance(balances, QuotaAmount, w.AmountUSD, cycle.SpentUSD)
+	return appendQuotaBalance(balances, QuotaAmount, w.AmountUSD, cycle.TemporaryQuota.AmountUSD, cycle.SpentUSD)
 }
 
 func (amountDimension) charge(cycle *QuotaCycle, usage quotaUsage) {
@@ -252,6 +284,33 @@ func (amountDimension) hasLimit(w QuotaWindow) bool {
 	return w.AmountUSD > 0
 }
 
+func (amountDimension) validateTemporary(w QuotaWindow, q TemporaryQuota) error {
+	if q.AmountUSD < 0 || math.IsNaN(q.AmountUSD) || math.IsInf(q.AmountUSD, 0) {
+		return invalidf("Temporary credits must be finite non-negative values, and token and request credits must be safe integers")
+	}
+	if w.AmountUSD == 0 && q.AmountUSD != 0 {
+		return invalidf("Unlimited quota dimensions do not need temporary credits")
+	}
+	if math.IsInf(w.AmountUSD+q.AmountUSD, 0) {
+		return invalidf("The base quota plus temporary credits exceeds the supported range")
+	}
+	return nil
+}
+
+func (amountDimension) resetTemporaryIfDisabled(w QuotaWindow, q *TemporaryQuota) {
+	if w.AmountUSD == 0 {
+		q.AmountUSD = 0
+	}
+}
+
+func (amountDimension) writeWindowLimit(b *strings.Builder, w QuotaWindow) {
+	fmt.Fprintf(b, "|%.17g", w.AmountUSD)
+}
+
+func (amountDimension) writeTemporaryLimit(b *strings.Builder, q TemporaryQuota) {
+	fmt.Fprintf(b, "|%.17g", q.AmountUSD)
+}
+
 type tokensDimension struct{}
 
 func (tokensDimension) metric() QuotaMetric {
@@ -259,7 +318,7 @@ func (tokensDimension) metric() QuotaMetric {
 }
 
 func (tokensDimension) appendBalance(balances []QuotaBalance, w QuotaWindow, cycle QuotaCycle) []QuotaBalance {
-	return appendQuotaBalance(balances, QuotaTokens, w.TokenLimit, cycle.UsedTokens)
+	return appendQuotaBalance(balances, QuotaTokens, w.TokenLimit, cycle.TemporaryQuota.TokenLimit, cycle.UsedTokens)
 }
 
 func (tokensDimension) charge(cycle *QuotaCycle, usage quotaUsage) {
@@ -278,6 +337,24 @@ func (tokensDimension) hasLimit(w QuotaWindow) bool {
 	return w.TokenLimit > 0
 }
 
+func (tokensDimension) validateTemporary(w QuotaWindow, q TemporaryQuota) error {
+	return validateTemporaryInt(w.TokenLimit, q.TokenLimit)
+}
+
+func (tokensDimension) resetTemporaryIfDisabled(w QuotaWindow, q *TemporaryQuota) {
+	if w.TokenLimit == 0 {
+		q.TokenLimit = 0
+	}
+}
+
+func (tokensDimension) writeWindowLimit(b *strings.Builder, w QuotaWindow) {
+	fmt.Fprintf(b, "|%d", w.TokenLimit)
+}
+
+func (tokensDimension) writeTemporaryLimit(b *strings.Builder, q TemporaryQuota) {
+	fmt.Fprintf(b, "|%d", q.TokenLimit)
+}
+
 type requestsDimension struct{}
 
 func (requestsDimension) metric() QuotaMetric {
@@ -285,7 +362,7 @@ func (requestsDimension) metric() QuotaMetric {
 }
 
 func (requestsDimension) appendBalance(balances []QuotaBalance, w QuotaWindow, cycle QuotaCycle) []QuotaBalance {
-	return appendQuotaBalance(balances, QuotaRequests, w.RequestLimit, cycle.UsedRequests)
+	return appendQuotaBalance(balances, QuotaRequests, w.RequestLimit, cycle.TemporaryQuota.RequestLimit, cycle.UsedRequests)
 }
 
 func (requestsDimension) charge(cycle *QuotaCycle, usage quotaUsage) {
@@ -302,6 +379,24 @@ func (requestsDimension) validateWindow(name string, w QuotaWindow) error {
 
 func (requestsDimension) hasLimit(w QuotaWindow) bool {
 	return w.RequestLimit > 0
+}
+
+func (requestsDimension) validateTemporary(w QuotaWindow, q TemporaryQuota) error {
+	return validateTemporaryInt(w.RequestLimit, q.RequestLimit)
+}
+
+func (requestsDimension) resetTemporaryIfDisabled(w QuotaWindow, q *TemporaryQuota) {
+	if w.RequestLimit == 0 {
+		q.RequestLimit = 0
+	}
+}
+
+func (requestsDimension) writeWindowLimit(b *strings.Builder, w QuotaWindow) {
+	fmt.Fprintf(b, "|%d", w.RequestLimit)
+}
+
+func (requestsDimension) writeTemporaryLimit(b *strings.Builder, q TemporaryQuota) {
+	fmt.Fprintf(b, "|%d", q.RequestLimit)
 }
 
 var quotaDimensions = []quotaDimension{
