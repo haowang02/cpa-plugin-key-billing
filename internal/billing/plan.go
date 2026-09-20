@@ -53,13 +53,16 @@ func (p Plan) Validate() error {
 		if names[strings.ToLower(name)] {
 			return invalidf("Duplicate window name %q", name)
 		}
-		if window.AmountUSD < 0 || math.IsNaN(window.AmountUSD) || math.IsInf(window.AmountUSD, 0) {
-			return invalidf("Window %q: amount quota must be a finite non-negative number", name)
+		hasAny := false
+		for _, dim := range quotaDimensions {
+			if err := dim.validateWindow(name, window); err != nil {
+				return err
+			}
+			if dim.hasLimit(window) {
+				hasAny = true
+			}
 		}
-		if window.TokenLimit < 0 || window.TokenLimit > maxQuotaCount || window.RequestLimit < 0 || window.RequestLimit > maxQuotaCount {
-			return invalidf("Window %q: token and request limits must be integers from 0 to %d", name, maxQuotaCount)
-		}
-		if window.AmountUSD == 0 && window.TokenLimit == 0 && window.RequestLimit == 0 {
+		if !hasAny {
 			return invalidf("Window %q: set at least one quota", name)
 		}
 		if window.PeriodSeconds <= 0 || window.PeriodSeconds > maxPeriodSeconds {

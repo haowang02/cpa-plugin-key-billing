@@ -66,11 +66,11 @@ func (w QuotaWindow) view(cycle QuotaCycle) QuotaWindowView {
 	view := QuotaWindowView{
 		ID: w.ID, Name: w.Name, PeriodSeconds: w.PeriodSeconds, CycleAnchorAt: w.CycleAnchorAt,
 		Started: !cycle.StartAt.IsZero(), StartAt: cycle.StartAt, EndAt: cycle.EndAt,
-		Dimensions: make([]QuotaBalance, 0, 3),
+		Dimensions: make([]QuotaBalance, 0, len(quotaDimensions)),
 	}
-	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaAmount, w.AmountUSD, cycle.SpentUSD)
-	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaTokens, w.TokenLimit, cycle.UsedTokens)
-	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaRequests, w.RequestLimit, cycle.UsedRequests)
+	for _, dim := range quotaDimensions {
+		view.Dimensions = dim.appendBalance(view.Dimensions, w, cycle)
+	}
 	for _, balance := range view.Dimensions {
 		view.Blocked = view.Blocked || balance.Blocked
 	}
@@ -165,10 +165,13 @@ func (key *KeyState) ValidateCycles(plan Plan) error {
 	for id, cycle := range key.Cycles {
 		index := slices.IndexFunc(plan.Windows, func(window QuotaWindow) bool { return window.ID == id })
 		if index < 0 || cycle.PlanID != key.PlanID || cycle.StartAt.IsZero() || cycle.EndAt.IsZero() ||
-			!cycle.EndAt.Equal(cycle.StartAt.Add(time.Duration(plan.Windows[index].PeriodSeconds)*time.Second)) ||
-			cycle.SpentUSD < 0 || math.IsNaN(cycle.SpentUSD) || math.IsInf(cycle.SpentUSD, 0) ||
-			cycle.UsedRequests < 0 || cycle.UsedTokens < 0 {
+			!cycle.EndAt.Equal(cycle.StartAt.Add(time.Duration(plan.Windows[index].PeriodSeconds)*time.Second)) {
 			return invalidf("Invalid quota cycle data for this API key")
+		}
+		for _, dim := range quotaDimensions {
+			if !dim.validateCycle(cycle) {
+				return invalidf("Invalid quota cycle data for this API key")
+			}
 		}
 		window := plan.Windows[index]
 		if !window.CycleAnchorAt.IsZero() && !window.newCycle(plan.ID, cycle.StartAt).StartAt.Equal(cycle.StartAt) ||
@@ -190,9 +193,9 @@ func (key *KeyState) chargeCycles(at time.Time, usage quotaUsage) {
 		}
 		// Keep all dimensions, including currently disabled limits, so changing
 		// limits retains this cycle's usage. Saturation only prevents overflow.
-		cycle.SpentUSD = math.Min(cycle.SpentUSD+usage.AmountUSD, math.MaxFloat64)
-		cycle.UsedTokens = addQuotaCount(cycle.UsedTokens, usage.Tokens)
-		cycle.UsedRequests = addQuotaCount(cycle.UsedRequests, usage.Requests)
+		for _, dim := range quotaDimensions {
+			dim.charge(&cycle, usage)
+		}
 		key.Cycles[id] = cycle
 	}
 }
@@ -202,4 +205,107 @@ func addQuotaCount(current, delta int64) int64 {
 		return math.MaxInt64
 	}
 	return current + delta
+}
+
+type quotaDimension interface {
+	metric() QuotaMetric
+	appendBalance(balances []QuotaBalance, w QuotaWindow, cycle QuotaCycle) []QuotaBalance
+	charge(cycle *QuotaCycle, usage quotaUsage)
+	validateCycle(cycle QuotaCycle) bool
+	validateWindow(name string, w QuotaWindow) error
+	hasLimit(w QuotaWindow) bool
+}
+
+func validateIntWindowLimit(name string, limit int64) error {
+	if limit < 0 || limit > maxQuotaCount {
+		return invalidf("Window %q: token and request limits must be integers from 0 to %d", name, maxQuotaCount)
+	}
+	return nil
+}
+
+type amountDimension struct{}
+
+func (amountDimension) metric() QuotaMetric {
+	return QuotaAmount
+}
+
+func (amountDimension) appendBalance(balances []QuotaBalance, w QuotaWindow, cycle QuotaCycle) []QuotaBalance {
+	return appendQuotaBalance(balances, QuotaAmount, w.AmountUSD, cycle.SpentUSD)
+}
+
+func (amountDimension) charge(cycle *QuotaCycle, usage quotaUsage) {
+	cycle.SpentUSD = math.Min(cycle.SpentUSD+usage.AmountUSD, math.MaxFloat64)
+}
+
+func (amountDimension) validateCycle(cycle QuotaCycle) bool {
+	return cycle.SpentUSD >= 0 && !math.IsNaN(cycle.SpentUSD) && !math.IsInf(cycle.SpentUSD, 0)
+}
+
+func (amountDimension) validateWindow(name string, w QuotaWindow) error {
+	if w.AmountUSD < 0 || math.IsNaN(w.AmountUSD) || math.IsInf(w.AmountUSD, 0) {
+		return invalidf("Window %q: amount quota must be a finite non-negative number", name)
+	}
+	return nil
+}
+
+func (amountDimension) hasLimit(w QuotaWindow) bool {
+	return w.AmountUSD > 0
+}
+
+type tokensDimension struct{}
+
+func (tokensDimension) metric() QuotaMetric {
+	return QuotaTokens
+}
+
+func (tokensDimension) appendBalance(balances []QuotaBalance, w QuotaWindow, cycle QuotaCycle) []QuotaBalance {
+	return appendQuotaBalance(balances, QuotaTokens, w.TokenLimit, cycle.UsedTokens)
+}
+
+func (tokensDimension) charge(cycle *QuotaCycle, usage quotaUsage) {
+	cycle.UsedTokens = addQuotaCount(cycle.UsedTokens, usage.Tokens)
+}
+
+func (tokensDimension) validateCycle(cycle QuotaCycle) bool {
+	return cycle.UsedTokens >= 0
+}
+
+func (tokensDimension) validateWindow(name string, w QuotaWindow) error {
+	return validateIntWindowLimit(name, w.TokenLimit)
+}
+
+func (tokensDimension) hasLimit(w QuotaWindow) bool {
+	return w.TokenLimit > 0
+}
+
+type requestsDimension struct{}
+
+func (requestsDimension) metric() QuotaMetric {
+	return QuotaRequests
+}
+
+func (requestsDimension) appendBalance(balances []QuotaBalance, w QuotaWindow, cycle QuotaCycle) []QuotaBalance {
+	return appendQuotaBalance(balances, QuotaRequests, w.RequestLimit, cycle.UsedRequests)
+}
+
+func (requestsDimension) charge(cycle *QuotaCycle, usage quotaUsage) {
+	cycle.UsedRequests = addQuotaCount(cycle.UsedRequests, usage.Requests)
+}
+
+func (requestsDimension) validateCycle(cycle QuotaCycle) bool {
+	return cycle.UsedRequests >= 0
+}
+
+func (requestsDimension) validateWindow(name string, w QuotaWindow) error {
+	return validateIntWindowLimit(name, w.RequestLimit)
+}
+
+func (requestsDimension) hasLimit(w QuotaWindow) bool {
+	return w.RequestLimit > 0
+}
+
+var quotaDimensions = []quotaDimension{
+	amountDimension{},
+	tokensDimension{},
+	requestsDimension{},
 }
