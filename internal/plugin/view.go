@@ -3,6 +3,7 @@ package plugin
 import (
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,22 @@ import (
 	"cpa-key-billing/internal/billing"
 	"cpa-key-billing/internal/messages"
 )
+
+var emailMaskRegex = regexp.MustCompile(`([a-zA-Z0-9._-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+)`)
+
+func maskEmailText(text string) string {
+	return emailMaskRegex.ReplaceAllStringFunc(text, func(match string) string {
+		parts := strings.SplitN(match, "@", 2)
+		if len(parts) != 2 {
+			return match
+		}
+		name := parts[0]
+		if len(name) > 3 {
+			name = name[:3]
+		}
+		return name + "***@" + parts[1]
+	})
+}
 
 const (
 	defaultEventPageSize = 50
@@ -89,6 +106,7 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 			view.Entries[i].AuthIndex = ""
 			view.Entries[i].Preview = ""
 			view.Entries[i].Label = ""
+			view.Entries[i].Source = maskEmailText(view.Entries[i].Source)
 		}
 	}
 	return viewJSON(access, http.StatusOK, view)
@@ -127,6 +145,7 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 		for i := range view.Entries {
 			view.Entries[i].Scope, view.Entries[i].AuthIndex = "", ""
 			view.Entries[i].Preview, view.Entries[i].Label = "", ""
+			view.Entries[i].Source = maskEmailText(view.Entries[i].Source)
 		}
 	}
 	return viewJSON(access, http.StatusOK, view)
@@ -165,6 +184,12 @@ func (a *App) analysis(req ManagementRequest, access viewAccess) ManagementRespo
 	}
 	if access.APIKey || query.KeyScope != "" {
 		view.UsageDistribution.APIKeys = []billing.AnalysisComposition{}
+	}
+	if access.APIKey {
+		for i := range view.UsageDistribution.Sources {
+			view.UsageDistribution.Sources[i].Key = maskEmailText(view.UsageDistribution.Sources[i].Key)
+			view.UsageDistribution.Sources[i].Label = maskEmailText(view.UsageDistribution.Sources[i].Label)
+		}
 	}
 	return viewJSON(access, http.StatusOK, view)
 }

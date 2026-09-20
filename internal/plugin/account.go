@@ -180,7 +180,7 @@ func accountCredential(item credentialView) accountRouteCredential {
 	if status == "" {
 		status = "active"
 	}
-	return accountRouteCredential{Source: item.Source, Provider: item.Provider, Name: item.DisplayName, NameMessage: item.DisplayMessage, Status: status}
+	return accountRouteCredential{Source: item.Source, Provider: item.Provider, Name: maskEmailText(item.DisplayName), NameMessage: item.DisplayMessage, Status: status}
 }
 func accountScope(headers http.Header) (string, bool) {
 	values := headers.Values("Authorization")

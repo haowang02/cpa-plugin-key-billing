@@ -187,8 +187,14 @@ func (a *App) listAuthFiles(access viewAccess) ([]authFileView, error) {
 		}
 		category := authCategory(file.Type)
 		quotaSupported, quotaReason := authQuotaAvailability(file, category)
+		email := cleanText(file.Email)
+		name := file.Name
+		if access.APIKey {
+			email = maskEmailText(email)
+			name = maskEmailText(name)
+		}
 		views = append(views, authFileView{
-			AuthIndex: file.AuthIndex, Name: file.Name, Category: category, Email: cleanText(file.Email),
+			AuthIndex: file.AuthIndex, Name: name, Category: category, Email: email,
 			Disabled: file.Disabled, Unavailable: file.Unavailable,
 			QuotaSupported: quotaSupported, QuotaReason: quotaReason, CacheRevision: authFileRevision(file),
 			QuotaReasonMessage: messages.Literal(quotaReason),
