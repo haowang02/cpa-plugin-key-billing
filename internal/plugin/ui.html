@@ -52,6 +52,7 @@
         --quota-high-color: #10b981;
         --quota-medium-color: #e0aa14;
         --quota-low-color: var(--error-color);
+        --quota-temporary-color: var(--data-blue-base, var(--analysis-color-1));
         --viz-success: #10b981;
         --viz-failure: #c65746;
         --analysis-color-1: #3478f6;
@@ -656,6 +657,38 @@
       .quota-fill.high { background: var(--quota-high-color); }
       .quota-fill.medium { background: var(--quota-medium-color); }
       .quota-fill.low { background: var(--quota-low-color); }
+      .quota-fill.quota-segments { display: flex; overflow: hidden; }
+      .quota-segments > i { display: block; height: 100%; flex-shrink: 0; }
+      .quota-temporary { background: var(--quota-temporary-color); }
+      .quota-credit-details {
+        cursor: help;
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 2px;
+        background: none;
+        font-weight: inherit;
+        line-height: inherit;
+      }
+      .quota-credit-details:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; }
+      .quota-credit-tooltip {
+        position: fixed;
+        margin: 0;
+        padding: 10px 12px;
+        max-width: min(340px, calc(100vw - 24px));
+        border: 1px solid var(--border-primary);
+        border-radius: 8px;
+        background: var(--floating-surface);
+        color: var(--text-secondary);
+        box-shadow: var(--floating-shadow);
+        font-size: 12px;
+        line-height: 1.7;
+        white-space: pre-line;
+      }
+      #temporary-quota-fields input { width: 100%; min-width: 0; }
+      #temporary-quota-preview { margin-top: 16px; }
+      #temporary-quota-expiry { margin: 8px 0 12px; }
+
       @media (prefers-reduced-motion: reduce) {
         body,
         button,
@@ -2566,6 +2599,23 @@
       <div class="row dialog-actions"> <button id="action-cancel" data-i18n="ui.cancel">Cancel</button> <button id="action-confirm" class="primary" data-i18n="ui.confirm">Confirm</button> </div>
     </dialog>
 
+    <dialog id="temporary-quota-dialog" class="settings-dialog" aria-labelledby="temporary-quota-title" aria-describedby="temporary-quota-help">
+      <h2 id="temporary-quota-title" data-i18n="ui.temporary_credits">Temporary credits</h2>
+      <div class="editor-state notice hidden"></div>
+      <p id="temporary-quota-identity" class="muted small"></p>
+      <label class="field"> <span data-i18n="ui.quota_window">Quota window</span> <span class="native-select"><select id="temporary-quota-window"></select></span> </label>
+      <p id="temporary-quota-expiry" class="muted small"></p>
+      <div id="temporary-quota-fields" class="plan-window-limits"></div>
+      <div id="temporary-quota-preview"></div>
+      <p id="temporary-quota-help" class="muted small" data-i18n="ui.temporary_credits_apply_only_to_this_cycle_and_are_cleared_on_reset_saving_replaces_the_current_credits_revoking_does_not_restore_used_quota">Temporary credits apply only to this cycle and are cleared on reset. Saving replaces the current credits; revoking does not restore used quota.</p>
+      <div class="row dialog-actions">
+        <button id="temporary-quota-revoke" class="link" data-i18n="ui.revoke_temporary_credits">Revoke credits</button>
+        <button id="temporary-quota-cancel" data-i18n="ui.cancel">Cancel</button>
+        <button id="temporary-quota-save" class="primary" data-i18n="ui.save">Save</button>
+      </div>
+    </dialog>
+    <div id="quota-credit-tooltip" class="quota-credit-tooltip" popover="auto" role="tooltip"></div>
+
     <div id="cost-tooltip" class="cost-tooltip" role="tooltip" aria-hidden="true"></div>
 
     <div id="key-route-tooltip" class="key-route-tooltip" popover="manual" role="tooltip" tabindex="0"></div>
@@ -3553,6 +3603,7 @@
 
       function updateEditorControls(editor) {
         for (const button of editor.dialog.querySelectorAll(".dialog-actions button")) button.disabled = editor.saving;
+        editor.updateControls?.();
         for (const field of editor.dialog.children) {
           if (!field.matches("h2, .editor-state, .dialog-actions")) field.inert = editor.saving;
         }
@@ -3603,7 +3654,7 @@
         }
       }
 
-      for (const id of ["plan-dialog", "route-dialog", "route-picker", "price-dialog", "action-dialog"]) {
+      for (const id of ["plan-dialog", "route-dialog", "route-picker", "price-dialog", "action-dialog", "temporary-quota-dialog"]) {
         const dialog = $(id);
         dialog.querySelector(".dialog-actions button:not(.primary):not(.link)").onclick = () => dialog.close();
         dialog.addEventListener("cancel", (event) => { if (editors.get(dialog)?.saving) event.preventDefault(); });
@@ -5926,6 +5977,7 @@
       function renderKeys() {
         if (currentRole !== "admin" || activeTab(false) !== "keys") return false;
         closeKeyRouteTooltip();
+        closeQuotaCreditTooltip();
         if (renderDataPending($("keys-body"), [resources.admin.keys], m("ui.loading"), "empty section-loading")) return;
         const plans = resources.admin.plans.value;
         const filter = $("key-filter").value.trim().toLowerCase();
@@ -6068,14 +6120,21 @@
                 { class: "small" },
                 el("button", {
                   class: "link",
+                  text: m("ui.credits"),
+                  title: m("ui.set_or_revoke_temporary_credits_for_the_current_window"),
+                  disabled: deleted || saving || view.unlimited,
+                  onclick: () => openTemporaryQuota(view.scope)
+                }),
+                el("button", {
+                  class: "link",
                   text: m("ui.reset"),
                   disabled: deleted || view.unlimited,
                   onclick: () =>
                     openActionDialog(
                       m("ui.reset_subscription_quota"),
                       view.windows[0]?.cycle_anchor_at
-                        ? m("ui.clear_usage_in_all_windows_and_keep_the_scheduled_reset_times")
-                        : m("ui.all_quota_cycles_will_end_new_cycles_start_when_the_next_request_is_admitted"),
+                        ? m("ui.reset_usage_and_temporary_credits_in_every_window_scheduled_reset_times_will_stay_the_same")
+                        : m("ui.all_quota_cycles_and_temporary_credits_will_end_new_cycles_start_when_the_next_request_is_admitted"),
                       undefined,
                       async () => {
                         await mutateAdmin("POST", "/keys/reset", { mode: "all", scopes: [view.scope] });
@@ -7996,6 +8055,54 @@
         );
       }
 
+      function quotaCreditDetails(window, balance, metric) {
+        const params = {
+          v0: metric.label,
+          v1: DISPLAY_SEPARATOR,
+          v2: metric.exact(balance.remaining),
+          v3: DISPLAY_SEPARATOR,
+          v4: metric.exact(balance.used),
+          v5: metric.exact(balance.limit)
+        };
+        if (!(Number(balance.temporary_limit) > 0)) return m("ui.valuevalueremaining_valuevalueused_value_value", params);
+        return m("ui.quota_credit_details", {
+          ...params,
+          v6: metric.exact(balance.base_limit),
+          v7: metric.exact(balance.temporary_limit),
+          v8: when(window.end_at)
+        });
+      }
+
+      function closeQuotaCreditTooltip() {
+        const tooltip = $("quota-credit-tooltip");
+        if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+      }
+
+      function showQuotaCreditTooltip(anchor, text) {
+        const tooltip = $("quota-credit-tooltip");
+        closeQuotaCreditTooltip();
+        tooltip.textContent = text;
+        tooltip.showPopover();
+        const rect = anchor.getBoundingClientRect();
+        const width = tooltip.offsetWidth, height = tooltip.offsetHeight;
+        tooltip.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)) + "px";
+        tooltip.style.top = Math.max(12, rect.bottom + height + 8 < window.innerHeight ? rect.bottom + 8 : rect.top - height - 8) + "px";
+      }
+
+      function renderQuotaFill(balance, quota) {
+        const extra = Number(balance.temporary_limit || 0), remaining = Number(balance.remaining);
+        if (!(extra > 0)) return el("i", { class: "quota-fill " + quota.level, style: "width:" + quota.percent + "%" });
+        // Display base-first consumption without creating a second ledger.
+        const baseRemaining = Math.min(remaining, Math.max(0, Number(balance.base_limit) - Number(balance.used)));
+        const basePercent = remaining > 0 ? (baseRemaining / remaining) * 100 : 0;
+        return el(
+          "i",
+          { class: "quota-fill quota-segments " + quota.level, style: "width:" + quota.percent + "%", "aria-hidden": "true" },
+          el("i", { style: "width:" + basePercent + "%" }),
+          el("i", { class: "quota-temporary", style: "width:" + (100 - basePercent) + "%" })
+        );
+      }
+
       function renderQuotaWindows(view, account = false) {
         if (view.unlimited) return el("span", { class: "muted", text: m("ui.unlimited") });
         return el(
@@ -8016,6 +8123,9 @@
               dimensions.map((balance) => {
                 const metric = QUOTA_DIMENSIONS.find((item) => item.metric === balance.metric);
                 const quota = remainingQuota(balance.used_percent);
+                const hasCredit = Number(balance.temporary_limit) > 0;
+                const details = quotaCreditDetails(window, balance, metric);
+                const showDetails = (event) => showQuotaCreditTooltip(event.currentTarget, details);
                 const label = displayLabel(single ? window.name + (account ? DISPLAY_SEPARATOR + metric.label : "") : metric.label);
                 return el(
                   "div",
@@ -8025,16 +8135,24 @@
                     { class: "quota-heading" },
                     el(single ? "b" : "span", { class: single ? "" : "muted", text: label, title: single ? label : null }),
                     el("span", {
-                      class: "mono" + (balance.blocked ? " blocked" : ""),
+                      class: "mono" + (balance.blocked ? " blocked" : "") + (hasCredit ? " quota-credit-details" : ""),
                       text: metric.format(balance.remaining) + "/" + metric.format(balance.limit),
-                      title: m("ui.valuevalueremaining_valuevalueused_value_value", {
-                        v0: metric.label,
-                        v1: DISPLAY_SEPARATOR,
-                        v2: metric.exact(balance.remaining),
-                        v3: DISPLAY_SEPARATOR,
-                        v4: metric.exact(balance.used),
-                        v5: metric.exact(balance.limit)
-                      })
+                      title: details,
+                      ...(hasCredit
+                        ? {
+                            role: "button",
+                            tabindex: "0",
+                            "aria-label": details,
+                            "aria-controls": "quota-credit-tooltip",
+                            onclick: showDetails,
+                            onkeydown: (event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                showDetails(event);
+                              }
+                            }
+                          }
+                        : {})
                     }),
                     single ? reset : null
                   ),
@@ -8046,9 +8164,10 @@
                       "aria-label": m("ui.valuevaluevalue_remaining_quota", { v0: window.name, v1: DISPLAY_SEPARATOR, v2: metric.label }),
                       "aria-valuemin": "0",
                       "aria-valuemax": "100",
-                      "aria-valuenow": String(Math.round(quota.percent))
+                      "aria-valuenow": String(Math.round(quota.percent)),
+                      ...(hasCredit ? { title: details, "aria-valuetext": details, onclick: showDetails } : {})
                     },
-                    el("i", { class: "quota-fill " + quota.level, style: "width:" + quota.percent + "%" })
+                    renderQuotaFill(balance, quota)
                   )
                 );
               })
@@ -8056,6 +8175,156 @@
           })
         );
       }
+
+      function openTemporaryQuota(scope) {
+        openEditor("temporary-quota-dialog", null, () => {
+          const key = resources.admin.keys.value?.find((item) => item.scope === scope);
+          if (!key || key.deleted_at || key.unlimited) {
+            throw new UIError(m("ui.this_api_key_no_longer_exists_or_has_no_subscription_plan_refresh_and_try_again"));
+          }
+          const editor = editors.get($("temporary-quota-dialog"));
+          editor.initial = structuredClone(key);
+          editor.updateControls = () => {
+            const selected = editor.initial.windows.find((item) => item.id === $("temporary-quota-window").value);
+            const unavailable = editor.saving || !selected?.credit_revision;
+            $("temporary-quota-save").disabled = unavailable;
+            $("temporary-quota-revoke").disabled = unavailable || !selected.dimensions.some((item) => Number(item.temporary_limit) > 0);
+          };
+          $("temporary-quota-identity").textContent = apiKeyIdentity(key).primary + DISPLAY_SEPARATOR + key.plan_name;
+          const preferred =
+            key.windows.find((item) => item.dimensions.some((balance) => Number(balance.temporary_limit) > 0)) ||
+            key.windows.find((item) => item.credit_revision) ||
+            key.windows[0];
+          $("temporary-quota-window").replaceChildren(
+            ...key.windows.map((item) =>
+              el("option", {
+                value: item.id,
+                text: item.started ? displayLabel(item.name) : m("ui.value_not_started", { v0: displayLabel(item.name) }),
+                selected: item.id === preferred.id
+              })
+            )
+          );
+          renderTemporaryQuotaFields();
+          return editor.initial;
+        });
+      }
+
+      function selectedTemporaryQuotaWindow() {
+        return editors.get($("temporary-quota-dialog"))?.initial.windows.find((item) => item.id === $("temporary-quota-window").value);
+      }
+
+      function renderTemporaryQuotaFields() {
+        const selected = selectedTemporaryQuotaWindow();
+        if (!selected) return;
+        setText(
+          $("temporary-quota-expiry"),
+          selected.credit_revision
+            ? m("ui.temporary_credits_will_be_cleared_at_value", { v0: when(selected.end_at) })
+            : m("ui.per_key_cycle_has_not_started_set_temporary_credits_after_first_use")
+        );
+        $("temporary-quota-fields").replaceChildren(
+          ...QUOTA_DIMENSIONS.map((metric) => {
+            const balance = selected.dimensions.find((item) => item.metric === metric.metric);
+            const base = Number(balance?.base_limit ?? balance?.limit ?? 0);
+            return el(
+              "label",
+              { class: "field" },
+              metric.label,
+              el("input", {
+                name: metric.key,
+                "aria-label": m("ui.temporary_value", { v0: metric.label }),
+                type: "number",
+                min: "0",
+                step: metric.key === "amount_usd" ? "any" : "1",
+                ...(metric.key === "amount_usd" ? {} : { max: String(Number.MAX_SAFE_INTEGER - base) }),
+                value: balance ? String(balance.temporary_limit || 0) : "",
+                placeholder: m("ui.unlimited"),
+                disabled: !balance || !selected.credit_revision,
+                title: !balance
+                  ? m("ui.this_dimension_is_unlimited_and_does_not_need_temporary_credits")
+                  : m("ui.set_the_total_temporary_credits_for_this_cycle_not_an_increment"),
+                oninput: updateTemporaryQuotaPreview
+              })
+            );
+          })
+        );
+        editors.get($("temporary-quota-dialog")).updateControls();
+        updateTemporaryQuotaPreview();
+      }
+
+      function readTemporaryQuota(report = false) {
+        const selected = selectedTemporaryQuotaWindow(), quota = {};
+        let valid = true;
+        for (const metric of QUOTA_DIMENSIONS) {
+          const input = $("temporary-quota-fields").querySelector('[name="' + metric.key + '"]');
+          const value = input.disabled || (input.value === "" && !input.validity.badInput) ? 0 : input.valueAsNumber;
+          const balance = selected.dimensions.find((item) => item.metric === metric.metric);
+          const total = Number(balance?.base_limit ?? balance?.limit ?? 0) + value;
+          input.setCustomValidity("");
+          if (
+            !Number.isFinite(value) || value < 0 || !Number.isFinite(total) ||
+            (metric.key !== "amount_usd" && (!Number.isSafeInteger(value) || !Number.isSafeInteger(total)))
+          ) {
+            input.setCustomValidity(
+              String(m("ui.enter_valid_non_negative_credits_token_and_request_credits_and_combined_totals_must_be_safe_integers"))
+            );
+          }
+          if (!input.checkValidity()) {
+            if (valid && report) input.reportValidity();
+            valid = false;
+          }
+          quota[metric.key] = value;
+        }
+        return valid ? quota : null;
+      }
+
+      function updateTemporaryQuotaPreview() {
+        const quota = readTemporaryQuota();
+        if (!quota) {
+          $("temporary-quota-preview").replaceChildren();
+          return;
+        }
+        const selected = structuredClone(selectedTemporaryQuotaWindow());
+        for (const balance of selected.dimensions) {
+          const metric = QUOTA_DIMENSIONS.find((item) => item.metric === balance.metric);
+          const base = Number(balance.base_limit ?? balance.limit), extra = quota[metric.key], limit = base + extra;
+          Object.assign(balance, {
+            limit,
+            remaining: Math.max(0, limit - balance.used),
+            used_percent: Math.min(100, (balance.used / limit) * 100),
+            blocked: balance.used >= limit
+          });
+          if (extra > 0) Object.assign(balance, { base_limit: base, temporary_limit: extra });
+          else {
+            delete balance.base_limit;
+            delete balance.temporary_limit;
+          }
+        }
+        $("temporary-quota-preview").replaceChildren(renderQuotaWindows({ windows: [selected] }));
+      }
+
+      function saveTemporaryQuota(revoke = false) {
+        submitEditor("temporary-quota-dialog", async (editor) => {
+          const selected = selectedTemporaryQuotaWindow();
+          if (!selected?.credit_revision) { throw new UIError(m("ui.this_per_key_quota_cycle_has_not_started_refresh_and_try_again")); }
+          const quota = revoke ? { amount_usd: 0, token_limit: 0, request_limit: 0 } : readTemporaryQuota(true);
+          if (!quota) return false;
+          await mutateAdmin("PUT", "/keys/temporary-quota", {
+            scope: editor.initial.scope,
+            plan_id: editor.initial.plan_id,
+            window_id: selected.id,
+            revision: selected.credit_revision,
+            quota
+          });
+          notify(revoke ? m("ui.temporary_credits_revoked_for_this_window") : m("ui.temporary_credits_saved_for_this_window"));
+        });
+      }
+
+      $("temporary-quota-window").addEventListener("change", renderTemporaryQuotaFields);
+      $("temporary-quota-save").onclick = () => saveTemporaryQuota();
+      $("temporary-quota-revoke").onclick = () => saveTemporaryQuota(true);
+      window.addEventListener("resize", closeQuotaCreditTooltip);
+      document.addEventListener("scroll", closeQuotaCreditTooltip, true);
 
       function nextCycleStart(window, now = Date.now()) {
         const anchor = Date.parse(window.cycle_anchor_at);
@@ -9119,7 +9388,9 @@
       $("keys-reset-all").onclick = () =>
         openActionDialog(
           m("ui.reset_all_subscription_quotas"),
-          m("ui.clear_usage_for_all_non_deleted_api_keys_bound_to_a_plan_shared_cycles_keep_their_res"),
+          m(
+            "ui.reset_quota_usage_and_temporary_credits_for_all_non_deleted_api_keys_bound_to_a_plan_shared_schedules_keep_their_reset_times_per_key_schedules_restart_on_next_admission"
+          ),
           undefined,
           async () => {
             const result = await mutateAdmin("POST", "/keys/reset", { mode: "global" });
