@@ -126,6 +126,10 @@ func TestRequestEventFieldAndTimeFilters(t *testing.T) {
 	if view := mustQueryRequestEvents(t, database, query); view.Total != 0 {
 		t.Fatal("source filter no longer uses exact matching")
 	}
+	query.Source = "xai · ops***@example.com"
+	if view := mustQueryRequestEvents(t, database, query); view.Total != 1 {
+		t.Fatalf("masked source filter total = %d, want 1", view.Total)
+	}
 
 	if outside := mustQueryRequestEvents(t, database, billing.RequestEventQuery{
 		From: entry.At.Add(time.Nanosecond), To: entry.At.Add(time.Minute),

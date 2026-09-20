@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,46 @@ func maskEmailText(text string) string {
 		}
 		return name + "***@" + parts[1]
 	})
+}
+
+func maskSourceList(sources []string) []string {
+	if len(sources) == 0 {
+		return sources
+	}
+	seen := make(map[string]bool, len(sources))
+	result := make([]string, 0, len(sources))
+	for _, s := range sources {
+		masked := maskEmailText(s)
+		if !seen[masked] {
+			seen[masked] = true
+			result = append(result, masked)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func maskCompositionList(items []billing.AnalysisComposition) []billing.AnalysisComposition {
+	if len(items) == 0 {
+		return items
+	}
+	merged := make([]billing.AnalysisComposition, 0, len(items))
+	byKey := make(map[string]int, len(items))
+	for _, item := range items {
+		key := maskEmailText(item.Key)
+		label := maskEmailText(item.Label)
+		if idx, ok := byKey[key]; ok {
+			merged[idx].Requests += item.Requests
+			merged[idx].TotalTokens += item.TotalTokens
+			merged[idx].CostUSD += item.CostUSD
+		} else {
+			byKey[key] = len(merged)
+			item.Key = key
+			item.Label = label
+			merged = append(merged, item)
+		}
+	}
+	return merged
 }
 
 const (
@@ -108,6 +149,9 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 			view.Entries[i].Label = ""
 			view.Entries[i].Source = maskEmailText(view.Entries[i].Source)
 		}
+		if view.Filters != nil {
+			view.Filters.Sources = maskSourceList(view.Filters.Sources)
+		}
 	}
 	return viewJSON(access, http.StatusOK, view)
 }
@@ -146,6 +190,9 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 			view.Entries[i].Scope, view.Entries[i].AuthIndex = "", ""
 			view.Entries[i].Preview, view.Entries[i].Label = "", ""
 			view.Entries[i].Source = maskEmailText(view.Entries[i].Source)
+		}
+		if view.Filters != nil {
+			view.Filters.Sources = maskSourceList(view.Filters.Sources)
 		}
 	}
 	return viewJSON(access, http.StatusOK, view)
@@ -186,10 +233,7 @@ func (a *App) analysis(req ManagementRequest, access viewAccess) ManagementRespo
 		view.UsageDistribution.APIKeys = []billing.AnalysisComposition{}
 	}
 	if access.APIKey {
-		for i := range view.UsageDistribution.Sources {
-			view.UsageDistribution.Sources[i].Key = maskEmailText(view.UsageDistribution.Sources[i].Key)
-			view.UsageDistribution.Sources[i].Label = maskEmailText(view.UsageDistribution.Sources[i].Label)
-		}
+		view.UsageDistribution.Sources = maskCompositionList(view.UsageDistribution.Sources)
 	}
 	return viewJSON(access, http.StatusOK, view)
 }

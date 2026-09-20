@@ -160,6 +160,31 @@ func (d *DB) RequestEvents(query billing.RequestEventQuery, since time.Time) (bi
 	return view, nil
 }
 
+func sourceGlobPattern(source string) (string, bool) {
+	if !strings.Contains(source, "***@") {
+		return "", false
+	}
+	var b strings.Builder
+	for i := 0; i < len(source); {
+		if strings.HasPrefix(source[i:], "***@") {
+			b.WriteString("*@")
+			i += 4
+			continue
+		}
+		c := source[i]
+		if c == '*' || c == '?' || c == '[' || c == ']' {
+			b.WriteByte('[')
+			b.WriteByte(c)
+			b.WriteByte(']')
+			i++
+			continue
+		}
+		b.WriteByte(c)
+		i++
+	}
+	return b.String(), true
+}
+
 func eventFilter(source string, query billing.RequestEventQuery, since time.Time) (string, []any) {
 	where, args := eventTimeFilter(source, query.From, query.To, since)
 	if query.SnapshotID != nil {
@@ -170,13 +195,21 @@ func eventFilter(source string, query billing.RequestEventQuery, since time.Time
 		{"r.scope", query.Scope},
 		{"r.scope", query.KeyScope},
 		{eventModelSQL, query.Model},
-		{"(" + requestEventSourceName + ")", query.Source},
 		{"r.executor_type", query.Executor},
 		{"r.provider", query.Provider},
 	} {
 		if value := strings.TrimSpace(filter.value); value != "" {
 			where += " AND " + filter.expression + " = ?"
 			args = append(args, value)
+		}
+	}
+	if sourceValue := strings.TrimSpace(query.Source); sourceValue != "" {
+		if pattern, ok := sourceGlobPattern(sourceValue); ok {
+			where += " AND ((" + requestEventSourceName + ") = ? OR (" + requestEventSourceName + ") GLOB ?)"
+			args = append(args, sourceValue, pattern)
+		} else {
+			where += " AND (" + requestEventSourceName + ") = ?"
+			args = append(args, sourceValue)
 		}
 	}
 	return where, args

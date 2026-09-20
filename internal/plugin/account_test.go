@@ -179,6 +179,7 @@ func TestAccountRequestErrorsCannotCrossScopes(t *testing.T) {
 	for _, apiKey := range []string{accountTestKeyA, accountTestKeyB} {
 		publishUsageRecord(t, app, UsageRecord{
 			Provider: "codex", Model: "gpt-5.5", Alias: "gpt-5.5", APIKey: apiKey,
+			Source: "error-ops@example.com",
 			Generate: true, Failed: true, Failure: UsageFailure{StatusCode: 502,
 				Body: `{"error":{"message":"bad gateway","type":"upstream_error"}}`},
 		})
@@ -191,12 +192,22 @@ func TestAccountRequestErrorsCannotCrossScopes(t *testing.T) {
 	if err := json.Unmarshal(response.Body, &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.Total != 1 || len(view.Entries) != 1 || view.Entries[0].StatusCode != 502 {
+	if view.Total != 1 || len(view.Entries) != 1 || view.Entries[0].StatusCode != 502 ||
+		view.Entries[0].Source != "codex · err***@example.com" {
 		t.Fatalf("errors = %+v", view)
+	}
+	if view.Filters == nil || len(view.Filters.Sources) != 1 || view.Filters.Sources[0] != "codex · err***@example.com" {
+		t.Fatalf("error source filters = %+v", view.Filters)
+	}
+	filtered := callAccount(t, app, routeErrors, accountTestKeyA, url.Values{
+		"source": {"codex · err***@example.com"},
+	})
+	if err := json.Unmarshal(filtered.Body, &view); err != nil || view.Total != 1 {
+		t.Fatalf("filtered errors = %+v, err = %v", view, err)
 	}
 	body := string(response.Body)
 	for _, forbidden := range []string{accountTestKeyA, accountTestKeyB,
-		billing.CallerScope(accountTestKeyA), billing.CallerScope(accountTestKeyB), `"auth_index"`} {
+		billing.CallerScope(accountTestKeyA), billing.CallerScope(accountTestKeyB), `"auth_index"`, "error-ops@example.com"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("account error response leaked %q: %s", forbidden, body)
 		}
@@ -242,16 +253,21 @@ func TestAccountRequestEventsUseTheAdministratorSource(t *testing.T) {
 		t.Fatal(errDecode)
 	}
 	if len(view.Entries) != 1 || view.Entries[0].ExecutorType != "CodexExecutor" ||
-		view.Entries[0].Source != "codex · private@example.com" {
+		view.Entries[0].Source != "codex · pri***@example.com" {
 		t.Fatalf("account request event = %+v", view)
 	}
-	if view.Filters == nil || len(view.Filters.Sources) != 1 || view.Filters.Sources[0] != "codex · private@example.com" {
+	if view.Filters == nil || len(view.Filters.Sources) != 1 || view.Filters.Sources[0] != "codex · pri***@example.com" {
 		t.Fatalf("account request event source filters = %+v", view.Filters)
 	}
 	filtered := callAccount(t, app, routeEvents, accountTestKeyA,
-		url.Values{"source": {"codex · private@example.com"}})
+		url.Values{"source": {"codex · pri***@example.com"}})
 	if errDecode := json.Unmarshal(filtered.Body, &view); errDecode != nil || view.Total != 1 {
 		t.Fatalf("source-filtered account request events = %+v, err = %v", view, errDecode)
+	}
+	rawFiltered := callAccount(t, app, routeEvents, accountTestKeyA,
+		url.Values{"source": {"codex · private@example.com"}})
+	if errDecode := json.Unmarshal(rawFiltered.Body, &view); errDecode != nil || view.Total != 1 {
+		t.Fatalf("raw source-filtered account request events = %+v, err = %v", view, errDecode)
 	}
 }
 
@@ -312,7 +328,7 @@ func TestAccountRoutingAndPricesRespectItsScope(t *testing.T) {
 		access.Models[0] != "gpt-5.5" || access.Models[1] != "missing-model" {
 		t.Fatalf("route access = %+v", access)
 	}
-	if !access.RoutingValid || len(access.Credentials) != 1 || access.Credentials[0].Name != "user@example.com" {
+	if !access.RoutingValid || len(access.Credentials) != 1 || access.Credentials[0].Name != "use***@example.com" {
 		t.Fatalf("credential access = %+v", access)
 	}
 	if strings.Contains(string(response.Body), `"bindings"`) || strings.Contains(string(response.Body), `"kind"`) {
