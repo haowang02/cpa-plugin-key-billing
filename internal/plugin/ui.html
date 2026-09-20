@@ -8309,14 +8309,39 @@
           if (!selected?.credit_revision) { throw new UIError(m("ui.this_per_key_quota_cycle_has_not_started_refresh_and_try_again")); }
           const quota = revoke ? { amount_usd: 0, token_limit: 0, request_limit: 0 } : readTemporaryQuota(true);
           if (!quota) return false;
-          await mutateAdmin("PUT", "/keys/temporary-quota", {
-            scope: editor.initial.scope,
-            plan_id: editor.initial.plan_id,
-            window_id: selected.id,
-            revision: selected.credit_revision,
-            quota
-          });
-          notify(revoke ? m("ui.temporary_credits_revoked_for_this_window") : m("ui.temporary_credits_saved_for_this_window"));
+          try {
+            await mutateAdmin("PUT", "/keys/temporary-quota", {
+              scope: editor.initial.scope,
+              plan_id: editor.initial.plan_id,
+              window_id: selected.id,
+              revision: selected.credit_revision,
+              quota
+            });
+            notify(revoke ? m("ui.temporary_credits_revoked_for_this_window") : m("ui.temporary_credits_saved_for_this_window"));
+          } catch (error) {
+            try {
+              const rows = await fetchAdminCollection("keys");
+              resources.admin.keys.value = keyDirectory.receive(rows);
+              renderPage();
+              const refreshed = resources.admin.keys.value?.find((item) => item.scope === editor.initial.scope);
+              if (refreshed && !refreshed.deleted_at && !refreshed.unlimited && editorCurrent(editor)) {
+                editor.initial = structuredClone(refreshed);
+                $("temporary-quota-identity").textContent = apiKeyIdentity(refreshed).primary + DISPLAY_SEPARATOR + refreshed.plan_name;
+                const currentWindowID = $("temporary-quota-window").value;
+                $("temporary-quota-window").replaceChildren(
+                  ...refreshed.windows.map((item) =>
+                    el("option", {
+                      value: item.id,
+                      text: item.started ? displayLabel(item.name) : m("ui.value_not_started", { v0: displayLabel(item.name) }),
+                      selected: item.id === currentWindowID
+                    })
+                  )
+                );
+                renderTemporaryQuotaFields();
+              }
+            } catch (_) {}
+            throw error;
+          }
         });
       }
 
