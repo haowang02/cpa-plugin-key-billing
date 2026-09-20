@@ -97,7 +97,7 @@ func TestManagementRegistrationExposesOnlyCurrentEndpoints(t *testing.T) {
 		"POST /prices/reference/refresh", "PUT /prices", "DELETE /prices", "GET /prices/reference/status",
 		"POST /plans", "PATCH /plans", "DELETE /plans",
 		"POST /routes", "PATCH /routes", "DELETE /routes", "PUT /keys/routes",
-		"POST /keys/bind", "POST /keys/unbind", "POST /keys/reset",
+		"POST /keys/bind", "POST /keys/unbind", "POST /keys/reset", "PUT /keys/temporary-quota",
 		"POST /keys/label", "POST /keys/concurrency", "POST /keys/sync",
 		"POST /credentials/sync",
 		"GET /analysis", "GET /events", "GET /events/keys", "GET /errors",
