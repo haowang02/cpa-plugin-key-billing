@@ -273,11 +273,15 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 					if !exists {
 						continue
 					}
+					oldQuota := cycle.TemporaryQuota
 					for _, dim := range quotaDimensions {
 						dim.resetTemporaryIfDisabled(window, &cycle.TemporaryQuota)
 					}
 					if err := cycle.TemporaryQuota.validate(window); err != nil {
 						return Plan{}, Changes{}, err
+					}
+					if cycle.TemporaryQuota != oldQuota {
+						cycle.CreditSequence++
 					}
 					key.Cycles[window.ID] = cycle
 				}

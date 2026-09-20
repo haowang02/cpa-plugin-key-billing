@@ -81,6 +81,7 @@ func (s *Store) SetTemporaryQuota(req TemporaryQuotaRequest) (QuotaWindowView, e
 		}
 		if quota != cycle.TemporaryQuota {
 			cycle.TemporaryQuota = quota
+			cycle.CreditSequence++
 			if key.Cycles == nil {
 				key.Cycles = make(map[string]QuotaCycle)
 			}
@@ -111,7 +112,7 @@ func quotaCreditRevision(planID string, window QuotaWindow, cycle QuotaCycle, pe
 	for _, dim := range quotaDimensions {
 		dim.writeWindowLimit(&b, window)
 	}
-	fmt.Fprintf(&b, "|%t|%s|%s|%s", persisted, timestamp(cycle.StartAt), timestamp(cycle.EndAt), timestamp(usageSince))
+	fmt.Fprintf(&b, "|%t|%s|%s|%s|%d", persisted, timestamp(cycle.StartAt), timestamp(cycle.EndAt), timestamp(usageSince), cycle.CreditSequence)
 	for _, dim := range quotaDimensions {
 		dim.writeTemporaryLimit(&b, cycle.TemporaryQuota)
 	}

@@ -17,7 +17,8 @@ func TestTemporaryQuotaRoundTripAndLegacyCycles(t *testing.T) {
 	state := billing.NewState()
 	state.Plans = []billing.Plan{{ID: "p", Windows: []billing.QuotaWindow{{ID: "w", Name: "周限", PeriodSeconds: 604800, AmountUSD: 600, TokenLimit: 1000, RequestLimit: 100}}}}
 	cycle := billing.QuotaCycle{PlanID: "p", StartAt: now, EndAt: now.Add(7 * 24 * time.Hour), SpentUSD: 107.18,
-		TemporaryQuota: billing.TemporaryQuota{AmountUSD: 100, TokenLimit: 2000, RequestLimit: 300}}
+		TemporaryQuota: billing.TemporaryQuota{AmountUSD: 100, TokenLimit: 2000, RequestLimit: 300},
+		CreditSequence: 3}
 	state.Keys["s"] = &billing.KeyState{Preview: "sk-tes…0001", PlanID: "p", Cycles: map[string]billing.QuotaCycle{"w": cycle}}
 	mustSave(t, database, state, billing.Changes{Plans: true, AllKeys: true})
 	if err := database.Close(); err != nil {

@@ -33,6 +33,7 @@ type QuotaCycle struct {
 	UsedTokens     int64          `json:"used_tokens"`
 	UsedRequests   int64          `json:"used_requests"`
 	TemporaryQuota TemporaryQuota `json:"temporary_quota,omitzero"`
+	CreditSequence int64          `json:"credit_sequence,omitzero"`
 }
 
 // JSON numbers retain integer counters without float conversion.
@@ -186,6 +187,9 @@ func (key *KeyState) ValidateCycles(plan Plan) error {
 			}
 		}
 		window := plan.Windows[index]
+		if cycle.CreditSequence < 0 {
+			return invalidf("Invalid quota cycle data for this API key")
+		}
 		if err := cycle.TemporaryQuota.validate(window); err != nil {
 			return err
 		}

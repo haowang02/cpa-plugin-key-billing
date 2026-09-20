@@ -48,7 +48,7 @@ func TestTemporaryQuotaRaisesOnlySelectedKeyAndWindow(t *testing.T) {
 		}
 	}
 	after := currentQuotaCycle(t, store)
-	after.TemporaryQuota = TemporaryQuota{}
+	after.TemporaryQuota, after.CreditSequence = TemporaryQuota{}, before.CreditSequence
 	if after != before {
 		t.Fatalf("credit changed usage or schedule: %+v -> %+v", before, after)
 	}
@@ -298,5 +298,15 @@ func TestTemporaryQuotaConcurrentEditsAreNotAccumulated(t *testing.T) {
 	group.Wait()
 	if successes.Load() != 1 || currentQuotaCycle(t, store).TemporaryQuota.AmountUSD != 100 {
 		t.Fatal("concurrent stale forms overwrote or accumulated credit")
+	}
+}
+
+func TestTemporaryQuotaRevisionRejectsABA(t *testing.T) {
+	store, _, _ := quotaStore(t, QuotaWindow{AmountUSD: 600})
+	stale := temporaryQuotaRequest(t, store, TemporaryQuota{AmountUSD: 150})
+	setTemporaryQuota(t, store, TemporaryQuota{AmountUSD: 100})
+	setTemporaryQuota(t, store, TemporaryQuota{})
+	if _, err := store.SetTemporaryQuota(stale); KindOf(err) != KindConflict {
+		t.Fatalf("stale form after change-and-revert was accepted: %v", err)
 	}
 }
