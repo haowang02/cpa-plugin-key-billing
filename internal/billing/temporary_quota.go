@@ -72,7 +72,9 @@ func (s *Store) SetTemporaryQuota(req TemporaryQuotaRequest) (QuotaWindowView, e
 			}
 			cycle = window.newCycle(plan.ID, now)
 		}
-		if req.Revision != quotaCreditRevision(plan.ID, window, cycle, persisted) {
+		if req.Revision != quotaCreditRevision(plan.ID, window, cycle, persisted) &&
+			(!persisted || cycle.TemporaryQuota != (TemporaryQuota{}) || cycle.CreditSequence != 0 ||
+				req.Revision != quotaCreditRevision(plan.ID, window, cycle, false)) {
 			return QuotaWindowView{}, Changes{}, conflictf("The quota cycle or temporary credits changed; refresh and try again")
 		}
 		changes := Changes{}

@@ -310,3 +310,23 @@ func TestTemporaryQuotaRevisionRejectsABA(t *testing.T) {
 		t.Fatalf("stale form after change-and-revert was accepted: %v", err)
 	}
 }
+
+func TestTemporaryQuotaFixedWindowFirstAdmissionKeepsRevision(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	store, _ := newAccountStoreWithRepository(t, now)
+	store.ReplaceAll(func(state *State) {
+		state.Plans = []Plan{{ID: "p", Windows: []QuotaWindow{{ID: "w", Name: "额度", PeriodSeconds: 3600, AmountUSD: 600, CycleAnchorAt: now.Add(time.Hour)}}}}
+		state.Keys["s"] = &KeyState{PlanID: "p", Preview: "sk-tes…0001"}
+	})
+	req := temporaryQuotaRequest(t, store, TemporaryQuota{AmountUSD: 100})
+	if !store.Authorize("s", now).Allowed {
+		t.Fatal("first admission unexpectedly denied")
+	}
+	view, err := store.SetTemporaryQuota(req)
+	if err != nil {
+		t.Fatalf("ordinary first admission invalidated the form: %v", err)
+	}
+	if view.Dimensions[0].Limit != "700" || view.Dimensions[0].TemporaryLimit != "100" {
+		t.Fatalf("temporary quota was not applied: %+v", view)
+	}
+}
