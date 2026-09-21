@@ -53,13 +53,16 @@ func (p Plan) Validate() error {
 		if names[strings.ToLower(name)] {
 			return invalidf("Duplicate window name %q", name)
 		}
-		if window.AmountUSD < 0 || math.IsNaN(window.AmountUSD) || math.IsInf(window.AmountUSD, 0) {
-			return invalidf("Window %q: amount quota must be a finite non-negative number", name)
+		hasAny := false
+		for _, dim := range quotaDimensions {
+			if err := dim.validateWindow(name, window); err != nil {
+				return err
+			}
+			if dim.hasLimit(window) {
+				hasAny = true
+			}
 		}
-		if window.TokenLimit < 0 || window.TokenLimit > maxQuotaCount || window.RequestLimit < 0 || window.RequestLimit > maxQuotaCount {
-			return invalidf("Window %q: token and request limits must be integers from 0 to %d", name, maxQuotaCount)
-		}
-		if window.AmountUSD == 0 && window.TokenLimit == 0 && window.RequestLimit == 0 {
+		if !hasAny {
 			return invalidf("Window %q: set at least one quota", name)
 		}
 		if window.PeriodSeconds <= 0 || window.PeriodSeconds > maxPeriodSeconds {
@@ -261,6 +264,26 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 				}
 				for _, id := range resetWindows {
 					delete(key.Cycles, id)
+				}
+				// Credits survive limit/name edits, not disabled dimensions. Reject
+				// overflowing combined limits atomically across all bound keys.
+				settleExpiredCycles(key, s.Now())
+				for _, window := range updated.Windows {
+					cycle, exists := key.Cycles[window.ID]
+					if !exists {
+						continue
+					}
+					oldQuota := cycle.TemporaryQuota
+					for _, dim := range quotaDimensions {
+						dim.resetTemporaryIfDisabled(window, &cycle.TemporaryQuota)
+					}
+					if err := cycle.TemporaryQuota.validate(window); err != nil {
+						return Plan{}, Changes{}, err
+					}
+					if cycle.TemporaryQuota != oldQuota {
+						cycle.CreditSequence++
+					}
+					key.Cycles[window.ID] = cycle
 				}
 			}
 			if scopes != nil {

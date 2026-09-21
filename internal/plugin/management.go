@@ -32,6 +32,7 @@ const (
 	routeKeysBind               = "/keys/bind"
 	routeKeysUnbind             = "/keys/unbind"
 	routeKeysReset              = "/keys/reset"
+	routeKeysTemporaryQuota     = "/keys/temporary-quota"
 	routeKeysLabel              = "/keys/label"
 	routeKeysConcurrency        = "/keys/concurrency"
 	routeKeysSync               = "/keys/sync"
@@ -78,6 +79,7 @@ var managementEndpoints = []managementEndpoint{
 	{http.MethodPost, routeKeysBind, "Bind API key to subscription plan", (*App).bindKey},
 	{http.MethodPost, routeKeysUnbind, "Unbind API key from subscription plan", (*App).unbindKey},
 	{http.MethodPost, routeKeysReset, "Reset subscription quotas for selected API keys", (*App).resetKeys},
+	{http.MethodPut, routeKeysTemporaryQuota, "Set temporary quota credits for an API key's current window", (*App).setTemporaryQuota},
 	{http.MethodPost, routeKeysLabel, "Set API key label", (*App).labelKey},
 	{http.MethodPost, routeKeysConcurrency, "Set API key concurrency limit", (*App).setKeyConcurrency},
 	{http.MethodPost, routeKeysSync, "Sync API keys from CLIProxyAPI", (*App).syncKeys},

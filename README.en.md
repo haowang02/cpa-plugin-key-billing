@@ -122,6 +122,7 @@ http(s)://<CLIProxyAPI address>/v0/resource/plugins/cpa-key-billing/ui#account
 - A plan can contain multiple quota windows. Each window can limit spending in USD, tokens, requests, or any combination of the three.
 - Usage is tracked separately for each key, even when keys share a plan. Independent cycles start when the first request is admitted. Shared cycles use the configured schedule for every bound key.
 - A manual quota reset keeps shared reset times unchanged. Independent cycles restart when the next request is admitted.
+- Temporary credits can be set, adjusted, or revoked for one key and quota window without resetting usage or changing the plan. They are cleared when the cycle expires or is reset.
 - Custom model prices take precedence over models.dev reference prices. Requests are rejected if neither is available.
 - Request events are retained for 365 days.
 

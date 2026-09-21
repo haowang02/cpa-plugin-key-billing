@@ -1049,6 +1049,61 @@ assert_quota_exhausted() {
     return 1
   fi
 
+  # Credit is per key/window, not a reset or a change to the shared plan.
+  # Lift both windows in turn: lifting only one must leave the other blocking.
+  local credit_body window_index credit_field
+  credit_field="$dimension"
+  [[ "$dimension" == "tokens" ]] && credit_field="token_limit"
+  [[ "$dimension" == "requests" ]] && credit_field="request_limit"
+  for window_index in 0 1; do
+    management_call GET "$port" "/v0/management/plugins/cpa-key-billing/keys" >"$runtime_dir/credit-before.json"
+    credit_body="$(jq -c --arg scope "$scope" --arg field "$credit_field" --argjson index "$window_index" '
+      first(.keys[] | select(.scope == $scope)) as $key | $key.windows[$index] as $window |
+      {scope: $scope, plan_id: $key.plan_id, window_id: $window.id, revision: $window.credit_revision,
+       quota: {($field): 1000000}}
+    ' "$runtime_dir/credit-before.json")"
+    # A downstream key must not grant itself credit through the host's admin API.
+    http_status="$(curl -sS --max-time 30 -X PUT -H 'Authorization: Bearer e2e-downstream-key' \
+      -H 'Content-Type: application/json' --data "$credit_body" --output "$response_file" --write-out '%{http_code}' \
+      "http://127.0.0.1:$port/v0/management/plugins/cpa-key-billing/keys/temporary-quota")"
+    [[ "$http_status" == "401" || "$http_status" == "403" ]] || { echo "普通 API Key 可以修改临时额度。" >&2; return 1; }
+    management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/temporary-quota" \
+      -H 'Content-Type: application/json' --data "$credit_body" >"$runtime_dir/credit-granted.json"
+    jq -e '.window.dimensions[0] | .temporary_limit == 1000000 and .limit == (.base_limit + .temporary_limit) and .used > 0' \
+      "$runtime_dir/credit-granted.json" >/dev/null
+    # Replaying a stale form must not silently overwrite a later credit edit.
+    http_status="$(curl -sS --max-time 30 -X PUT -H 'Authorization: Bearer e2e-management-key' \
+      -H 'Content-Type: application/json' --data "$credit_body" --output "$response_file" --write-out '%{http_code}' \
+      "http://127.0.0.1:$port/v0/management/plugins/cpa-key-billing/keys/temporary-quota")"
+    [[ "$http_status" == "409" ]] || { echo "旧临时额度版本未被拒绝。" >&2; return 1; }
+    if [[ "$window_index" == "0" ]]; then
+      body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
+      http_status="$(curl -sS --max-time 30 -H 'Authorization: Bearer e2e-downstream-key' \
+        -H 'Content-Type: application/json' --data "$body" --output "$response_file" --write-out '%{http_code}' \
+        "http://127.0.0.1:$port/v1/chat/completions")"
+      [[ "$http_status" == "429" ]] || { echo "单窗口加额绕过了其他窗口限制。" >&2; return 1; }
+    fi
+  done
+  body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
+  api_call "$port" "临时额度：不重置消费即可恢复真实请求" \
+    "/v1/chat/completions" "$body" chat "$runtime_dir/responses/credit-spend.json"
+  expected_count=$((expected_count + 1))
+  assert_billing_entry "$port" "$expected_count" chat chat \
+    "gpt-5.6-sol" "gpt-5.6-sol" "$runtime_dir/credit-spend-request-events.json" \
+    "$runtime_dir/responses/credit-spend.json" false
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/keys" >"$runtime_dir/credit-before-revoke.json"
+  credit_body="$(jq -c --arg scope "$scope" '
+    first(.keys[] | select(.scope == $scope)) as $key | $key.windows[0] as $window |
+    {scope: $scope, plan_id: $key.plan_id, window_id: $window.id, revision: $window.credit_revision, quota: {}}
+  ' "$runtime_dir/credit-before-revoke.json")"
+  management_call PUT "$port" "/v0/management/plugins/cpa-key-billing/keys/temporary-quota" \
+    -H 'Content-Type: application/json' --data "$credit_body" >"$runtime_dir/credit-revoked.json"
+  jq -e --arg scope "$scope" --slurpfile before "$runtime_dir/credit-before-revoke.json" '
+    first($before[0].keys[] | select(.scope == $scope)).windows[0].dimensions[0] as $old |
+    .window.dimensions[0] | .used == $old.used and .limit == $old.base_limit and
+    .remaining == 0 and .blocked and (.temporary_limit // 0) == 0
+  ' "$runtime_dir/credit-revoked.json" >/dev/null
+
   management_call POST "$port" "/v0/management/plugins/cpa-key-billing/keys/reset" \
     -H "Content-Type: application/json" \
     --data "$(jq -nc --arg scope "$scope" '{mode: "all", scopes: [$scope]}')" >/dev/null
@@ -1056,7 +1111,7 @@ assert_quota_exhausted() {
   if ! jq -e --arg scope "$scope" --arg dimension "$dimension" --slurpfile before "$runtime_dir/quota-access.json" '
       first($before[0].keys[] | select(.scope == $scope)) as $old |
       first(.keys[] | select(.scope == $scope)) |
-      (.blocked | not) and all(.windows[]; all(.dimensions[]; .used == 0)) and
+      (.blocked | not) and all(.windows[]; all(.dimensions[]; .used == 0 and (.temporary_limit // 0) == 0)) and
       (if $dimension == "requests"
        then [.windows[].end_at] == [$old.windows[].end_at] and all(.windows[]; .started)
        else all(.windows[]; .started | not) end)
@@ -1490,7 +1545,7 @@ run_target() {
   for dimension in amount_usd requests tokens; do
     log_step "订阅额度 ${dimension}：消费、4 种协议拦截与恢复"
     assert_quota_exhausted "$port" "$runtime_dir" "$expected_requests" "$dimension"
-    expected_requests=$((expected_requests + 2))
+    expected_requests=$((expected_requests + 3))
   done
 
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$runtime_dir/plugin-logs.json"

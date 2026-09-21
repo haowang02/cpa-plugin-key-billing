@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import random
 import re
 import time
@@ -291,12 +292,22 @@ def refresh_key_quota(key):
             start = anchor + ((now - anchor) // period) * period
             cycle = dict(start_at=iso(start), end_at=iso(start+period))
             started = True
-        dimensions = [dict(metric=metric, limit=limit, used=used, remaining=max(0, limit-used),
+        credit = cycle.get("temporary_quota", {})
+        dimensions = []
+        for metric, field, counter in [("amount_usd", "amount_usd", "spent_usd"),
+                                       ("tokens", "token_limit", "used_tokens"),
+                                       ("requests", "request_limit", "used_requests")]:
+            base = window.get(field, 0)
+            if not base:
+                credit.pop(field, None)
+                continue
+            extra, used = credit.get(field, 0), cycle.get(counter, 0)
+            limit = base + extra
+            balance = dict(metric=metric, limit=limit, used=used, remaining=max(0, limit-used),
                            used_percent=min(100, used / limit * 100), blocked=used >= limit)
-                      for metric, limit, used in [
-                          ("amount_usd", window.get("amount_usd", 0), cycle.get("spent_usd", 0)),
-                          ("tokens", window.get("token_limit", 0), cycle.get("used_tokens", 0)),
-                          ("requests", window.get("request_limit", 0), cycle.get("used_requests", 0))] if limit > 0]
+            if extra:
+                balance.update(base_limit=base, temporary_limit=extra)
+            dimensions.append(balance)
         view = dict(id=window["id"], name=window["name"], period_seconds=window["period_seconds"],
                     started=started, blocked=any(dimension["blocked"] for dimension in dimensions),
                     dimensions=dimensions)
@@ -304,6 +315,11 @@ def refresh_key_quota(key):
             view["cycle_anchor_at"] = window["cycle_anchor_at"]
         if started:
             view.update(start_at=cycle["start_at"], end_at=cycle["end_at"])
+            # Match the real endpoint's stale-form semantics, not its opaque hash.
+            identity = [key["plan_id"], {k: v for k, v in window.items() if k != "name"},
+                        window["id"] in cycles, cycle["start_at"], cycle["end_at"],
+                        cycle.get("usage_since"), credit, cycle.get("credit_sequence", 0)]
+            view["credit_revision"] = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         if view["blocked"]:
             key["blocked"] = True
             key["retry_at"] = max(key.get("retry_at", ""), view["end_at"])
@@ -1563,6 +1579,72 @@ class Handler(BaseHTTPRequestHandler):
                     "long_context": None,
                 })
             self.send_json(200, {"deleted": model})
+        elif route == ("PUT", f"{API_BASE}/keys/temporary-quota"):
+            body = json.loads(request_body or b"{}")
+            key = next((key for key in KEYS if key["scope"] == body.get("scope") and not key.get("deleted_at")), None)
+            if key is None:
+                self.send_json(404, {"error": {
+                    "message": "The API key does not exist or has been deleted",
+                    "message_key": "backend.the_api_key_does_not_exist_or_has_been_deleted",
+                }})
+                return
+            refresh_key_quota(key)
+            plan = next((p for p in PLANS if p["id"] == key["plan_id"]), None)
+            view = next((w for w in key["windows"] if w["id"] == body.get("window_id")), None)
+            window = next((w for w in plan["windows"] if w["id"] == (view["id"] if view else None)), None) if plan else None
+            cycles = QUOTA_CYCLES.get(key["scope"], {})
+            cycle_persisted = bool(view and view["id"] in cycles)
+            existing_cycle = cycles.get(view["id"]) if view else {}
+            existing_cycle = existing_cycle or {}
+            unstarted_identity = [key["plan_id"], {k: v for k, v in window.items() if k != "name"} if window else {},
+                                  False, view["start_at"] if view else None, view["end_at"] if view else None, None, {}, 0]
+            unstarted_rev = hashlib.sha256(json.dumps(unstarted_identity, sort_keys=True).encode()).hexdigest()
+            current_rev = view.get("credit_revision") if view else None
+            matches = bool(current_rev and ((body.get("revision") == current_rev) or (
+                cycle_persisted and not any(existing_cycle.get("temporary_quota", {}).values())
+                and existing_cycle.get("credit_sequence", 0) == 0 and body.get("revision") == unstarted_rev
+            )))
+            if key["plan_id"] != body.get("plan_id") or not view or not window or not current_rev or not matches:
+                self.send_json(409, {"error": {
+                    "message": "The quota cycle or temporary credits changed; refresh and try again",
+                    "message_key": "backend.the_quota_cycle_or_temporary_credits_changed_refresh_and_try_again",
+                }})
+                return
+            credit = body.get("quota")
+            if not isinstance(credit, dict) or any(k not in ("amount_usd", "token_limit", "request_limit") for k in credit):
+                self.send_json(400, {"error": {
+                    "message": "Temporary credits must be finite non-negative values, and token and request credits must be safe integers",
+                    "message_key": "backend.temporary_credits_must_be_finite_non_negative_values_and_token_and_request_credits_must_be_safe_integers",
+                }})
+                return
+            for field in ("amount_usd", "token_limit", "request_limit"):
+                value, base = credit.get(field, 0), window.get(field, 0)
+                if (not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value)
+                        or value < 0 or not math.isfinite(base + value)
+                        or (field != "amount_usd" and (int(value) != value or base + value > 2**53 - 1))):
+                    self.send_json(400, {"error": {
+                        "message": "Temporary credits must be finite non-negative values, and token and request credits must be safe integers",
+                        "message_key": "backend.temporary_credits_must_be_finite_non_negative_values_and_token_and_request_credits_must_be_safe_integers",
+                    }})
+                    return
+                if not base and value:
+                    self.send_json(400, {"error": {
+                        "message": "Unlimited quota dimensions do not need temporary credits",
+                        "message_key": "backend.unlimited_quota_dimensions_do_not_need_temporary_credits",
+                    }})
+                    return
+            cycle = cycles.get(view["id"])
+            if cycle or any(credit.values()):
+                if cycle is None:
+                    cycle = dict(plan_id=key["plan_id"], period_seconds=window["period_seconds"],
+                                 cycle_anchor_at=window.get("cycle_anchor_at"), start_at=view["start_at"],
+                                 end_at=view["end_at"], usage_since=iso(datetime.now(timezone.utc)))
+                if cycle.get("temporary_quota") != credit:
+                    cycle["credit_sequence"] = cycle.get("credit_sequence", 0) + 1
+                cycle["temporary_quota"] = credit
+                cycles[view["id"]] = cycle
+            refresh_key_quota(key)
+            self.send_json(200, {"window": next(w for w in key["windows"] if w["id"] == view["id"])})
         elif route == ("POST", f"{API_BASE}/keys/reset"):
             body = json.loads(request_body or b"{}")
             targets = [key for key in KEYS if not key.get("deleted_at") and key["plan_id"]

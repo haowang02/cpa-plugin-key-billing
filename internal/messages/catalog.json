@@ -205,6 +205,42 @@
     "key": "backend.invalid_quota_cycle_data_for_this_api_key",
     "formats": []
   },
+  "Temporary credits must be finite non-negative values, and token and request credits must be safe integers": {
+    "key": "backend.temporary_credits_must_be_finite_non_negative_values_and_token_and_request_credits_must_be_safe_integers",
+    "formats": []
+  },
+  "Unlimited quota dimensions do not need temporary credits": {
+    "key": "backend.unlimited_quota_dimensions_do_not_need_temporary_credits",
+    "formats": []
+  },
+  "The base quota plus temporary credits exceeds the supported range": {
+    "key": "backend.the_base_quota_plus_temporary_credits_exceeds_the_supported_range",
+    "formats": []
+  },
+  "Specify the API key, subscription plan, quota window, current revision, and temporary credits": {
+    "key": "backend.specify_the_api_key_subscription_plan_quota_window_current_revision_and_temporary_credits",
+    "formats": []
+  },
+  "The API key does not exist or has been deleted": {
+    "key": "backend.the_api_key_does_not_exist_or_has_been_deleted",
+    "formats": []
+  },
+  "The API key subscription plan changed; refresh and try again": {
+    "key": "backend.the_api_key_subscription_plan_changed_refresh_and_try_again",
+    "formats": []
+  },
+  "The quota window no longer exists; refresh and try again": {
+    "key": "backend.the_quota_window_no_longer_exists_refresh_and_try_again",
+    "formats": []
+  },
+  "The per-key quota cycle has not started or has ended; refresh and try again": {
+    "key": "backend.the_per_key_quota_cycle_has_not_started_or_has_ended_refresh_and_try_again",
+    "formats": []
+  },
+  "The quota cycle or temporary credits changed; refresh and try again": {
+    "key": "backend.the_quota_cycle_or_temporary_credits_changed_refresh_and_try_again",
+    "formats": []
+  },
   "Reference price provider ID and model ID are required": {
     "key": "backend.reference_price_provider_id_and_model_id_are_required",
     "formats": []
