@@ -456,6 +456,37 @@ func (a *App) credentialByRawID(id string) (credentialView, bool) {
 	return item, ok
 }
 
+// credentialEventName names the upstream credential that served a request, in
+// the same "provider · name" form the routing rules and the route log show.
+// The host reports the credential identity on the usage record; the plugin's
+// credential inventory holds the display name. An unknown credential stays
+// unnamed rather than guessing one.
+func (a *App) credentialEventName(authID, authIndex string) string {
+	id := strings.TrimSpace(authID)
+	if id != "" {
+		if credential, ok := a.credentialByRawID(id); ok {
+			return credentialLogName(credential)
+		}
+	}
+	index := strings.TrimSpace(authIndex)
+	if index == "" {
+		return ""
+	}
+	a.routingMu.Lock()
+	ref := a.credentialRefsByIndex[index]
+	a.routingMu.Unlock()
+	if ref == "" {
+		return ""
+	}
+	a.routingMu.Lock()
+	credential, ok := a.credentials[ref]
+	a.routingMu.Unlock()
+	if !ok {
+		return ""
+	}
+	return credentialLogName(credential)
+}
+
 func (a *App) missingCredentialRef(refs []string) string {
 	a.routingMu.Lock()
 	defer a.routingMu.Unlock()

@@ -6,10 +6,15 @@ import (
 )
 
 type UsageEvent struct {
-	Execution           *ExecutionMetadata
-	Endpoint            string
-	Transport           string
-	Stream              *bool
+	Execution *ExecutionMetadata
+	Endpoint  string
+	Transport string
+	Stream    *bool
+	// CredentialName is the display name of the upstream credential that served
+	// the request, as the plugin resolved it from the host's credential list.
+	CredentialName string
+	// UserAgent is the client User-Agent the host reported for the request.
+	UserAgent           string
 	Scope               string
 	KeyPreview          string
 	AuthIndex           string
@@ -99,6 +104,8 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 			Endpoint:            event.Endpoint,
 			Transport:           event.Transport,
 			Stream:              event.Stream,
+			CredentialName:      event.CredentialName,
+			UserAgent:           event.UserAgent,
 			At:                  entryAt,
 			Scope:               scope,
 			AuthIndex:           event.AuthIndex,

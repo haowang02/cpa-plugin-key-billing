@@ -430,6 +430,7 @@
   "ui.view_cost_breakdown": "查看成本明细",
   "ui.time": "时间",
   "ui.executor_source": "执行器 / 来源",
+  "ui.user_agent": "客户端",
   "ui.reasoning_speed": "推理 / 速度",
   "ui.result": "结果",
   "ui.tps_latency": "TPS / 延迟",

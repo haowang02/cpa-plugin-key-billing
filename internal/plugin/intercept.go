@@ -60,6 +60,8 @@ type requestOriginKey struct {
 type requestOrigin struct {
 	key                 requestOriginKey
 	endpoint, transport string
+	// userAgent is the client User-Agent the inbound request carried.
+	userAgent string
 }
 
 // Retain origins after request.complete: usage is asynchronous and retries or
@@ -75,23 +77,34 @@ func (a *App) rememberRequestOrigin(req RequestInterceptRequest, scope, endpoint
 	if headerHasToken(req.Headers, "Connection", "upgrade") && headerHasToken(req.Headers, "Upgrade", "websocket") {
 		transport = "websocket"
 	}
+	userAgent := requestUserAgent(req.Headers)
 	a.admissionsMu.Lock()
 	defer a.admissionsMu.Unlock()
 	if entry := a.requestOrigins[key]; entry != nil {
 		origin := entry.Value.(*requestOrigin)
-		if origin.endpoint != endpoint || origin.transport != transport {
+		if origin.endpoint != endpoint || origin.transport != transport || origin.userAgent != userAgent {
 			// Conflicting metadata stays unknown for the retained trace.
-			origin.endpoint, origin.transport = "", ""
+			origin.endpoint, origin.transport, origin.userAgent = "", "", ""
 		}
 		a.requestOriginOrder.MoveToFront(entry)
 		return
 	}
-	a.requestOrigins[key] = a.requestOriginOrder.PushFront(&requestOrigin{key: key, endpoint: endpoint, transport: transport})
+	a.requestOrigins[key] = a.requestOriginOrder.PushFront(&requestOrigin{key: key, endpoint: endpoint, transport: transport, userAgent: userAgent})
 	if len(a.requestOrigins) > maxRequestOrigins {
 		oldest := a.requestOriginOrder.Back()
 		delete(a.requestOrigins, oldest.Value.(*requestOrigin).key)
 		a.requestOriginOrder.Remove(oldest)
 	}
+}
+
+// requestUserAgent reads the client User-Agent, bounded so a hostile header
+// cannot inflate every stored request event.
+func requestUserAgent(headers http.Header) string {
+	value := strings.TrimSpace(headers.Get("User-Agent"))
+	if len(value) > 512 {
+		value = value[:512]
+	}
+	return value
 }
 
 func (a *App) findRequestOrigin(traceID, scope string) requestOrigin {
@@ -281,6 +294,8 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 		Endpoint:            origin.endpoint,
 		Transport:           origin.transport,
 		Stream:              record.Stream,
+		CredentialName:      a.credentialEventName(record.AuthID, record.AuthIndex),
+		UserAgent:           origin.userAgent,
 		Scope:               scope,
 		KeyPreview:          billing.PreviewKey(record.APIKey),
 		AuthIndex:           record.AuthIndex,

@@ -34,8 +34,8 @@ func appendRequestEvent(tx *sql.Tx, entry billing.RequestEvent) (int64, error) {
 			tiered, long_context, threshold_input_tokens,
 			applied_input_per_1m, applied_output_per_1m,
 			applied_cache_read_per_1m, applied_cache_write_per_1m,
-			endpoint, transport, stream, execution_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			endpoint, transport, stream, credential_name, user_agent, execution_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		nanos(entry.At), entry.Scope, entry.AuthIndex, entry.Provider, entry.Account, entry.ExecutorType, entry.ReasoningEffort, entry.ServiceTier,
 		entry.ResponseServiceTier, entry.UpstreamModel, entry.ResponseModel, entry.BillingModel, entry.Failed,
 		entry.LatencyMS, entry.TTFTMS,
@@ -47,7 +47,7 @@ func appendRequestEvent(tx *sql.Tx, entry billing.RequestEvent) (int64, error) {
 		entry.Cost.Tiered, entry.Cost.LongContext, entry.Cost.ThresholdInputTokens,
 		entry.Cost.AppliedInputPer1M, entry.Cost.AppliedOutputPer1M,
 		entry.Cost.AppliedCacheReadPer1M, entry.Cost.AppliedCacheWritePer1M,
-		entry.Endpoint, entry.Transport, entry.Stream, string(execution))
+		entry.Endpoint, entry.Transport, entry.Stream, entry.CredentialName, entry.UserAgent, string(execution))
 	if errInsert != nil {
 		return 0, fmt.Errorf("Write request event: %w", errInsert)
 	}
@@ -87,7 +87,11 @@ const eventModelSQL = "coalesce(NULLIF(billing_model, ''), upstream_model)"
 const requestEventProviderName = `CASE WHEN substr(r.provider, 1, 18) = 'openai-compatible-'
 	THEN substr(r.provider, 19) ELSE r.provider END`
 
+// The source names the upstream credential that served the request. Rows
+// recorded before schema 21 have no credential name, so they keep the
+// provider · account form the provider reported.
 const requestEventSourceName = `CASE
+	WHEN r.credential_name != '' THEN r.credential_name
 	WHEN (` + requestEventProviderName + `) = '' THEN r.account
 	WHEN r.account = '' OR lower(r.account) = lower(` + requestEventProviderName + `)
 		THEN (` + requestEventProviderName + `)
@@ -152,7 +156,7 @@ func (d *DB) RequestEvents(query billing.RequestEventQuery, since time.Time) (bi
 			r.applied_input_per_1m, r.applied_output_per_1m,
 			r.applied_cache_read_per_1m, r.applied_cache_write_per_1m,
 			coalesce(k.preview, ''), coalesce(k.label, ''), `+requestEventSourceName+`,
-			coalesce(e.body, ''), r.endpoint, r.transport, r.stream, r.execution_json
+			coalesce(e.body, ''), r.endpoint, r.transport, r.stream, r.credential_name, r.user_agent, r.execution_json
 		FROM page JOIN request_events r ON r.id = page.id
 		LEFT JOIN api_keys k ON k.scope = r.scope
 		LEFT JOIN request_errors e ON e.request_event_id = r.id
@@ -275,7 +279,8 @@ func scanRequestEventRow(rows *sql.Rows) (billing.RequestEventRow, error) {
 		&row.Cost.Tiered, &row.Cost.LongContext, &row.Cost.ThresholdInputTokens,
 		&row.Cost.AppliedInputPer1M, &row.Cost.AppliedOutputPer1M,
 		&row.Cost.AppliedCacheReadPer1M, &row.Cost.AppliedCacheWritePer1M,
-		&row.Preview, &row.Label, &row.Source, &row.ErrorBody, &row.Endpoint, &row.Transport, &row.Stream, &execution); errScan != nil {
+		&row.Preview, &row.Label, &row.Source, &row.ErrorBody, &row.Endpoint, &row.Transport, &row.Stream,
+		&row.CredentialName, &row.UserAgent, &execution); errScan != nil {
 		return billing.RequestEventRow{}, fmt.Errorf("Read request events: %w", errScan)
 	}
 	if err := json.Unmarshal([]byte(execution), &row.Execution); err != nil {

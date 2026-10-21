@@ -41,6 +41,9 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 18 {
 		steps = append(steps, migrateExecutionMetadata)
 	}
+	if version <= 20 {
+		steps = append(steps, migrateRequestCredentialAndAgent)
+	}
 	steps = append(steps, func(tx *sql.Tx) error { return migrateQuotaReports(tx, storedHeaders) })
 	for _, step := range steps {
 		if err := step(tx); err != nil {
@@ -113,6 +116,31 @@ func migrateQuotaReports(tx *sql.Tx, storedHeaders StoredQuotaHeaders) error {
 	}
 	if _, err := tx.Exec("ALTER TABLE request_events DROP COLUMN response_headers_json"); err != nil {
 		return fmt.Errorf("Drop stored quota headers: %w", err)
+	}
+	return nil
+}
+
+// Schema 21 names the upstream credential that served each request and records
+// the client User-Agent. Rows recorded before schema 21 carry neither.
+func migrateRequestCredentialAndAgent(tx *sql.Tx) error {
+	// A database that already carries the columns is left alone: the format
+	// version, not the column set, decides which migrations run.
+	for _, column := range []struct{ name, definition string }{
+		{"credential_name", "TEXT NOT NULL DEFAULT ''"},
+		{"user_agent", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		var exists int
+		if err := tx.QueryRow("SELECT count(*) FROM pragma_table_info('request_events') WHERE name = ?",
+			column.name).Scan(&exists); err != nil {
+			return fmt.Errorf("Read request event columns: %w", err)
+		}
+		if exists > 0 {
+			continue
+		}
+		if _, err := tx.Exec(fmt.Sprintf("ALTER TABLE request_events ADD COLUMN %s %s",
+			column.name, column.definition)); err != nil {
+			return fmt.Errorf("Add request event %s: %w", column.name, err)
+		}
 	}
 	return nil
 }

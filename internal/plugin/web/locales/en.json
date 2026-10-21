@@ -430,6 +430,7 @@
   "ui.view_cost_breakdown": "View cost breakdown",
   "ui.time": "Time",
   "ui.executor_source": "Executor / source",
+  "ui.user_agent": "User-Agent",
   "ui.reasoning_speed": "Reasoning / speed",
   "ui.result": "Result",
   "ui.tps_latency": "TPS / latency",

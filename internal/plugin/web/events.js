@@ -20,6 +20,8 @@ const EVENT_CSV_COLUMNS = {
     "transport",
     "stream",
     "source",
+    "credential_name",
+    "user_agent",
     "reasoning_effort",
     "service_tier",
     "response_service_tier",
@@ -37,6 +39,10 @@ const EVENT_CSV_COLUMNS = {
   ],
   errors: ["at", "preview", "label", "billing_model", "upstream_model", "source", "status_code", "error_type", "body"]
 };
+
+// The upstream credential name is preferred over the bare provider source:
+// it names the account that served the request, like the routing rules do.
+function sourceLabel(entry) { return entry.credential_name || entry.source || ""; }
 
 function renderExecutionTooltip(execution) {
   const labels = {
@@ -312,8 +318,17 @@ function renderRequestEvents(account = false) {
         el("div", { class: "request-event-cell-line mono" }, entry.executor_type || m("ui.unknown_executor")),
         el(
           "div",
-          { class: "request-event-detail muted", "data-tip": displayLabel(entry.source) || null, "data-tip-overflow": "" },
-          entry.source ? maskedLabelText(entry.source) : m("ui.unknown_source")
+          { class: "request-event-detail muted", "data-tip": displayLabel(sourceLabel(entry)) || null, "data-tip-overflow": "" },
+          sourceLabel(entry) ? maskedLabelText(sourceLabel(entry)) : m("ui.unknown_source")
+        )
+      ),
+      el(
+        "td",
+        { class: "small" },
+        el(
+          "div",
+          { class: "request-event-detail mono", "data-tip": entry.user_agent || null, "data-tip-overflow": "" },
+          entry.user_agent || "—"
         )
       ),
       el(
@@ -393,6 +408,7 @@ function renderRequestEvents(account = false) {
       ...(account ? [] : ["API Key"]),
       m("ui.model"),
       m("ui.executor_source"),
+      m("ui.user_agent"),
       m("ui.reasoning_speed"),
       m("ui.request"),
       m("ui.result"),
