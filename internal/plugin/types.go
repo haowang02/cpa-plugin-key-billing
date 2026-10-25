@@ -18,7 +18,7 @@ const (
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
-	Version    = "1.4.9"
+	Version    = "1.4.10"
 
 	MenuLabel       = "CPA Key Billing"
 	MenuDescription = "Manage downstream API key routing, billing, concurrency limits, subscription quotas, and usage"
