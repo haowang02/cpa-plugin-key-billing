@@ -306,12 +306,6 @@ func TestKimiQuotaReadsNestedLimitShape(t *testing.T) {
 	}
 }
 
-func TestPaidXAICredential(t *testing.T) {
-	if !paidXAICredential(map[string]any{"access_token": "e30.eyJ0aWVyIjoxfQ.sig"}) {
-		t.Fatal("paid JWT was not recognized")
-	}
-}
-
 func TestXAIQuotaDeduplicatesProductLimits(t *testing.T) {
 	app := newConfiguredApp(t)
 	app.SetHostCaller(func(_ string, payload any) (json.RawMessage, error) {
@@ -332,13 +326,16 @@ func TestXAIQuotaDeduplicatesProductLimits(t *testing.T) {
 	}
 }
 
-func TestXAIQuotaCombinesWeeklyMonthlyAndOnDemand(t *testing.T) {
+func TestPaidXAIQuotaCombinesWeeklyMonthlyAndOnDemand(t *testing.T) {
 	responses := map[string]string{
 		"https://cli-chat-proxy.grok.com/v1/billing?format=credits": `{"config":{"creditUsagePercent":62.5,"currentPeriod":{"end":"2026-09-08T00:00:00Z"}}}`,
 		"https://cli-chat-proxy.grok.com/v1/billing":                `{"config":{"monthlyLimit":{"val":1000},"used":{"val":1250},"onDemandCap":{"val":500},"prepaidBalance":{"val":1234},"billingPeriodEnd":"2026-10-01T00:00:00Z"}}`,
 	}
 	app := newConfiguredApp(t)
-	app.SetHostCaller(func(_ string, payload any) (json.RawMessage, error) {
+	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
+		if method == hostAuthGet {
+			return json.RawMessage(`{"json":{"access_token":"e30.eyJ0aWVyIjoxfQ.sig","sub":"dummy-user"}}`), nil
+		}
 		request := payload.(hostHTTPRequest)
 		body, ok := responses[request.URL]
 		if !ok {
@@ -346,10 +343,12 @@ func TestXAIQuotaCombinesWeeklyMonthlyAndOnDemand(t *testing.T) {
 		}
 		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(body)}), nil
 	})
-	result := authQuotaResponse{Quota: []quotaRow{}}
-	client := &authQuotaClient{hostCaller: app.hostCaller, token: "token", credential: map[string]any{"user_id": "user"}}
-	if errFetch := client.fetchXAIQuota(&result); errFetch != nil {
+	result, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "xai-1", Type: "xai"})
+	if errFetch != nil {
 		t.Fatal(errFetch)
+	}
+	if result.Plan != "Paid" {
+		t.Fatalf("plan = %q", result.Plan)
 	}
 	want := []string{"Weekly limit", "Monthly allowance", "Pay-as-you-go allowance"}
 	if len(result.Quota) != len(want) {

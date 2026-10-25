@@ -22,15 +22,9 @@ func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile) (authQuotaRes
 		return authQuotaResponse{}, errClient
 	}
 	defer client.close()
-	credential := client.credential
-	provider := authCategory(file.Type)
 	result := authQuotaResponse{AuthRevision: authFileRevision(file), FetchedAt: time.Now().UTC(), Quota: []quotaRow{}}
-	if provider == "xai" && paidXAICredential(credential) {
-		result.Plan = "Paid"
-		return result, nil
-	}
 	var err error
-	switch provider {
+	switch authCategory(file.Type) {
 	case "codex":
 		err = client.fetchCodexQuota(&result)
 	case "claude":
@@ -40,7 +34,7 @@ func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile) (authQuotaRes
 	case "xai":
 		err = client.fetchXAIQuota(&result)
 	case "antigravity":
-		projectID := firstNonEmptyString(file.ProjectID, credentialString(credential, "project_id", "projectId", "gemini_virtual_project"))
+		projectID := firstNonEmptyString(file.ProjectID, credentialString(client.credential, "project_id", "projectId", "gemini_virtual_project"))
 		if projectID == "" {
 			return result, messages.Errorf("Auth file is missing project_id")
 		}
@@ -677,6 +671,7 @@ func fillQuotaValues(row *quotaRow, object map[string]any) {
 const xaiGrokClientVersion = "1.0.44"
 
 func (c *authQuotaClient) fetchXAIQuota(result *authQuotaResponse) error {
+	result.Plan = xaiPlan(c.token)
 	headers := http.Header{
 		"X-Xai-Token-Auth":      {"xai-grok-cli"},
 		"X-Grok-Client-Version": {xaiGrokClientVersion},
@@ -779,28 +774,29 @@ func (c *authQuotaClient) fetchXAIQuota(result *authQuotaResponse) error {
 	return nil
 }
 
-func paidXAICredential(credential map[string]any) bool {
-	parts := strings.Split(credentialToken(credential), ".")
+// xAI signs the account tier into its access token; any tier above free is paid.
+func xaiPlan(token string) string {
+	parts := strings.Split(token, ".")
 	if len(parts) < 2 {
-		return false
+		return ""
 	}
 	payload, errDecode := base64.RawURLEncoding.DecodeString(parts[1])
 	if errDecode != nil {
-		return false
+		return ""
 	}
 	var claims map[string]any
 	if json.Unmarshal(payload, &claims) != nil {
-		return false
+		return ""
 	}
 	for key := range claims {
 		normalized := strings.ToLower(key)
 		if normalized == "tier" || strings.HasSuffix(normalized, "/tier") || strings.HasSuffix(normalized, ":tier") {
 			if tier, ok := floatValue(claims, key); ok && tier >= 1 {
-				return true
+				return "Paid"
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 func xaiResetAt(config map[string]any) string {
