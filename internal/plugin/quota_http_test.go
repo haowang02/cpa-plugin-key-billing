@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"cpa-key-billing/internal/messages"
 )
 
 func TestAuthQuotaTransport(t *testing.T) {
@@ -104,5 +106,58 @@ func TestAuthQuotaProxyErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPhysicalAPIKeyCredentialCannotReachUpstream(t *testing.T) {
+	app := newConfiguredApp(t)
+	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+		if method != hostAuthGet {
+			t.Fatalf("unexpected host method %q", method)
+		}
+		return json.RawMessage(`{"auth_index":"xai-1","json":{"api_key":"dummy-paid-key"}}`), nil
+	})
+	_, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "xai-1", Type: "xai"})
+	if errFetch == nil || errFetch.Error() != "API key credentials do not support this quota query" {
+		t.Fatalf("error = %v", errFetch)
+	}
+}
+
+func TestUpstreamErrorsRedactPhysicalCredential(t *testing.T) {
+	app := newConfiguredApp(t)
+	for _, tc := range []struct {
+		status    int
+		body, key string
+	}{
+		{http.StatusBadRequest, `{"error":{"message":"rejected dummy-secret-token"}}`, "backend.upstream_returned_http_value_value"},
+		{http.StatusUnauthorized, `{"error":{"message":"rejected dummy-secret-token"}}`, "backend.upstream_credentials_invalid_detail"},
+		{http.StatusUnauthorized, `{}`, "backend.upstream_credentials_invalid"},
+	} {
+		app.SetHostCaller(func(string, any) (json.RawMessage, error) {
+			return mustJSONRaw(t, hostHTTPResponse{StatusCode: tc.status, Body: []byte(tc.body)}), nil
+		})
+		client := &authQuotaClient{hostCaller: app.hostCaller, token: "dummy-secret-token"}
+		_, errCall := client.upstream(http.MethodGet, "https://example.invalid/quota", nil, nil)
+		detail := messages.FromError(errCall)
+		if errCall == nil || detail.Key != tc.key || strings.Contains(detail.Text, "dummy-secret-token") {
+			t.Fatalf("error = %v, detail = %+v", errCall, detail)
+		}
+		if tc.body != `{}` && (!strings.Contains(detail.Text, "[REDACTED]") || detail.Params["v1"] != "rejected [REDACTED]") {
+			t.Fatalf("credential was not redacted in both representations: %+v", detail)
+		}
+	}
+}
+
+func TestInvalidCredentialProxyFailsInsteadOfSendingHostRequest(t *testing.T) {
+	app := newConfiguredApp(t)
+	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+		if method != hostAuthGet {
+			t.Fatalf("unexpected host method %q", method)
+		}
+		return json.RawMessage(`{"auth_index":"codex-1","json":{"access_token":"dummy-token","proxy_url":"invalid://dummy-proxy:1080"}}`), nil
+	})
+	_, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "codex-1", Type: "codex"})
+	if errFetch == nil || errFetch.Error() != "Invalid auth file proxy" {
+		t.Fatalf("error = %v", errFetch)
 	}
 }

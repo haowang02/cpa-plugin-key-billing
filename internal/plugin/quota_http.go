@@ -196,3 +196,53 @@ func upstreamErrorMessage(object map[string]any) string {
 	}
 	return message
 }
+
+func credentialRecords(credential map[string]any) []map[string]any {
+	var records []map[string]any
+	var visit func(map[string]any, int)
+	visit = func(record map[string]any, depth int) {
+		if record == nil || depth > 2 {
+			return
+		}
+		records = append(records, record)
+		for _, key := range []string{"metadata", "attributes", "oauth", "raw", "credential", "auth", "token", "installed", "web", "user"} {
+			if nested, ok := record[key].(map[string]any); ok {
+				visit(nested, depth+1)
+			}
+		}
+	}
+	visit(credential, 0)
+	return records
+}
+
+func credentialString(credential map[string]any, keys ...string) string {
+	for _, record := range credentialRecords(credential) {
+		if value := firstString(record, keys...); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func credentialToken(credential map[string]any) string {
+	return credentialString(credential, "access_token", "accessToken", "token", "id_token", "idToken", "cookie")
+}
+
+func credentialUsesAPIKey(credential map[string]any) bool {
+	if credentialString(credential, "api_key", "apiKey") != "" {
+		return true
+	}
+	for _, record := range credentialRecords(credential) {
+		if usingAPI, ok := boolValue(record, "using_api", "usingApi"); ok && usingAPI {
+			return true
+		}
+	}
+	return false
+}
+
+func redactSecret(value, secret string) string {
+	if secret == "" {
+		return value
+	}
+	return strings.ReplaceAll(value, secret, "[REDACTED]")
+}

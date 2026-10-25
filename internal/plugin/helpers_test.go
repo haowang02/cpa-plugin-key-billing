@@ -141,3 +141,12 @@ func newTestApp(t *testing.T) *App {
 	}
 	return newApp(billing.NewStore(openRepository, func(context.Context) ([]byte, error) { return raw, nil }))
 }
+
+func mustJSONRaw(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, errMarshal := json.Marshal(value)
+	if errMarshal != nil {
+		t.Fatal(errMarshal)
+	}
+	return raw
+}
