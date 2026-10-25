@@ -106,6 +106,9 @@ func TestAIProviderViewsScopeUsageAndRouting(t *testing.T) {
 func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	app, path := newAppWithPriceAndState(t, true)
 	configuration := mustMarshal(t, LifecycleRequest{ConfigYAML: []byte(fmt.Sprintf("state_file: %q\n", path))})
+	// Built before any Shutdown cleanup registration, so its TempDir removal
+	// runs after every store has been closed on Windows.
+	switchConfiguration := mustMarshal(t, LifecycleRequest{ConfigYAML: testConfigYAML(t, true)})
 	const rawKey = "sk-dummy-upstream-secret-1234"
 	ref := billing.CredentialFingerprint("dummy-config")
 	removed := billing.CredentialFingerprint("dummy-removed")
@@ -203,7 +206,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 		inventory[0].DisplayName != "sk-new…5678" || !inventory[0].Disabled || inventory[0].Status != "disabled" {
 		t.Fatalf("replacement after restart = %+v", inventory)
 	}
-	if err := app.configure(mustMarshal(t, LifecycleRequest{ConfigYAML: testConfigYAML(t, true)})); err != nil {
+	if err := app.configure(switchConfiguration); err != nil {
 		t.Fatal(err)
 	}
 	if len(app.credentialInventory()) != 0 || len(app.store.ConfigCredentials()) != 0 {

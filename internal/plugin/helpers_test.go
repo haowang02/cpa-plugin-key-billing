@@ -73,17 +73,21 @@ func mustMarshal(t *testing.T, v any) []byte {
 // path is relative to the working directory, which is the source tree here.
 func testConfigYAML(t *testing.T, enabled bool) []byte {
 	t.Helper()
+	// ToSlash keeps Windows paths valid inside the double-quoted YAML scalar.
 	return []byte("enabled: " + strconv.FormatBool(enabled) +
 		"\ndebug: true" +
-		"\nstate_file: \"" + filepath.Join(t.TempDir(), "state.db") + "\"\n")
+		"\nstate_file: \"" + filepath.ToSlash(filepath.Join(t.TempDir(), "state.db")) + "\"\n")
 }
 
 func newConfiguredApp(t *testing.T) *App {
 	t.Helper()
 	app := newTestApp(t)
+	// Create the TempDir before registering Shutdown: cleanups run LIFO, so
+	// Shutdown must close the store before the TempDir removal on Windows.
+	configYAML := testConfigYAML(t, true)
 	t.Cleanup(app.Shutdown)
 	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
-		ConfigYAML: testConfigYAML(t, true),
+		ConfigYAML: configYAML,
 	}))
 	if errHandle != nil {
 		t.Fatalf("plugin.register error = %v", errHandle)
@@ -99,9 +103,11 @@ func newAppWithPrice(t *testing.T, enabled bool) *App {
 
 func newAppWithPriceAndState(t *testing.T, enabled bool) (*App, string) {
 	t.Helper()
+	// See newConfiguredApp: the TempDir cleanup must be registered before
+	// Shutdown so that the store closes before the directory is removed.
+	statePath := filepath.ToSlash(filepath.Join(t.TempDir(), "state.db"))
 	app := newTestApp(t)
 	t.Cleanup(app.Shutdown)
-	statePath := filepath.Join(t.TempDir(), "state.db")
 	configYAML := "enabled: " + strconv.FormatBool(enabled) + "\nstate_file: \"" + statePath + "\"\n"
 	if _, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
 		ConfigYAML: []byte(configYAML),

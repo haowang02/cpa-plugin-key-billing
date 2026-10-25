@@ -101,11 +101,11 @@ func TestAfterAuthEnforcesCredentialRoutesAndRecordsResults(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app := newTestApp(t)
-			t.Cleanup(app.Shutdown)
 			cfg := testConfigYAML(t, true)
 			if tc.debugOff {
 				cfg = []byte(strings.ReplaceAll(string(cfg), "debug: true", "debug: false"))
 			}
+			t.Cleanup(app.Shutdown)
 			if _, err := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{ConfigYAML: cfg})); err != nil {
 				t.Fatal(err)
 			}

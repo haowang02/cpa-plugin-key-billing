@@ -852,10 +852,10 @@ func TestAuthQuotaReset(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app := newTestApp(t)
-			t.Cleanup(app.Shutdown)
 			allowed := tc.name != "admin" && tc.name != "permission disabled"
 			config := string(testConfigYAML(t, true)) + "allow_api_key_quota_reset: " + strconv.FormatBool(allowed) +
 				"\nmask_api_key_view_emails: " + strconv.FormatBool(tc.name == "masked name") + "\n"
+			t.Cleanup(app.Shutdown)
 			if err := app.configure(mustMarshal(t, LifecycleRequest{ConfigYAML: []byte(config)})); err != nil {
 				t.Fatal(err)
 			}

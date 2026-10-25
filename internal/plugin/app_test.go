@@ -84,9 +84,10 @@ func TestConfigureReportsReferencePricePreloadFailure(t *testing.T) {
 		requests++
 		return nil, errors.New("Download reference prices: HTTP 503")
 	}))
+	configYAML := testConfigYAML(t, true)
 	t.Cleanup(app.Shutdown)
 	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
-		ConfigYAML: testConfigYAML(t, true),
+		ConfigYAML: configYAML,
 	}))
 	if errHandle != nil {
 		t.Fatalf("plugin.register error = %v", errHandle)
