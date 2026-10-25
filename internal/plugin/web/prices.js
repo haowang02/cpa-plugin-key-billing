@@ -62,16 +62,55 @@ function longContextPrices(row) {
   );
 }
 
+const priceSelection = new Set();
+const priceDeleteKey = (row) => row.custom_price_model_id || row.model_id;
+
+function priceSelectControl(key) {
+  return checkboxControl({
+    input: el("input", {
+      type: "checkbox",
+      checked: priceSelection.has(key),
+      onchange: (event) => {
+        if (event.target.checked) priceSelection.add(key); else priceSelection.delete(key);
+        updatePriceBatchButton();
+      }
+    })
+  });
+}
+
+function priceSelectAllControl(customKeys) {
+  return checkboxControl({
+    input: el("input", {
+      type: "checkbox",
+      checked: customKeys.length > 0 && customKeys.every((key) => priceSelection.has(key)),
+      onchange: (event) => {
+        if (event.target.checked) customKeys.forEach((key) => priceSelection.add(key));
+        else customKeys.forEach((key) => priceSelection.delete(key));
+        renderPriceTable();
+      }
+    })
+  });
+}
+
+function updatePriceBatchButton() {
+  const button = $("price-batch-delete");
+  if (!button) return;
+  button.disabled = priceSelection.size === 0;
+  setText(button, m(priceSelection.size ? "ui.batch_delete_with_count" : "ui.batch_delete", { v0: priceSelection.size }));
+}
+
 function renderPriceTable() {
   if (renderDataPending($("prices-body"), [resources.admin.catalog], m("ui.loading_model_prices"))) return;
   const filter = $("price-filter").value.trim().toLowerCase();
   const rows = resources.admin.catalog.value.prices.filter((row) => !filter || row.model_id.toLowerCase().includes(filter))
     .sort((a, b) => compareModelId(a.model_id, b.model_id));
+  const customKeys = rows.filter((row) => row.source === "custom").map(priceDeleteKey);
   const renderRow = (row) => {
     const priced = row.source !== "none";
     return el(
       "tr",
       {},
+      el("td", { class: "small" }, row.source === "custom" ? priceSelectControl(priceDeleteKey(row)) : null),
       el(
         "td",
         { class: "mono" },
@@ -93,6 +132,7 @@ function renderPriceTable() {
     );
   };
   const headers = [
+    priceSelectAllControl(customKeys),
     m("ui.model"),
     ...PRICE_FIELDS.map(([, label]) => ({ label: m(label), num: true })),
     m("ui.long_context"),
@@ -100,6 +140,7 @@ function renderPriceTable() {
     m("ui.actions")
   ];
   renderCollection($("prices-body"), rows, { headers, render: renderRow });
+  updatePriceBatchButton();
 }
 
 function renderReferencePriceStatus() {
@@ -264,6 +305,23 @@ function deleteCustomPrice(row) {
     notify(m("ui.custom_price_deleted"));
   });
 }
+
+$("price-batch-delete").onclick = () => {
+  const keys = [...priceSelection];
+  if (!keys.length) return;
+  openActionDialog(m("ui.batch_delete"), m("ui.batch_delete_confirm", { v0: keys.length }), undefined, async () => {
+    let done = 0, failed = 0;
+    for (const key of keys) {
+      try {
+        await mutateAdmin("DELETE", "/prices?model_id=" + encodeURIComponent(key));
+        priceSelection.delete(key);
+        done++;
+      } catch { failed++; }
+    }
+    renderPriceTable();
+    notify(failed ? m("ui.batch_delete_done_with_failed", { v0: done, v1: failed }) : m("ui.batch_delete_done", { v0: done }));
+  });
+};
 
 $("price-new").onclick = () => editPrice({ model_id: "", input_per_1m: 0, output_per_1m: 0 });
 $("price-save").onclick = () =>
