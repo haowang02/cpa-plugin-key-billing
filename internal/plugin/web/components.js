@@ -34,13 +34,22 @@ function metricTag(metrics, accessibleLabel) {
 
 // Replace a display collection while retaining its scroll position.
 // Paged lists also use the returned row container to append new entries.
-function renderCollection(target, items, { render, headers, attrs, empty = m("ui.no_data") }) {
+function renderCollection(target, items, { render, headers, attrs, selection, empty = m("ui.no_data") }) {
+  if (selection) selection.update(target, items);
   const top = target.scrollTop, left = target.scrollLeft;
   const tableLeft = target.querySelector(":scope > .table-scroll")?.scrollLeft || 0;
   let content = el("div", { class: "empty", text: empty });
   let rows = null;
   if (items.length) {
-    rows = el(headers ? "tbody" : "div", headers ? {} : attrs, items.map(render));
+    rows = el(
+      headers ? "tbody" : "div",
+      headers ? {} : attrs,
+      items.map((item, index) => {
+        const row = render(item, index);
+        if (selection) row.prepend(el("td", { class: "selection-cell" }, selection.checkbox(item)));
+        return row;
+      })
+    );
     content = headers
       ? el(
           "div",
@@ -54,6 +63,7 @@ function renderCollection(target, items, { render, headers, attrs, empty = m("ui
               el(
                 "tr",
                 {},
+                selection && el("th", { scope: "col", class: "selection-cell" }, selection.checkbox()),
                 headers.map((h) => el("th", { scope: "col", class: [h.class, h.num ? "num" : ""].filter(Boolean).join(" ") }, h.label ?? h))
               )
             ),
@@ -62,7 +72,13 @@ function renderCollection(target, items, { render, headers, attrs, empty = m("ui
         )
       : rows;
   }
-  target.replaceChildren(content);
+  target.replaceChildren(
+    ...(selection && items.length
+      ? [el("label", { class: "selection-mobile" }, selection.checkbox(), el("span", { text: m("ui.select_all_visible") }))]
+      : []),
+    content
+  );
+  if (selection) selection.sync();
   if (headers) content.scrollLeft = tableLeft;
   target.scrollTop = top;
   target.scrollLeft = left;

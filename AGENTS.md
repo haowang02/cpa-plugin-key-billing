@@ -74,7 +74,7 @@ Source paths are relative to this repository's root:
 
 ## Deployment and End-to-End Verification
 
-After plugin code, UI, build, or installation changes, complete these steps without routine reconfirmation; documentation and local setup changes are exempt.
+After plugin code, UI, build, or installation changes, complete the required local checks only. Do not deploy or run `scripts/deploy.sh` unless the user explicitly requests deployment. When deployment is explicitly requested, complete the steps below without routine reconfirmation; documentation and local setup changes are exempt.
 
 1. Before deploying a new `Version`, update this plugin's CPA `store.version` and `store.release-tag` pins when present; the loader skips files that do not match them. Run `scripts/deploy.sh`: it builds and uploads the library with a checksum check, moves existing `cpa-key-billing-v*.so` files to `plugin-backups/` beside the remote `plugins/` directory, installs `cpa-key-billing-v<Version>.so`, restarts only the `cli-proxy-api` Compose service, and fails unless the management API reports that exact file registered and enabled. Plugin configuration, billing state, and history are preserved. Inspect the server by hand only when the script fails or the deployment layout changes.
 2. Open the deployed plugin UI under `CPA_BASE_URL` and sign in with the management password. Verify the changed flow and its authenticated API calls, including desktop and narrow layouts for UI changes, and check existing billing views and history after a refresh. Do not generate billable upstream requests or change real keys, quotas, plans, routes, or credential state for a smoke test; billing behavior changes still require the local end-to-end check above.

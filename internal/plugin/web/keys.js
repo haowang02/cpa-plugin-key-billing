@@ -2,6 +2,16 @@ const CONCURRENCY_OPTIONS = [0, 1, 2, 3, 5, 10, 20, 50];
 const CUSTOM_CONCURRENCY = "__custom__";
 const CALLER_SCOPE_SALT = "cli-proxy-api:caller-scope:v1\u0000";
 
+const keySelection = createTableSelection({
+  id: (key) => key.scope,
+  label: (key) => apiKeyIdentity(key).primary,
+  eligible: (key) => !key.deleted_at,
+  context: () => [$("key-filter").value.trim(), $("keys-include-deleted").checked],
+  render: renderKeys,
+  actions: renderKeySelectionActions,
+  busy: () => adminUIState.keySubmissions.size > 0
+});
+
 function callerScope(key) { return sha256Hex(CALLER_SCOPE_SALT + key.trim()); }
 
 // A complete API key finds its row through its scope.
@@ -13,16 +23,88 @@ async function configuredAPIKey(view) {
 }
 
 async function saveConcurrency(view, raw) {
-  const text = String(raw ?? "").trim();
-  if (!/^\d+$/.test(text)) throw new UIError(m("ui.concurrency_limit_must_be_an_integer_from_0_to_10000"));
-  const limit = Number(text);
-  if (!Number.isSafeInteger(limit) || limit < 0 || limit > 10000) {
-    throw new UIError(m("ui.concurrency_limit_must_be_an_integer_from_0_to_10000"));
-  }
+  const limit = concurrencyLimit(raw);
   await submitKeyChange(view.scope, async () => {
     await mutateAdmin("POST", "/keys/concurrency", { scope: view.scope, concurrency_limit: limit });
     notify(limit ? m("ui.concurrency_limit_updated_to_value", { v0: limit }) : m("ui.concurrency_limit_removed"));
   });
+}
+
+function concurrencyLimit(raw) {
+  const value = String(raw ?? "").trim();
+  const limit = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(limit) || limit > 10000)
+    throw new UIError(m("ui.concurrency_limit_must_be_an_integer_from_0_to_10000"));
+  return limit;
+}
+
+function writeKeyPlan(scope, planID) {
+  return writeAdmin("POST", planID ? "/keys/bind" : "/keys/unbind", { scope, ...(planID ? { plan_id: planID } : {}) });
+}
+
+function renderKeySelectionActions(keys) {
+  const plans = resources.admin.plans.value;
+  return [
+    keySelection.action(m("ui.reset_quota"), keys.filter((key) => !key.unlimited), resetSelectedKeys),
+    keySelection.select(
+      m("ui.subscription_plans"),
+      [
+        el("option", { value: "", text: m("ui.unlimited") }),
+        ...(plans || []).map((plan) => el("option", { value: plan.id, text: plan.name || plan.id }))
+      ],
+      (planID) =>
+        keySelection.run(keys, (key) => writeKeyPlan(key.scope, planID), {
+          keepSelection: true,
+          success: m("ui.subscription_plan_updated")
+        }),
+      !plans
+    ),
+    keySelection.select(
+      m("ui.concurrency_limit"),
+      [
+        ...CONCURRENCY_OPTIONS.map((limit) => el("option", { value: String(limit), text: limit === 0 ? m("ui.unlimited") : String(limit) })
+        ),
+        el("option", { value: CUSTOM_CONCURRENCY, text: m("ui.enter_manually") })
+      ],
+      (value) =>
+        value === CUSTOM_CONCURRENCY
+          ? openActionDialog(m("ui.set_concurrency_limit"), m("ui.enter_an_integer_from_0_to_10000_use_0_for_unlimited"), "0", (raw) =>
+              setSelectedConcurrency(keys, raw)
+            )
+          : setSelectedConcurrency(keys, value)
+    ),
+    keySelection.action(m("ui.routing_rules"), keys, (selected) =>
+      editKeyRoutes(selected, (bindings) =>
+        keySelection.run(selected, (key) => writeAdmin("PUT", "/keys/routes", { scope: key.scope, bindings }), {
+          success: m("ui.api_key_routing_rules_saved")
+        })
+      )
+    )
+  ];
+}
+
+function setSelectedConcurrency(keys, raw) {
+  const limit = concurrencyLimit(raw);
+  return keySelection.run(keys, (key) => writeAdmin("POST", "/keys/concurrency", { scope: key.scope, concurrency_limit: limit }), {
+    keepSelection: true,
+    success: limit ? m("ui.concurrency_limit_updated_to_value", { v0: limit }) : m("ui.concurrency_limit_removed")
+  });
+}
+
+function resetSelectedKeys(keys) {
+  const shared = keys.filter((key) => key.windows[0]?.cycle_anchor_at).length;
+  const note =
+    shared === keys.length
+      ? m("ui.clear_usage_in_all_windows_and_keep_the_scheduled_reset_times")
+      : shared === 0
+        ? m("ui.all_quota_cycles_will_end_new_cycles_start_when_the_next_request_is_admitted")
+        : m("ui.batch_reset_mixed_cycles");
+  return openActionDialog(m("ui.batch_reset_subscription_quota", { count: keys.length }), note, undefined, () =>
+    keySelection.run(keys, (_, group) => writeAdmin("POST", "/keys/reset", { mode: "all", scopes: group.map((key) => key.scope) }), {
+      groupBy: () => "reset",
+      success: m("ui.subscription_quota_reset")
+    })
+  );
 }
 
 async function submitKeyChange(scope, save) {
@@ -49,6 +131,7 @@ function renderKeys() {
       (view.scope === scope || matchesTerm([apiKeyIdentity(view).text, view.plan_name, view.scope].filter(Boolean).join(" "), term))
   );
   renderCollection($("keys-body"), keys, {
+    selection: keySelection,
     headers: [
       "",
       "API Key",
@@ -61,7 +144,7 @@ function renderKeys() {
     ],
     render: (view, index) => {
       const deleted = !!view.deleted_at;
-      const saving = adminUIState.keySubmissions.has(view.scope);
+      const saving = adminUIState.keySubmissions.has(view.scope) || keySelection.running;
       const name = apiKeyIdentity(view).primary;
       const select = el(
         "select",
@@ -75,8 +158,7 @@ function renderKeys() {
               const planID = event.target.value;
               event.target.value = view.plan_id || "";
               await submitKeyChange(view.scope, async () => {
-                if (planID) await mutateAdmin("POST", "/keys/bind", { scope: view.scope, plan_id: planID });
-                else await mutateAdmin("POST", "/keys/unbind", { scope: view.scope });
+                await writeKeyPlan(view.scope, planID);
                 notify(m("ui.subscription_plan_updated"));
               });
             })
@@ -170,7 +252,7 @@ function renderKeys() {
           el("button", {
             class: "link",
             text: m("ui.reset"),
-            disabled: deleted || view.unlimited,
+            disabled: deleted || view.unlimited || saving,
             onclick: () =>
               openActionDialog(
                 m("ui.reset_subscription_quota"),
@@ -204,7 +286,7 @@ function renderKeyRoutes(view) {
   const names = bindings.route_ids.map((id) => ({ iconName: "route", text: view.route_names[id] }))
     .concat(routingDimensionChips(bindings, "credential", view.credential_labels))
     .concat(routingDimensionChips(bindings, "model", view.credential_labels));
-  const disabled = !!view.deleted_at || adminUIState.keySubmissions.has(view.scope);
+  const disabled = !!view.deleted_at || adminUIState.keySubmissions.has(view.scope) || keySelection.running;
   const tooltip = () => [
     el("div", {
       class: "hover-tooltip-heading",
@@ -255,7 +337,13 @@ function renderKeyRoutes(view) {
         text: m("ui.edit"),
         disabled,
         "aria-label": m("ui.edit_routing_rules_for_value", { v0: apiKeyIdentity(view).primary }),
-        onclick: () => guard(() => editKeyRoutes(view))
+        onclick: () =>
+          guard(() =>
+            editKeyRoutes([view], async (bindings) => {
+              await mutateAdmin("PUT", "/keys/routes", { scope: view.scope, bindings });
+              notify(m("ui.api_key_routing_rules_saved"));
+            })
+          )
       })
     )
   );

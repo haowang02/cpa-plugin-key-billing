@@ -182,6 +182,19 @@ async function queryAIBalance(provider) {
   try { await task; } finally { if (owner === adminUIState) renderAIProviders(false); }
 }
 
+function querySelectedAIBalances(providers) {
+  const owner = adminUIState;
+  return aiSelection.run(
+    providers,
+    async (provider) => {
+      await loadAIBalance(provider);
+      const error = owner.aiBalanceErrors.get(provider.auth_index);
+      if (error) throw new UIError(error);
+    },
+    { groupBy: (provider) => provider.auth_index, concurrency: AI_BALANCE_BATCH_CONCURRENCY }
+  );
+}
+
 function resetAIBalanceBatch() {
   const bulk = $("ai-provider-query-balances");
   bulk.dataset.loading = "false";

@@ -2047,6 +2047,21 @@ class Handler(BaseHTTPRequestHandler):
                 return
             status, upstream = AI_BALANCE_RESPONSES.get(body.get("url"), (404, {"error": {"message": "Not Found"}}))
             self.send_json(200, {"status_code": status, "header": {"Content-Type": ["application/json"]}, "body": json.dumps(upstream)})
+        elif self.command == "PATCH" and parsed.path.removeprefix("/v0/management/") in AI_PROVIDER_LISTS:
+            field = parsed.path.removeprefix("/v0/management/")
+            body = json.loads(request_body or b"{}")
+            entries = AI_PROVIDER_LISTS[field]
+            index = body.get("index")
+            value = body.get("value")
+            if not isinstance(index, int) or not 0 <= index < len(entries) or not isinstance(value, dict):
+                self.send_json(400, {"error": "invalid provider patch"})
+                return
+            allowed = {"disabled"} if field == "openai-compatibility" else {"excluded-models"}
+            if not value or not set(value) <= allowed:
+                self.send_json(400, {"error": "dummy backend: unsupported provider patch"})
+                return
+            entries[index].update(value)
+            self.send_json(200, {"status": "ok"})
         elif route == ("PATCH", "/v0/management/auth-files/status"):
             body = json.loads(request_body or b"{}")
             item = next((item for item in AUTH_FILES if item["name"] == body.get("name")), None)

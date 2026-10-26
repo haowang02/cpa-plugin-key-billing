@@ -1,19 +1,20 @@
-let keyRouteSelection = { scope: "" };
+let keyRouteSelection = null;
 
-function editKeyRoutes(view) {
-  closeHoverTooltip();
+function editKeyRoutes(views, save) {
   openEditor("route-picker", "route", (data) => {
-    const key = data.keys.find((entry) => entry.scope === view.scope);
-    if (!key || key.deleted_at) throw new UIError(m("ui.this_api_key_no_longer_exists_refresh_the_list"));
+    const keys = views.map((view) => data.keys.find((key) => key.scope === view.scope));
+    if (keys.some((key) => !key || key.deleted_at)) throw new UIError(m("ui.this_api_key_no_longer_exists_refresh_the_list"));
+    const key = keys.length === 1 ? keys[0] : null;
     keyRouteSelection = {
-      scope: view.scope,
-      routeIDs: new Set(key.route_bindings.route_ids),
-      routeNames: key.route_names,
-      ...routingEditorState(key.route_bindings, "route-picker-enabled-only")
+      routeIDs: new Set(key?.route_bindings.route_ids || []),
+      routeNames: key?.route_names || {},
+      ...routingEditorState(key?.route_bindings, "route-picker-enabled-only")
     };
     $("route-picker-search").value = "";
-    setText($("route-picker-identity"), apiKeyIdentity(key).text);
+    $("route-picker-identity").classList.toggle("mask-blur", !!key);
+    setText($("route-picker-identity"), key ? apiKeyIdentity(key).text : m("ui.batch_routes_replace", { count: keys.length }));
     renderKeyRouteList();
+    return save;
   });
 }
 
@@ -452,19 +453,15 @@ $("route-picker-search").addEventListener("input", renderKeyRouteList);
 $("route-picker-all").onclick = () => setVisibleRouteChoices("route-picker", keyRouteSelection, "allow", renderKeyRouteList);
 $("route-picker-deny-all").onclick = () => setVisibleRouteChoices("route-picker", keyRouteSelection, "deny", renderKeyRouteList);
 $("route-picker-save").onclick = () =>
-  submitEditor("route-picker", async () => {
-    await mutateAdmin("PUT", "/keys/routes", {
-      scope: keyRouteSelection.scope,
-      bindings: { route_ids: [...keyRouteSelection.routeIDs], ...routingPayload(keyRouteSelection) }
-    });
-    notify(m("ui.api_key_routing_rules_saved"));
-  });
+  submitEditor("route-picker", (editor) =>
+    editor.initial({ route_ids: [...keyRouteSelection.routeIDs], ...routingPayload(keyRouteSelection) })
+  );
 $("route-picker-clear").onclick = () => {
   keyRouteSelection.routeIDs.clear();
   Object.assign(keyRouteSelection, routingSelection());
   renderKeyRouteList();
 };
-$("route-picker").addEventListener("close", () => { if (!$("route-picker").open) keyRouteSelection = { scope: "" }; });
+$("route-picker").addEventListener("close", () => { if (!$("route-picker").open) keyRouteSelection = null; });
 $("route-rule-search").addEventListener("input", renderRouteRuleList);
 function setVisibleRouteChoices(id, selection, state, rerender) {
   const dialog = $(id);

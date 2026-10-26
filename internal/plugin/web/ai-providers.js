@@ -9,6 +9,39 @@ const AI_PROVIDER_TYPES = [
   { type: "openai-compatibility", list: "openai-compatibility", brand: "openai" }
 ];
 
+const aiSelection = createTableSelection({
+  id: (provider) => provider.selection_id,
+  label: (provider) => [provider.name || provider.type, provider.key_preview || provider.base_url].join(" "),
+  context: () => [$("ai-provider-type").value, $("ai-provider-search").value, $("ai-provider-enabled-only").checked],
+  render: () => renderAIProviders(false),
+  actions: renderAISelectionActions,
+  busy: () => aiProviderStatusSaving
+});
+
+function renderAISelectionActions(providers) {
+  return [
+    aiSelection.action(
+      m("ui.query_balance"),
+      providers.filter(
+        (provider) =>
+          aiBalanceUpstream(provider) && !adminUIState.aiBalanceLoading.has(provider.auth_index) &&
+          $("ai-provider-query-balances").dataset.loading !== "true"
+      ),
+      querySelectedAIBalances
+    ),
+    aiSelection.action(
+      m("ui.enable"),
+      providers.filter((provider) => provider.disabled),
+      (selected) => setAIProvidersEnabled(selected, true, aiSelection)
+    ),
+    aiSelection.action(
+      m("ui.disable"),
+      providers.filter((provider) => !provider.disabled),
+      (selected) => setAIProvidersEnabled(selected, false, aiSelection)
+    )
+  ];
+}
+
 function sortedConfiguredHeaders(headers) {
   if (!headers) return "";
   return Object.keys(headers).sort().map((key) => key + "\0" + headers[key] + "\0").join("");
@@ -35,40 +68,53 @@ function configuredProviderDetails(entry, type) {
   };
 }
 
-async function syncConfiguredProviders() {
-  const config = Object.assign(
-    {},
-    ...(await Promise.all(AI_PROVIDER_TYPES.map((kind) => api("GET", "/v0/management/" + kind.list, null))))
-  );
-  return plugin("POST", "/credentials/sync", { credentials: await parseConfiguredCredentials(config) }, { command: true });
+async function readConfiguredProviderConfig() {
+  return Object.assign({}, ...(await Promise.all(AI_PROVIDER_TYPES.map((kind) => api("GET", "/v0/management/" + kind.list, null)))));
 }
 
-async function parseConfiguredCredentials(config) {
+async function syncConfiguredProviders() {
+  const { credentials, targets } = await parseConfiguredProviders(await readConfiguredProviderConfig());
+  await plugin("POST", "/credentials/sync", { credentials }, { command: true });
+  return targets;
+}
+
+async function parseConfiguredProviders(config) {
   const generation = sessionGeneration;
   const counters = new Map();
   const disabledCounters = new Map();
+  // Selection identities must survive provider enable/disable changes.
+  const selectionCounters = new Map();
   const credentials = [];
+  const targets = new Map();
+  const add = (credential, list, index, selectionID = credential.ref) => {
+    credentials.push(credential);
+    targets.set(credential.ref, { list, index, selectionID, excludedModels: config[list][index]["excluded-models"] || [] });
+  };
 
   for (const { type, list, provider } of AI_PROVIDER_TYPES) {
     if (type === "openai-compatibility") continue;
-    for (const entry of config[list] || []) {
+    for (const [index, entry] of (config[list] || []).entries()) {
       const apiKey = (entry["api-key"] || "").trim();
       const baseURL = (entry["base-url"] || "").trim();
       if (!apiKey && !baseURL) continue;
       const parts = [apiKey, baseURL, entry["proxy-url"]];
       if (type !== "vertex") parts.push(entry.prefix, sortedConfiguredHeaders(entry.headers));
-      credentials.push({
-        ref: await configuredCredentialRef(provider + ":apikey", parts, counters),
-        ...configuredProviderDetails(entry, type),
-        provider,
-        key_preview: previewCredential(apiKey),
-        weight: Math.max(0, entry.weight ?? 1),
-        disabled: (entry["excluded-models"] || []).some((model) => model.trim() === "*")
-      });
+      add(
+        {
+          ref: await configuredCredentialRef(provider + ":apikey", parts, counters),
+          ...configuredProviderDetails(entry, type),
+          provider,
+          key_preview: previewCredential(apiKey),
+          weight: Math.max(0, entry.weight ?? 1),
+          disabled: (entry["excluded-models"] || []).some((model) => model.trim() === "*")
+        },
+        list,
+        index
+      );
     }
   }
 
-  for (const entry of config["openai-compatibility"] || []) {
+  for (const [index, entry] of (config["openai-compatibility"] || []).entries()) {
     // Disabled providers have no runtime identity and must not consume the live ID counters.
     const disabled = entry.disabled === true;
     const kindPrefix = disabled ? "disabled:" : "";
@@ -80,45 +126,60 @@ async function parseConfiguredCredentials(config) {
         : "openai-compatible-" + providerName;
     const apiKeys = entry["api-key-entries"] || [];
     if (!apiKeys.length) {
-      credentials.push({
-        ref: await configuredCredentialRef(kindPrefix + "openai-compatibility:" + providerName, [entry["base-url"]], providerCounters),
-        ...configuredProviderDetails(entry, "openai-compatibility"),
-        provider,
-        key_preview: "",
-        weight: 1,
-        disabled
-      });
+      add(
+        {
+          ref: await configuredCredentialRef(kindPrefix + "openai-compatibility:" + providerName, [entry["base-url"]], providerCounters),
+          ...configuredProviderDetails(entry, "openai-compatibility"),
+          provider,
+          key_preview: "",
+          weight: 1,
+          disabled
+        },
+        "openai-compatibility",
+        index,
+        await configuredCredentialRef("selection:openai-compatibility:" + providerName, [entry["base-url"]], selectionCounters)
+      );
       continue;
     }
     for (const apiKeyEntry of apiKeys) {
       const apiKey = (apiKeyEntry["api-key"] || "").trim();
-      credentials.push({
-        ref: await configuredCredentialRef(
-          kindPrefix + "openai-compatibility:" + providerName,
+      add(
+        {
+          ref: await configuredCredentialRef(
+            kindPrefix + "openai-compatibility:" + providerName,
+            [apiKey, entry["base-url"], apiKeyEntry["proxy-url"]],
+            providerCounters
+          ),
+          ...configuredProviderDetails(entry, "openai-compatibility"),
+          auth_index: apiKeyEntry["auth-index"] || "",
+          provider,
+          key_preview: previewCredential(apiKey),
+          weight: Math.max(0, apiKeyEntry.weight ?? 1),
+          disabled
+        },
+        "openai-compatibility",
+        index,
+        await configuredCredentialRef(
+          "selection:openai-compatibility:" + providerName,
           [apiKey, entry["base-url"], apiKeyEntry["proxy-url"]],
-          providerCounters
-        ),
-        ...configuredProviderDetails(entry, "openai-compatibility"),
-        auth_index: apiKeyEntry["auth-index"] || "",
-        provider,
-        key_preview: previewCredential(apiKey),
-        weight: Math.max(0, apiKeyEntry.weight ?? 1),
-        disabled
-      });
+          selectionCounters
+        )
+      );
     }
   }
 
   if (generation !== sessionGeneration) throw new StaleRequestError();
-  return credentials;
+  return { credentials, targets };
 }
 
 async function fetchAIProviders(account) {
-  if (!account) await queueAdminData("configuration", syncConfiguredProviders);
+  const targets = account ? null : await queueAdminData("configuration", syncConfiguredProviders);
   const range = selectedRange(account);
   const path = "/ai-providers?" + new URLSearchParams(range);
   const result = account ? await accountAPI(path) : await plugin("GET", path);
   return result.providers.map((provider) => ({
     ...provider,
+    selection_id: targets?.get(provider.ref)?.selectionID || provider.ref,
     usage_query: provider.auth_index ? { credential_ref: provider.ref, ...range } : null
   }));
 }
@@ -150,8 +211,10 @@ function renderAIProviders(account) {
     return;
   }
   const providers = filteredAIProviders(account);
-  if (bulk) bulk.disabled = bulk.dataset.loading === "true" || !providers.some(aiBalanceUpstream);
+  if (bulk)
+    bulk.disabled = bulk.dataset.loading === "true" || aiSelection.running || aiProviderStatusSaving || !providers.some(aiBalanceUpstream);
   renderCollection(body, providers, {
+    selection: account ? null : aiSelection,
     headers: [
       m("ui.ai_providers"),
       ...credentialMetricHeaders(),
@@ -198,8 +261,7 @@ function renderAIProviderRow(provider, account) {
                 text: provider.key_preview || m("ui.no_api_key_configured")
               })
             ),
-            credentialRoutingTag(provider),
-            provider.disabled && el("span", { class: "tag warn", text: m("ui.disabled") })
+            credentialRoutingTag(provider)
           )
         )
       )
@@ -209,7 +271,7 @@ function renderAIProviderRow(provider, account) {
     !account &&
       el(
         "td",
-        { class: "credential-actions-cell" + (upstream ? "" : " unavailable") },
+        { class: "credential-actions-cell" },
         el(
           "div",
           { class: "credential-actions" },
@@ -218,16 +280,74 @@ function renderAIProviderRow(provider, account) {
             {
               type: "button",
               class: "labeled-icon-button round-icon-button" + (loading ? " loading" : ""),
-              disabled: !upstream || loading || $("ai-provider-query-balances").dataset.loading === "true",
+              disabled:
+                !upstream || loading || aiSelection.running || aiProviderStatusSaving ||
+                $("ai-provider-query-balances").dataset.loading === "true",
               "aria-label": m("ui.query_balance"),
               "data-tip": upstream ? m("ui.query_balance") : m("ui.balance_queries_are_not_supported_for_this_provider"),
               onclick: () => guard(() => queryAIBalance(provider))
             },
             actionIcon("refresh")
-          )
+          ),
+          switchControl({
+            input: el("input", {
+              type: "checkbox",
+              role: "switch",
+              checked: !provider.disabled,
+              "aria-label": m(provider.type === "openai-compatibility" ? "ui.provider_group_switch" : "ui.enable"),
+              "data-tip": m(provider.type === "openai-compatibility" ? "ui.provider_group_switch" : "ui.enable"),
+              disabled: aiProviderStatusSaving || aiSelection.running,
+              onchange: (event) => {
+                const enabled = event.target.checked;
+                event.target.checked = !provider.disabled;
+                guard(() => setAIProvidersEnabled([provider], enabled));
+              }
+            })
+          })
         )
       )
   );
+}
+
+let aiProviderStatusSaving = false;
+
+async function setAIProvidersEnabled(providers, enabled, selection = null) {
+  if (aiProviderStatusSaving) return;
+  const generation = sessionGeneration;
+  const context = selection?.context;
+  aiProviderStatusSaving = true;
+  renderAIProviders(false);
+  try {
+    const { targets } = await parseConfiguredProviders(await readConfiguredProviderConfig());
+    if (generation !== sessionGeneration || (selection && (activeTableSelection !== selection || selection.context !== context)))
+      throw new StaleRequestError();
+    if (providers.some((provider) => !targets.has(provider.ref))) throw new UIError(m("ui.provider_config_changed"));
+    const group = (provider) => {
+      const target = targets.get(provider.ref);
+      return target.list + ":" + target.index;
+    };
+    const save = (provider) => {
+      const target = targets.get(provider.ref);
+      const value =
+        target.list === "openai-compatibility"
+          ? { disabled: !enabled }
+          : {
+              "excluded-models": enabled
+                ? target.excludedModels.filter((model) => model.trim() !== "*")
+                : [...new Set([...target.excludedModels, "*"])]
+            };
+      return queueAdminData("configuration", () => api("PATCH", "/v0/management/" + target.list, { index: target.index, value }));
+    };
+    if (selection) await selection.run(providers, save, { groupBy: group, refresh: () => readAIProviders(false, true) });
+    else {
+      try { for (const provider of new Map(providers.map((item) => [group(item), item])).values()) await save(provider); } finally {
+        if (generation === sessionGeneration) await readAIProviders(false, true);
+      }
+    }
+  } finally {
+    aiProviderStatusSaving = false;
+    if (generation === sessionGeneration) renderAIProviders(false);
+  }
 }
 
 for (const account of [false, true]) {

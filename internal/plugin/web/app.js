@@ -129,6 +129,7 @@ async function setLoginMode(mode, preserveError) {
 
 function showGate(mode, error) {
   sessionGeneration++;
+  clearTableSelection();
   hideNotice();
   closeHoverTooltip();
   try { sessionStorage.removeItem(SESSION_CREDENTIAL_PREFIX + mode); } catch (_) {}
@@ -399,8 +400,9 @@ function setAccountTab(tab) {
 
 const TABS = Array.from(document.querySelectorAll(".tabs button[data-tab]"));
 function setAdminTab(name) {
-  if (editors.get($("route-picker"))?.saving) return;
+  if (editors.get($("route-picker"))?.saving || activeTableSelection?.busy) return;
   const selected = ADMIN_TAB_IDS.includes(name) ? name : "keys";
+  if (selected !== activeTab(false)) clearTableSelection();
   if (selected !== "keys") $("route-picker").close();
   writePageRoute("admin", selected);
   for (const tab of TABS) {

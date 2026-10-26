@@ -1,3 +1,21 @@
+const priceSelection = createTableSelection({
+  id: (price) => price.custom_price_model_id || price.model_id,
+  label: (price) => price.model_id,
+  eligible: (price) => price.source === "custom",
+  disabledTip: m("ui.batch_custom_prices_only"),
+  context: () => $("price-filter").value.trim().toLowerCase(),
+  render: renderPriceTable,
+  actions: (prices) => [priceSelection.action(m("ui.delete_custom_prices"), prices, deleteSelectedPrices, true)]
+});
+
+function deleteSelectedPrices(prices) {
+  return openActionDialog(m("ui.batch_delete_custom_prices", { count: prices.length }), m("ui.batch_delete_prices_note"), undefined, () =>
+    priceSelection.run(prices, (price) => writeAdmin("DELETE", "/prices?model_id=" + encodeURIComponent(priceSelection.id(price))), {
+      success: m("ui.custom_price_deleted")
+    })
+  );
+}
+
 function priceSourceTag(source) {
   switch (source) {
     case "custom":
@@ -99,7 +117,7 @@ function renderPriceTable() {
     m("ui.source"),
     m("ui.actions")
   ];
-  renderCollection($("prices-body"), rows, { headers, render: renderRow });
+  renderCollection($("prices-body"), rows, { headers, render: renderRow, selection: priceSelection });
 }
 
 function renderReferencePriceStatus() {

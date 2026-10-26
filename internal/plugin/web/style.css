@@ -1146,7 +1146,7 @@ body.privacy-masked .mask-select:not(:has(option[value=""]:checked))::before {
 .credential-list { container: credential-table / inline-size; }
 .credential-table { width: 100%; min-width: 0; table-layout: auto; }
 .credential-table th:not(.credential-quota-column) { width: 1%; }
-.credential-row.disabled > :not(.credential-actions-cell) { opacity: 0.68; }
+.credential-row.disabled > :not(.credential-actions-cell, .selection-cell) { opacity: 0.68; }
 .credential-metric { display: grid; gap: 3px; min-width: 0; }
 .credential-metric-label { display: none; color: var(--text-tertiary); font-size: 11px; }
 .credential-metric-value { color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1764,6 +1764,13 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
   display: block;
 }
 .checkbox-box[data-state="deny"] { border-color: var(--text-secondary); }
+.checkbox-control:has(input:indeterminate) .checkbox-box { border-color: var(--primary-color); background: var(--primary-color); }
+.checkbox-control:has(input:indeterminate) .checkbox-box::after {
+  content: "";
+  width: 8px;
+  height: 2px;
+  background: var(--primary-contrast);
+}
 .checkbox-control > input:focus-visible + .checkbox-box, .route-choice:focus-visible > .checkbox-box {
   outline: 2px solid var(--primary-color);
   outline-offset: 2px;

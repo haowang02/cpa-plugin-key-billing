@@ -1,0 +1,63 @@
+.batch-bar {
+  position: fixed;
+  z-index: 45;
+  inset: auto 20px max(20px, env(safe-area-inset-bottom));
+  width: fit-content;
+  max-width: calc(100% - 40px);
+  margin-inline: auto;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--floating-surface);
+  color: var(--text-primary);
+  box-shadow: var(--floating-shadow);
+}
+.batch-summary { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.batch-count { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.batch-summary > .link { font-size: 12px; }
+.batch-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 16px; border-left: 1px solid var(--border-color); }
+.batch-actions > button, .batch-select > select { font-size: 12px; }
+.batch-select > select { max-width: 200px; }
+.has-batch-selection .wrap { padding-bottom: 120px; }
+.selection-cell { width: 36px; min-width: 36px; text-align: center; }
+.selection-cell .checkbox-control { vertical-align: middle; }
+.selected-row > td { background: color-mix(in srgb, var(--primary-color) 8%, transparent); }
+.selection-mobile { display: none; }
+@container credential-table (max-width: 900px) {
+  .selection-mobile {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .credential-table .credential-row:has(.selection-cell) { position: relative; padding-left: 48px; }
+  .credential-table .selection-cell { position: absolute; top: 17px; left: 12px; width: 22px; min-width: 0; }
+  .credential-table .selected-row { background: color-mix(in srgb, var(--primary-color) 8%, transparent); }
+  .credential-table .selected-row > td { background: transparent; }
+}
+@media (max-width: 900px) {
+  .batch-bar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .batch-summary { justify-content: space-between; }
+  .batch-actions { padding: 10px 0 0; border-left: none; border-top: 1px solid var(--border-color); }
+}
+@media (max-width: 520px) {
+  .batch-bar {
+    inset-inline: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: auto;
+    max-width: calc(100% - 24px);
+    padding: 12px;
+  }
+  .batch-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .batch-actions > button { min-width: 0; white-space: normal; }
+  .batch-select, .batch-select > select { min-width: 0; width: 100%; max-width: 100%; }
+  .batch-actions:has(> button:nth-child(3):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .batch-actions > button:only-child { grid-column: 1 / -1; }
+  .has-batch-selection .wrap { padding-bottom: 200px; }
+}
