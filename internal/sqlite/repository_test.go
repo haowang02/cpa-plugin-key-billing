@@ -54,7 +54,8 @@ func TestRepositoryRoundTrip(t *testing.T) {
 			state.Prices = map[string]billing.CustomPrice{"gpt-5.5": {ModelID: "gpt-5.5", PriceRates: billing.PriceRates{InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: price(.1)}}}
 			state.Routes = []billing.Route{{ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{billing.CredentialFingerprint("dummy-allowed")}, CredentialProviders: []billing.CredentialProviderSelector{{Source: "auth-files", Provider: "codex"}}, DeniedModels: []string{"blocked"}, DeniedCredentialIDs: []string{billing.CredentialFingerprint("dummy-denied")}, DeniedCredentialProviders: []billing.CredentialProviderSelector{{Source: "auth-files", Provider: "claude"}}}}}
 			state.ConfigCredentials[billing.CredentialFingerprint("dummy-config")] = billing.ConfigCredential{
-				ConfigCredentialDetails: billing.ConfigCredentialDetails{Provider: "codex", KeyPreview: "sk-tes…0001", Disabled: true},
+				ConfigCredentialDetails: billing.ConfigCredentialDetails{Provider: "codex", KeyPreview: "sk-tes…0001", Disabled: true, ConfigRef: billing.CredentialFingerprint("dummy-config")},
+				Note:                    "Provider note",
 			}
 			state.Keys["scope-a"] = &billing.KeyState{Preview: "sk-tes…0001", Label: "Alice", InConfig: true,
 				PlanID: "weekly", ConcurrencyLimit: 7, RouteBindings: billing.RouteBindings{

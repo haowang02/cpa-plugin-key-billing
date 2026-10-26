@@ -37,7 +37,7 @@ func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
 			{"auth_index":"api-1","name":"openai-api-key.json","type":"openai","provider":"openai","account_type":"api_key","account":"sk-upstream-secret"},
 			{"auth_index":"x-2","name":"zeta.json","type":"xai","email":"z@example.com","disabled":true,"path":"/secret/zeta.json","account":"sk-upstream-secret","id_token":"secret"},
 			{"auth_index":"c-2","name":"zeta.json","type":"codex","path":"/dummy/c-2.json","id_token":{"plan_type":"pro"}},
-			{"auth_index":"c-1","name":"Alpha.json","type":"codex","path":"/dummy/c-1.json","email":"user@example.com","priority":99,"modtime":"2026-09-02T01:02:03Z","id_token":{"planType":"prolite"}},
+			{"auth_index":"c-1","name":"Alpha.json","type":"codex","path":"/dummy/c-1.json","email":"user@example.com","note":"  Team credential  ","priority":99,"modtime":"2026-09-02T01:02:03Z","id_token":{"planType":"prolite"}},
 			{"auth_index":"a-1","name":"antigravity.json","type":"antigravity","path":"/dummy/a-1.json"},
 			{"auth_index":"cl-1","name":"claude.json","type":"claude","path":"/dummy/cl-1.json"}
 		]}`), nil
@@ -64,6 +64,9 @@ func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
 	}
 	if payload.Files[2].Title != "user@example.com" || payload.Files[3].Title != "zeta" {
 		t.Fatalf("titles = %q, %q, want the CPA email and the file name", payload.Files[2].Title, payload.Files[3].Title)
+	}
+	if payload.Files[2].Note != "Team credential" {
+		t.Fatalf("note = %q", payload.Files[2].Note)
 	}
 	// The host omits the default priority, which the UI still shows as P0.
 	if payload.Files[2].Priority != 99 || !strings.Contains(encoded, `"priority":0`) {

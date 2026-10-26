@@ -38,6 +38,7 @@ type hostAuthFile struct {
 	Type        string    `json:"type"`
 	Provider    string    `json:"provider"`
 	Label       string    `json:"label"`
+	Note        string    `json:"note"`
 	Status      string    `json:"status"`
 	Source      string    `json:"source"`
 	Path        string    `json:"path"`
@@ -56,6 +57,7 @@ type authFileView struct {
 	AuthIndex          string                       `json:"auth_index"`
 	Name               string                       `json:"name"`
 	Title              string                       `json:"title"`
+	Note               string                       `json:"note"`
 	Category           string                       `json:"category"`
 	Disabled           bool                         `json:"disabled"`
 	Unavailable        bool                         `json:"unavailable"`
@@ -269,7 +271,7 @@ func (a *App) listAuthFiles(access viewAccess, from, to time.Time) ([]authFileVi
 		category := authCategory(file.Type)
 		quotaSupported, quotaReason := authQuotaAvailability(file, category)
 		views = append(views, authFileView{
-			AuthIndex: file.AuthIndex, Name: file.Name, Title: authFileTitle(file), Category: category,
+			AuthIndex: file.AuthIndex, Name: file.Name, Title: authFileTitle(file), Note: cleanText(file.Note), Category: category,
 			Disabled: file.Disabled, Unavailable: file.Unavailable, Priority: file.Priority, Weight: a.authFileWeight(file),
 			InFlight:       concurrency[billing.CredentialFingerprint(file.ID)],
 			QuotaSupported: quotaSupported, QuotaReason: quotaReason, CacheRevision: authFileRevision(file),

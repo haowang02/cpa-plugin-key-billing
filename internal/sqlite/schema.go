@@ -96,7 +96,9 @@ CREATE TABLE config_credentials (
 	base_url     TEXT NOT NULL DEFAULT '',
 	priority     INTEGER NOT NULL DEFAULT 0,
 	weight       INTEGER NOT NULL DEFAULT 1,
-	balance_json TEXT NOT NULL DEFAULT 'null'
+	balance_json TEXT NOT NULL DEFAULT 'null',
+	config_ref   TEXT NOT NULL DEFAULT '',
+	note         TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE plans (

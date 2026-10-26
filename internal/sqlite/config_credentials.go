@@ -8,6 +8,9 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
+const configCredentialColumns = `ref, provider, key_preview, disabled, auth_index, type, name,
+    base_url, priority, weight, balance_json, config_ref, note`
+
 func replaceConfigCredentials(tx *sql.Tx, state *billing.State) error {
 	if _, err := tx.Exec("DELETE FROM config_credentials"); err != nil {
 		return fmt.Errorf("Save configured credentials: %w", err)
@@ -17,8 +20,9 @@ func replaceConfigCredentials(tx *sql.Tx, state *billing.State) error {
 		if err != nil {
 			return fmt.Errorf("Encode credential balance: %w", err)
 		}
-		if _, err := tx.Exec("INSERT INTO config_credentials(ref, provider, key_preview, disabled, auth_index, type, name, base_url, priority, weight, balance_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			ref, credential.Provider, credential.KeyPreview, credential.Disabled, credential.AuthIndex, credential.Type, credential.Name, credential.BaseURL, credential.Priority, credential.Weight, string(balance)); err != nil {
+		if _, err := tx.Exec("INSERT INTO config_credentials ("+configCredentialColumns+") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			ref, credential.Provider, credential.KeyPreview, credential.Disabled, credential.AuthIndex, credential.Type, credential.Name,
+			credential.BaseURL, credential.Priority, credential.Weight, string(balance), credential.ConfigRef, credential.Note); err != nil {
 			return fmt.Errorf("Save configured credentials: %w", err)
 		}
 	}
@@ -26,7 +30,7 @@ func replaceConfigCredentials(tx *sql.Tx, state *billing.State) error {
 }
 
 func (d *DB) loadConfigCredentials(state *billing.State) error {
-	rows, err := d.db.Query("SELECT ref, provider, key_preview, disabled, auth_index, type, name, base_url, priority, weight, balance_json FROM config_credentials")
+	rows, err := d.db.Query("SELECT " + configCredentialColumns + " FROM config_credentials")
 	if err != nil {
 		return fmt.Errorf("Read configured credentials: %w", err)
 	}
@@ -34,7 +38,8 @@ func (d *DB) loadConfigCredentials(state *billing.State) error {
 	for rows.Next() {
 		var ref, balance string
 		var credential billing.ConfigCredential
-		if err := rows.Scan(&ref, &credential.Provider, &credential.KeyPreview, &credential.Disabled, &credential.AuthIndex, &credential.Type, &credential.Name, &credential.BaseURL, &credential.Priority, &credential.Weight, &balance); err != nil {
+		if err := rows.Scan(&ref, &credential.Provider, &credential.KeyPreview, &credential.Disabled, &credential.AuthIndex, &credential.Type, &credential.Name,
+			&credential.BaseURL, &credential.Priority, &credential.Weight, &balance, &credential.ConfigRef, &credential.Note); err != nil {
 			return fmt.Errorf("Read configured credentials: %w", err)
 		}
 		if err := json.Unmarshal([]byte(balance), &credential.Balance); err != nil {

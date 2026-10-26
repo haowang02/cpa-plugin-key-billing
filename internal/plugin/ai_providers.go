@@ -93,6 +93,20 @@ func (a *App) syncAIProviderBalance(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, body.Balance)
 }
 
+func (a *App) setAIProviderNote(req ManagementRequest) ManagementResponse {
+	var body struct {
+		Ref  string `json:"ref"`
+		Note string `json:"note"`
+	}
+	if err := decodeStrict(req.Body, &body); err != nil {
+		return errorResponse(err)
+	}
+	if err := a.store.SetCredentialNote(strings.ToLower(strings.TrimSpace(body.Ref)), cleanText(body.Note)); err != nil {
+		return errorResponse(err)
+	}
+	return JSONResponse(http.StatusOK, struct{}{})
+}
+
 func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementResponse {
 	var body struct {
 		Credentials []struct {
@@ -116,6 +130,10 @@ func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementRespons
 		}
 		credential := item.ConfigCredentialDetails
 		credential.Provider = provider
+		credential.ConfigRef = strings.ToLower(strings.TrimSpace(credential.ConfigRef))
+		if credential.ConfigRef != "" && !billing.ValidCredentialFingerprint(credential.ConfigRef) {
+			return JSONError(http.StatusBadRequest, "invalid", "Invalid configured credential identifier")
+		}
 		credential.KeyPreview = billing.PreviewKey(cleanText(item.KeyPreview))
 		next[ref] = credential
 	}

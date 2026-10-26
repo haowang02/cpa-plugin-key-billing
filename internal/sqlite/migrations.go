@@ -47,11 +47,24 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 20 {
 		steps = append(steps, migrateClientHeaders)
 	}
-	steps = append(steps, migrateConfiguredProviders)
+	if version <= 21 {
+		steps = append(steps, migrateConfiguredProviders)
+	}
+	steps = append(steps, migrateCredentialNotes)
 	for _, step := range steps {
 		if err := step(tx); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateCredentialNotes(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+		ALTER TABLE config_credentials ADD COLUMN config_ref TEXT NOT NULL DEFAULT '';
+		ALTER TABLE config_credentials ADD COLUMN note TEXT NOT NULL DEFAULT '';
+		UPDATE config_credentials SET config_ref = ref;`); err != nil {
+		return fmt.Errorf("Add configured credential notes: %w", err)
 	}
 	return nil
 }

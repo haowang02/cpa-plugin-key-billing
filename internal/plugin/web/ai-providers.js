@@ -1,17 +1,6 @@
-const AI_PROVIDER_TYPES = [
-  { type: "claude", provider: "claude", list: "claude-api-key", brand: "claude" },
-  { type: "codex", provider: "codex", list: "codex-api-key", brand: "codex" },
-  { type: "gemini", provider: "gemini", list: "gemini-api-key", brand: "gemini" },
-  { type: "interactions", provider: "gemini-interactions", list: "interactions-api-key", brand: "gemini" },
-  { type: "vertex", provider: "vertex", list: "vertex-api-key", brand: "vertex" },
-  { type: "xai", provider: "xai", list: "xai-api-key", brand: "xai" },
-  { type: "meta", provider: "meta", list: "meta-api-key", brand: "meta" },
-  { type: "openai-compatibility", list: "openai-compatibility", brand: "openai" }
-];
-
 const aiSelection = createTableSelection({
-  id: (provider) => provider.selection_id,
-  label: (provider) => [provider.name || provider.type, provider.key_preview || provider.base_url].join(" "),
+  id: (provider) => provider.config_ref,
+  label: (provider) => [provider.note || provider.name || provider.type, provider.key_preview || provider.base_url].join(" "),
   context: () => [$("ai-provider-type").value, $("ai-provider-search").value, $("ai-provider-enabled-only").checked],
   render: () => renderAIProviders(false),
   actions: renderAISelectionActions,
@@ -42,146 +31,19 @@ function renderAISelectionActions(providers) {
   ];
 }
 
-function sortedConfiguredHeaders(headers) {
-  if (!headers) return "";
-  return Object.keys(headers).sort().map((key) => key + "\0" + headers[key] + "\0").join("");
-}
-
-async function configuredCredentialRef(kind, parts, counters) {
-  // These hashes must stay byte-identical to CPA's StableIDGenerator and
-  // the plugin's CredentialFingerprint so exact bindings match candidates.
-  const digest = await sha256Hex(kind + parts.map((part) => "\0" + String(part || "").trim()).join(""));
-  const base = kind + ":" + digest.slice(0, 12);
-  const collision = counters.get(base) || 0;
-  counters.set(base, collision + 1);
-  const id = collision ? base + "-" + collision : base;
-  return "sha256:" + (await sha256Hex("cpa-key-billing:credential:v1\0" + id));
-}
-
-function configuredProviderDetails(entry, type) {
-  return {
-    type,
-    name: (entry.name || "").trim(),
-    auth_index: entry["auth-index"] || "",
-    base_url: (entry["base-url"] || "").trim(),
-    priority: entry.priority ?? 0
-  };
-}
-
-async function readConfiguredProviderConfig() {
-  return Object.assign({}, ...(await Promise.all(AI_PROVIDER_TYPES.map((kind) => api("GET", "/v0/management/" + kind.list, null)))));
-}
-
-async function syncConfiguredProviders() {
-  const { credentials, targets } = await parseConfiguredProviders(await readConfiguredProviderConfig());
-  await plugin("POST", "/credentials/sync", { credentials }, { command: true });
-  return targets;
-}
-
-async function parseConfiguredProviders(config) {
-  const generation = sessionGeneration;
-  const counters = new Map();
-  const disabledCounters = new Map();
-  // Selection identities must survive provider enable/disable changes.
-  const selectionCounters = new Map();
-  const credentials = [];
-  const targets = new Map();
-  const add = (credential, list, index, selectionID = credential.ref) => {
-    credentials.push(credential);
-    targets.set(credential.ref, { list, index, selectionID, excludedModels: config[list][index]["excluded-models"] || [] });
-  };
-
-  for (const { type, list, provider } of AI_PROVIDER_TYPES) {
-    if (type === "openai-compatibility") continue;
-    for (const [index, entry] of (config[list] || []).entries()) {
-      const apiKey = (entry["api-key"] || "").trim();
-      const baseURL = (entry["base-url"] || "").trim();
-      if (!apiKey && !baseURL) continue;
-      const parts = [apiKey, baseURL, entry["proxy-url"]];
-      if (type !== "vertex") parts.push(entry.prefix, sortedConfiguredHeaders(entry.headers));
-      add(
-        {
-          ref: await configuredCredentialRef(provider + ":apikey", parts, counters),
-          ...configuredProviderDetails(entry, type),
-          provider,
-          key_preview: previewCredential(apiKey),
-          weight: Math.max(0, entry.weight ?? 1),
-          disabled: (entry["excluded-models"] || []).some((model) => model.trim() === "*")
-        },
-        list,
-        index
-      );
-    }
-  }
-
-  for (const [index, entry] of (config["openai-compatibility"] || []).entries()) {
-    // Disabled providers have no runtime identity and must not consume the live ID counters.
-    const disabled = entry.disabled === true;
-    const kindPrefix = disabled ? "disabled:" : "";
-    const providerCounters = disabled ? disabledCounters : counters;
-    const providerName = (entry.name || "").trim().toLowerCase() || "openai-compatibility";
-    const provider =
-      providerName === "openai-compatibility" || providerName.startsWith("openai-compatible-")
-        ? providerName
-        : "openai-compatible-" + providerName;
-    const apiKeys = entry["api-key-entries"] || [];
-    if (!apiKeys.length) {
-      add(
-        {
-          ref: await configuredCredentialRef(kindPrefix + "openai-compatibility:" + providerName, [entry["base-url"]], providerCounters),
-          ...configuredProviderDetails(entry, "openai-compatibility"),
-          provider,
-          key_preview: "",
-          weight: 1,
-          disabled
-        },
-        "openai-compatibility",
-        index,
-        await configuredCredentialRef("selection:openai-compatibility:" + providerName, [entry["base-url"]], selectionCounters)
-      );
-      continue;
-    }
-    for (const apiKeyEntry of apiKeys) {
-      const apiKey = (apiKeyEntry["api-key"] || "").trim();
-      add(
-        {
-          ref: await configuredCredentialRef(
-            kindPrefix + "openai-compatibility:" + providerName,
-            [apiKey, entry["base-url"], apiKeyEntry["proxy-url"]],
-            providerCounters
-          ),
-          ...configuredProviderDetails(entry, "openai-compatibility"),
-          auth_index: apiKeyEntry["auth-index"] || "",
-          provider,
-          key_preview: previewCredential(apiKey),
-          weight: Math.max(0, apiKeyEntry.weight ?? 1),
-          disabled
-        },
-        "openai-compatibility",
-        index,
-        await configuredCredentialRef(
-          "selection:openai-compatibility:" + providerName,
-          [apiKey, entry["base-url"], apiKeyEntry["proxy-url"]],
-          selectionCounters
-        )
-      );
-    }
-  }
-
-  if (generation !== sessionGeneration) throw new StaleRequestError();
-  return { credentials, targets };
-}
-
 async function fetchAIProviders(account) {
   const targets = account ? null : await queueAdminData("configuration", syncConfiguredProviders);
   const range = selectedRange(account);
   const path = "/ai-providers?" + new URLSearchParams(range);
   const result = account ? await accountAPI(path) : await plugin("GET", path);
-  return result.providers.map((provider) => ({
-    ...provider,
-    selection_id: targets?.get(provider.ref)?.selectionID || provider.ref,
-    usage_query: provider.auth_index ? { credential_ref: provider.ref, ...range } : null
-  }));
+  return result.providers.map((provider) => {
+    const target = targets?.get(provider.ref);
+    return {
+      ...provider,
+      editor: target?.editor || { weightEditable: false, sharedPriority: false },
+      usage_query: provider.auth_index ? { credential_ref: provider.ref, ...range } : null
+    };
+  });
 }
 
 function readAIProviders(account, reload = false) {
@@ -197,7 +59,7 @@ function filteredAIProviders(account) {
     if ($(prefix + "ai-provider-enabled-only").checked && provider.disabled) return false;
     if (type && provider.type !== type) return false;
     if (!search) return true;
-    return [provider.base_url, provider.type, provider.name, provider.key_preview].some((value) =>
+    return [provider.note, provider.base_url, provider.type, provider.name, provider.key_preview].some((value) =>
       value.toLocaleLowerCase().includes(search)
     );
   });
@@ -217,6 +79,7 @@ function renderAIProviders(account) {
     selection: account ? null : aiSelection,
     headers: [
       m("ui.ai_providers"),
+      ...(!account ? [{ label: "", class: "credential-edit-column" }] : []),
       ...credentialMetricHeaders(),
       { label: m("ui.balance"), class: "credential-quota-column" },
       ...(!account ? [m("ui.actions")] : [])
@@ -231,6 +94,7 @@ function renderAIProviderRow(provider, account) {
   const upstream = aiBalanceUpstream(provider);
   const loading = adminUIState.aiBalanceLoading.has(provider.auth_index);
   const baseURL = provider.base_url.replace(/^https:\/\//i, "");
+  const title = provider.note || baseURL || m("ui.default_base_url");
   return el(
     "tr",
     { class: "credential-row" + (provider.disabled ? " disabled" : "") },
@@ -245,14 +109,21 @@ function renderAIProviderRow(provider, account) {
           "div",
           { class: "credential-identity" },
           el("div", {
-            class: "credential-title" + (baseURL ? "" : " muted"),
-            "data-tip": baseURL || null,
+            class: "credential-title" + (provider.note ? " mask-blur" : baseURL ? "" : " muted"),
+            "data-tip": title,
             "data-tip-overflow": "",
-            text: baseURL || m("ui.default_base_url")
+            text: title
           }),
           el(
             "div",
             { class: "credential-meta ai-provider-meta" },
+            provider.name &&
+              el("span", {
+                class: "tag plain credential-name-tag",
+                "data-tip": provider.name,
+                "data-tip-overflow": "",
+                text: provider.name
+              }),
             el(
               "span",
               { class: "tag plain ai-provider-key" },
@@ -266,6 +137,7 @@ function renderAIProviderRow(provider, account) {
         )
       )
     ),
+    !account && credentialEditCell(() => editAIProvider(provider), aiProviderStatusSaving || aiSelection.running),
     renderCredentialMetrics(provider, modelUsageTooltip(account, provider.usage_query)),
     el("td", { class: "credential-quota-cell" }, renderAIBalance(provider, account)),
     !account &&
@@ -309,6 +181,15 @@ function renderAIProviderRow(provider, account) {
   );
 }
 
+function editAIProvider(provider) {
+  openCredentialEditor(
+    m("ui.edit_ai_provider"),
+    provider,
+    async (changes) => { try { await writeConfiguredProvider(provider, changes); } finally { await readAIProviders(false, true); } },
+    { weightEditable: provider.editor.weightEditable, hint: provider.editor.sharedPriority ? m("ui.provider_priority_shared") : "" }
+  );
+}
+
 let aiProviderStatusSaving = false;
 
 async function setAIProvidersEnabled(providers, enabled, selection = null) {
@@ -318,26 +199,11 @@ async function setAIProvidersEnabled(providers, enabled, selection = null) {
   aiProviderStatusSaving = true;
   renderAIProviders(false);
   try {
-    const { targets } = await parseConfiguredProviders(await readConfiguredProviderConfig());
+    const targets = await readConfiguredProviderTargets(providers);
     if (generation !== sessionGeneration || (selection && (activeTableSelection !== selection || selection.context !== context)))
       throw new StaleRequestError();
-    if (providers.some((provider) => !targets.has(provider.ref))) throw new UIError(m("ui.provider_config_changed"));
-    const group = (provider) => {
-      const target = targets.get(provider.ref);
-      return target.list + ":" + target.index;
-    };
-    const save = (provider) => {
-      const target = targets.get(provider.ref);
-      const value =
-        target.list === "openai-compatibility"
-          ? { disabled: !enabled }
-          : {
-              "excluded-models": enabled
-                ? target.excludedModels.filter((model) => model.trim() !== "*")
-                : [...new Set([...target.excludedModels, "*"])]
-            };
-      return queueAdminData("configuration", () => api("PATCH", "/v0/management/" + target.list, { index: target.index, value }));
-    };
+    const group = (provider) => targets.get(provider.ref).group;
+    const save = (provider) => setConfiguredProviderEnabled(targets.get(provider.ref), enabled);
     if (selection) await selection.run(providers, save, { groupBy: group, refresh: () => readAIProviders(false, true) });
     else {
       try { for (const provider of new Map(providers.map((item) => [group(item), item])).values()) await save(provider); } finally {

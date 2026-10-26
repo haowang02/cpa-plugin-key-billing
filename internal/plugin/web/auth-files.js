@@ -1,6 +1,6 @@
 const authSelection = createTableSelection({
   id: (file) => file.auth_index,
-  label: (file) => file.title,
+  label: (file) => file.note || file.title,
   eligible: (file) => !!file.auth_index,
   context: () => [$("auth-provider").value, $("auth-search").value, $("auth-enabled-only").checked],
   render: () => renderAuthFiles(false),
@@ -246,7 +246,9 @@ function filteredAuthFiles(account) {
     if (provider && file.category !== provider) return false;
     if (!search) return true;
     const currentPlan = authFileQuota(file, ui.owner)?.plan;
-    return [file.name, file.title, currentPlan, file.category].some((value) => String(value || "").toLocaleLowerCase().includes(search));
+    return [file.note, file.name, file.title, currentPlan, file.category].some((value) =>
+      String(value || "").toLocaleLowerCase().includes(search)
+    );
   });
 }
 
@@ -431,6 +433,7 @@ function renderAuthFiles(account) {
     selection: account ? null : authSelection,
     headers: [
       m("ui.auth_files"),
+      ...(!account ? [{ label: "", class: "credential-edit-column" }] : []),
       m("ui.plan"),
       ...credentialMetricHeaders(),
       { label: m("ui.quota"), class: "credential-quota-column" },
@@ -492,11 +495,18 @@ function renderAuthFileRow(file, account) {
         el(
           "div",
           { class: "credential-identity" },
-          el("div", { class: "credential-title mask-blur", "data-tip": file.title, "data-tip-overflow": "", text: file.title }),
+          el("div", {
+            class: "credential-title mask-blur",
+            "data-tip": file.note || file.title,
+            "data-tip-overflow": "",
+            text: file.note || file.title
+          }),
           authFileMeta(file)
         )
       )
     ),
+    !account &&
+      credentialEditCell(() => editAuthFile(file), authSelection.running || adminUIState.authStatusSubmissions.has(file.auth_index)),
     renderAuthFilePlan(file, quota),
     renderCredentialMetrics(file, modelUsageTooltip(account, file.usage_query)),
     el(
@@ -540,6 +550,19 @@ function renderAuthFileRow(file, account) {
           })
       )
     )
+  );
+}
+
+function editAuthFile(file) {
+  openCredentialEditor(
+    m("ui.edit_auth_file"),
+    file,
+    async (changes) => {
+      try { await api("PATCH", "/v0/management/auth-files/fields", { name: file.name, ...changes }); } finally {
+        await readAuthFiles(false, true);
+      }
+    },
+    { weightEditable: file.weight != null }
   );
 }
 

@@ -49,6 +49,7 @@ const (
 	routeUsageModels            = "/usage/models"
 	routeAIProviders            = "/ai-providers"
 	routeAIProviderBalance      = "/ai-providers/balance"
+	routeAIProviderNote         = "/ai-providers/note"
 )
 
 type managementEndpoint struct {
@@ -110,6 +111,7 @@ var managementEndpoints = []managementEndpoint{
 		return a.usageModels(req, viewAccess{})
 	}},
 	{http.MethodGet, routeAIProviders, "View configured AI providers", func(a *App, req ManagementRequest) ManagementResponse { return a.aiProviders(req, viewAccess{}) }},
+	{http.MethodPost, routeAIProviderNote, "Set AI provider note", (*App).setAIProviderNote},
 	{http.MethodPost, routeAIProviderBalance, "Sync AI provider balance", (*App).syncAIProviderBalance},
 }
 

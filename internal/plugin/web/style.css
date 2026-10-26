@@ -1146,7 +1146,12 @@ body.privacy-masked .mask-select:not(:has(option[value=""]:checked))::before {
 .credential-list { container: credential-table / inline-size; }
 .credential-table { width: 100%; min-width: 0; table-layout: auto; }
 .credential-table th:not(.credential-quota-column) { width: 1%; }
-.credential-row.disabled > :not(.credential-actions-cell, .selection-cell) { opacity: 0.68; }
+.credential-edit-column, .credential-edit-cell { width: 28px; min-width: 28px; }
+.credential-edit-cell { vertical-align: middle; }
+.credential-edit-cell > button { width: 26px; height: 26px; min-height: 26px; padding: 4px; }
+.credential-edit-cell .lucide-icon { width: 15px; height: 15px; }
+.credential-meta > .credential-name-tag { max-width: min(180px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.credential-row.disabled > :not(.credential-actions-cell, .credential-edit-cell, .selection-cell) { opacity: 0.68; }
 .credential-metric { display: grid; gap: 3px; min-width: 0; }
 .credential-metric-label { display: none; color: var(--text-tertiary); font-size: 11px; }
 .credential-metric-value { color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1375,6 +1380,14 @@ body.privacy-masked .mask-select:not(:has(option[value=""]:checked))::before {
   .credential-table .credential-row:has(> .credential-plan-cell) {
     grid-template-areas: "identity identity plan actions" "inflight usage usage usage" "quota quota quota quota";
   }
+
+  .credential-table .credential-row:has(> .credential-edit-cell) {
+    grid-template-areas: "identity identity edit actions" "inflight usage usage usage" "quota quota quota quota";
+  }
+  .credential-table .credential-row:has(> .credential-edit-cell):has(> .credential-plan-cell) {
+    grid-template-areas: "identity identity edit actions" "plan plan plan plan" "inflight usage usage usage" "quota quota quota quota";
+  }
+  .credential-edit-cell { grid-area: edit; align-self: start; }
   .credential-table .credential-row:last-child { border-bottom: none; }
   .credential-table td { display: block; min-width: 0; padding: 0; border: none; }
   .credential-identity-cell { grid-area: identity; }
@@ -1404,6 +1417,13 @@ body.privacy-masked .mask-select:not(:has(option[value=""]:checked))::before {
   .credential-table .credential-row:not(:has(> .credential-actions-cell)),
   .credential-table .credential-row:has(> .credential-actions-cell.unavailable) {
     grid-template-areas: "identity identity" "inflight inflight" "usage usage" "quota quota";
+  }
+
+  .credential-table .credential-row:has(> .credential-edit-cell) {
+    grid-template-areas: "identity edit" "inflight inflight" "usage usage" "quota quota" "actions actions";
+  }
+  .credential-table .credential-row:has(> .credential-edit-cell):has(> .credential-plan-cell) {
+    grid-template-areas: "identity edit" "plan expiry" "inflight inflight" "usage usage" "quota quota" "actions actions";
   }
   .auth-quota-list { grid-template-columns: minmax(0, 1fr); }
   .credential-actions { --button-min-height: 30px; }
@@ -1436,6 +1456,18 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
 .selection-section { display: grid; gap: 8px; margin-top: 20px; }
 .settings-dialog { width: min(620px, calc(100vw - 32px)); padding: 22px; }
+#credential-dialog { width: min(460px, calc(100vw - 32px)); }
+#credential-dialog label.field { gap: 7px; }
+#credential-dialog input { width: 100%; }
+.credential-editor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.credential-editor-control { position: relative; min-width: 0; }
+.credential-editor-control label.field > span:first-child { padding-right: 24px; }
+.credential-field-hint { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; font-weight: 400; line-height: 1.55; }
+.credential-field-info { position: absolute; top: -4px; right: 0; }
+.credential-field-info .lucide-icon { width: 14px; height: 14px; }
+@media (max-width: 520px) {
+  .credential-editor-fields { grid-template-columns: 1fr; }
+}
 .price-dialog-model { margin: 0 0 16px; font-size: 14px; overflow-wrap: anywhere; }
 .price-reference { margin-bottom: 18px; }
 .price-reference input { width: 100%; }

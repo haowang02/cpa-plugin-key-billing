@@ -2056,11 +2056,26 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(index, int) or not 0 <= index < len(entries) or not isinstance(value, dict):
                 self.send_json(400, {"error": "invalid provider patch"})
                 return
-            allowed = {"disabled"} if field == "openai-compatibility" else {"excluded-models"}
+            allowed = {"disabled", "priority", "api-key-entries"} if field == "openai-compatibility" else {"excluded-models", "priority", "weight"}
             if not value or not set(value) <= allowed:
                 self.send_json(400, {"error": "dummy backend: unsupported provider patch"})
                 return
+            if "api-key-entries" in value:
+                previous = {(item.get("api-key"), item.get("proxy-url")): item.get("auth-index")
+                            for item in entries[index].get("api-key-entries", [])}
+                for item in value["api-key-entries"]:
+                    auth_index = previous.get((item.get("api-key"), item.get("proxy-url")))
+                    if auth_index:
+                        item["auth-index"] = auth_index
             entries[index].update(value)
+            self.send_json(200, {"status": "ok"})
+        elif route == ("PATCH", "/v0/management/auth-files/fields"):
+            body = json.loads(request_body or b"{}")
+            item = next((item for item in AUTH_FILES if item["name"] == body.get("name")), None)
+            if item is None:
+                self.send_json(404, {"error": "auth file not found"})
+                return
+            item.update({field: body[field] for field in ("note", "priority", "weight") if field in body})
             self.send_json(200, {"status": "ok"})
         elif route == ("PATCH", "/v0/management/auth-files/status"):
             body = json.loads(request_body or b"{}")
@@ -2129,11 +2144,12 @@ class Handler(BaseHTTPRequestHandler):
             ]
             SYNCED_CREDENTIAL_REFS.clear()
             balances = {item["auth_index"]: item["balance"] for item in CONFIG_CREDENTIALS.values() if item["balance"] is not None}
+            notes = {item.get("config_ref", ref): item.get("note", "") for ref, item in CONFIG_CREDENTIALS.items()}
             CONFIG_CREDENTIALS.clear()
             for item in body.get("credentials", []):
                 ref = item["ref"]
                 SYNCED_CREDENTIAL_REFS.add(ref)
-                CONFIG_CREDENTIALS[ref] = {**item, "balance": balances.get(item["auth_index"])}
+                CONFIG_CREDENTIALS[ref] = {**item, "balance": balances.get(item["auth_index"]), "note": notes.get(item.get("config_ref", ref), "")}
                 CREDENTIALS.append({
                     "ref": ref,
                     "source": "ai-providers",
@@ -2144,6 +2160,14 @@ class Handler(BaseHTTPRequestHandler):
                     "unavailable": False,
                 })
             self.send_json(200, {"credentials": CREDENTIALS})
+        elif route == ("POST", f"{API_BASE}/ai-providers/note"):
+            body = json.loads(request_body or b"{}")
+            item = CONFIG_CREDENTIALS.get(body.get("ref"))
+            if item is None:
+                self.send_json(404, {"error": "Credential not found"})
+                return
+            item["note"] = body.get("note", "").strip()
+            self.send_json(200, {})
         elif route == ("POST", f"{API_BASE}/ai-providers/balance"):
             body = json.loads(request_body or b"{}")
             credentials = [item for item in CONFIG_CREDENTIALS.values() if item["auth_index"] and item["auth_index"] == body["auth_index"]]

@@ -514,7 +514,7 @@ func TestV12QuotaWindowsMigrationAndRollback(t *testing.T) {
 }
 
 func TestRequestEventMetadataMigrationAndRollback(t *testing.T) {
-	for _, version := range []int{12, 13, 14, 15, 16, 17, 18, 19, 20, 21} {
+	for _, version := range []int{12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22} {
 		for _, conflict := range []bool{false, true} {
 			t.Run(fmt.Sprintf("v%d/conflict=%v", version, conflict), func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "legacy.db")
@@ -537,7 +537,7 @@ func TestRequestEventMetadataMigrationAndRollback(t *testing.T) {
 						{16, migrateRequestErrorReason}, {17, migrateUpstreamResponseReports},
 						{18, migrateRequestInfo}, {19, migrateExecutionMetadata},
 						{20, func(tx *sql.Tx) error { return migrateQuotaReports(tx, nil) }},
-						{21, migrateClientHeaders},
+						{21, migrateClientHeaders}, {22, migrateConfiguredProviders},
 					} {
 						if version >= step.version {
 							if err := step.apply(tx); err != nil {
@@ -762,6 +762,8 @@ func downgradeToV19(t *testing.T, d *DB) {
 		ALTER TABLE config_credentials DROP COLUMN priority;
 		ALTER TABLE config_credentials DROP COLUMN weight;
 		ALTER TABLE config_credentials DROP COLUMN balance_json;
+		ALTER TABLE config_credentials DROP COLUMN config_ref;
+		ALTER TABLE config_credentials DROP COLUMN note;
 		DROP TABLE quota_report_windows; DROP TABLE quota_reports;
 		ALTER TABLE request_events DROP COLUMN user_agent;
 		ALTER TABLE request_events DROP COLUMN x_forwarded_for;

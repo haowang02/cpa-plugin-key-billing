@@ -108,6 +108,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	configuration := mustMarshal(t, LifecycleRequest{ConfigYAML: []byte(fmt.Sprintf("state_file: %q\n", path))})
 	const rawKey = "sk-dummy-upstream-secret-1234"
 	ref := billing.CredentialFingerprint("dummy-config")
+	configRef := billing.CredentialFingerprint("dummy-config-identity")
 	removed := billing.CredentialFingerprint("dummy-removed")
 	if _, err := app.store.SyncKeys([]string{accountTestKeyA}, false); err != nil {
 		t.Fatal(err)
@@ -116,7 +117,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := callManagement(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []map[string]any{
-		{"ref": ref, "provider": "codex", "key_preview": rawKey, "auth_index": "dummy-index", "type": "codex", "base_url": "https://example.com/v1", "priority": 2, "weight": 3},
+		{"ref": ref, "config_ref": configRef, "provider": "codex", "key_preview": rawKey, "auth_index": "dummy-index", "type": "codex", "base_url": "https://example.com/v1", "priority": 2, "weight": 3},
 		{"ref": removed, "provider": "codex", "key_preview": "", "auth_index": "dummy-index", "disabled": true},
 	}})
 	if response.StatusCode != http.StatusOK || strings.Contains(string(response.Body), rawKey) {
@@ -124,6 +125,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	}
 	balance := billing.CredentialBalance{FetchedAt: app.store.Now().UTC(), Balances: []billing.CurrencyBalance{{Currency: "USD", Amount: 12.5, Parts: []billing.BalancePart{{Label: "ui.balance_used_value", Amounts: []float64{2.5, 15}}}}}}
 	callOK(t, app, http.MethodPost, routeAIProviderBalance, nil, map[string]any{"auth_index": "dummy-index", "balance": balance}, http.StatusOK, nil)
+	callOK(t, app, http.MethodPost, routeAIProviderNote, nil, map[string]any{"ref": ref, "note": "  Team provider  "}, http.StatusOK, nil)
 	app.observeCandidates([]SchedulerAuthCandidate{{ID: "dummy-runtime", Provider: "codex", Attributes: map[string]string{"source_backend": "config"}}})
 	restart := func() {
 		app.Shutdown()
@@ -150,7 +152,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	if snapshot := app.store.ConfigCredentials(); len(snapshot) != 2 || snapshot[removed].KeyPreview != "" || !snapshot[removed].Disabled || !reflect.DeepEqual(snapshot[removed].Balance, &balance) {
 		t.Fatalf("persisted config snapshot = %+v", snapshot)
 	}
-	if saved := app.store.ConfigCredentials()[ref]; saved.BaseURL != "https://example.com/v1" || saved.Priority != 2 || saved.Weight != 3 || saved.AuthIndex != "dummy-index" || !reflect.DeepEqual(saved.Balance, &balance) {
+	if saved := app.store.ConfigCredentials()[ref]; saved.BaseURL != "https://example.com/v1" || saved.Priority != 2 || saved.Weight != 3 || saved.Note != "Team provider" || saved.ConfigRef != configRef || saved.AuthIndex != "dummy-index" || !reflect.DeepEqual(saved.Balance, &balance) {
 		t.Fatalf("provider snapshot after restart = %+v", saved)
 	}
 	if inventory := app.credentialInventory(); len(inventory) != 3 {
@@ -178,6 +180,9 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	}}
 	if response := callManagement(t, app, http.MethodPost, routeCredentialsSync, nil, update); response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("failed sync response = %+v", response)
+	}
+	if noteResponse := callManagement(t, app, http.MethodPost, routeAIProviderNote, nil, map[string]any{"ref": ref, "note": "Rejected"}); noteResponse.StatusCode != http.StatusInternalServerError || app.store.ConfigCredentials()[ref].Note != "Team provider" {
+		t.Fatal("failed note update changed stored state")
 	}
 	if !reflect.DeepEqual(app.credentialInventory(), before) || app.store.ConfigCredentials()[ref].KeyPreview != billing.PreviewKey(rawKey) {
 		t.Fatal("failed sync changed the live snapshot")
@@ -214,6 +219,23 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	}
 	if inventory := app.credentialInventory(); len(inventory) != 1 || inventory[0].Ref != ref || !inventory[0].Disabled {
 		t.Fatalf("config snapshot was not restored after switching back: %+v", inventory)
+	}
+
+	changedRef := billing.CredentialFingerprint("disabled-config")
+	callOK(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []map[string]any{
+		{"ref": changedRef, "config_ref": configRef, "provider": "codex", "disabled": true},
+	}}, http.StatusOK, nil)
+	if app.store.ConfigCredentials()[changedRef].Note != "Team provider" {
+		t.Fatal("credential identity change erased its note")
+	}
+	restart()
+	if app.store.ConfigCredentials()[changedRef].Note != "Team provider" {
+		t.Fatal("provider note did not survive restart")
+	}
+	callOK(t, app, http.MethodPost, routeAIProviderNote, nil, map[string]any{"ref": changedRef, "note": " "}, http.StatusOK, nil)
+	restart()
+	if app.store.ConfigCredentials()[changedRef].Note != "" {
+		t.Fatal("empty note did not clear persisted note")
 	}
 	if err := app.refreshCredentialInventory(); err != nil {
 		t.Fatal(err)

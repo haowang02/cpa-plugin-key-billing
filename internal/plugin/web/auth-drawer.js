@@ -40,7 +40,13 @@ function renderAuthDrawerFile() {
     el(
       "div",
       { class: "drawer-title" },
-      el("h2", { id: "auth-drawer-title", class: "mask-blur", "data-tip": file.title, "data-tip-overflow": "", text: file.title }),
+      el("h2", {
+        id: "auth-drawer-title",
+        class: "mask-blur",
+        "data-tip": file.note || file.title,
+        "data-tip-overflow": "",
+        text: file.note || file.title
+      }),
       authFileMeta(file)
     )
   );

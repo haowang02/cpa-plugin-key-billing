@@ -571,6 +571,35 @@
       </div>
     </dialog>
 
+    <dialog id="credential-dialog" aria-labelledby="credential-dialog-title">
+      <h2 id="credential-dialog-title"></h2>
+      <div class="editor-state notice hidden"></div>
+      <label class="field"><span data-i18n="ui.label">Label</span><input id="credential-note" type="text" autocomplete="off" placeholder="Leave empty to clear the label" data-i18n-placeholder="ui.clear_label_placeholder" /></label>
+      <div class="credential-editor-fields">
+        <div class="credential-editor-control">
+          <label class="field">
+            <span id="credential-priority-label" data-i18n="ui.priority">Priority</span>
+            <input id="credential-priority" type="number" step="1" aria-labelledby="credential-priority-label" aria-describedby="credential-priority-hint credential-editor-hint" />
+            <span id="credential-priority-hint" class="credential-field-hint" data-i18n="ui.priority_summary">Higher values have higher priority.</span>
+          </label>
+          <button id="credential-priority-info" type="button" class="inline-icon-button link credential-field-info" aria-label="Priority help" data-i18n-aria-label="ui.priority_help"></button>
+          <p id="credential-editor-hint" class="credential-field-hint hidden"></p>
+        </div>
+        <div class="credential-editor-control">
+          <label class="field">
+            <span id="credential-weight-label" data-i18n="ui.weight">Scheduling weight</span>
+            <input id="credential-weight" type="number" step="1" max="1000000" aria-labelledby="credential-weight-label" aria-describedby="credential-weight-hint" />
+            <span id="credential-weight-hint" class="credential-field-hint" data-i18n="ui.weight_summary">Takes effect when weighted round robin is enabled.</span>
+          </label>
+          <button id="credential-weight-info" type="button" class="inline-icon-button link credential-field-info" aria-label="Scheduling weight help" data-i18n-aria-label="ui.weight_help"></button>
+        </div>
+      </div>
+      <div class="row dialog-actions">
+        <button type="button" data-i18n="ui.cancel">Cancel</button>
+        <button id="credential-save" type="button" class="primary" data-i18n="ui.save">Save</button>
+      </div>
+    </dialog>
+
     <div id="batch-bar" class="batch-bar hidden" role="region" aria-label="Batch actions" data-i18n-aria-label="ui.batch_actions"></div>
 
     <dialog id="auth-drawer" class="drawer" aria-labelledby="auth-drawer-title">
@@ -629,6 +658,7 @@
       /*time-range.js*/
       /*model-usage.js*/
       /*credentials.js*/
+      /*credential-editor.js*/
       /*table-selection.js*/
       /*keys.js*/
       /*routing.js*/
@@ -641,6 +671,7 @@
       /*logs.js*/
       /*auth-files.js*/
       /*auth-drawer.js*/
+      /*ai-provider-config.js*/
       /*ai-balances.js*/
       /*ai-providers.js*/
       /*account.js*/
