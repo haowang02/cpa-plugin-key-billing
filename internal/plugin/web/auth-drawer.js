@@ -108,7 +108,7 @@ function renderAuthDrawerHistory() {
             renderAuthDrawerPeriods();
           }
         },
-        quotaLabel(window)
+        quotaLabels(window).full
       )
     )
   );

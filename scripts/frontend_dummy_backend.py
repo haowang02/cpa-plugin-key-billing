@@ -692,18 +692,10 @@ AUTH_FILE_QUOTAS = {
     "auth-demo-antigravity": {
         "plan": "Google AI Pro",
         "quota": [
-            quota_row(
-                "5 小时限额",
-                82,
-                64800,
-                group_label="Gemini Models",
-            ),
-            quota_row(
-                "周限额",
-                93,
-                64800,
-                group_label="Gemini Models",
-            ),
+            quota_row("5 小时限额", 99, 10800, group_label="Claude and GPT Models"),
+            quota_row("周限额", 99, 518400, group_label="Claude and GPT Models"),
+            quota_row("5 小时限额", 82, 14400, group_label="Gemini Models"),
+            quota_row("周限额", 93, 432000, group_label="Gemini Models"),
         ],
     },
     "auth-demo-kimi": {

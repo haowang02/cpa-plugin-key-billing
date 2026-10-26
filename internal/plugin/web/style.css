@@ -1297,6 +1297,9 @@ body.privacy-masked .mask-select:not(:has(option[value=""]:checked))::before {
   font-variant-numeric: tabular-nums;
 }
 .auth-reset-confirmation > .auth-reset-credits { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--border-color); }
+.auth-quota-groups { display: grid; gap: 14px; }
+.auth-quota-group { display: grid; gap: 8px; min-width: 0; }
+.auth-quota-group-label { color: var(--text-primary); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .auth-quota-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 16px; }
 @container auth-quota (min-width: 300px) {
   .auth-quota-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }

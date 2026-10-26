@@ -272,13 +272,15 @@ function quotaNumber(value, currency) {
   return currency === "USD" ? usd(value) : Number(value).toLocaleString(locale(), { maximumFractionDigits: 2 });
 }
 
-function quotaLabel(row) {
+function quotaLabels(row) {
   const label = window.billingI18n.serverMessage(row.label_message, row.label || "");
   const group = window.billingI18n.serverMessage(row.group_message, row.group_label || "");
-  const fullLabel = row.label_prefix ? m("ui.join", { v0: row.label_prefix, v1: "", v2: label }) : label;
-  return group && String(group).toLowerCase() !== String(fullLabel).toLowerCase()
-    ? m("ui.join", { v0: group, v1: DISPLAY_SEPARATOR, v2: fullLabel })
-    : group || fullLabel;
+  const windowLabel = row.label_prefix ? m("ui.join", { v0: row.label_prefix, v1: "", v2: label }) : label;
+  const full =
+    group && String(group).toLowerCase() !== String(windowLabel).toLowerCase()
+      ? m("ui.join", { v0: group, v1: DISPLAY_SEPARATOR, v2: windowLabel })
+      : group || windowLabel;
+  return { group, label: windowLabel, full };
 }
 
 // Usage covers a window's period. An estimate scales it to the whole window by the share already used,
@@ -314,7 +316,7 @@ function renderQuotaBar(percent, label) {
 }
 
 function renderQuotaRow(row, account, estimate) {
-  const label = quotaLabel(row);
+  const { label, full } = quotaLabels(row);
   const percent = row.remaining_percent;
   const reset = quotaResetMeta(row);
   const elapsed = row.reset_at && new Date(row.reset_at).getTime() <= Date.now();
@@ -331,11 +333,11 @@ function renderQuotaRow(row, account, estimate) {
     el(
       "div",
       { class: "auth-quota-head" },
-      el("span", { class: "auth-quota-label", "data-tip": label, "data-tip-overflow": "", text: label }),
+      el("span", { class: "auth-quota-label", "data-tip": full, "data-tip-overflow": "", text: label }),
       reset.at && el("span", { class: "auth-quota-reset-after", text: elapsed ? m("ui.quota_reset_elapsed") : reset.after }),
       el("span", { class: "auth-quota-value", text: percent != null ? percent.toFixed(0) + "%" : "—" })
     ),
-    renderQuotaBar(percent, label),
+    renderQuotaBar(percent, full),
     (usage || amount || reset.at) &&
       el(
         "div",
@@ -344,6 +346,27 @@ function renderQuotaRow(row, account, estimate) {
         amount && el("span", { text: amount }),
         reset.at && el("span", { class: "auth-quota-reset-time", text: reset.at })
       )
+  );
+}
+
+function renderAuthQuotaRows(rows, account, estimate) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = JSON.stringify([row.group_label || "", row.group_message || null]);
+    if (!groups.has(key)) groups.set(key, { label: quotaLabels(row).group, rows: [] });
+    groups.get(key).rows.push(row);
+  }
+  return el(
+    "div",
+    { class: "auth-quota-groups" },
+    [...groups.values()].map(({ label, rows }) =>
+      el(
+        "div",
+        { class: "auth-quota-group" },
+        label && el("div", { class: "auth-quota-group-label", text: label }),
+        el("div", { class: "auth-quota-list" }, rows.map((row) => renderQuotaRow(row, account, estimate)))
+      )
+    )
   );
 }
 
@@ -414,7 +437,7 @@ function renderAuthFileQuota(file, account) {
     summary.length ? el("div", { class: "auth-quota-summary" }, summary) : null,
     error && el("div", { class: "credential-error", text: error }),
     rows.length
-      ? el("div", { class: "auth-quota-list" }, rows.map((row) => renderQuotaRow(row, account, ui.estimate?.checked === true)))
+      ? renderAuthQuotaRows(rows, account, ui.estimate?.checked === true)
       : el("div", { class: "muted small", text: m("ui.the_upstream_returned_no_displayable_quota") })
   );
 }

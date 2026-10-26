@@ -248,38 +248,90 @@ func TestClaudeQuotaOmitsDisabledExtraUsage(t *testing.T) {
 	}
 }
 
-func TestAntigravityQuotaReadsNestedCredentialFields(t *testing.T) {
-	app := newConfiguredApp(t)
-	var requestProject string
-	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
-		switch method {
-		case hostAuthGet:
-			return json.RawMessage(`{"auth_index":"ag-1","json":{"metadata":{"token":{"access_token":"nested-token"}},"installed":{"project_id":"nested-project"}}}`), nil
-		case hostHTTPDo:
-			request := payload.(hostHTTPRequest)
-			if request.Headers.Get("Authorization") != "Bearer nested-token" {
-				t.Fatalf("authorization = %q", request.Headers.Get("Authorization"))
-			}
-			if strings.Contains(request.URL, "retrieveUserQuotaSummary") {
-				var body map[string]string
-				if errDecode := json.Unmarshal(request.Body, &body); errDecode != nil {
-					t.Fatal(errDecode)
+func TestAntigravityQuotaPreservesGroupsAndFallbacks(t *testing.T) {
+	const groups = `{"body":{"groups":[
+		{"displayName":"Claude and GPT Models","buckets":[
+			{"bucketId":"claude-weekly","window":"weekly","remainingFraction":0.99,"resetTime":"2026-11-02T01:49:00Z"},
+			{"bucketId":"claude-five","window":"5h","remainingFraction":0.9,"resetTime":"2026-10-27T01:49:00Z"}]},
+		{"display_name":"Gemini Models","buckets":[
+			{"bucket_id":"gemini-weekly","window":"week","remaining_fraction":" 72 % ","reset_time":"2026-11-01T01:49:00Z"},
+			{"bucket_id":"gemini-five","window":"five_hour","remainingFraction":" 0.8 "},
+			{"remainingFraction":"NaN"},{"remainingFraction":"+Inf"},{"remainingFraction":"invalid"},{}]}
+	]}}`
+	for _, tc := range []struct {
+		name      string
+		responses []hostHTTPResponse
+		wantRows  int
+		wantError bool
+	}{
+		{"all model groups", []hostHTTPResponse{{StatusCode: 200, Body: []byte(groups)}}, 4, false},
+		{"empty and unusable quotas fall back", []hostHTTPResponse{
+			{StatusCode: 200, Body: []byte(`{"groups":[]}`)},
+			{StatusCode: 200, Body: []byte(`{"groups":[{"buckets":[{"remainingFraction":"NaN"}]}]}`)},
+			{StatusCode: 200, Body: []byte(groups)},
+		}, 4, false},
+		{"empty success survives later failures", []hostHTTPResponse{
+			{StatusCode: 200, Body: []byte(`{"groups":[]}`)},
+			{StatusCode: 503}, {StatusCode: 503},
+		}, 0, false},
+		{"all endpoints fail", []hostHTTPResponse{{StatusCode: 503}, {StatusCode: 503}, {StatusCode: 503}}, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newConfiguredApp(t)
+			calls := 0
+			app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
+				switch method {
+				case hostAuthGet:
+					return json.RawMessage(`{"auth_index":"ag-1","json":{"metadata":{"token":{"access_token":"nested-token"}},"installed":{"project_id":"nested-project"}}}`), nil
+				case hostHTTPDo:
+					request := payload.(hostHTTPRequest)
+					if request.Headers.Get("Authorization") != "Bearer nested-token" || request.Headers.Get("User-Agent") != "antigravity/hub/2.23.0 darwin/arm64" {
+						t.Fatalf("unexpected quota request headers: %v", request.Headers)
+					}
+					if strings.Contains(request.URL, "retrieveUserQuotaSummary") {
+						var body map[string]string
+						if err := json.Unmarshal(request.Body, &body); err != nil {
+							t.Fatal(err)
+						}
+						if body["project"] != "nested-project" {
+							t.Fatalf("project = %q", body["project"])
+						}
+						if calls >= len(tc.responses) {
+							t.Fatal("unexpected quota fallback")
+						}
+						response := tc.responses[calls]
+						calls++
+						return mustJSONRaw(t, response), nil
+					}
+					return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"body":{"currentTier":{"id":"pro","name":"Google AI Pro"}}}`)}), nil
+				default:
+					t.Fatalf("unexpected host method %q", method)
+					return nil, nil
 				}
-				requestProject = body["project"]
-				return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"body":{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"weekly","window":"weekly","remainingFraction":0.5},{"bucketId":"five","window":"5h","remainingFraction":0.8}]}]}}`)}), nil
+			})
+			result, err := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "ag-1", Type: "antigravity"})
+			if (err != nil) != tc.wantError || len(result.Quota) != tc.wantRows || calls != len(tc.responses) {
+				t.Fatalf("error = %v, calls = %d, quota = %+v", err, calls, result.Quota)
 			}
-			return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"body":{"currentTier":{"id":"pro","name":"Google AI Pro"}}}`)}), nil
-		default:
-			t.Fatalf("unexpected host method %q", method)
-			return nil, nil
-		}
-	})
-	result, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "ag-1", Type: "antigravity"})
-	if errFetch != nil {
-		t.Fatal(errFetch)
-	}
-	if requestProject != "nested-project" || len(result.Quota) != 2 || result.Quota[0].Label != "5-hour limit" || result.Quota[1].Label != "Weekly limit" || result.Plan != "Google AI Pro" {
-		t.Fatalf("project = %q, quota = %+v", requestProject, result.Quota)
+			if !tc.wantError && result.Plan != "Google AI Pro" {
+				t.Fatalf("plan = %q", result.Plan)
+			}
+			expected := []struct {
+				group, label, reset string
+				percent             float64
+			}{
+				{"Claude and GPT Models", "5-hour limit", "2026-10-27T01:49:00Z", 90},
+				{"Claude and GPT Models", "Weekly limit", "2026-11-02T01:49:00Z", 99},
+				{"Gemini Models", "5-hour limit", "", 80},
+				{"Gemini Models", "Weekly limit", "2026-11-01T01:49:00Z", 72},
+			}
+			for i, row := range result.Quota {
+				want := expected[i]
+				if row.GroupLabel != want.group || row.Label != want.label || row.RemainingPercent == nil || *row.RemainingPercent != want.percent || row.ResetAt != want.reset {
+					t.Fatalf("quota row %d = %+v, want %+v", i, row, want)
+				}
+			}
+		})
 	}
 }
 
