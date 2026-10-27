@@ -102,6 +102,8 @@ func TestModelCatalogFollowsTheAuthenticatedKey(t *testing.T) {
 		{"unknown key first", http.Header{"Authorization": {"Bearer sk-unknown"}, "X-Api-Key": {testAPIKey}}, true},
 		{"untracked key", bearer("sk-unknown"), false},
 		{"management panel", http.Header{"Authorization": {"Bearer " + testAPIKey}, "Referer": {"https://cpa.example/management.html#/system"}}, false},
+		{"oh-my-cpa backend", http.Header{"Authorization": {"Bearer " + testAPIKey}, "User-Agent": {"Oh-My-CPA/1.2.3-dev"}}, false},
+		{"other product", http.Header{"Authorization": {"Bearer " + testAPIKey}, "User-Agent": {"Oh-My-CPA-Helper/0.1.0"}}, true},
 		{"explicit request", http.Header{"Authorization": {"Bearer " + testAPIKey}, http.CanonicalHeaderKey(modelCatalogHeader): {"all"}}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

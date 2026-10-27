@@ -80,10 +80,10 @@ func (a *App) filterModelCatalog(req ResponseInterceptRequest) []byte {
 	return body
 }
 
-// CPAMC and CPAMP serve their panels as management.html and show the whole
-// proxy's models there. The plugin's management page asks with a header.
+// Oh My CPA discovers models server-side, without a browser Referer.
 func requestsFullCatalog(headers http.Header) bool {
-	if strings.EqualFold(strings.TrimSpace(headers.Get(modelCatalogHeader)), "all") {
+	if strings.EqualFold(strings.TrimSpace(headers.Get(modelCatalogHeader)), "all") ||
+		strings.HasPrefix(strings.TrimSpace(headers.Get("User-Agent")), "Oh-My-CPA/") {
 		return true
 	}
 	referer, err := url.Parse(headers.Get("Referer"))

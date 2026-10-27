@@ -729,7 +729,7 @@ catalog_ids() {
 # panels and explicit requests always see every model.
 assert_model_catalog_filter() {
   local port="$1"
-  local filtering expected format path filter full panel filtered
+  local filtering expected format path filter full filtered panel_header panel
   local -a auth
 
   filtering="$(credential_models_supported "$port")"
@@ -763,16 +763,22 @@ assert_model_catalog_filter() {
         ;;
     esac
     full="$(catalog_ids "$port" "$path" "$filter" "${auth[@]}" -H "X-CPA-Key-Billing-Models: all")"
-    panel="$(catalog_ids "$port" "$path" "$filter" "${auth[@]}" -H "Referer: http://127.0.0.1:$port/management.html")"
     filtered="$(catalog_ids "$port" "$path" "$filter" "${auth[@]}")"
     expected="$full"
     if [[ "$filtering" == "true" ]]; then
       expected="$(jq -c 'map(select(. == "e2e-credential-route"))' <<<"$full")"
     fi
-    if [[ "$filtered" != "$expected" || "$panel" != "$full" ]]; then
-      echo "${format} 模型列表过滤结果不符：实际 ${filtered}，应为 ${expected}；管理面板 ${panel}。" >&2
+    if [[ "$filtered" != "$expected" ]]; then
+      echo "${format} 模型列表过滤结果不符：实际 ${filtered}，应为 ${expected}。" >&2
       return 1
     fi
+    for panel_header in "Referer: http://127.0.0.1:$port/management.html" "User-Agent: Oh-My-CPA/0.1.0"; do
+      panel="$(catalog_ids "$port" "$path" "$filter" "${auth[@]}" -H "$panel_header")"
+      if [[ "$panel" != "$full" ]]; then
+        echo "${format} 管理面板模型列表不符（${panel_header}）：实际 ${panel}，应为 ${full}。" >&2
+        return 1
+      fi
+    done
   done
   if [[ "$filtering" == "true" ]]; then
     log_step "四种模型列表均按路由规则过滤，管理面板仍为完整列表"
