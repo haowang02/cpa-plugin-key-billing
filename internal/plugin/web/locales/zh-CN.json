@@ -191,7 +191,7 @@
   "ui.output": "输出",
   "ui.cache_read": "缓存读",
   "ui.cache_write": "缓存写",
-  "ui.no_price_configured_currently_unavailable": "未定价，暂时无法使用",
+  "ui.no_price_configured_currently_unavailable": "未定价，是否可调用取决于插件配置",
   "ui.total": "合计",
   "ui.total_tokens": "Token 总数",
   "ui.token_share": "Token 占比",

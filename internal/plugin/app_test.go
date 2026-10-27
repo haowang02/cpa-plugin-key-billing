@@ -56,6 +56,9 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 		fields["allow_api_key_quota_reset"].Type != "boolean" || fields["routing"].Type != "object" || fields["enabled"].Name != "" {
 		t.Fatalf("ConfigFields = %+v", registration.Metadata.ConfigFields)
 	}
+	if field := fields["allow_unpriced_models"]; field.Type != "boolean" || field.Default != false || field.Description == "" {
+		t.Fatalf("allow_unpriced_models metadata = %+v, want a documented boolean defaulting to false", field)
+	}
 	routing, ok := fields["routing"].Default.(map[string]any)
 	if !ok || routing["strategy"] != "round-robin" || routing["session-affinity"] != false || routing["session-affinity-ttl"] != "1h" || len(routing) != 3 {
 		t.Fatalf("routing metadata defaults = %+v", fields["routing"].Default)

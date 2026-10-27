@@ -166,6 +166,12 @@ func (s *Store) Enabled() bool {
 	return s.cfg.Enabled
 }
 
+func (s *Store) AllowUnpricedModels() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.AllowUnpricedModels
+}
+
 func (s *Store) MaskAPIKeyViewEmails() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
