@@ -1,14 +1,43 @@
 package plugin
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"cpa-key-billing/internal/billing"
 )
+
+func TestDownloadErrorsPreserveCauseWithoutURLSecrets(t *testing.T) {
+	app := NewApp()
+	t.Cleanup(app.Shutdown)
+	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+		if method == hostAuthModels {
+			return json.RawMessage(`{"credentials":[]}`), nil
+		}
+		if method != hostHTTPDo {
+			t.Fatalf("unexpected host call %s", method)
+		}
+		return nil, &url.Error{Op: "Get", URL: "https://dummy:dummy-password@example.invalid/?key=dummy-secret", Err: context.DeadlineExceeded}
+	})
+	if _, err := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
+		ConfigYAML: testConfigYAML(t, true),
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.store.RefreshReferencePrices(); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	message := app.store.ReferencePriceMetadata().LastError
+	if !strings.Contains(message, "context deadline exceeded") || strings.Contains(message, "dummy-") {
+		t.Fatalf("failure metadata lost diagnostics or disclosed URL: %s", message)
+	}
+}
 
 func TestPriceAdmissionAndDeleteWithoutInventory(t *testing.T) {
 	app := newConfiguredApp(t)

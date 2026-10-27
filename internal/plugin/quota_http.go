@@ -13,21 +13,6 @@ import (
 	"cpa-key-billing/internal/messages"
 )
 
-const hostHTTPDo = "host.http.do"
-
-type hostHTTPRequest struct {
-	HostCallbackID string      `json:"host_callback_id,omitempty"`
-	Method         string      `json:"method"`
-	URL            string      `json:"url"`
-	Headers        http.Header `json:"headers,omitempty"`
-	Body           []byte      `json:"body,omitempty"`
-}
-
-type hostHTTPResponse struct {
-	StatusCode int    `json:"StatusCode"`
-	Body       []byte `json:"Body"`
-}
-
 func (a *App) openAuthQuotaClient(callbackID string, file hostAuthFile) (*authQuotaClient, error) {
 	credential, err := a.readHostAuthFile(file.AuthIndex)
 	if err != nil {
@@ -93,13 +78,9 @@ func (c *authQuotaClient) close() {
 
 func (c *authQuotaClient) do(request hostHTTPRequest) (hostHTTPResponse, error) {
 	if c.client == nil {
-		raw, errCall := c.hostCaller(hostHTTPDo, request)
+		response, errCall := callHostHTTP(c.hostCaller, request)
 		if errCall != nil {
 			return hostHTTPResponse{}, messages.Errorf("Quota request failed: %s", c.redact(errCall.Error()))
-		}
-		var response hostHTTPResponse
-		if errDecode := json.Unmarshal(raw, &response); errDecode != nil {
-			return hostHTTPResponse{}, messages.Errorf("Parse quota response: %w", errDecode)
 		}
 		return response, nil
 	}

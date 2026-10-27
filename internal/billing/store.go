@@ -49,7 +49,9 @@ type Store struct {
 
 func NewStore(open func(string) (Repository, error), downloadReferencePrices func(context.Context) ([]byte, error)) *Store {
 	if downloadReferencePrices == nil {
-		downloadReferencePrices = downloadModelsDevPrices
+		downloadReferencePrices = func(context.Context) ([]byte, error) {
+			return nil, fmt.Errorf("Reference price downloader is unavailable")
+		}
 	}
 	return &Store{
 		state:                   NewState(),

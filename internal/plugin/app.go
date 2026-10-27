@@ -34,11 +34,11 @@ func (a *App) SetHostCaller(caller HostCaller) {
 }
 
 func NewApp() *App {
-	return newApp(billing.NewStore(openRepository, nil))
+	return newApp(nil)
 }
 
 func newApp(store *billing.Store) *App {
-	return &App{
+	app := &App{
 		store:                 store,
 		requestOrigins:        make(map[requestOriginKey]*list.Element),
 		credentials:           make(map[string]credentialView),
@@ -46,6 +46,10 @@ func newApp(store *billing.Store) *App {
 		credentialRefsByIndex: make(map[string]string),
 		pending:               make(map[string]pendingRouteLog),
 	}
+	if app.store == nil {
+		app.store = billing.NewStore(openRepository, app.downloadReferencePrices)
+	}
+	return app
 }
 
 func openRepository(path string) (billing.Repository, error) {

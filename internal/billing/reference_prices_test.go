@@ -5,9 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -94,27 +91,6 @@ func (r *memoryReferencePriceRepository) SearchReferencePrices(context.Context, 
 	return nil, errors.New("unexpected reference price search")
 }
 
-func referencePriceServer(t *testing.T, store *Store, handler http.HandlerFunc) *httptest.Server {
-	t.Helper()
-	s := httptest.NewServer(handler)
-	t.Cleanup(s.Close)
-	target, err := url.Parse(s.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client := s.Client()
-	transport := client.Transport
-	client.Transport = referencePriceTransport(func(request *http.Request) (*http.Response, error) {
-		redirected := request.Clone(request.Context())
-		redirected.URL = target
-		return transport.RoundTrip(redirected)
-	})
-	store.referencePrices.Load().download = func(ctx context.Context) ([]byte, error) {
-		return fetchModelsDevPrices(ctx, client)
-	}
-	return s
-}
-
 func newReferencePriceStore(t *testing.T, age time.Duration) (*Store, *memoryReferencePriceRepository) {
 	t.Helper()
 	s, repo := newStoreWithRepository(t)
@@ -151,11 +127,11 @@ func TestReferenceFreshnessAndSynchronousRecovery(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _ := newReferencePriceStore(t, tc.age)
 			calls := 0
-			referencePriceServer(t, s, func(w http.ResponseWriter, _ *http.Request) {
+			s.referencePrices.Load().download = func(context.Context) ([]byte, error) {
 				calls++
 				body := strings.Replace(string(raw), `"gpt-4o":`, `"new-model":{"id":"new-model","cost":{"input":3,"output":4}},"gpt-4o":`, 1)
-				_, _ = w.Write([]byte(body))
-			})
+				return []byte(body), nil
+			}
 			p, _, err := s.ResolveModelPrice(tc.model, tc.model, true)
 			if err != nil || calls != tc.downloads || (p.Source != PriceSourceNone) != tc.known {
 				t.Fatalf("price=%+v error=%v downloads=%d", p, err, calls)
@@ -167,7 +143,7 @@ func TestReferenceFreshnessAndSynchronousRecovery(t *testing.T) {
 func TestReferenceHashRetainsCacheAndOnlyTouchesMetadata(t *testing.T) {
 	s, repo := newReferencePriceStore(t, 25*time.Hour)
 	raw := referencePricesJSON(t)
-	referencePriceServer(t, s, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(raw) })
+	s.referencePrices.Load().download = func(context.Context) ([]byte, error) { return raw, nil }
 	_, _, _ = s.ResolveModelPrice("gpt-4o", "", false)
 	_, _, _ = s.ResolveModelPrice("missing", "", false)
 	old := s.ReferencePriceMetadata()
@@ -192,14 +168,13 @@ func TestManualReferenceRefreshIgnoresFreshnessAndCooldown(t *testing.T) {
 	calls := 0
 	fail := false
 	raw := referencePricesJSON(t)
-	referencePriceServer(t, store, func(w http.ResponseWriter, _ *http.Request) {
+	store.referencePrices.Load().download = func(context.Context) ([]byte, error) {
 		calls++
 		if fail {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
+			return nil, errors.New("download failed")
 		}
-		_, _ = w.Write(raw)
-	})
+		return raw, nil
+	}
 	if _, err := store.RefreshReferencePrices(); err != nil || calls != 1 {
 		t.Fatalf("fresh manual refresh: calls=%d err=%v", calls, err)
 	}
@@ -222,7 +197,10 @@ func TestManualReferenceRefreshIgnoresFreshnessAndCooldown(t *testing.T) {
 func TestReferenceFailureFallbackCooldownAndStorageError(t *testing.T) {
 	s, repo := newReferencePriceStore(t, 25*time.Hour)
 	calls := 0
-	referencePriceServer(t, s, func(w http.ResponseWriter, _ *http.Request) { calls++; w.WriteHeader(503) })
+	s.referencePrices.Load().download = func(context.Context) ([]byte, error) {
+		calls++
+		return nil, errors.New("download failed")
+	}
 	old := s.ReferencePriceMetadata()
 	p, _, err := s.ResolveModelPrice("gpt-4o", "", true)
 	if err != nil || p.Source != PriceSourceReference {
@@ -253,9 +231,9 @@ func TestReferenceRefreshInvalidatesCacheAndPreservesCustomPrices(t *testing.T) 
 	s, repo := newReferencePriceStore(t, 25*time.Hour)
 	_, _ = s.UpsertPrice(CustomPrice{ModelID: "gpt-4o"})
 	_, _, _ = s.ResolveModelPrice("gpt-5.3-codex", "", false)
-	referencePriceServer(t, s, func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"providers":{"test":{"models":{"only":{"cost":{"input":1,"output":2}}}}}}`))
-	})
+	s.referencePrices.Load().download = func(context.Context) ([]byte, error) {
+		return []byte(`{"providers":{"test":{"models":{"only":{"cost":{"input":1,"output":2}}}}}}`), nil
+	}
 	result, err := s.RefreshReferencePrices()
 	if err != nil || !result.Changed || repo.imports != 1 || len(s.referencePrices.Load().entries) != 0 {
 		t.Fatal(result, err)
@@ -295,13 +273,13 @@ func TestReferenceConcurrentRefreshDoesNotBlockLocalPrices(t *testing.T) {
 	raw := referencePricesJSON(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
-	referencePriceServer(t, s, func(w http.ResponseWriter, _ *http.Request) {
+	s.referencePrices.Load().download = func(context.Context) ([]byte, error) {
 		if calls.Add(1) == 1 {
 			close(entered)
 		}
 		<-release
-		_, _ = w.Write(raw)
-	})
+		return raw, nil
+	}
 	const n = 8
 	var wg sync.WaitGroup
 	wg.Add(n)
@@ -348,11 +326,11 @@ func TestReferenceSwitchRejectsInFlightOldReferencePrices(t *testing.T) {
 	s, _ := newReferencePriceStore(t, 25*time.Hour)
 	entered, release := make(chan struct{}), make(chan struct{})
 	raw := referencePricesJSON(t)
-	referencePriceServer(t, s, func(w http.ResponseWriter, _ *http.Request) {
+	s.referencePrices.Load().download = func(context.Context) ([]byte, error) {
 		close(entered)
 		<-release
-		_, _ = w.Write(raw)
-	})
+		return raw, nil
+	}
 	result := make(chan error, 1)
 	go func() { _, _, err := s.ResolveModelPrice("gpt-4o", "", true); result <- err }()
 	<-entered
@@ -375,7 +353,10 @@ func TestReferenceMissingReferencePricesLoadsOnRequestAndLocalReadsNeverDownload
 	repo.metadata, repo.prices = ReferencePriceMetadata{}, nil
 	raw := referencePricesJSON(t)
 	var calls atomic.Int32
-	referencePriceServer(t, s, func(w http.ResponseWriter, _ *http.Request) { calls.Add(1); _, _ = w.Write(raw) })
+	s.referencePrices.Load().download = func(context.Context) ([]byte, error) {
+		calls.Add(1)
+		return raw, nil
+	}
 	p, _, err := s.ResolveModelPrice("gpt-4o", "", false)
 	if err != nil || p.Source != PriceSourceNone || calls.Load() != 0 {
 		t.Fatal("local-only caller downloaded reference prices", p, err)
@@ -389,12 +370,6 @@ func TestReferenceMissingReferencePricesLoadsOnRequestAndLocalReadsNeverDownload
 	if err != nil || len(s.referencePrices.Load().entries) != cacheSize || calls.Load() != 1 {
 		t.Fatal("display changed request cache or downloaded", err)
 	}
-}
-
-type referencePriceTransport func(*http.Request) (*http.Response, error)
-
-func (transport referencePriceTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	return transport(request)
 }
 
 func TestPriceRowsBatchReadsWithoutFillingRequestCache(t *testing.T) {
@@ -531,7 +506,7 @@ func TestReferencePriceSyncLogsOnlyActualDownloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := referencePricesJSON(t)
-	referencePriceServer(t, store, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(raw) })
+	store.referencePrices.Load().download = func(context.Context) ([]byte, error) { return raw, nil }
 	if _, _, err := store.ResolveModelPrice("gpt-4o", "gpt-4o", true); err != nil {
 		t.Fatal(err)
 	}

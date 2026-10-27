@@ -1,12 +1,7 @@
 package billing
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
-	"strings"
 	"testing"
 )
 
@@ -107,26 +102,5 @@ func TestParsedReferencePricesPreservesProviderModelIdentity(t *testing.T) {
 		if found != test.found || (found && (price.ProviderID != test.provider || price.InputPer1M != test.input)) {
 			t.Fatalf("lookup %q: %+v found=%t", test.model, price, found)
 		}
-	}
-}
-
-func TestDownloadErrorsPreserveCauseWithoutURLSecrets(t *testing.T) {
-	client := &http.Client{Transport: referencePriceTransport(func(*http.Request) (*http.Response, error) {
-		return nil, &url.Error{Op: "Get", URL: "https://dummy:dummy-password@example.invalid/?key=dummy-secret", Err: context.DeadlineExceeded}
-	})}
-	_, err := fetchModelsDevPrices(context.Background(), client)
-	if !errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "dummy-") {
-		t.Fatalf("download error lost cause or disclosed URL: %v", err)
-	}
-	store, _ := newReferencePriceStore(t, 0)
-	store.referencePrices.Load().download = func(ctx context.Context) ([]byte, error) {
-		return fetchModelsDevPrices(ctx, client)
-	}
-	if _, err := store.RefreshReferencePrices(); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal(err)
-	}
-	message := store.ReferencePriceMetadata().LastError
-	if !strings.Contains(message, "context deadline exceeded") || strings.Contains(message, "dummy-") {
-		t.Fatalf("failure metadata lost diagnostics or disclosed URL: %s", message)
 	}
 }

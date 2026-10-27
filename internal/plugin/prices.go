@@ -1,12 +1,40 @@
 package plugin
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"cpa-key-billing/internal/billing"
 )
+
+const maxReferencePriceResponseBytes = 128 << 20
+
+func (a *App) downloadReferencePrices(ctx context.Context) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	response, err := callHostHTTP(a.hostCaller, hostHTTPRequest{Method: http.MethodGet, URL: billing.ModelsDevPricesURL})
+	if err != nil {
+		// Transport URLs can contain proxy credentials or query parameters.
+		var requestError *url.Error
+		for errors.As(err, &requestError) {
+			err = requestError.Err
+		}
+		return nil, fmt.Errorf("Download reference prices: %w", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Download reference prices: HTTP %d", response.StatusCode)
+	}
+	if len(response.Body) > maxReferencePriceResponseBytes {
+		return nil, fmt.Errorf("Reference price response exceeds the size limit")
+	}
+	return response.Body, nil
+}
 
 func (a *App) listPrices(req ManagementRequest, access viewAccess) ManagementResponse {
 	models := req.Query["model"]

@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -80,10 +79,18 @@ func TestUnknownMethodReturnsErrorEnvelopeNotAnError(t *testing.T) {
 
 func TestConfigureReportsReferencePricePreloadFailure(t *testing.T) {
 	requests := 0
-	app := newApp(billing.NewStore(openRepository, func(context.Context) ([]byte, error) {
+	app := NewApp()
+	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
+		if method == hostAuthModels {
+			return json.RawMessage(`{"credentials":[]}`), nil
+		}
+		request := payload.(hostHTTPRequest)
+		if method != hostHTTPDo || request.Method != http.MethodGet || request.URL != billing.ModelsDevPricesURL || len(request.Headers) != 0 {
+			t.Fatalf("unexpected reference price request: %s %+v", method, request)
+		}
 		requests++
-		return nil, errors.New("Download reference prices: HTTP 503")
-	}))
+		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusServiceUnavailable}), nil
+	})
 	t.Cleanup(app.Shutdown)
 	raw, errHandle := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{
 		ConfigYAML: testConfigYAML(t, true),

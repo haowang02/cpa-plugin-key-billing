@@ -1,23 +1,13 @@
 package billing
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"sort"
 	"strings"
-	"time"
 )
 
-const (
-	ModelsDevPricesURL             = "https://models.dev/catalog.json"
-	maxReferencePriceResponseBytes = 128 << 20
-	referencePriceHTTPTimeout      = 30 * time.Second
-)
+const ModelsDevPricesURL = "https://models.dev/catalog.json"
 
 type modelsDevResponse struct {
 	Models    map[string]json.RawMessage   `json:"models"`
@@ -154,42 +144,4 @@ func modelsDevPriceRates(value *modelsDevCost) *PriceRates {
 
 func optionalPriceMatches(special, standard *float64) bool {
 	return special == nil || (standard != nil && *special == *standard)
-}
-
-func downloadModelsDevPrices(ctx context.Context) ([]byte, error) {
-	transport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		DisableKeepAlives:   true,
-		TLSHandshakeTimeout: 10 * time.Second,
-	}
-	defer transport.CloseIdleConnections()
-	return fetchModelsDevPrices(ctx, &http.Client{Timeout: referencePriceHTTPTimeout, Transport: transport})
-}
-
-func fetchModelsDevPrices(ctx context.Context, client *http.Client) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ModelsDevPricesURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("Create reference price request: %w", err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		// Do not include URL credentials or query parameters from transport errors.
-		var requestError *url.Error
-		for errors.As(err, &requestError) {
-			err = requestError.Err
-		}
-		return nil, fmt.Errorf("Download reference prices: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Download reference prices: HTTP %d", resp.StatusCode)
-	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxReferencePriceResponseBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("Read reference prices: %w", err)
-	}
-	if len(raw) > maxReferencePriceResponseBytes {
-		return nil, fmt.Errorf("Reference price response exceeds the size limit")
-	}
-	return raw, nil
 }
