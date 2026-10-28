@@ -347,13 +347,13 @@ AUTOMATION_CREDENTIAL_REF = "sha256:" + "f" * 64
 UNAVAILABLE_CREDENTIAL_REF = "sha256:" + "1" * 64
 
 CREDENTIALS = [
-    {"ref": "sha256:" + "a" * 64, "source": "auth-files", "provider": "codex", "display_name": "dev-team@example.com", "status": "active", "disabled": False, "unavailable": False},
-    {"ref": "sha256:" + "b" * 64, "source": "auth-files", "provider": "claude", "display_name": "platform@example.com", "status": "active", "disabled": False, "unavailable": False},
-    {"ref": "sha256:" + "c" * 64, "source": "ai-providers", "provider": "codex", "display_name": "sk-proxy…7f3a", "status": "active", "disabled": False, "unavailable": False},
-    {"ref": "sha256:" + "d" * 64, "source": "ai-providers", "provider": "deepseek", "display_name": "sk-live…91b2", "status": "disabled", "disabled": True, "unavailable": False},
-    {"ref": "sha256:" + "e" * 64, "source": "auth-files", "provider": "xai", "display_name": "disabled@example.com", "status": "disabled", "disabled": True, "unavailable": False},
-    {"ref": AUTOMATION_CREDENTIAL_REF, "source": "auth-files", "provider": "codex", "display_name": "automation@example.com", "status": "active", "disabled": False, "unavailable": False},
-    {"ref": UNAVAILABLE_CREDENTIAL_REF, "source": "auth-files", "provider": "kimi", "display_name": "kimi-research", "status": "error", "disabled": False, "unavailable": True},
+    {"ref": "sha256:" + "a" * 64, "source": "auth-files", "provider": "codex", "provider_name": "codex", "display_name": "dev-team@example.com", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "b" * 64, "source": "auth-files", "provider": "claude", "provider_name": "claude", "display_name": "platform@example.com", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "c" * 64, "source": "ai-providers", "provider": "codex", "provider_name": "Codex Relay", "display_name": "sk-proxy…7f3a", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": "sha256:" + "d" * 64, "source": "ai-providers", "provider": "deepseek", "provider_name": "deepseek", "display_name": "sk-live…91b2", "status": "disabled", "disabled": True, "unavailable": False},
+    {"ref": "sha256:" + "e" * 64, "source": "auth-files", "provider": "xai", "provider_name": "xai", "display_name": "disabled@example.com", "status": "disabled", "disabled": True, "unavailable": False},
+    {"ref": AUTOMATION_CREDENTIAL_REF, "source": "auth-files", "provider": "codex", "provider_name": "codex", "display_name": "automation@example.com", "status": "active", "disabled": False, "unavailable": False},
+    {"ref": UNAVAILABLE_CREDENTIAL_REF, "source": "auth-files", "provider": "kimi", "provider_name": "kimi", "display_name": "kimi-research", "status": "error", "disabled": False, "unavailable": True},
 ]
 SYNCED_CREDENTIAL_REFS = set()
 CONFIG_CREDENTIALS = {}
@@ -498,6 +498,13 @@ AI_PROVIDER_LISTS = {
     ],
 }
 
+# CPA v8 names every group of keys; each entry above forms its own group, as in a migrated legacy configuration.
+# The page reads OpenAI-compatible provider names from the v0 lists.
+AI_PROVIDER_GROUP_NAMES = {
+    "ai-demo-claude": "Anthropic", "ai-demo-claude-deepseek": "DeepSeek", "ai-demo-codex-relay": "Codex Relay",
+    "ai-demo-gemini": "gemini-1", "ai-demo-vertex": "Vertex AI", "ai-demo-xai": "xAI", "ai-demo-meta": "Llama API",
+}
+
 # Balance responses of the upstreams the page queries, keyed by the request URL.
 AI_BALANCE_RESPONSES = {
     "https://api.deepseek.com/user/balance": (200, {"is_available": True, "balance_infos": [
@@ -517,6 +524,12 @@ def ai_provider_credentials():
             for credential in entry.get("api-key-entries") or [entry]:
                 if credential.get("auth-index"):
                     yield credential
+
+
+def ai_provider_groups():
+    return {field.removesuffix("-api-key"): [
+        {"name": AI_PROVIDER_GROUP_NAMES[entry["auth-index"]], "keys": [{"api-key": entry["api-key"], "auth_index": entry["auth-index"]}]}
+        for entry in entries] for field, entries in AI_PROVIDER_LISTS.items() if field != "openai-compatibility"}
 
 
 def without_auth_indexes(value):
@@ -1106,11 +1119,11 @@ SUCCESS_EVENT_SAMPLES = [
     event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "medium", "auto", 2417, 1103, 0, (1194, 95616, 0, 73), (5, 0.5, 5, 30), auth_index="auth-demo-codex-plus"),
     event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 5306, 2121, 21, (798, 169984, 0, 201), (4, 0.4, 5, 20), auth_index="auth-demo-codex-plus"),
     event_sample(2, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 10061, 637, 0, (38049, 0, 0, 474), (3, 0.025, 3, 6), billing_model="claude/deepseek-v4-pro", response_model="deepseek-v4-pro", auth_index="auth-demo-claude", currency="CNY"),
-    event_sample(7, "codex · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7288, 4130, 188, (8502, 45440, 0, 309), (5, 0.5, 5, 30), auth_index="ai-demo-codex-relay"),
+    event_sample(7, "Codex Relay · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7288, 4130, 188, (8502, 45440, 0, 309), (5, 0.5, 5, 30), auth_index="ai-demo-codex-relay"),
     event_sample(6, "codex · dev-team@example.com", "codex", "gpt-5.6-terra", "CodexWebsocketsExecutor", "medium", "auto", 10120, 3379, 81, (1300, 69376, 0, 477), (2, 0.2, 2.5, 12), auth_index="auth-demo-codex-plus"),
     event_sample(4, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 2609, 1881, 6, (1368, 237824, 0, 46), (4, 0.4, 5, 20), auth_index="auth-demo-codex-plus"),
     event_sample(5, "codex · dev-team@example.com", "codex", "gpt-5.6-luna", "CodexWebsocketsExecutor", "low", "auto", 5002, 2464, 61, (1261, 149248, 0, 147), (0.2, 0.02, 0.25, 1.2), auth_index="auth-demo-codex-plus"),
-    event_sample(7, "codex · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7634, 4412, 94, (24196, 19840, 0, 275), (5, 0.5, 5, 30), auth_index="ai-demo-codex-relay"),
+    event_sample(7, "Codex Relay · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7634, 4412, 94, (24196, 19840, 0, 275), (5, 0.5, 5, 30), auth_index="ai-demo-codex-relay"),
     event_sample(6, "codex · dev-team@example.com", "codex", "gpt-image-2", "CodexExecutor", "", "auto", 43679, 43476, 0, (1658, 0, 0, 915), (5, 1.25, 5, 30), auth_index="auth-demo-codex-plus"),
     event_sample(3, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 16431, 909, 0, (66079, 32768, 0, 535), (3, 0.025, 3, 6), billing_model="claude/deepseek-v4-pro", auth_index="auth-demo-claude", currency="CNY"),
     event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "auto", 19542, 17836, 681, (835, 282752, 0, 802), (8, 0.8, 10, 30), long_context=True, auth_index="auth-demo-codex-plus"),
@@ -1274,7 +1287,8 @@ def account_routing(index):
 def account_routing_view(index):
     models, refs, providers, denied_models, denied_refs, denied_providers = account_routing(index)
     def credential_view(item):
-        return {"source": item["source"], "provider": item["provider"], "name": item["display_name"], "status": item["status"],
+        return {"source": item["source"], "provider": item["provider"], "provider_name": item["provider_name"],
+                "name": item["display_name"], "status": item["status"],
                 "denied": item["ref"] in denied_refs or (item["source"], item["provider"]) in denied_providers}
     return {
         "models": sorted(models), "denied_models": sorted(denied_models),
@@ -1753,7 +1767,7 @@ def model_prices(query, include_custom):
 
 
 def credential_labels(refs):
-    return {item["ref"]: item["provider"] + " · " + item["display_name"]
+    return {item["ref"]: item["provider_name"] + " · " + item["display_name"]
             for item in CREDENTIALS if item["ref"] in refs}
 
 
@@ -1828,6 +1842,8 @@ def payload_for(path, query):
     if path.startswith("/v0/management/") and path.removeprefix("/v0/management/") in AI_PROVIDER_LISTS:
         field = path.removeprefix("/v0/management/")
         return {field: AI_PROVIDER_LISTS[field]}
+    if path == "/v8/management/config/api-keys":
+        return ai_provider_groups()
     if path == f"{API_BASE}/prices/reference":
         term = query.get("q", [""])[0].lower()
         return {"prices": [
@@ -2180,11 +2196,14 @@ class Handler(BaseHTTPRequestHandler):
                 ref = item["ref"]
                 SYNCED_CREDENTIAL_REFS.add(ref)
                 CONFIG_CREDENTIALS[ref] = {**item, "balance": balances.get(item["auth_index"]), "note": notes.get(item.get("config_ref", ref), "")}
+                name = {"display_name": item["key_preview"]} if item["key_preview"] else {
+                    "display_name": "No API key configured", "display_name_message": {"message_key": "backend.no_api_key_configured"}}
                 CREDENTIALS.append({
                     "ref": ref,
                     "source": "ai-providers",
                     "provider": item["provider"],
-                    "display_name": item["key_preview"],
+                    "provider_name": item["name"] or item["provider"].removeprefix("openai-compatible-"),
+                    **name,
                     "status": "disabled" if item.get("disabled") else "active",
                     "disabled": bool(item.get("disabled")),
                     "unavailable": False,

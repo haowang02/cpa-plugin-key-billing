@@ -329,11 +329,11 @@ func TestAuthFileCredentialDisplayNameFollowsCPAMC(t *testing.T) {
 }
 
 func TestCredentialLogNameKeepsAuthFileEmailAndMasksAIProvider(t *testing.T) {
-	if got := credentialLogName(credentialView{Source: billing.CredentialSourceAuthFiles, Provider: "codex", DisplayName: "user@example.com"}); got != "codex · user@example.com" {
+	if got := credentialLogName(credentialView{Source: billing.CredentialSourceAuthFiles, ProviderName: "codex", DisplayName: "user@example.com"}); got != "codex · user@example.com" {
 		t.Fatalf("auth-file log name=%q", got)
 	}
 	const secret = "sk-super-secret-value-123456"
-	got := credentialLogName(credentialView{Source: billing.CredentialSourceAIProviders, Provider: "codex", DisplayName: secret})
+	got := credentialLogName(credentialView{Source: billing.CredentialSourceAIProviders, ProviderName: "codex", DisplayName: secret})
 	if strings.Contains(got, secret) {
 		t.Fatalf("AI Provider log name leaked secret: %q", got)
 	}

@@ -6,6 +6,10 @@ type index struct {
 
 // Non-unique indexes named <table>_<name> belong to this module.
 var indexes = map[string][]index{
+	// Names the sources of configured credentials' events.
+	"config_credentials": {
+		{"auth_index", "auth_index"},
+	},
 	"reference_prices": {
 		{"match_key", "match_key"},
 	},

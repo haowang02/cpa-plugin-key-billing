@@ -81,14 +81,17 @@ func pruneRequestEvents(exec execer, cutoff time.Time) error {
 // Model filters and their expression index must use the same expression.
 const eventModelSQL = "coalesce(NULLIF(billing_model, ''), upstream_model)"
 
-const requestEventProviderName = `CASE WHEN substr(r.provider, 1, 18) = 'openai-compatible-'
-	THEN substr(r.provider, 19) ELSE r.provider END`
+// A configured credential is named as configured; any other credential, or one
+// since removed, by the provider that served it.
+var requestEventSourceName = `coalesce((SELECT ` + sourceNameSQL("c.name") + `
+	FROM config_credentials c WHERE r.auth_index != '' AND c.auth_index = r.auth_index AND c.name != ''),
+	` + sourceNameSQL(`(CASE WHEN substr(r.provider, 1, 18) = 'openai-compatible-' THEN substr(r.provider, 19) ELSE r.provider END)`) + `)`
 
-const requestEventSourceName = `CASE
-	WHEN (` + requestEventProviderName + `) = '' THEN r.account
-	WHEN r.account = '' OR lower(r.account) = lower(` + requestEventProviderName + `)
-		THEN (` + requestEventProviderName + `)
-	ELSE (` + requestEventProviderName + `) || ' · ' || r.account END`
+func sourceNameSQL(providerName string) string {
+	return `CASE WHEN ` + providerName + ` = '' THEN r.account
+		WHEN r.account = '' OR lower(r.account) = lower(` + providerName + `) THEN ` + providerName + `
+		ELSE ` + providerName + ` || ' · ' || r.account END`
+}
 
 const requestEventSource = `
 	FROM request_events r

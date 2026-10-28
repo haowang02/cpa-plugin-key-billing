@@ -117,7 +117,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := callManagement(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []map[string]any{
-		{"ref": ref, "config_ref": configRef, "provider": "codex", "key_preview": rawKey, "auth_index": "dummy-index", "type": "codex", "base_url": "https://example.com/v1", "priority": 2, "weight": 3},
+		{"ref": ref, "config_ref": configRef, "provider": "codex", "key_preview": rawKey, "auth_index": "dummy-index", "type": "codex", "name": "Codex Relay", "base_url": "https://example.com/v1", "priority": 2, "weight": 3},
 		{"ref": removed, "provider": "codex", "key_preview": "", "auth_index": "dummy-index", "disabled": true},
 	}})
 	if response.StatusCode != http.StatusOK || strings.Contains(string(response.Body), rawKey) {
@@ -145,7 +145,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	response = callAccount(t, app, routeRouting, accountTestKeyA, nil)
 	var routing accountRoutingResponse
 	if err := json.Unmarshal(response.Body, &routing); err != nil || response.StatusCode != http.StatusOK ||
-		len(routing.Credentials) != 1 || routing.Credentials[0].Name != billing.PreviewKey(rawKey) ||
+		len(routing.Credentials) != 1 || routing.Credentials[0].ProviderName != "Codex Relay" || routing.Credentials[0].Name != billing.PreviewKey(rawKey) ||
 		routing.Credentials[0].Status != "active" || len(routing.Warnings) != 0 {
 		t.Fatalf("routing after restart = %+v, response = %+v, err = %v", routing, response, err)
 	}

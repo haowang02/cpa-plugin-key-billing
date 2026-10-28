@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ type credentialView struct {
 	Ref            string           `json:"ref"`
 	Source         string           `json:"source"`
 	Provider       string           `json:"provider"`
+	ProviderName   string           `json:"provider_name"`
 	DisplayName    string           `json:"display_name"`
 	DisplayMessage messages.Message `json:"display_name_message,omitzero"`
 	Status         string           `json:"status,omitempty"`
@@ -58,6 +60,10 @@ func safeCredentialName(raw, account, provider, ref string) string {
 	}
 	return name
 }
+
+// providerName names a provider its configuration leaves unnamed. CPA keys an
+// OpenAI-compatible provider by its lowercased configured name.
+func providerName(provider string) string { return strings.TrimPrefix(provider, "openai-compatible-") }
 
 func credentialDisplayName(file hostAuthFile, source, provider, ref string) string {
 	if source == billing.CredentialSourceAuthFiles {
@@ -246,7 +252,7 @@ func (a *App) refreshCredentialInventory() error {
 		if source == "" {
 			continue
 		}
-		next[ref] = credentialView{Ref: ref, Source: source, Provider: provider,
+		next[ref] = credentialView{Ref: ref, Source: source, Provider: provider, ProviderName: providerName(provider),
 			DisplayName: credentialDisplayName(file, source, provider, ref), Status: file.Status,
 			Disabled: file.Disabled, Unavailable: file.Unavailable}
 		raw[id] = billing.CredentialProviderSelector{Source: source, Provider: provider}
@@ -287,16 +293,17 @@ func (a *App) observeCandidates(candidates []SchedulerAuthCandidate) {
 			continue
 		}
 		provider := strings.ToLower(strings.TrimSpace(candidate.Provider))
-		name, detail := "Configured credential "+shortCredentialRef(ref), messages.New("Configured credential %s", shortCredentialRef(ref))
+		short := shortCredentialRef(ref)
+		view := credentialView{Ref: ref, Source: source, Provider: provider, ProviderName: providerName(provider), Status: candidate.Status,
+			DisplayName: "Configured credential " + short, DisplayMessage: messages.New("Configured credential %s", short)}
 		if source == billing.CredentialSourceAuthFiles {
 			// A file credential's ID is its path under the auth directory.
-			name, detail = authFileTitle(hostAuthFile{Name: filepath.Base(id)}), messages.Message{}
+			view.DisplayName, view.DisplayMessage = authFileTitle(hostAuthFile{Name: filepath.Base(id)}), messages.Message{}
 		}
 		if existing, ok := a.credentials[ref]; ok && existing.DisplayName != "" {
-			name = existing.DisplayName
-			detail = existing.DisplayMessage
+			view.ProviderName, view.DisplayName, view.DisplayMessage = existing.ProviderName, existing.DisplayName, existing.DisplayMessage
 		}
-		a.credentials[ref] = credentialView{Ref: ref, Source: source, Provider: provider, DisplayName: name, DisplayMessage: detail, Status: candidate.Status}
+		a.credentials[ref] = view
 		a.credentialIdentities[id] = billing.CredentialProviderSelector{Source: source, Provider: provider}
 	}
 }
@@ -342,7 +349,7 @@ func (a *App) replaceSyncedCredentials(previous, next map[string]billing.ConfigC
 			status = "disabled"
 		}
 		a.credentials[ref] = credentialView{
-			Ref: ref, Source: billing.CredentialSourceAIProviders, Provider: item.Provider,
+			Ref: ref, Source: billing.CredentialSourceAIProviders, Provider: item.Provider, ProviderName: cmp.Or(item.Name, providerName(item.Provider)),
 			DisplayName: name, DisplayMessage: detail, Status: status, Disabled: item.Disabled,
 		}
 	}
@@ -382,7 +389,7 @@ func (a *App) credentialLabels(refs []string) map[string]string {
 	labels := make(map[string]string, len(refs))
 	for _, ref := range refs {
 		if item, ok := a.credentials[ref]; ok {
-			labels[ref] = item.Provider + " · " + item.DisplayName
+			labels[ref] = item.ProviderName + " · " + item.DisplayName
 		}
 	}
 	return labels
@@ -401,6 +408,10 @@ func (a *App) credentialByRawID(id string) (credentialView, bool) {
 	id = strings.TrimSpace(id)
 	item, ok := a.credentials[billing.CredentialFingerprint(id)]
 	if identity, known := a.credentialIdentities[id]; known {
+		// A synced name belongs to the provider the UI reported.
+		if identity.Provider != item.Provider {
+			item.ProviderName = providerName(identity.Provider)
+		}
 		item.Source, item.Provider = identity.Source, identity.Provider
 	}
 	return item, ok

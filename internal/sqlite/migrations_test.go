@@ -771,6 +771,7 @@ func downgradeToV19(t *testing.T, d *DB) {
 	t.Helper()
 	if _, err := d.db.Exec(`
 		DROP INDEX request_events_auth_usage;
+		DROP INDEX config_credentials_auth_index;
 		ALTER TABLE request_events DROP COLUMN currency;
 		ALTER TABLE request_events RENAME COLUMN total_cost TO total_usd;
 		ALTER TABLE request_events RENAME COLUMN uncached_input_cost TO uncached_input_usd;

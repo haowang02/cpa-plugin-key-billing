@@ -50,6 +50,7 @@ type accountRouteCredential struct {
 	Denied       bool             `json:"denied,omitempty"`
 	Source       string           `json:"source,omitempty"`
 	Provider     string           `json:"provider,omitempty"`
+	ProviderName string           `json:"provider_name,omitempty"`
 	Name         string           `json:"name,omitempty"`
 	NameMessage  messages.Message `json:"name_message,omitzero"`
 	Status       string           `json:"status,omitempty"`
@@ -181,7 +182,8 @@ func accountCredential(item credentialView) accountRouteCredential {
 	if status == "" {
 		status = "active"
 	}
-	return accountRouteCredential{Source: item.Source, Provider: item.Provider, Name: item.DisplayName, NameMessage: item.DisplayMessage, Status: status}
+	return accountRouteCredential{Source: item.Source, Provider: item.Provider, ProviderName: item.ProviderName,
+		Name: item.DisplayName, NameMessage: item.DisplayMessage, Status: status}
 }
 func accountScope(headers http.Header) (string, bool) {
 	values := headers.Values("Authorization")

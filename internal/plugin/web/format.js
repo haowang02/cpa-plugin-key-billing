@@ -148,7 +148,9 @@ function maskedTailText(provider, account) {
   return [provider, el("span", { class: "text-separator", text: DISPLAY_SEPARATOR }), maskedText(account)];
 }
 
-function maskedText(value) { return el("span", { class: "mask-blur" }, displayText(value)); }
+function maskedText(value) {
+  return window.billingI18n.isMessage(value) ? displayText(value) : el("span", { class: "mask-blur" }, displayText(value));
+}
 
 function splitCredentialLabel(value) {
   const label = displayLabel(value);

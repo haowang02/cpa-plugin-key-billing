@@ -67,7 +67,7 @@ function renderAccountAccess(access) {
         ? credentialProviderLabel(item)
         : item.status === "missing"
           ? name ? maskedLabelText(name) : m("ui.the_selected_upstream_credential_is_currently_unavailable")
-          : maskedTailText(item.provider, name || m("ui.credential_unavailable")),
+          : maskedTailText(item.provider_name, name || m("ui.credential_unavailable")),
       tag: item.provider_wide ? m("ui.entire_category") : "",
       iconName: credentialIcon(item),
       state: item.denied ? "deny" : state

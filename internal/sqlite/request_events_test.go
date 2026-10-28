@@ -103,16 +103,22 @@ func TestRequestEventFailedFilterKeepsOverallCounts(t *testing.T) {
 
 func TestRequestEventFieldAndTimeFilters(t *testing.T) {
 	database, state := requestEventDatabase(t)
+	// A credential that is not loaded has no auth index, so it names no event.
+	for id, credential := range map[string]billing.ConfigCredentialDetails{
+		"dummy-xai": {Provider: "xai", AuthIndex: "auth-xai", Name: "xAI Team"}, "dummy-disabled": {Name: "Legacy", Disabled: true},
+	} {
+		state.ConfigCredentials[billing.CredentialFingerprint(id)] = billing.ConfigCredential{ConfigCredentialDetails: credential}
+	}
 	entry := requestEvent("scope-b", eventStart.Add(6*time.Minute))
 	entry.AuthIndex = "auth-xai"
 	entry.Provider = "xai"
-	entry.Account = "ops-xai@example.com"
+	entry.Account = "xai-du…0001"
 	entry.UpstreamModel = "gpt-5.6-sol"
 	entry.BillingModel = "team/gpt-5.6-sol"
-	mustSave(t, database, state, billing.Changes{NormalRequestEvents: []billing.RequestEvent{entry}})
+	mustSave(t, database, state, billing.Changes{ConfigCredentials: true, NormalRequestEvents: []billing.RequestEvent{entry}})
 
 	query := billing.RequestEventQuery{
-		KeyScope: "scope-b", Model: "team/gpt-5.6-sol", Source: "xai · ops-xai@example.com",
+		KeyScope: "scope-b", Model: "team/gpt-5.6-sol", Source: "xAI Team · xai-du…0001",
 		From: eventStart.Add(6 * time.Minute), To: eventStart.Add(7 * time.Minute), IncludeFilters: true,
 	}
 	view := mustQueryRequestEvents(t, database, query)
@@ -122,7 +128,7 @@ func TestRequestEventFieldAndTimeFilters(t *testing.T) {
 	if view.Filters == nil || len(view.Filters.Models) != 1 || len(view.Filters.Sources) != 1 {
 		t.Fatalf("filter options = %+v", view.Filters)
 	}
-	query.Source = "XAI · ops-xai@example.com"
+	query.Source = "XAI TEAM · xai-du…0001"
 	if view := mustQueryRequestEvents(t, database, query); view.Total != 0 {
 		t.Fatal("source filter no longer uses exact matching")
 	}
@@ -134,12 +140,13 @@ func TestRequestEventFieldAndTimeFilters(t *testing.T) {
 	}
 
 	entry.At = entry.At.Add(time.Minute)
-	entry.BillingModel = ""
+	entry.AuthIndex, entry.BillingModel = "", ""
 	mustSave(t, database, state, billing.Changes{NormalRequestEvents: []billing.RequestEvent{entry}})
 	view = mustQueryRequestEvents(t, database, billing.RequestEventQuery{
 		Model: entry.UpstreamModel, From: entry.At, To: entry.At.Add(time.Minute), IncludeFilters: true,
 	})
-	if view.Total != 1 || len(view.Entries) != 1 || len(view.Filters.Models) != 1 || view.Filters.Models[0] != entry.UpstreamModel {
+	if view.Total != 1 || len(view.Entries) != 1 || len(view.Filters.Models) != 1 || view.Filters.Models[0] != entry.UpstreamModel ||
+		view.Entries[0].Source != "xai · xai-du…0001" {
 		t.Fatalf("upstream model filter = %+v", view)
 	}
 }

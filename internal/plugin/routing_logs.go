@@ -38,9 +38,9 @@ func credentialLogName(credential credentialView) string {
 		if len([]byte(value)) > 512 {
 			return string([]byte(value)[:512])
 		}
-		return credential.Provider + " · " + value
+		return credential.ProviderName + " · " + value
 	}
-	return boundedLogValue(credential.Provider+" · "+credential.DisplayName, 512)
+	return boundedLogValue(credential.ProviderName+" · "+credential.DisplayName, 512)
 }
 
 func (a *App) beginRouteLog(requestID, scope string, decision billing.RoutingDecision) {

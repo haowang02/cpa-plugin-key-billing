@@ -25,22 +25,36 @@ async function configuredCredentialRef(kind, parts, counters) {
   return "sha256:" + (await sha256Hex("cpa-key-billing:credential:v1\0" + id));
 }
 
-function configuredProviderDetails(entry, type) {
+function configuredProviderDetails(entry, type, name) {
   return {
     type,
-    name: (entry.name || "").trim(),
+    name: String(name ?? "").trim(),
     auth_index: entry["auth-index"] || "",
     base_url: (entry["base-url"] || "").trim(),
     priority: entry.priority ?? 0
   };
 }
 
+// The v0 lists name only OpenAI-compatible providers, while CLIProxyAPI v8 names
+// every group of keys. Hosts before v8, or without providers, answer 404.
+async function readProviderGroupNames() {
+  let groups;
+  try { groups = await api("GET", "/v8/management/config/api-keys", null); } catch (error) {
+    if (error.status === 404) return new Map();
+    throw error;
+  }
+  const names = new Map();
+  for (const group of Object.values(groups).flat()) for (const key of group.keys) if (key.auth_index) names.set(key.auth_index, group.name);
+  return names;
+}
+
 async function readProviderConfiguration() {
-  const config = Object.assign(
-    {},
-    ...(await Promise.all(AI_PROVIDER_TYPES.map((kind) => api("GET", "/v0/management/" + kind.list, null))))
-  );
-  return { config, ...(await parseConfiguredProviders(config)) };
+  const [lists, groupNames] = await Promise.all([
+    Promise.all(AI_PROVIDER_TYPES.map((kind) => api("GET", "/v0/management/" + kind.list, null))),
+    readProviderGroupNames()
+  ]);
+  const config = Object.assign({}, ...lists);
+  return { config, ...(await parseConfiguredProviders(config, groupNames)) };
 }
 
 async function syncConfiguredProviders() {
@@ -49,7 +63,7 @@ async function syncConfiguredProviders() {
   return targets;
 }
 
-async function parseConfiguredProviders(config) {
+async function parseConfiguredProviders(config, groupNames) {
   const generation = sessionGeneration;
   const counters = new Map();
   const disabledCounters = new Map();
@@ -83,7 +97,7 @@ async function parseConfiguredProviders(config) {
       add(
         {
           ref: await configuredCredentialRef(provider + ":apikey", parts, counters),
-          ...configuredProviderDetails(entry, type),
+          ...configuredProviderDetails(entry, type, groupNames.get(entry["auth-index"])),
           provider,
           key_preview: previewCredential(apiKey),
           weight: Math.max(0, entry.weight ?? 1),
@@ -110,7 +124,7 @@ async function parseConfiguredProviders(config) {
       add(
         {
           ref: await configuredCredentialRef(kindPrefix + "openai-compatibility:" + providerName, [entry["base-url"]], providerCounters),
-          ...configuredProviderDetails(entry, "openai-compatibility"),
+          ...configuredProviderDetails(entry, "openai-compatibility", entry.name),
           provider,
           key_preview: "",
           weight: 1,
@@ -131,7 +145,7 @@ async function parseConfiguredProviders(config) {
             [apiKey, entry["base-url"], apiKeyEntry["proxy-url"]],
             providerCounters
           ),
-          ...configuredProviderDetails(entry, "openai-compatibility"),
+          ...configuredProviderDetails(entry, "openai-compatibility", entry.name),
           auth_index: apiKeyEntry["auth-index"] || "",
           provider,
           key_preview: previewCredential(apiKey),

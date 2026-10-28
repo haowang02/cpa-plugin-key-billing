@@ -190,7 +190,7 @@ function routingDimensionChips(rule, kind, labels) {
           const credential = (resources.admin.credentials.value || []).find((item) => item.ref === ref);
           return {
             text: credential
-              ? maskedTailText(credential.provider, credentialName(credential))
+              ? maskedTailText(credential.provider_name, credentialName(credential))
               : labels?.[ref]
                 ? maskedLabelText(labels[ref])
                 : maskedTailText(m("ui.selected_upstream_credentialvaluevalue", { v0: "", v1: "" }), ref.slice(-8)),
@@ -379,7 +379,7 @@ function routeCredentialChoices(selection, credentials, term) {
       kind: "credential",
       value: item.ref,
       label: credentialLabel(item),
-      text: maskedTailText(item.provider, credentialName(item)),
+      text: maskedTailText(item.provider_name, credentialName(item)),
       source: item.source,
       iconName: credentialIcon(item),
       badge: item.disabled ? m("ui.disabled") : item.unavailable ? m("ui.unavailable") : ""

@@ -56,7 +56,7 @@ async function sha256Hex(value) {
 
 function credentialName(item) { return window.billingI18n.serverMessage(item.display_name_message, item.display_name); }
 
-function credentialLabel(item) { return m("ui.join", { v0: item.provider, v1: DISPLAY_SEPARATOR, v2: credentialName(item) }); }
+function credentialLabel(item) { return m("ui.join", { v0: item.provider_name, v1: DISPLAY_SEPARATOR, v2: credentialName(item) }); }
 
 function credentialSourceLabel(source) { return source === "auth-files" ? m("ui.auth_files") : m("ui.ai_providers"); }
 
