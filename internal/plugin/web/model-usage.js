@@ -9,13 +9,14 @@ function renderModelUsageTable(models) {
     [m("ui.cache_read"), (row) => tokens(row.cache_read_tokens)],
     models.some((row) => row.cache_write_tokens > 0) && [m("ui.cache_write"), (row) => tokens(row.cache_write_tokens)],
     [m("ui.cache_rate"), (row) => cacheReadRate(row.cache_read_tokens, row.input_tokens)],
-    [m("ui.cost"), (row) => usd(row.cost_usd, 2)]
+    [m("ui.cost"), (row) => usageMoney(row.cost_usd, row.charged_in, 2)]
   ].filter(Boolean);
   const row = (label, usage) =>
     el("tr", {}, el("td", { text: label }), columns.map(([, value]) => el("td", { class: "num", text: value(usage) })));
-  const total =
-    models.length > 1 &&
-    Object.fromEntries(MODEL_USAGE_SUMS.map((field) => [field, models.reduce((sum, model) => sum + (model[field] || 0), 0)]));
+  const total = models.length > 1 && {
+    ...Object.fromEntries(MODEL_USAGE_SUMS.map((field) => [field, models.reduce((sum, model) => sum + (model[field] || 0), 0)])),
+    charged_in: commonChargedIn(models)
+  };
   return el(
     "table",
     { class: "compact-table" },

@@ -67,8 +67,9 @@ const (
 	PriceSourceBuiltin   PriceSource = "builtin"
 )
 
-// PriceRates describes token prices in USD per million tokens. Nil cache rates
-// inherit the input rate; configured cache rates are used as supplied.
+// PriceRates describes token prices per million tokens in the currency of the
+// price that holds them. Nil cache rates inherit the input rate; configured
+// cache rates are used as supplied.
 type PriceRates struct {
 	InputPer1M      float64           `json:"input_per_1m"`
 	OutputPer1M     float64           `json:"output_per_1m"`
@@ -77,8 +78,9 @@ type PriceRates struct {
 	LongContext     *LongContextPrice `json:"long_context,omitempty"`
 }
 
-// Rates are USD per 1,000,000 tokens.
+// Rates are per 1,000,000 tokens in Currency.
 type Price struct {
+	Currency        Currency                  `json:"currency"`
 	InputPer1M      float64                   `json:"input_per_1m"`
 	OutputPer1M     float64                   `json:"output_per_1m"`
 	CacheReadPer1M  float64                   `json:"cache_read_per_1m"`
@@ -95,8 +97,9 @@ type ResolvedLongContextPrice struct {
 	CacheWritePer1M      float64 `json:"cache_write_per_1m"`
 }
 
-func (r PriceRates) resolve(source PriceSource) Price {
+func (r PriceRates) resolve(source PriceSource, currency Currency) Price {
 	price := Price{
+		Currency:        currency,
 		InputPer1M:      r.InputPer1M,
 		OutputPer1M:     r.OutputPer1M,
 		CacheReadPer1M:  r.InputPer1M,
@@ -130,16 +133,18 @@ func (r PriceRates) resolve(source PriceSource) Price {
 
 const CodexFastModeMultiplier = 2.5
 
+// Cost amounts and applied rates are in the currency of the price used.
 type Cost struct {
 	// Multiplier is the applied billing multiplier. Zero/omitted means 1x.
 	// Applied rates and amounts already include it; token counts do not.
 	Multiplier float64 `json:"multiplier,omitempty"`
 
-	TotalUSD         float64 `json:"total_usd"`
-	UncachedInputUSD float64 `json:"uncached_input_usd"`
-	CacheReadUSD     float64 `json:"cache_read_usd"`
-	CacheWriteUSD    float64 `json:"cache_write_usd"`
-	OutputUSD        float64 `json:"output_usd"`
+	Currency      Currency `json:"currency"`
+	Total         float64  `json:"total"`
+	UncachedInput float64  `json:"uncached_input"`
+	CacheRead     float64  `json:"cache_read"`
+	CacheWrite    float64  `json:"cache_write"`
+	Output        float64  `json:"output"`
 
 	UncachedInputTokens int64 `json:"uncached_input_tokens"`
 	CacheReadTokens     int64 `json:"cache_read_tokens"`
@@ -159,7 +164,7 @@ type Cost struct {
 // unclassified records are deliberately not guessed and therefore cost zero.
 func ComputeCost(price Price, breakdown TokenBreakdown) Cost {
 	if !breakdown.Billable() {
-		return Cost{}
+		return Cost{Currency: price.Currency}
 	}
 	inputPrice := price.InputPer1M
 	outputPrice := price.OutputPer1M
@@ -178,10 +183,11 @@ func ComputeCost(price Price, breakdown TokenBreakdown) Cost {
 		}
 	}
 	cost := Cost{
-		UncachedInputUSD:       perMillion(breakdown.Input.UncachedTokens, inputPrice),
-		CacheReadUSD:           perMillion(breakdown.Input.CacheReadTokens, cacheReadPrice),
-		CacheWriteUSD:          perMillion(breakdown.Input.CacheWriteTokens, cacheWritePrice),
-		OutputUSD:              perMillion(breakdown.Output.TotalTokens, outputPrice),
+		Currency:               price.Currency,
+		UncachedInput:          perMillion(breakdown.Input.UncachedTokens, inputPrice),
+		CacheRead:              perMillion(breakdown.Input.CacheReadTokens, cacheReadPrice),
+		CacheWrite:             perMillion(breakdown.Input.CacheWriteTokens, cacheWritePrice),
+		Output:                 perMillion(breakdown.Output.TotalTokens, outputPrice),
 		UncachedInputTokens:    breakdown.Input.UncachedTokens,
 		CacheReadTokens:        breakdown.Input.CacheReadTokens,
 		CacheWriteTokens:       breakdown.Input.CacheWriteTokens,
@@ -194,8 +200,21 @@ func ComputeCost(price Price, breakdown TokenBreakdown) Cost {
 		AppliedCacheReadPer1M:  cacheReadPrice,
 		AppliedCacheWritePer1M: cacheWritePrice,
 	}
-	cost.TotalUSD = cost.UncachedInputUSD + cost.CacheReadUSD + cost.CacheWriteUSD + cost.OutputUSD
+	cost.Total = cost.UncachedInput + cost.CacheRead + cost.CacheWrite + cost.Output
 	return cost
+}
+
+func (c *Cost) multiply(multiplier float64) {
+	c.Multiplier = multiplier
+	c.UncachedInput *= multiplier
+	c.CacheRead *= multiplier
+	c.CacheWrite *= multiplier
+	c.Output *= multiplier
+	c.Total = c.UncachedInput + c.CacheRead + c.CacheWrite + c.Output
+	c.AppliedInputPer1M *= multiplier
+	c.AppliedOutputPer1M *= multiplier
+	c.AppliedCacheReadPer1M *= multiplier
+	c.AppliedCacheWritePer1M *= multiplier
 }
 
 func perMillion(tokens int64, pricePer1M float64) float64 {
@@ -231,32 +250,32 @@ func sameOptionalPrice(a, b *float64) bool {
 }
 
 func (r PriceRates) validate(modelID string) error {
-	if invalidPrice(r.InputPer1M) || invalidPrice(r.OutputPer1M) {
+	if invalidAmount(r.InputPer1M) || invalidAmount(r.OutputPer1M) {
 		return invalidf("Model %q: token rates must be finite non-negative numbers", modelID)
 	}
-	if r.CacheReadPer1M != nil && invalidPrice(*r.CacheReadPer1M) {
+	if r.CacheReadPer1M != nil && invalidAmount(*r.CacheReadPer1M) {
 		return invalidf("Model %q: cache read rate must be a finite non-negative number", modelID)
 	}
-	if r.CacheWritePer1M != nil && invalidPrice(*r.CacheWritePer1M) {
+	if r.CacheWritePer1M != nil && invalidAmount(*r.CacheWritePer1M) {
 		return invalidf("Model %q: cache write rate must be a finite non-negative number", modelID)
 	}
 	if tier := r.LongContext; tier != nil {
 		if tier.ThresholdInputTokens <= 0 {
 			return invalidf("Model %q: long-context threshold must be greater than zero", modelID)
 		}
-		if invalidPrice(tier.InputPer1M) || invalidPrice(tier.OutputPer1M) {
+		if invalidAmount(tier.InputPer1M) || invalidAmount(tier.OutputPer1M) {
 			return invalidf("Model %q: long-context token rates must be finite non-negative numbers", modelID)
 		}
-		if tier.CacheReadPer1M != nil && invalidPrice(*tier.CacheReadPer1M) {
+		if tier.CacheReadPer1M != nil && invalidAmount(*tier.CacheReadPer1M) {
 			return invalidf("Model %q: long-context cache read rate must be a finite non-negative number", modelID)
 		}
-		if tier.CacheWritePer1M != nil && invalidPrice(*tier.CacheWritePer1M) {
+		if tier.CacheWritePer1M != nil && invalidAmount(*tier.CacheWritePer1M) {
 			return invalidf("Model %q: long-context cache write rate must be a finite non-negative number", modelID)
 		}
 	}
 	return nil
 }
 
-func invalidPrice(value float64) bool {
+func invalidAmount(value float64) bool {
 	return value < 0 || math.IsNaN(value) || math.IsInf(value, 0)
 }

@@ -18,18 +18,20 @@ type AnalysisTrends struct {
 	TotalCost           []AnalysisTrendPoint `json:"total_cost"`
 }
 
+// Costs and ChargedIn are as in CredentialUsageStats.
 type AnalysisComposition struct {
-	Key              string  `json:"key"`
-	Label            string  `json:"label"`
-	Preview          string  `json:"preview,omitempty"`
-	TotalTokens      int64   `json:"total_tokens"`
-	InputTokens      int64   `json:"input_tokens"`
-	OutputTokens     int64   `json:"output_tokens"`
-	CacheReadTokens  int64   `json:"cache_read_tokens"`
-	CacheWriteTokens int64   `json:"cache_write_tokens"`
-	Requests         int64   `json:"requests"`
-	CostUSD          float64 `json:"cost_usd"`
-	Percent          float64 `json:"percent"`
+	Key              string   `json:"key"`
+	Label            string   `json:"label"`
+	Preview          string   `json:"preview,omitempty"`
+	TotalTokens      int64    `json:"total_tokens"`
+	InputTokens      int64    `json:"input_tokens"`
+	OutputTokens     int64    `json:"output_tokens"`
+	CacheReadTokens  int64    `json:"cache_read_tokens"`
+	CacheWriteTokens int64    `json:"cache_write_tokens"`
+	Requests         int64    `json:"requests"`
+	CostUSD          float64  `json:"cost_usd"`
+	ChargedIn        Currency `json:"charged_in,omitempty"`
+	Percent          float64  `json:"percent"`
 	// Filter names a source row in usage queries without revealing it.
 	Filter string `json:"filter,omitempty"`
 }
@@ -40,12 +42,14 @@ type UsageDistribution struct {
 	Sources []AnalysisComposition `json:"sources"`
 }
 
+// Costs and ChargedIn are as in CredentialUsageStats; the cost trend shares them.
 type AnalysisCostSummary struct {
-	TotalUSD      float64 `json:"total_usd"`
-	InputUSD      float64 `json:"input_usd"`
-	CacheReadUSD  float64 `json:"cache_read_usd"`
-	CacheWriteUSD float64 `json:"cache_write_usd"`
-	OutputUSD     float64 `json:"output_usd"`
+	TotalUSD      float64  `json:"total_usd"`
+	InputUSD      float64  `json:"input_usd"`
+	CacheReadUSD  float64  `json:"cache_read_usd"`
+	CacheWriteUSD float64  `json:"cache_write_usd"`
+	OutputUSD     float64  `json:"output_usd"`
+	ChargedIn     Currency `json:"charged_in,omitempty"`
 }
 
 type AnalysisSummary struct {
@@ -91,7 +95,9 @@ type AnalysisSpeedView struct {
 }
 
 func (s *Store) Analysis(query RequestEventQuery) (AnalysisView, error) {
-	view, err := readAnalysis(s, query, Repository.Analysis)
+	view, err := readAnalysis(s, query, func(repo Repository, query RequestEventQuery, since time.Time) (AnalysisView, error) {
+		return repo.Analysis(query, s.cfg.CNYPerUSD, since)
+	})
 	if view.UsageDistribution.APIKeys == nil {
 		view.UsageDistribution.APIKeys = []AnalysisComposition{}
 	}

@@ -79,7 +79,7 @@ func TestComputeCostUsesCanonicalBucketsExactlyOnce(t *testing.T) {
 		cost.AppliedCacheReadPer1M != 0.1 || cost.AppliedCacheWritePer1M != 1.25 {
 		t.Fatalf("non-tiered applied pricing = %+v", cost)
 	}
-	assertClose(t, "TotalUSD", cost.TotalUSD, 0.0005+0.00004+0.000125+0.001)
+	assertClose(t, "Total", cost.Total, 0.0005+0.00004+0.000125+0.001)
 }
 
 func TestComputeCostAppliesLongContextRatesToWholeRequest(t *testing.T) {
@@ -94,7 +94,7 @@ func TestComputeCostAppliesLongContextRatesToWholeRequest(t *testing.T) {
 	if short.LongContext || !short.Tiered {
 		t.Fatalf("threshold-equal request selected wrong tier: %+v", short)
 	}
-	assertClose(t, "short total", short.TotalUSD, 1+0.036+0.6)
+	assertClose(t, "short total", short.Total, 1+0.036+0.6)
 
 	long := ComputeCost(price, completeBreakdown(228001, 72000, 0, 20000, 0))
 	if !long.LongContext || long.ThresholdInputTokens != 272000 {
@@ -102,7 +102,7 @@ func TestComputeCostAppliesLongContextRatesToWholeRequest(t *testing.T) {
 	}
 	// The entire 300001 input and all output use long-context prices, not only
 	// the single input token above the threshold.
-	assertClose(t, "long total", long.TotalUSD, 2.28001+0.072+0.9)
+	assertClose(t, "long total", long.Total, 2.28001+0.072+0.9)
 	if long.AppliedInputPer1M != 10 || long.AppliedOutputPer1M != 45 {
 		t.Fatalf("applied prices = %+v", long)
 	}

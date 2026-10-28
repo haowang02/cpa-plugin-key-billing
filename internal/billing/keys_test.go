@@ -14,10 +14,10 @@ func TestPlanBindingTransactions(t *testing.T) {
 		state.Keys["a"] = &KeyState{}
 		state.Keys["b"] = &KeyState{}
 		state.Keys["owned"] = &KeyState{PlanID: "other"}
-		state.Plans = []Plan{{ID: "other", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 1, PeriodSeconds: 3600}}}}
+		state.Plans = []Plan{{ID: "other", Currency: USD, Windows: []QuotaWindow{{ID: "default", Name: "额度", Amount: 1, PeriodSeconds: 3600}}}}
 	})
 
-	created, err := store.CreatePlanWithBindings(Plan{ID: "p", Windows: []QuotaWindow{{Name: "额度", AmountUSD: 5, PeriodSeconds: 86400}}}, []string{"a"})
+	created, err := store.CreatePlanWithBindings(Plan{ID: "p", Windows: []QuotaWindow{{Name: "额度", Amount: 5, PeriodSeconds: 86400}}}, []string{"a"})
 	if err != nil || created.ID != "p" {
 		t.Fatalf("CreatePlanWithBindings = %+v, %v", created, err)
 	}
@@ -54,7 +54,7 @@ func newSyncStore(t *testing.T, clock *time.Time) *Store {
 	store := newAccountStore(t, *clock)
 	store.now = func() time.Time { return *clock }
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", Name: "Weekly", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 10, PeriodSeconds: 604800}}}}
+		state.Plans = []Plan{{ID: "p", Name: "Weekly", Currency: USD, Windows: []QuotaWindow{{ID: "default", Name: "额度", Amount: 10, PeriodSeconds: 604800}}}}
 	})
 	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext, deletedKeyPlaintext}, false); errSync != nil {
 		t.Fatalf("SyncKeys error = %v", errSync)
@@ -88,7 +88,7 @@ func TestDeletedKeyRetainsUsageAndIdentity(t *testing.T) {
 			t.Fatalf("key = %+v, want it to stay deleted", key)
 		}
 		// The window was live at admission, so the spend belongs to it.
-		if key.Cycles["default"].SpentUSD == 0 {
+		if key.Cycles["default"].Spending.USD == 0 {
 			t.Fatalf("Cycle = %+v, want the admitted window charged", key.Cycles["default"])
 		}
 	})
@@ -125,7 +125,7 @@ func TestSyncKeysRestoresQuotaAndBindings(t *testing.T) {
 				store.RecordUsage(admittedEvent(store, scope, now))
 				store.ReplaceAll(func(state *State) {
 					cycle := state.Keys[scope].Cycles["default"]
-					cycle.SpentUSD = 10
+					cycle.Spending.USD = 10
 					state.Keys[scope].Cycles["default"] = cycle
 				})
 				cycle := store.state.Keys[scope].Cycles["default"]
@@ -251,8 +251,8 @@ func TestWindowEditsAndQuotaReset(t *testing.T) {
 				state.Keys["deleted"] = &KeyState{}
 			})
 			windows := []QuotaWindow{
-				{Name: "Budget", AmountUSD: 10, PeriodSeconds: 86400},
-				{Name: "Short", AmountUSD: 5, PeriodSeconds: 3600},
+				{Name: "Budget", Amount: 10, PeriodSeconds: 86400},
+				{Name: "Short", Amount: 5, PeriodSeconds: 3600},
 			}
 			if unified {
 				for i := range windows {
@@ -272,7 +272,7 @@ func TestWindowEditsAndQuotaReset(t *testing.T) {
 				t.Fatal(err)
 			}
 			plan.Windows[0].Name = "Renamed"
-			plan.Windows[0].AmountUSD = wantSubsetCost / 2
+			plan.Windows[0].Amount = wantSubsetCost / 2
 			if _, err := store.UpdatePlanWithBindings(PlanPatch{ID: plan.ID, Windows: &plan.Windows}, nil); err != nil {
 				t.Fatal(err)
 			}
@@ -287,7 +287,7 @@ func TestWindowEditsAndQuotaReset(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, key := range store.state.Keys {
-				if _, exists := key.Cycles[short]; exists || key.Cycles[long].SpentUSD != wantSubsetCost {
+				if _, exists := key.Cycles[short]; exists || key.Cycles[long].Spending.USD != wantSubsetCost {
 					t.Fatalf("window edit reset other usage: %+v", key.Cycles)
 				}
 			}
@@ -311,7 +311,7 @@ func TestWindowEditsAndQuotaReset(t *testing.T) {
 				}
 			}
 			plan.Windows = plan.Windows[:1]
-			plan.Windows = append(plan.Windows, QuotaWindow{Name: "New budget", AmountUSD: 20, PeriodSeconds: 86400})
+			plan.Windows = append(plan.Windows, QuotaWindow{Name: "New budget", Amount: 20, PeriodSeconds: 86400})
 			if unified {
 				plan.Windows[1].CycleAnchorAt = now.Add(24 * time.Hour)
 			}

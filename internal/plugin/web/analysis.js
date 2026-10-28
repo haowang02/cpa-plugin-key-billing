@@ -116,7 +116,7 @@ const analysisMetrics = { admin: "total_tokens", account: "total_tokens" };
 const DISTRIBUTION_METRICS = {
   total_tokens: { label: m("ui.total_tokens"), option: m("ui.token_share"), format: (row) => tokens(row.total_tokens) },
   requests: { label: m("ui.requests_4"), option: m("ui.request_share"), format: (row) => int(row.requests) },
-  cost_usd: { label: m("ui.total_cost"), option: m("ui.cost_share"), format: (row) => usd(row.cost_usd) }
+  cost_usd: { label: m("ui.total_cost"), option: m("ui.cost_share"), format: (row) => usageMoney(row.cost_usd, row.charged_in) }
 };
 function emptyAnalysisCharts() { return { trend: null, distribution: null, speed: null, usageRendered: null, speedRendered: null }; }
 const analysisCharts = { admin: emptyAnalysisCharts(), account: emptyAnalysisCharts() };
@@ -229,6 +229,7 @@ function compactDistribution(rows, metric) {
       "requests",
       "cost_usd"
     ]) { other[field] = rest.reduce((sum, row) => sum + Number(row[field] || 0), 0); }
+    other.charged_in = commonChargedIn(rest);
     visible.push(other);
   }
   for (const row of visible) { row.percent = total > 0 ? (Number(row[metric] || 0) * 100) / total : 0; }
@@ -298,7 +299,7 @@ function renderUsageDistributionChart(account, rows, dimension, dimensionLabel, 
   );
 }
 
-function renderUsageTrendChart(account, trends, colors) {
+function renderUsageTrendChart(account, trends, chargedIn, colors) {
   const canvas = $(account ? "account-usage-trend-chart" : "usage-trend-chart");
   const points = trends.total_tokens;
   if (!points.length) {
@@ -404,7 +405,7 @@ function renderUsageTrendChart(account, trends, colors) {
             label: (context) => {
               const value = Number(context.raw || 0);
               if (context.dataset.metric === "requests") { return context.dataset.label + ": " + int(value); }
-              if (context.dataset.metric === "cost") { return context.dataset.label + ": " + usd(value); }
+              if (context.dataset.metric === "cost") { return context.dataset.label + ": " + usageMoney(value, chargedIn); }
               return context.dataset.label + ": " + tokens(value);
             },
             footer: (items) => (items.length ? m("ui.total_tokens_value", { v0: tokens(totalTokens[items[0].dataIndex]) }) : "")
@@ -432,7 +433,7 @@ function renderUsageTrendChart(account, trends, colors) {
           position: "right",
           display: !compactChart(width) && costs.length > 0,
           grid: { drawOnChartArea: false },
-          ticks: { color: axis.text, callback: (value) => usd(value) }
+          ticks: { color: axis.text, callback: (value) => usageMoney(value, chargedIn) }
         }
       }
     }
@@ -513,10 +514,7 @@ function renderAnalysisSummary(summary, trends, daily) {
         "data-analysis-trend": trend
       })
     );
-  const costDetail = (label, amount) => {
-    const value = Number(amount || 0);
-    return summaryLine(label, value === 0 ? "$0.0000" : usd(value));
-  };
+  const costDetail = (label, amount) => summaryLine(label, usageMoney(amount, cost.charged_in, Number(amount || 0) === 0 ? 4 : undefined));
   const hasCacheWriteCost = Number(cost.cache_write_usd || 0) > 0;
   const costRows = [
     costDetail(m("ui.input"), cost.input_usd),
@@ -553,7 +551,13 @@ function renderAnalysisSummary(summary, trends, daily) {
       [summaryLine(m("ui.cache_read"), tokens(summary.cache_read_tokens)), summaryLine(m("ui.input"), tokens(summary.input_tokens))],
       "cache_rate"
     ),
-    card(m("ui.total_cost"), usd(cost.total_usd), summaryLine(averageLabel, usd(average(cost.total_usd))), costRows, "total_cost")
+    card(
+      m("ui.total_cost"),
+      usageMoney(cost.total_usd, cost.charged_in),
+      summaryLine(averageLabel, usageMoney(average(cost.total_usd), cost.charged_in)),
+      costRows,
+      "total_cost"
+    )
   );
 }
 
@@ -794,7 +798,7 @@ function renderAnalysisUsage(account, content, analysis, view) {
   for (const canvas of content.querySelectorAll("[data-analysis-trend]")) {
     drawAnalysisTrend(canvas, trends[canvas.dataset.analysisTrend]);
   }
-  renderUsageTrendChart(account, trends, colors);
+  renderUsageTrendChart(account, trends, analysis.summary.cost.charged_in, colors);
   renderAnalysisDistribution(account, { colors });
   charts.usageRendered = state;
 }
@@ -854,7 +858,8 @@ function renderAnalysis(account) {
   const view = {
     theme: window.billingTheme.current(),
     library: typeof Chart === "function" ? "ready" : chartError || "loading",
-    language: locale()
+    language: locale(),
+    money: moneyDisplayKey()
   };
   renderAnalysisUsage(account, content, analysis, view);
   renderSpeedTrend(account, view);

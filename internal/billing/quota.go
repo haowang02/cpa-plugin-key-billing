@@ -11,31 +11,60 @@ import (
 type QuotaMetric string
 
 const (
-	QuotaAmount   QuotaMetric = "amount_usd"
+	QuotaAmount   QuotaMetric = "amount"
 	QuotaTokens   QuotaMetric = "tokens"
 	QuotaRequests QuotaMetric = "requests"
 )
 
+// Spending keeps money in the currency it was charged in. A plan converts it
+// into its own currency when it compares it with a limit. Sums saturate rather
+// than overflow.
+type Spending struct {
+	USD float64 `json:"spent_usd"`
+	CNY float64 `json:"spent_cny"`
+}
+
+func spent(amount float64, currency Currency) Spending {
+	if currency == CNY {
+		return Spending{CNY: amount}
+	}
+	return Spending{USD: amount}
+}
+
+func (s Spending) add(other Spending) Spending {
+	return Spending{USD: math.Min(s.USD+other.USD, math.MaxFloat64), CNY: math.Min(s.CNY+other.CNY, math.MaxFloat64)}
+}
+
+func (s Spending) in(currency Currency, rate ExchangeRate) float64 {
+	return math.Min(rate.Convert(s.USD, USD, currency)+rate.Convert(s.CNY, CNY, currency), math.MaxFloat64)
+}
+
+func (s Spending) valid() bool {
+	return !invalidAmount(s.USD) && !invalidAmount(s.CNY)
+}
+
 type quotaUsage struct {
-	AmountUSD float64
-	Tokens    int64
-	Requests  int64
+	Spending
+	Tokens   int64
+	Requests int64
 }
 
 // UsageSince excludes requests admitted before binding or an administrative reset.
 type QuotaCycle struct {
-	PlanID       string    `json:"plan_id,omitempty"`
-	StartAt      time.Time `json:"start_at,omitzero"`
-	EndAt        time.Time `json:"end_at,omitzero"`
-	UsageSince   time.Time `json:"usage_since,omitzero"`
-	SpentUSD     float64   `json:"spent_usd"`
-	UsedTokens   int64     `json:"used_tokens"`
-	UsedRequests int64     `json:"used_requests"`
+	PlanID     string    `json:"plan_id,omitempty"`
+	StartAt    time.Time `json:"start_at,omitzero"`
+	EndAt      time.Time `json:"end_at,omitzero"`
+	UsageSince time.Time `json:"usage_since,omitzero"`
+	Spending
+	UsedTokens   int64 `json:"used_tokens"`
+	UsedRequests int64 `json:"used_requests"`
 }
 
-// JSON numbers retain integer counters without float conversion.
+// JSON numbers retain integer counters without float conversion. An amount
+// balance is in its plan's Currency.
 type QuotaBalance struct {
 	Metric      QuotaMetric `json:"metric"`
+	Currency    Currency    `json:"currency,omitempty"`
 	Limit       json.Number `json:"limit"`
 	Used        json.Number `json:"used"`
 	Remaining   json.Number `json:"remaining"`
@@ -62,29 +91,29 @@ type QuotaView struct {
 	Windows   []QuotaWindowView `json:"windows"`
 }
 
-func (w QuotaWindow) view(cycle QuotaCycle) QuotaWindowView {
+func (w QuotaWindow) view(cycle QuotaCycle, currency Currency, rate ExchangeRate) QuotaWindowView {
 	view := QuotaWindowView{
 		ID: w.ID, Name: w.Name, PeriodSeconds: w.PeriodSeconds, CycleAnchorAt: w.CycleAnchorAt,
 		Started: !cycle.StartAt.IsZero(), StartAt: cycle.StartAt, EndAt: cycle.EndAt,
 		Dimensions: make([]QuotaBalance, 0, 3),
 	}
-	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaAmount, w.AmountUSD, cycle.SpentUSD)
-	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaTokens, w.TokenLimit, cycle.UsedTokens)
-	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaRequests, w.RequestLimit, cycle.UsedRequests)
+	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaAmount, currency, w.Amount, cycle.Spending.in(currency, rate))
+	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaTokens, "", w.TokenLimit, cycle.UsedTokens)
+	view.Dimensions = appendQuotaBalance(view.Dimensions, QuotaRequests, "", w.RequestLimit, cycle.UsedRequests)
 	for _, balance := range view.Dimensions {
 		view.Blocked = view.Blocked || balance.Blocked
 	}
 	return view
 }
 
-func quotaView(key *KeyState, plan Plan, now time.Time) QuotaView {
+func quotaView(key *KeyState, plan Plan, rate ExchangeRate, now time.Time) QuotaView {
 	view := QuotaView{Windows: make([]QuotaWindowView, 0, len(plan.Windows)), Unlimited: plan.ID == ""}
 	for _, window := range plan.Windows {
 		cycle := key.Cycles[window.ID]
 		if cycle.StartAt.IsZero() && !window.CycleAnchorAt.IsZero() {
 			cycle = window.newCycle(plan.ID, now)
 		}
-		item := window.view(cycle)
+		item := window.view(cycle, plan.Currency, rate)
 		if item.Blocked {
 			view.Blocked = true
 			if item.EndAt.After(view.RetryAt) {
@@ -111,12 +140,12 @@ func (w QuotaWindow) newCycle(planID string, now time.Time) QuotaCycle {
 	return cycle
 }
 
-func appendQuotaBalance[T int64 | float64](balances []QuotaBalance, metric QuotaMetric, limit, used T) []QuotaBalance {
+func appendQuotaBalance[T int64 | float64](balances []QuotaBalance, metric QuotaMetric, currency Currency, limit, used T) []QuotaBalance {
 	if limit <= 0 {
 		return balances
 	}
 	return append(balances, QuotaBalance{
-		Metric: metric, Limit: json.Number(fmt.Sprint(limit)), Used: json.Number(fmt.Sprint(used)),
+		Metric: metric, Currency: currency, Limit: json.Number(fmt.Sprint(limit)), Used: json.Number(fmt.Sprint(used)),
 		Remaining:   json.Number(fmt.Sprint(max(0, limit-used))),
 		UsedPercent: math.Min(float64(used)/float64(limit), 1) * 100,
 		Blocked:     used >= limit,
@@ -127,7 +156,7 @@ func (b QuotaBalance) Description() string {
 	if b.Metric == QuotaAmount {
 		used, _ := b.Used.Float64()
 		limit, _ := b.Limit.Float64()
-		return fmt.Sprintf("$%.4f / $%.4f", used, limit)
+		return b.Currency.Format(used) + " / " + b.Currency.Format(limit)
 	}
 	return fmt.Sprintf("%s %s / %s", b.Metric, b.Used, b.Limit)
 }
@@ -166,8 +195,7 @@ func (key *KeyState) ValidateCycles(plan Plan) error {
 		index := slices.IndexFunc(plan.Windows, func(window QuotaWindow) bool { return window.ID == id })
 		if index < 0 || cycle.PlanID != key.PlanID || cycle.StartAt.IsZero() || cycle.EndAt.IsZero() ||
 			!cycle.EndAt.Equal(cycle.StartAt.Add(time.Duration(plan.Windows[index].PeriodSeconds)*time.Second)) ||
-			cycle.SpentUSD < 0 || math.IsNaN(cycle.SpentUSD) || math.IsInf(cycle.SpentUSD, 0) ||
-			cycle.UsedRequests < 0 || cycle.UsedTokens < 0 {
+			!cycle.Spending.valid() || cycle.UsedRequests < 0 || cycle.UsedTokens < 0 {
 			return invalidf("Invalid quota cycle data for this API key")
 		}
 		window := plan.Windows[index]
@@ -189,8 +217,8 @@ func (key *KeyState) chargeCycles(at time.Time, usage quotaUsage) {
 			continue
 		}
 		// Keep all dimensions, including currently disabled limits, so changing
-		// limits retains this cycle's usage. Saturation only prevents overflow.
-		cycle.SpentUSD = math.Min(cycle.SpentUSD+usage.AmountUSD, math.MaxFloat64)
+		// limits retains this cycle's usage.
+		cycle.Spending = cycle.Spending.add(usage.Spending)
 		cycle.UsedTokens = addQuotaCount(cycle.UsedTokens, usage.Tokens)
 		cycle.UsedRequests = addQuotaCount(cycle.UsedRequests, usage.Requests)
 		key.Cycles[id] = cycle

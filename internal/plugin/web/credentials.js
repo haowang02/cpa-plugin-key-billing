@@ -182,7 +182,7 @@ function renderCredentialUsage(usage, breakdown) {
     ["arrow-left-right", m("ui.successful_failed_requests"), requests],
     ["square-text", m("ui.auth_total_tokens"), summary ? tokens(summary.totalTokens) : "—"],
     ["circle-check", m("ui.success_rate"), summary ? summary.successRate : "—"],
-    ["circle-dollar-sign", m("ui.cost"), usage ? usd(usage.cost_usd, 2) : "—"]
+    ["circle-dollar-sign", m("ui.cost"), usage ? usageMoney(usage.cost_usd, usage.charged_in, 2) : "—"]
   ];
   return el(
     "td",

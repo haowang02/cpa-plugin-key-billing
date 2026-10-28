@@ -264,21 +264,34 @@ def iso(value):
     return value.isoformat().replace("+00:00", "Z")
 
 
+CNY_PER_USD = 7
+
+
+def usd_amount(amount, currency):
+    return amount / CNY_PER_USD if currency == "CNY" else amount
+
+
+def charged_in(rows):
+    """The one currency the charged requests share, or "" when they mix currencies or cost nothing."""
+    currencies = {row["cost"].get("currency") for row in rows if row.get("cost", {}).get("total")}
+    return currencies.pop() if len(currencies) == 1 else ""
+
+
 PLANS = [
-    {"id": "engineering", "name": "研发团队", "windows": [
-        {"id": "short", "name": "短时额度", "amount_usd": 15, "request_limit": 100, "token_limit": 1000000, "period_seconds": 18000},
-        {"id": "budget", "name": "团队预算", "amount_usd": 300, "period_seconds": 2592000},
+    {"id": "engineering", "name": "研发团队", "currency": "USD", "windows": [
+        {"id": "short", "name": "短时额度", "amount": 15, "request_limit": 100, "token_limit": 1000000, "period_seconds": 18000},
+        {"id": "budget", "name": "团队预算", "amount": 300, "period_seconds": 2592000},
     ]},
-    {"id": "production", "name": "生产服务", "windows": [
-        {"id": "short", "name": "峰值保护", "amount_usd": 0, "request_limit": 200, "token_limit": 0,
+    {"id": "production", "name": "生产服务", "currency": "USD", "windows": [
+        {"id": "short", "name": "峰值保护", "amount": 0, "request_limit": 200, "token_limit": 0,
          "period_seconds": 7200, "cycle_anchor_at": iso(NOW + timedelta(hours=2))},
-        {"id": "medium", "name": "服务额度", "amount_usd": 0, "request_limit": 0, "token_limit": 2000000,
+        {"id": "medium", "name": "服务额度", "amount": 0, "request_limit": 0, "token_limit": 2000000,
          "period_seconds": 86400, "cycle_anchor_at": iso((NOW + timedelta(days=1)).replace(hour=0))},
-        {"id": "budget", "name": "生产预算", "amount_usd": 1000,
+        {"id": "budget", "name": "生产预算", "amount": 1000,
          "period_seconds": 2592000, "cycle_anchor_at": iso((NOW + timedelta(days=15)).replace(hour=0))},
     ]},
-    {"id": "project-credit", "name": "项目额度", "windows": [
-        {"id": "budget", "name": "项目预算", "amount_usd": 100, "period_seconds": 864000},
+    {"id": "project-credit", "name": "项目额度", "currency": "CNY", "windows": [
+        {"id": "budget", "name": "项目预算", "amount": 700, "period_seconds": 864000},
     ]},
 ]
 
@@ -310,9 +323,10 @@ def refresh_key_quota(key):
             cycle = dict(start_at=iso(start), end_at=iso(start+period))
             started = True
         dimensions = [dict(metric=metric, limit=limit, used=used, remaining=max(0, limit-used),
-                           used_percent=min(100, used / limit * 100), blocked=used >= limit)
+                           used_percent=min(100, used / limit * 100), blocked=used >= limit,
+                           **({"currency": plan["currency"]} if metric == "amount" else {}))
                       for metric, limit, used in [
-                          ("amount_usd", window.get("amount_usd", 0), cycle.get("spent_usd", 0)),
+                          ("amount", window.get("amount", 0), cycle.get("spent", 0)),
                           ("tokens", window.get("token_limit", 0), cycle.get("used_tokens", 0)),
                           ("requests", window.get("request_limit", 0), cycle.get("used_requests", 0))] if limit > 0]
         view = dict(id=window["id"], name=window["name"], period_seconds=window["period_seconds"],
@@ -566,9 +580,10 @@ def auth_file_views(files, query, scope=""):
 
 
 def model_usage(rows):
-    models = {}
+    models, grouped = {}, {}
     for row in rows:
         cost = row["cost"]
+        grouped.setdefault(row["billing_model"] or row["upstream_model"], []).append(row)
         usage = models.setdefault(row["billing_model"] or row["upstream_model"], dict.fromkeys(
             ("requests", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_usd"), 0))
         usage["requests"] += 1
@@ -576,8 +591,8 @@ def model_usage(rows):
         usage["output_tokens"] += cost.get("billed_output_tokens", 0)
         usage["cache_read_tokens"] += cost.get("cache_read_tokens", 0)
         usage["cache_write_tokens"] += cost.get("cache_write_tokens", 0)
-        usage["cost_usd"] += cost.get("total_usd", 0)
-    return sorted(({"model": model, **usage} for model, usage in models.items()),
+        usage["cost_usd"] += usd_amount(cost.get("total", 0), cost.get("currency"))
+    return sorted(({"model": model, **usage, "charged_in": charged_in(grouped[model])} for model, usage in models.items()),
                   key=lambda usage: (-usage["input_tokens"] - usage["output_tokens"], usage["model"]))
 
 
@@ -586,6 +601,7 @@ def credential_usage(rows):
     return {
         "requests": len(rows), "failed": sum(bool(row.get("failed")) for row in rows),
         **{field: sum(usage[field] for usage in models) for field in ("input_tokens", "cache_read_tokens", "output_tokens", "cost_usd")},
+        "charged_in": charged_in(rows),
     }
 
 
@@ -606,14 +622,14 @@ def model_split(tokens, cost_usd, models):
             "model": model, "requests": max(1, total // 40_000), "input_tokens": input_tokens, "output_tokens": total - input_tokens,
             "cache_read_tokens": round(input_tokens * 0.81),
             "cache_write_tokens": round(input_tokens * 0.04) if model.startswith("claude") else 0,
-            "cost_usd": round(cost_usd * share, 4),
+            "cost_usd": round(cost_usd * share, 4), "charged_in": "USD",
         })
     return [usage for usage in split if usage["input_tokens"] + usage["output_tokens"] > 0]
 
 
 def quota_usage(tokens, cost_usd, models=CODEX_MODELS):
     """A window's usage lists totals; _models splits them when a breakdown is asked for."""
-    return {"usage": {"tokens": tokens, "cost_usd": cost_usd}, "_models": models}
+    return {"usage": {"tokens": tokens, "cost_usd": cost_usd, "charged_in": "USD"}, "_models": models}
 
 
 QUOTA_WINDOW_LENGTHS = {"5 小时限额": timedelta(hours=5), "周限额": timedelta(days=7), "月度额度": timedelta(days=30)}
@@ -747,7 +763,7 @@ def localized_quota_labels(rows):
 def quota_period(start, length, used, tokens, cost_usd, plans=(), end=None, reason="", models=CODEX_MODELS):
     """A history period lists usage totals; _models splits them when the drawer asks for a breakdown."""
     period = {"start": iso(start), "reset_at": iso(start + length), "used_percent": used, "plans": list(plans),
-              "usage": {"tokens": tokens, "cost_usd": cost_usd},
+              "usage": {"tokens": tokens, "cost_usd": cost_usd, "charged_in": "USD"},
               "usage_query": {"from": iso(start), "to": iso(min(end or start + length, NOW))},
               "_models": models}
     if reason:
@@ -867,23 +883,23 @@ def usage_models(query, scope=""):
 
 
 KEY_PROFILES = [
-    {"label": "代码审查机器人", "plan_id": "engineering", "spent_usd": 128.64, "concurrency_limit": 5, "current_concurrency": 2,
+    {"label": "代码审查机器人", "plan_id": "engineering", "spent": 128.64, "concurrency_limit": 5, "current_concurrency": 2,
      "route_bindings": {"route_ids": ["coding", "analytics", "economy", "text-only"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "CI 构建服务", "plan_id": "engineering", "spent_usd": 84.27, "concurrency_limit": 10, "current_concurrency": 3,
+    {"label": "CI 构建服务", "plan_id": "engineering", "spent": 84.27, "concurrency_limit": 10, "current_concurrency": 3,
      "route_bindings": {"route_ids": ["ci"], "models": ["gpt-5.6-terra", "gpt-5.5"],
                         "credential_ids": [AUTOMATION_CREDENTIAL_REF], "credential_providers": [],
                         "denied_models": ["gpt-5.6-sol", "gpt-image-2"], "denied_credential_ids": ["sha256:" + "a" * 64], "denied_credential_providers": []}},
-    {"label": "数据分析平台", "plan_id": "production", "spent_usd": 368.91, "concurrency_limit": 5, "current_concurrency": 1,
+    {"label": "数据分析平台", "plan_id": "production", "spent": 368.91, "concurrency_limit": 5, "current_concurrency": 1,
      "route_bindings": {"route_ids": ["analytics"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "客服助手", "plan_id": "production", "spent_usd": 241.36, "concurrency_limit": 8, "current_concurrency": 2,
+    {"label": "客服助手", "plan_id": "production", "spent": 241.36, "concurrency_limit": 8, "current_concurrency": 2,
      "route_bindings": {"route_ids": ["analytics"], "models": ["gpt-5.5"], "denied_models": ["gpt-image-2"], "credential_ids": [], "credential_providers": []}},
-    {"label": "文档生成", "plan_id": "engineering", "spent_usd": 56.48, "concurrency_limit": 3, "current_concurrency": 0,
+    {"label": "文档生成", "plan_id": "engineering", "spent": 56.48, "concurrency_limit": 3, "current_concurrency": 0,
      "route_bindings": {"route_ids": ["text-only"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "预发布环境", "plan_id": "project-credit", "spent_usd": 43.72, "concurrency_limit": 2, "current_concurrency": 1,
+    {"label": "预发布环境", "plan_id": "project-credit", "spent": 306.04, "concurrency_limit": 2, "current_concurrency": 1,
      "route_bindings": {"route_ids": ["economy"], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "内部工具", "plan_id": "", "spent_usd": 0, "concurrency_limit": 0, "current_concurrency": 1,
+    {"label": "内部工具", "plan_id": "", "spent": 0, "concurrency_limit": 0, "current_concurrency": 1,
      "route_bindings": {"route_ids": [], "models": [], "credential_ids": [], "credential_providers": []}},
-    {"label": "临时测试", "plan_id": "project-credit", "spent_usd": 87.19, "concurrency_limit": 1, "current_concurrency": 0,
+    {"label": "临时测试", "plan_id": "project-credit", "spent": 610.33, "concurrency_limit": 1, "current_concurrency": 0,
      "route_bindings": {"route_ids": [], "models": ["gpt-5.5"], "credential_ids": ["sha256:" + "c" * 64], "credential_providers": []}},
 ]
 
@@ -903,14 +919,14 @@ def make_key(index):
     }
     cycles = {}
     for position, window in enumerate(plan["windows"] if plan and index != 4 else []):
-        ratio = profile["spent_usd"] / plan["windows"][-1]["amount_usd"]
+        ratio = profile["spent"] / plan["windows"][-1]["amount"]
         if index == 2 and position == 0 or index == 3 and position < 2:
             ratio = 1.05
         end = (datetime.fromisoformat(window["cycle_anchor_at"].replace("Z", "+00:00"))
                if window.get("cycle_anchor_at") else NOW + timedelta(seconds=window["period_seconds"] * (0.3 + index * 0.04)))
         cycles[window["id"]] = dict(plan_id=result["plan_id"], period_seconds=window["period_seconds"],
             cycle_anchor_at=window.get("cycle_anchor_at"),
-            spent_usd=window["amount_usd"]*ratio,
+            spent=window["amount"]*ratio,
             used_requests=int(window.get("request_limit", 1000)*ratio),
             used_tokens=int(window.get("token_limit", 10000000)*ratio),
             start_at=iso(end-timedelta(seconds=window["period_seconds"])), end_at=iso(end))
@@ -930,6 +946,7 @@ LIVE_KEYS = [key for key in KEYS if not key.get("deleted_at")]
 PRICES = [
     {
         "model_id": "gpt-5.6-sol",
+        "currency": "USD",
         "input_per_1m": 4,
         "output_per_1m": 20,
         "cache_read_per_1m": 0.4,
@@ -943,6 +960,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-5.5",
+        "currency": "USD",
         "input_per_1m": 5,
         "output_per_1m": 30,
         "cache_read_per_1m": 0.5,
@@ -956,6 +974,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-5.6-luna",
+        "currency": "USD",
         "input_per_1m": 0.2,
         "output_per_1m": 1.2,
         "cache_read_per_1m": 0.02,
@@ -963,6 +982,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-5.6-terra",
+        "currency": "USD",
         "input_per_1m": 2,
         "output_per_1m": 12,
         "cache_read_per_1m": 0.2,
@@ -970,6 +990,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-image-2",
+        "currency": "USD",
         "input_per_1m": 5,
         "output_per_1m": 30,
         "cache_read_per_1m": 1.25,
@@ -977,31 +998,34 @@ PRICES = [
     },
     {
         "model_id": "claude/deepseek-v4-pro",
-        "input_per_1m": 0.435,
-        "output_per_1m": 0.87,
-        "cache_read_per_1m": 0.003625,
+        "currency": "CNY",
+        "input_per_1m": 3,
+        "output_per_1m": 6,
+        "cache_read_per_1m": 0.025,
         "source": "custom",
     },
     {
         "model_id": "claude/deepseek-v4-flash",
-        "input_per_1m": 0.28,
-        "output_per_1m": 0.42,
+        "currency": "CNY",
+        "input_per_1m": 2,
+        "output_per_1m": 3,
         "source": "custom",
     },
 ]
 
-def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, long_context=False, multiplier=1):
+def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, long_context=False, multiplier=1, currency="USD"):
     input_price, read_price, write_price, output_price = (rate * multiplier for rate in rates)
     parts = {
-        "uncached_input_usd": uncached * input_price / 1_000_000,
-        "cache_read_usd": cache_read * read_price / 1_000_000,
-        "cache_write_usd": cache_write * write_price / 1_000_000,
-        "output_usd": output * output_price / 1_000_000,
+        "uncached_input": uncached * input_price / 1_000_000,
+        "cache_read": cache_read * read_price / 1_000_000,
+        "cache_write": cache_write * write_price / 1_000_000,
+        "output": output * output_price / 1_000_000,
     }
     return {
         **parts,
         "multiplier": multiplier,
-        "total_usd": sum(parts.values()),
+        "currency": currency,
+        "total": sum(parts.values()),
         "uncached_input_tokens": uncached,
         "cache_read_tokens": cache_read,
         "cache_write_tokens": cache_write,
@@ -1037,6 +1061,7 @@ def event_sample(
     failed=False,
     multiplier=1,
     auth_index="",
+    currency="USD",
 ):
     uncached, cache_read, cache_write, output = tokens
     if failed:
@@ -1067,6 +1092,7 @@ def event_sample(
             model.startswith("gpt-5."),
             long_context,
             multiplier if not failed else 1,
+            currency,
         ),
         "reasoning_tokens": 0 if failed else reasoning_tokens,
     }
@@ -1079,14 +1105,14 @@ SUCCESS_EVENT_SAMPLES = [
     event_sample(5, "codex · dev-team@example.com", "codex", "codex-auto-review", "CodexWebsocketsExecutor", "low", "auto", 2516, 1431, 10, (1030, 49920, 0, 75), (0.2, 0.02, 0.25, 1.2), response_model="gpt-5.6-luna", response_tier="default", auth_index="auth-demo-codex-plus"),
     event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "medium", "auto", 2417, 1103, 0, (1194, 95616, 0, 73), (5, 0.5, 5, 30), auth_index="auth-demo-codex-plus"),
     event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 5306, 2121, 21, (798, 169984, 0, 201), (4, 0.4, 5, 20), auth_index="auth-demo-codex-plus"),
-    event_sample(2, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 10061, 637, 0, (38049, 0, 0, 474), (0.435, 0.003625, 0.435, 0.87), billing_model="claude/deepseek-v4-pro", response_model="deepseek-v4-pro", auth_index="auth-demo-claude"),
+    event_sample(2, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 10061, 637, 0, (38049, 0, 0, 474), (3, 0.025, 3, 6), billing_model="claude/deepseek-v4-pro", response_model="deepseek-v4-pro", auth_index="auth-demo-claude", currency="CNY"),
     event_sample(7, "codex · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7288, 4130, 188, (8502, 45440, 0, 309), (5, 0.5, 5, 30), auth_index="ai-demo-codex-relay"),
     event_sample(6, "codex · dev-team@example.com", "codex", "gpt-5.6-terra", "CodexWebsocketsExecutor", "medium", "auto", 10120, 3379, 81, (1300, 69376, 0, 477), (2, 0.2, 2.5, 12), auth_index="auth-demo-codex-plus"),
     event_sample(4, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 2609, 1881, 6, (1368, 237824, 0, 46), (4, 0.4, 5, 20), auth_index="auth-demo-codex-plus"),
     event_sample(5, "codex · dev-team@example.com", "codex", "gpt-5.6-luna", "CodexWebsocketsExecutor", "low", "auto", 5002, 2464, 61, (1261, 149248, 0, 147), (0.2, 0.02, 0.25, 1.2), auth_index="auth-demo-codex-plus"),
     event_sample(7, "codex · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7634, 4412, 94, (24196, 19840, 0, 275), (5, 0.5, 5, 30), auth_index="ai-demo-codex-relay"),
     event_sample(6, "codex · dev-team@example.com", "codex", "gpt-image-2", "CodexExecutor", "", "auto", 43679, 43476, 0, (1658, 0, 0, 915), (5, 1.25, 5, 30), auth_index="auth-demo-codex-plus"),
-    event_sample(3, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 16431, 909, 0, (66079, 32768, 0, 535), (0.435, 0.003625, 0.435, 0.87), billing_model="claude/deepseek-v4-pro", auth_index="auth-demo-claude"),
+    event_sample(3, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 16431, 909, 0, (66079, 32768, 0, 535), (3, 0.025, 3, 6), billing_model="claude/deepseek-v4-pro", auth_index="auth-demo-claude", currency="CNY"),
     event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "auto", 19542, 17836, 681, (835, 282752, 0, 802), (8, 0.8, 10, 30), long_context=True, auth_index="auth-demo-codex-plus"),
     event_sample(6, "codex · dev-team@example.com", "codex", "gpt-5.6-luna", "CodexWebsocketsExecutor", "low", "auto", 5074, 3149, 49, (28615, 31488, 0, 124), (0.2, 0.02, 0.25, 1.2), auth_index="auth-demo-codex-plus"),
 ]
@@ -1523,7 +1549,7 @@ def analysis_view(query, scope=""):
     selected = selected_scope(query, scope)
 
     def distribution(field, label_field=None, unknown="未知"):
-        grouped = {}
+        grouped, members = {}, {}
         for entry in rows:
             key = entry.get(field, "") or unknown
             label = entry.get(label_field, "") if label_field else key
@@ -1548,7 +1574,10 @@ def analysis_view(query, scope=""):
             item["cache_write_tokens"] += cost.get("cache_write_tokens", 0)
             item["total_tokens"] += input_tokens + output_tokens
             item["requests"] += 1
-            item["cost_usd"] += cost.get("total_usd", 0)
+            item["cost_usd"] += usd_amount(cost.get("total", 0), cost.get("currency"))
+            members.setdefault(key, []).append(entry)
+        for key, item in grouped.items():
+            item["charged_in"] = charged_in(members[key])
         token_total = sum(item["total_tokens"] for item in grouped.values())
         request_total = sum(item["requests"] for item in grouped.values())
         for item in grouped.values():
@@ -1567,15 +1596,19 @@ def analysis_view(query, scope=""):
     cache_read_tokens = sum(entry.get("cost", {}).get("cache_read_tokens", 0) for entry in rows)
     cache_write_tokens = sum(entry.get("cost", {}).get("cache_write_tokens", 0) for entry in rows)
     output_tokens = sum(entry.get("cost", {}).get("billed_output_tokens", 0) for entry in rows)
+    def usd_sum(field):
+        return sum(usd_amount(entry.get("cost", {}).get(field, 0), entry.get("cost", {}).get("currency")) for entry in rows)
+
     cost = {
-        "input_usd": sum(entry.get("cost", {}).get("uncached_input_usd", 0) for entry in rows),
-        "cache_read_usd": sum(entry.get("cost", {}).get("cache_read_usd", 0) for entry in rows),
-        "cache_write_usd": sum(entry.get("cost", {}).get("cache_write_usd", 0) for entry in rows),
-        "output_usd": sum(entry.get("cost", {}).get("output_usd", 0) for entry in rows),
+        "input_usd": usd_sum("uncached_input"),
+        "cache_read_usd": usd_sum("cache_read"),
+        "cache_write_usd": usd_sum("cache_write"),
+        "output_usd": usd_sum("output"),
     }
     cost["total_usd"] = sum(cost[field] for field in (
         "input_usd", "cache_read_usd", "cache_write_usd", "output_usd"
     ))
+    cost["charged_in"] = charged_in(rows)
 
     starts = trend_starts(query)
     buckets = [{"time": start, "requests": 0,
@@ -1593,7 +1626,7 @@ def analysis_view(query, scope=""):
         item["output_tokens"] += entry_cost.get("billed_output_tokens", 0)
         item["cache_read_tokens"] += entry_cost.get("cache_read_tokens", 0)
         item["cache_write_tokens"] += entry_cost.get("cache_write_tokens", 0)
-        item["total_cost"] += entry_cost.get("total_usd", 0)
+        item["total_cost"] += usd_amount(entry_cost.get("total", 0), entry_cost.get("currency"))
 
     def trend(value):
         return [{"time": iso(item["time"]), "value": value(item)} for item in buckets]
@@ -1676,11 +1709,11 @@ for price in PRICES:
     price["in_models"] = True
 PRICES.extend([
     {
-        "model_id": "demo-reference", "source": "reference",
+        "model_id": "demo-reference", "source": "reference", "currency": "USD",
         "input_per_1m": 1.5, "output_per_1m": 3, "in_models": True,
     },
     {
-        "model_id": "demo-free", "source": "custom",
+        "model_id": "demo-free", "source": "custom", "currency": "USD",
         "input_per_1m": 0, "output_per_1m": 0, "in_models": True,
     },
     {
@@ -1688,7 +1721,7 @@ PRICES.extend([
         "input_per_1m": 0, "output_per_1m": 0, "in_models": True,
     },
     {
-        "model_id": "demo-retired-custom", "source": "custom",
+        "model_id": "demo-retired-custom", "source": "custom", "currency": "CNY",
         "input_per_1m": 1, "output_per_1m": 2, "in_models": False,
     },
 ])
@@ -1747,6 +1780,8 @@ def payload_for(path, query):
         return {"routes": route_rows()}
     if path == f"{API_BASE}/credentials":
         return {"credentials": CREDENTIALS}
+    if path == f"{API_BASE}/currency":
+        return {"cny_per_usd": CNY_PER_USD}
     if path == f"{API_BASE}/prices/reference/status":
         return price_status()
     if path == f"{API_BASE}/prices":
@@ -1900,6 +1935,7 @@ class Handler(BaseHTTPRequestHandler):
             f"{RESOURCE_BASE}/profile",
             f"{RESOURCE_BASE}/subscription",
             f"{RESOURCE_BASE}/routing",
+            f"{RESOURCE_BASE}/currency",
             f"{RESOURCE_BASE}/prices",
             f"{RESOURCE_BASE}/events",
             f"{RESOURCE_BASE}/errors",
@@ -1927,6 +1963,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, {"subscription": {"name": key["plan_name"], "unlimited": key["unlimited"], "blocked": key["blocked"], "windows": key["windows"], "retry_at": key.get("retry_at")}, "concurrency": {"limit": key["concurrency_limit"], "current": key["current_concurrency"]}})
             elif parsed.path.endswith("/routing"):
                 self.send_json(200, account_routing_view(index))
+            elif parsed.path.endswith("/currency"):
+                self.send_json(200, {"cny_per_usd": CNY_PER_USD})
             elif parsed.path.endswith("/prices"):
                 self.send_json(200, model_prices(query, include_custom=False))
             elif parsed.path.endswith("/analysis"):
@@ -2220,7 +2258,7 @@ class Handler(BaseHTTPRequestHandler):
             if stored is None:
                 self.send_json(404, {"error": {"message": "dummy backend: plan not found"}})
                 return
-            stored.update({key: body[key] for key in ("name", "windows") if key in body})
+            stored.update({key: body[key] for key in ("name", "currency", "windows") if key in body})
             for index, window in enumerate(stored["windows"]):
                 window.setdefault("id", str(time.time_ns()) + "-" + str(index))
             stored["windows"].sort(key=lambda window: window["period_seconds"])

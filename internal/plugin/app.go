@@ -173,6 +173,12 @@ func (a *App) registration() Registration {
 					Description: "Admit requests for models without a price and record their usage at zero cost",
 				},
 				{
+					Name:        "cny_per_usd",
+					Default:     defaults.CNYPerUSD,
+					Type:        "number",
+					Description: "Exchange rate in CNY per USD, used to convert amounts between currencies",
+				},
+				{
 					Name:        "mask_api_key_view_emails",
 					Default:     defaults.MaskAPIKeyViewEmails,
 					Type:        "boolean",

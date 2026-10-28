@@ -3,34 +3,22 @@ package billing
 import "strings"
 
 // Builtin prices are shipped with the plugin and are intentionally not persisted.
-var builtinPrices = map[string]CustomPrice{
-	NormalizeModelID("codex-auto-review"): {
-		ModelID:    "codex-auto-review",
-		PriceRates: PriceRates{InputPer1M: 0, OutputPer1M: 0},
-	},
+var builtinPrices = map[string]PriceRates{
+	NormalizeModelID("codex-auto-review"): {InputPer1M: 0, OutputPer1M: 0},
 	NormalizeModelID("gpt-image-1.5"): {
-		ModelID: "gpt-image-1.5",
-		PriceRates: PriceRates{
-			InputPer1M:     5,
-			OutputPer1M:    32,
-			CacheReadPer1M: float64Ptr(1.25),
-		},
+		InputPer1M:     5,
+		OutputPer1M:    32,
+		CacheReadPer1M: float64Ptr(1.25),
 	},
 	NormalizeModelID("gpt-image-2.5"): {
-		ModelID: "gpt-image-2.5",
-		PriceRates: PriceRates{
-			InputPer1M:     5,
-			OutputPer1M:    30,
-			CacheReadPer1M: float64Ptr(1.25),
-		},
+		InputPer1M:     5,
+		OutputPer1M:    30,
+		CacheReadPer1M: float64Ptr(1.25),
 	},
 	NormalizeModelID("deepseek-flash"): {
-		ModelID: "deepseek-flash",
-		PriceRates: PriceRates{
-			InputPer1M:     0.15,
-			OutputPer1M:    0.6,
-			CacheReadPer1M: float64Ptr(0.003),
-		},
+		InputPer1M:     0.15,
+		OutputPer1M:    0.6,
+		CacheReadPer1M: float64Ptr(0.003),
 	},
 }
 
@@ -43,13 +31,13 @@ func resolveBuiltinRates(modelID string) (PriceRates, bool) {
 	if slash := strings.LastIndexByte(key, '/'); slash >= 0 {
 		key = key[slash+1:]
 	}
-	price, found := builtinPrices[key]
-	return price.PriceRates, found
+	rates, found := builtinPrices[key]
+	return rates, found
 }
 
 func ResolveBuiltinPrice(modelID string) Price {
 	if rates, found := resolveBuiltinRates(modelID); found {
-		return rates.resolve(PriceSourceBuiltin)
+		return rates.resolve(PriceSourceBuiltin, USD)
 	}
 	return Price{Source: PriceSourceNone}
 }

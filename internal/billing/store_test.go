@@ -11,7 +11,7 @@ import (
 
 func TestConfigureLoadsTheDocumentBehindTheNewPath(t *testing.T) {
 	first := &memoryRepository{state: NewState()}
-	first.state.Plans = []Plan{{ID: "monthly-20", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 20, PeriodSeconds: 2592000}}}}
+	first.state.Plans = []Plan{{ID: "monthly-20", Currency: USD, Windows: []QuotaWindow{{ID: "default", Name: "额度", Amount: 20, PeriodSeconds: 2592000}}}}
 	second := &memoryRepository{state: NewState()}
 
 	opened := 0
@@ -121,9 +121,9 @@ func TestRecoveredWriteIncludesPendingRequestEvents(t *testing.T) {
 	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	store, repo := newAccountStoreWithRepository(t, now)
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", Windows: []QuotaWindow{
-			{ID: "short", Name: "短时", AmountUSD: 5, PeriodSeconds: 3600},
-			{ID: "long", Name: "预算", AmountUSD: 10, PeriodSeconds: 86400},
+		state.Plans = []Plan{{ID: "p", Currency: USD, Windows: []QuotaWindow{
+			{ID: "short", Name: "短时", Amount: 5, PeriodSeconds: 3600},
+			{ID: "long", Name: "预算", Amount: 10, PeriodSeconds: 86400},
 		}}}
 		state.Keys["scope-a"] = &KeyState{PlanID: "p"}
 	})
@@ -149,7 +149,7 @@ func TestRecoveredWriteIncludesPendingRequestEvents(t *testing.T) {
 		t.Fatalf("recovered request events = %d, want 2", len(repo.requestEvents))
 	}
 	for _, cycle := range repo.state.Keys["scope-a"].Cycles {
-		assertClose(t, "persisted cycle cost", cycle.SpentUSD, 2*wantSubsetCost)
+		assertClose(t, "persisted cycle cost", cycle.Spending.USD, 2*wantSubsetCost)
 	}
 }
 
@@ -196,10 +196,10 @@ func TestConfigurationWriteFailureKeepsState(t *testing.T) {
 			now := time.Now().UTC().Truncate(time.Second)
 			store.now = func() time.Time { return now }
 			store.ReplaceAll(func(state *State) {
-				window := QuotaWindow{ID: "default", Name: "额度", AmountUSD: 10, PeriodSeconds: 3600, CycleAnchorAt: now.Add(time.Hour)}
-				state.Plans = []Plan{{ID: "p", Windows: []QuotaWindow{window}}}
+				window := QuotaWindow{ID: "default", Name: "额度", Amount: 10, PeriodSeconds: 3600, CycleAnchorAt: now.Add(time.Hour)}
+				state.Plans = []Plan{{ID: "p", Currency: USD, Windows: []QuotaWindow{window}}}
 				cycle := window.newCycle("p", now)
-				cycle.SpentUSD = 5
+				cycle.Spending.USD = 5
 				state.Routes = []Route{{ID: "r", Name: "r", Rule: RouteRule{DeniedModels: []string{"gpt"}, DeniedCredentialIDs: []string{CredentialFingerprint("dummy")}}}, {ID: "keep", Name: "keep"}}
 				state.Keys["key"] = &KeyState{Preview: "unknown", InConfig: true, PlanID: "p",
 					Cycles:        map[string]QuotaCycle{"default": cycle},

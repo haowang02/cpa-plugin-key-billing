@@ -14,7 +14,7 @@ func TestUsageByModelAppliesEveryFilter(t *testing.T) {
 	event := func(minute int, scope, authIndex, provider, model string, tokens int64) billing.RequestEvent {
 		entry := requestEvent(scope, eventStart.Add(time.Duration(minute)*time.Minute))
 		entry.AuthIndex, entry.Provider, entry.UpstreamModel, entry.BillingModel = authIndex, provider, model, ""
-		entry.Cost = billing.Cost{UncachedInputTokens: tokens, BilledOutputTokens: tokens, TotalUSD: float64(tokens) / 100}
+		entry.Cost = billing.Cost{UncachedInputTokens: tokens, BilledOutputTokens: tokens, Total: float64(tokens) / 100}
 		return entry
 	}
 	mustSave(t, d, billing.NewState(), billing.Changes{NormalRequestEvents: []billing.RequestEvent{
@@ -38,7 +38,7 @@ func TestUsageByModelAppliesEveryFilter(t *testing.T) {
 		{"source", "", billing.UsageQuery{Sources: []string{"claude · ops@example.com"}}, "×1 claude-opus×1"},
 	} {
 		test.query.From, test.query.To = eventStart, eventStart.Add(time.Hour)
-		usage, err := d.UsageByModel(test.scope, test.query)
+		usage, err := d.UsageByModel(test.scope, test.query, 7)
 		if err != nil {
 			t.Fatal(err)
 		}

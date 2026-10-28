@@ -25,7 +25,7 @@ func TestRecordUsagePersistsComputedRequestEvent(t *testing.T) {
 		entry.Cost.CacheWriteTokens != 100 || entry.Cost.BilledOutputTokens != 500 {
 		t.Fatalf("Cost = %+v", entry.Cost)
 	}
-	assertClose(t, "TotalUSD", entry.Cost.TotalUSD, wantSubsetCost)
+	assertClose(t, "Total", entry.Cost.Total, wantSubsetCost)
 }
 
 func TestRequestEventsKeepTheRetentionWindow(t *testing.T) {

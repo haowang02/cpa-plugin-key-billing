@@ -50,10 +50,69 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 21 {
 		steps = append(steps, migrateConfiguredProviders)
 	}
-	steps = append(steps, migrateCredentialNotes)
+	if version <= 22 {
+		steps = append(steps, migrateCredentialNotes)
+	}
+	steps = append(steps, migrateCurrencies)
 	for _, step := range steps {
 		if err := step(tx); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// Schema 24 denominates prices, plans and request costs in a currency. Every
+// earlier amount was in USD.
+func migrateCurrencies(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+		ALTER TABLE prices ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';
+		ALTER TABLE plans ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';
+		ALTER TABLE request_events ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';
+		ALTER TABLE request_events RENAME COLUMN total_usd TO total_cost;
+		ALTER TABLE request_events RENAME COLUMN uncached_input_usd TO uncached_input_cost;
+		ALTER TABLE request_events RENAME COLUMN cache_read_usd TO cache_read_cost;
+		ALTER TABLE request_events RENAME COLUMN cache_write_usd TO cache_write_cost;
+		ALTER TABLE request_events RENAME COLUMN output_usd TO output_cost;`); err != nil {
+		return fmt.Errorf("Add currencies: %w", err)
+	}
+	rows, err := tx.Query("SELECT id, windows_json FROM plans")
+	if err != nil {
+		return fmt.Errorf("Read subscription plans: %w", err)
+	}
+	windows := make(map[string]string)
+	for rows.Next() {
+		var id, raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			rows.Close()
+			return fmt.Errorf("Read subscription plans: %w", err)
+		}
+		var fields []map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+			rows.Close()
+			return fmt.Errorf("Read subscription plan %s: %w", id, err)
+		}
+		// Windows converted from schema 12 in this run already name their amount.
+		changed := false
+		for _, window := range fields {
+			if amount, ok := window["amount_usd"]; ok {
+				window["amount"], changed = amount, true
+				delete(window, "amount_usd")
+			}
+		}
+		if changed {
+			converted, _ := json.Marshal(fields)
+			windows[id] = string(converted)
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return fmt.Errorf("Read subscription plans: %w", err)
+	}
+	for id, raw := range windows {
+		if _, err := tx.Exec("UPDATE plans SET windows_json=? WHERE id=?", raw, id); err != nil {
+			return fmt.Errorf("Migrate subscription plan %s: %w", id, err)
 		}
 	}
 	return nil
@@ -524,9 +583,9 @@ func migrateQuotaWindows(tx *sql.Tx) error {
 	plans := make(map[string]billing.Plan)
 	convertedPeriods := make(map[string]bool)
 	for rows.Next() {
-		var plan billing.Plan
+		plan := billing.Plan{Currency: billing.USD}
 		window := billing.QuotaWindow{ID: "default", Name: "默认额度"}
-		if err := rows.Scan(&plan.ID, &plan.Name, &window.AmountUSD, &window.PeriodSeconds); err != nil {
+		if err := rows.Scan(&plan.ID, &plan.Name, &window.Amount, &window.PeriodSeconds); err != nil {
 			rows.Close()
 			return err
 		}
@@ -558,7 +617,7 @@ func migrateQuotaWindows(tx *sql.Tx) error {
 		var key billing.KeyState
 		var cycle billing.QuotaCycle
 		var start, end int64
-		if err := rows.Scan(&scope, &key.PlanID, &cycle.PlanID, &start, &end, &cycle.SpentUSD); err != nil {
+		if err := rows.Scan(&scope, &key.PlanID, &cycle.PlanID, &start, &end, &cycle.Spending.USD); err != nil {
 			rows.Close()
 			return err
 		}

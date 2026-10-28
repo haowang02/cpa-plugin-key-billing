@@ -12,14 +12,16 @@ const resources = {
     credentials: m("ui.credential_catalog"),
     models: m("ui.model_catalog"),
     catalog: m("ui.model_prices"),
-    priceStatus: m("ui.reference_price_status")
+    priceStatus: m("ui.reference_price_status"),
+    currency: m("ui.exchange_rate")
   }),
   account: dataEntries({
     profile: m("ui.account_profile"),
     subscription: m("ui.subscription"),
     routing: m("ui.access_permissions"),
     models: m("ui.model_catalog"),
-    catalog: m("ui.model_prices")
+    catalog: m("ui.model_prices"),
+    currency: m("ui.exchange_rate")
   })
 };
 // Key metadata is shared by configuration, event queries, and analysis.
@@ -62,7 +64,8 @@ const keyDirectory = {
 const resourceGroups = {
   admin: {
     configuration: { names: ["keys", "plans", "routes", "credentials", "models"], syncErrors: [] },
-    pricing: { names: ["catalog", "priceStatus"], after: "configuration" }
+    pricing: { names: ["catalog", "priceStatus"], after: "configuration" },
+    currency: { names: ["currency"] }
   },
   account: {
     ...Object.fromEntries(Object.keys(resources.account).map((name) => [name, { names: [name] }])),
@@ -243,16 +246,16 @@ function createPagedList(kind, account) {
     renderItems(items, options) {
       const previous = list.rendered;
       const identities = view.keyed && !account ? keyDirectory.value : null;
-      const columns = JSON.stringify(options.headers || null);
-      // Appended pages retain the same entry objects. Rebuild when the
-      // identity metadata or table shape changes, or rows are no longer a prefix.
+      const shape = JSON.stringify([options.headers || null, moneyDisplayKey()]);
+      // Appended pages retain the same entry objects. Rebuild when the identity
+      // metadata, table shape or displayed currency changes, or rows are no longer a prefix.
       const append =
-        previous?.rows?.isConnected && previous.columns === columns && previous.identities === identities &&
+        previous?.rows?.isConnected && previous.shape === shape && previous.identities === identities &&
         previous.items.length <= items.length &&
         previous.items.every((item, index) => item === items[index]);
       const rows = append ? previous.rows : renderCollection(list.scroller, items, options);
       if (append) rows.append(...items.slice(previous.items.length).map(options.render));
-      list.rendered = { items, columns, rows, identities };
+      list.rendered = { items, shape, rows, identities };
     },
     load(reload = false) {
       const selection = pagedListSelection(kind, account);
@@ -573,7 +576,7 @@ function loadDataGroup(account, name, reload = false) {
       );
     } else if (name === "configuration") { group.syncErrors = await readAdminConfiguration(read); } else if (name === "pricing") {
       await settleLoads([read("catalog", () => fetchCatalog(false)), read("priceStatus", () => plugin("GET", "/prices/reference/status"))]);
-    }
+    } else { await read(name, () => plugin("GET", "/" + name)); }
     if (generation !== sessionGeneration) throw new StaleRequestError();
     if (account && name !== "profile" && !resources.account.profile.value?.tracked) return;
     if (values.keys) values.keys = keyDirectory.receive(values.keys, identityRevision);
@@ -621,6 +624,7 @@ function createPages(role) {
   const result = {
     analysis: {
       timeRange: true,
+      currency: true,
       autoRefresh: true,
       queries: [data.analysis, data.speed],
       load: (reload) => loadAnalysis(account, reload),
@@ -629,6 +633,7 @@ function createPages(role) {
     },
     "request-events": {
       timeRange: true,
+      currency: true,
       autoRefresh: true,
       eventColumns: true,
       exportEvents: true,
@@ -644,6 +649,7 @@ function createPages(role) {
     },
     "ai-providers": {
       timeRange: true,
+      currency: true,
       autoRefresh: true,
       queries: [data.aiProviders],
       load: (reload) => readAIProviders(account, reload),
@@ -651,6 +657,7 @@ function createPages(role) {
     },
     "auth-files": {
       timeRange: true,
+      currency: true,
       autoRefresh: true,
       queries: [data.authFiles],
       load: (reload) => readAuthFiles(account, reload),
@@ -687,7 +694,9 @@ function createPages(role) {
       page.load = page.list.load;
       page.renderStatus = () => { if (page.list.data) page.list.renderStatus(); };
     }
-    page.sources = [...new Set([...page.sections.flatMap((section) => section.sources), ...(page.queries || [])])];
+    // Pages that show amounts load the exchange rate to convert them.
+    const rate = page.currency ? [data.currency] : [];
+    page.sources = [...new Set([...page.sections.flatMap((section) => section.sources), ...(page.queries || []), ...rate])];
     for (const editor of page.editors || []) {
       for (const name of EDITOR_RESOURCES[editor]) if (!page.sources.includes(data[name])) page.sources.push(data[name]);
     }
@@ -711,10 +720,15 @@ function renderPage() {
   if (!page) return;
   const account = currentRole === "account";
   updateRefreshControls();
+  renderDisplayCurrency();
   renderDataNotice();
   if (account && !renderAccountProfile()) return;
   for (const section of page.sections) {
-    const values = [locale(), ...section.sources.flatMap((source) => [source.value, source.value === null ? source.error : ""])];
+    const values = [
+      locale(),
+      moneyDisplayKey(),
+      ...section.sources.flatMap((source) => [source.value, source.value === null ? source.error : ""])
+    ];
     if (section.displayed?.every((value, index) => value === values[index])) continue;
     if (section.render() !== false) section.displayed = values;
   }

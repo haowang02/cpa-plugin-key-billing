@@ -13,15 +13,15 @@ func TestQuotaWindowSchedules(t *testing.T) {
 			store := newAccountStore(t, now)
 			store.ReplaceAll(func(state *State) {
 				windows := []QuotaWindow{
-					{ID: "short", Name: "短时", AmountUSD: wantSubsetCost, PeriodSeconds: 3600},
-					{ID: "long", Name: "预算", AmountUSD: wantSubsetCost, PeriodSeconds: 7200},
+					{ID: "short", Name: "短时", Amount: wantSubsetCost, PeriodSeconds: 3600},
+					{ID: "long", Name: "预算", Amount: wantSubsetCost, PeriodSeconds: 7200},
 				}
 				if unified {
 					for i := range windows {
 						windows[i].CycleAnchorAt = now.Add(time.Duration(windows[i].PeriodSeconds) * time.Second)
 					}
 				}
-				state.Plans = []Plan{{ID: "p", Windows: windows}}
+				state.Plans = []Plan{{ID: "p", Currency: USD, Windows: windows}}
 				state.Keys["s"] = &KeyState{PlanID: "p"}
 				state.Keys["later"] = &KeyState{PlanID: "p"}
 			})
@@ -51,7 +51,7 @@ func TestQuotaWindowSchedules(t *testing.T) {
 				used, _ := w.Dimensions[0].Used.Float64()
 				assertClose(t, "window cost", used, wantSubsetCost)
 			}
-			if rows := mustRequestEvents(t, store, RequestEventQuery{}).Entries; len(rows) != 1 || rows[0].Cost.TotalUSD != wantSubsetCost {
+			if rows := mustRequestEvents(t, store, RequestEventQuery{}).Entries; len(rows) != 1 || rows[0].Cost.Total != wantSubsetCost {
 				t.Fatalf("duplicated history: %+v", rows)
 			}
 			store.now = func() time.Time { return now.Add(time.Hour) }
@@ -87,10 +87,10 @@ func TestQuotaWindowSchedules(t *testing.T) {
 func TestQuotaWindowsWithDifferentDimensions(t *testing.T) {
 	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, now)
-	plan := Plan{ID: "p", Windows: []QuotaWindow{
+	plan := Plan{ID: "p", Currency: USD, Windows: []QuotaWindow{
 		{ID: "requests", Name: "请求", RequestLimit: 1, PeriodSeconds: 3600},
 		{ID: "tokens", Name: "Token", TokenLimit: 3000, PeriodSeconds: 7200},
-		{ID: "amount", Name: "金额", AmountUSD: 4 * wantSubsetCost, PeriodSeconds: 86400},
+		{ID: "amount", Name: "金额", Amount: 4 * wantSubsetCost, PeriodSeconds: 86400},
 	}}
 	if err := plan.Validate(); err != nil {
 		t.Fatal(err)

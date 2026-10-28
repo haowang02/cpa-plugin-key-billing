@@ -22,6 +22,7 @@ const (
 	routeProfile                = "/profile"
 	routeSubscription           = "/subscription"
 	routeRouting                = "/routing"
+	routeCurrency               = "/currency"
 	routePrices                 = "/prices"
 	routeReferencePrices        = "/prices/reference"
 	routeReferencePricesStatus  = "/prices/reference/status"
@@ -68,6 +69,7 @@ var managementEndpoints = []managementEndpoint{
 		return JSONResponse(http.StatusOK, map[string]any{"routes": a.routeRows()})
 	}},
 	{http.MethodGet, routeCredentials, "View routing credential options", (*App).listCredentials},
+	{http.MethodGet, routeCurrency, "View the exchange rate", func(a *App, req ManagementRequest) ManagementResponse { return a.currency(req, viewAccess{}) }},
 	{http.MethodGet, routePrices, "View model pricing", func(a *App, req ManagementRequest) ManagementResponse { return a.listPrices(req, viewAccess{}) }},
 	{http.MethodGet, routeReferencePrices, "Search model reference prices", (*App).searchReferencePrices},
 	{http.MethodGet, routeReferencePricesStatus, "View reference price status", func(a *App, _ ManagementRequest) ManagementResponse { return a.referencePriceStatus() }},
@@ -130,6 +132,7 @@ var resourceEndpoints = []resourceEndpoint{
 	{routeRouting, func(a *App, _ ManagementRequest, access viewAccess) ManagementResponse {
 		return a.accountRouting(access)
 	}},
+	{routeCurrency, (*App).currency},
 	{routePrices, (*App).listPrices},
 	{routeAnalysis, (*App).analysis},
 	{routeAnalysisSpeed, (*App).analysisSpeed},

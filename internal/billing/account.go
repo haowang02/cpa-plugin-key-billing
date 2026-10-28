@@ -53,7 +53,7 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 	if priceErr != nil || price.Source == PriceSourceNone {
 		// Usage has already happened. Keep all reported tokens and failure
 		// details even if its price was deleted or reference prices are unavailable.
-		price = Price{Source: PriceSourceNone}
+		price = Price{Source: PriceSourceNone, Currency: USD}
 	}
 
 	cost := ComputeCost(price, event.Breakdown)
@@ -63,16 +63,7 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 		if s.cfg.CodexFastModeBilling && price.Source != PriceSourceNone && event.Breakdown.Billable() &&
 			strings.EqualFold(provider, "codex") && authType == "oauth" &&
 			strings.EqualFold(strings.TrimSpace(event.ServiceTier), "priority") {
-			cost.Multiplier = CodexFastModeMultiplier
-			cost.UncachedInputUSD *= CodexFastModeMultiplier
-			cost.CacheReadUSD *= CodexFastModeMultiplier
-			cost.CacheWriteUSD *= CodexFastModeMultiplier
-			cost.OutputUSD *= CodexFastModeMultiplier
-			cost.TotalUSD = cost.UncachedInputUSD + cost.CacheReadUSD + cost.CacheWriteUSD + cost.OutputUSD
-			cost.AppliedInputPer1M *= CodexFastModeMultiplier
-			cost.AppliedOutputPer1M *= CodexFastModeMultiplier
-			cost.AppliedCacheReadPer1M *= CodexFastModeMultiplier
-			cost.AppliedCacheWritePer1M *= CodexFastModeMultiplier
+			cost.multiply(CodexFastModeMultiplier)
 		}
 		upstreamModel := strings.TrimSpace(event.UpstreamModel)
 		if upstreamModel == "" {
@@ -110,7 +101,7 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 		}
 		var changedKeys []string
 		if key := state.ensureKey(scope, event.KeyPreview); key != nil {
-			usage := quotaUsage{AmountUSD: cost.TotalUSD}
+			usage := quotaUsage{Spending: spent(cost.Total, cost.Currency)}
 			if !failed {
 				usage.Requests = 1
 			}
@@ -139,7 +130,7 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 	if price.Source == PriceSourceReference {
 		s.AddPluginLog(PluginLogDebug,
 			"Reference pricing: billing_model=%q, cost=$%.8f, rates per million tokens: input=$%g, output=$%g, cache_read=$%g, cache_write=$%g",
-			billingModel, cost.TotalUSD, cost.AppliedInputPer1M, cost.AppliedOutputPer1M,
+			billingModel, cost.Total, cost.AppliedInputPer1M, cost.AppliedOutputPer1M,
 			cost.AppliedCacheReadPer1M, cost.AppliedCacheWritePer1M)
 	}
 }

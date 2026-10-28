@@ -10,10 +10,12 @@ import (
 	"time"
 )
 
+// Window amounts are in Currency.
 type Plan struct {
-	ID      string        `json:"id"`
-	Name    string        `json:"name"`
-	Windows []QuotaWindow `json:"windows"`
+	ID       string        `json:"id"`
+	Name     string        `json:"name"`
+	Currency Currency      `json:"currency"`
+	Windows  []QuotaWindow `json:"windows"`
 }
 
 // Zero disables a quota dimension. An absent anchor starts cycles on admission.
@@ -21,7 +23,7 @@ type QuotaWindow struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
 	PeriodSeconds int64     `json:"period_seconds"`
-	AmountUSD     float64   `json:"amount_usd"`
+	Amount        float64   `json:"amount"`
 	TokenLimit    int64     `json:"token_limit"`
 	RequestLimit  int64     `json:"request_limit"`
 	CycleAnchorAt time.Time `json:"cycle_anchor_at,omitzero"`
@@ -35,6 +37,9 @@ const maxQuotaCount = int64(1<<53 - 1)
 func (p Plan) Validate() error {
 	if strings.TrimSpace(p.ID) == "" {
 		return invalidf("Subscription plan ID is required")
+	}
+	if !p.Currency.valid() {
+		return invalidf("Subscription plan currency must be USD or CNY")
 	}
 	if len(p.Windows) == 0 {
 		return invalidf("A subscription plan requires at least one quota window")
@@ -53,13 +58,13 @@ func (p Plan) Validate() error {
 		if names[strings.ToLower(name)] {
 			return invalidf("Duplicate window name %q", name)
 		}
-		if window.AmountUSD < 0 || math.IsNaN(window.AmountUSD) || math.IsInf(window.AmountUSD, 0) {
+		if invalidAmount(window.Amount) {
 			return invalidf("Window %q: amount quota must be a finite non-negative number", name)
 		}
 		if window.TokenLimit < 0 || window.TokenLimit > maxQuotaCount || window.RequestLimit < 0 || window.RequestLimit > maxQuotaCount {
 			return invalidf("Window %q: token and request limits must be integers from 0 to %d", name, maxQuotaCount)
 		}
-		if window.AmountUSD == 0 && window.TokenLimit == 0 && window.RequestLimit == 0 {
+		if window.Amount == 0 && window.TokenLimit == 0 && window.RequestLimit == 0 {
 			return invalidf("Window %q: set at least one quota", name)
 		}
 		if window.PeriodSeconds <= 0 || window.PeriodSeconds > maxPeriodSeconds {
@@ -143,10 +148,13 @@ func (s *Store) Plans() []Plan {
 }
 
 // CreatePlanWithBindings creates a plan and binds the selected currently
-// unbound keys in the same state transaction.
+// unbound keys in the same state transaction. A plan without a currency is in USD.
 func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error) {
 	plan.ID = strings.TrimSpace(plan.ID)
 	plan.Name = strings.TrimSpace(plan.Name)
+	if plan.Currency == "" {
+		plan.Currency = USD
+	}
 	scopes = normalizeScopes(scopes)
 	return editConfiguration(s, func(state *State) (Plan, Changes, error) {
 		if plan.ID == "" {
@@ -187,10 +195,12 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 	})
 }
 
+// Changing the currency keeps the usage of current cycles, which convert into it.
 type PlanPatch struct {
-	ID      string         `json:"id"`
-	Name    *string        `json:"name,omitempty"`
-	Windows *[]QuotaWindow `json:"windows,omitempty"`
+	ID       string         `json:"id"`
+	Name     *string        `json:"name,omitempty"`
+	Currency *Currency      `json:"currency,omitempty"`
+	Windows  *[]QuotaWindow `json:"windows,omitempty"`
 }
 
 // UpdatePlanWithBindings applies a plan edit and, when scopes is non-nil,
@@ -210,6 +220,9 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 			updated := state.Plans[i]
 			if patch.Name != nil {
 				updated.Name = strings.TrimSpace(*patch.Name)
+			}
+			if patch.Currency != nil {
+				updated.Currency = *patch.Currency
 			}
 			if patch.Windows != nil {
 				windows, err := prepareWindows(*patch.Windows, updated.Windows, s.Now())

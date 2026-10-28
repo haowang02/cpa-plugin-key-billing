@@ -36,14 +36,15 @@ func (s *Store) KeyViews() []KeyView {
 			if key.DeletedAt.IsZero() && settleExpiredCycles(key, now) {
 				settled = append(settled, scope)
 			}
-			views = append(views, keyView(state, scope, key, s.activeByScope[scope], now))
+			views = append(views, s.keyView(state, scope, key, now))
 		}
 		sortKeyViews(views, s.configOrder)
 		return views, Changes{Keys: settled}
 	})
 }
 
-func keyView(state *State, scope string, key *KeyState, currentConcurrency int, now time.Time) KeyView {
+// keyView needs the store lock for its concurrency and exchange rate.
+func (s *Store) keyView(state *State, scope string, key *KeyState, now time.Time) KeyView {
 	plan, _ := state.FindPlan(key.PlanID)
 	routeNames := make(map[string]string, len(key.RouteBindings.RouteIDs))
 	for _, id := range key.RouteBindings.RouteIDs {
@@ -58,9 +59,9 @@ func keyView(state *State, scope string, key *KeyState, currentConcurrency int, 
 		DeletedAt:          key.DeletedAt,
 		PlanID:             key.PlanID,
 		PlanName:           plan.Name,
-		QuotaView:          quotaView(key, plan, now),
+		QuotaView:          quotaView(key, plan, s.cfg.CNYPerUSD, now),
 		ConcurrencyLimit:   key.ConcurrencyLimit,
-		CurrentConcurrency: currentConcurrency,
+		CurrentConcurrency: s.activeByScope[scope],
 		RouteBindings:      key.RouteBindings.clone(),
 		RouteNames:         routeNames,
 	}
@@ -85,7 +86,7 @@ func (s *Store) KeyViewForScope(scope string) (KeyView, bool) {
 		if settleExpiredCycles(key, now) {
 			changed.Keys = []string{scope}
 		}
-		return result{view: keyView(state, scope, key, s.activeByScope[scope], now), ok: true}, changed
+		return result{view: s.keyView(state, scope, key, now), ok: true}, changed
 	})
 	return current.view, current.ok
 }

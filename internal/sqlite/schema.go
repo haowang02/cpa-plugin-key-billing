@@ -14,7 +14,7 @@ var indexes = map[string][]index{
 		{"scope_at", "scope, at, id, failed"},
 		// Covers credential usage, so its sums never read the wide rows.
 		{"auth_usage", "auth_index, at, provider, billing_model, upstream_model, failed, " +
-			"uncached_input_tokens, cache_read_tokens, cache_write_tokens, billed_output_tokens, total_usd"},
+			"uncached_input_tokens, cache_read_tokens, cache_write_tokens, billed_output_tokens, currency, total_cost"},
 		{"model_at", eventModelSQL + ", at"},
 	},
 	"quota_reports": {
@@ -64,7 +64,8 @@ CREATE TABLE quota_report_windows (
 ) WITHOUT ROWID;
 `
 
-// Time columns use Unix nanoseconds; JSON cycles use UTC RFC3339Nano.
+// Time columns use Unix nanoseconds; JSON cycles use UTC RFC3339Nano. Amounts
+// are in the currency of their row.
 const schema = `
 CREATE TABLE api_keys (
 	scope                 TEXT    PRIMARY KEY,
@@ -105,7 +106,8 @@ CREATE TABLE plans (
 	position        INTEGER PRIMARY KEY,
 	id              TEXT    NOT NULL UNIQUE,
 	name            TEXT    NOT NULL DEFAULT '',
-	windows_json    TEXT    NOT NULL
+	windows_json    TEXT    NOT NULL,
+	currency        TEXT    NOT NULL DEFAULT 'USD'
 );
 
 CREATE TABLE prices (
@@ -119,7 +121,8 @@ CREATE TABLE prices (
 	long_context_input_per_1m       REAL,
 	long_context_output_per_1m      REAL,
 	long_context_cache_read_per_1m  REAL,
-	long_context_cache_write_per_1m REAL
+	long_context_cache_write_per_1m REAL,
+	currency                        TEXT    NOT NULL DEFAULT 'USD'
 );
 
 CREATE TABLE reference_prices_metadata (
@@ -164,11 +167,11 @@ CREATE TABLE request_events (
 	accounting_quality          TEXT    NOT NULL DEFAULT '',
 	price_source                TEXT    NOT NULL DEFAULT '',
 	reasoning_tokens            INTEGER NOT NULL DEFAULT 0,
-	total_usd                   REAL    NOT NULL DEFAULT 0,
-	uncached_input_usd          REAL    NOT NULL DEFAULT 0,
-	cache_read_usd              REAL    NOT NULL DEFAULT 0,
-	cache_write_usd             REAL    NOT NULL DEFAULT 0,
-	output_usd                  REAL    NOT NULL DEFAULT 0,
+	total_cost                  REAL    NOT NULL DEFAULT 0,
+	uncached_input_cost         REAL    NOT NULL DEFAULT 0,
+	cache_read_cost             REAL    NOT NULL DEFAULT 0,
+	cache_write_cost            REAL    NOT NULL DEFAULT 0,
+	output_cost                 REAL    NOT NULL DEFAULT 0,
 	uncached_input_tokens       INTEGER NOT NULL DEFAULT 0,
 	cache_read_tokens           INTEGER NOT NULL DEFAULT 0,
 	cache_write_tokens          INTEGER NOT NULL DEFAULT 0,
@@ -185,7 +188,8 @@ CREATE TABLE request_events (
 	stream                      INTEGER,
 	execution_json              TEXT    NOT NULL DEFAULT 'null',
 	user_agent                  TEXT    NOT NULL DEFAULT '',
-	x_forwarded_for             TEXT    NOT NULL DEFAULT ''
+	x_forwarded_for             TEXT    NOT NULL DEFAULT '',
+	currency                    TEXT    NOT NULL DEFAULT 'USD'
 );
 
 CREATE TABLE request_errors (

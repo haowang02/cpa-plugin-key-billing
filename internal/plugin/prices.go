@@ -36,6 +36,11 @@ func (a *App) downloadReferencePrices(ctx context.Context) ([]byte, error) {
 	return response.Body, nil
 }
 
+// The browser converts the amounts it shows between currencies with this rate.
+func (a *App) currency(_ ManagementRequest, access viewAccess) ManagementResponse {
+	return viewJSON(access, http.StatusOK, map[string]billing.ExchangeRate{"cny_per_usd": a.store.Config().CNYPerUSD})
+}
+
 func (a *App) listPrices(req ManagementRequest, access viewAccess) ManagementResponse {
 	models := req.Query["model"]
 	includeCustom := !access.APIKey

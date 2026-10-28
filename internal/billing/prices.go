@@ -11,12 +11,14 @@ import (
 )
 
 type CustomPrice struct {
-	ModelID string `json:"model_id"`
+	ModelID  string   `json:"model_id"`
+	Currency Currency `json:"currency"`
 	PriceRates
 }
 
 type PriceRow struct {
-	ModelID string `json:"model_id"`
+	ModelID  string   `json:"model_id"`
+	Currency Currency `json:"currency,omitempty"`
 	PriceRates
 	Source             PriceSource `json:"source"`
 	InModels           bool        `json:"in_models"`
@@ -64,11 +66,11 @@ func (s *Store) ModelPriceRows(models []string, includeCustom bool) ([]PriceRow,
 		row := PriceRow{ModelID: name, Source: PriceSourceNone, InModels: available[key]}
 		billingModel := pricingState.ResolveBillingModel(name, name)
 		if price, found := custom[NormalizeModelID(billingModel)]; found {
-			row.PriceRates = price.PriceRates
+			row.Currency, row.PriceRates = price.Currency, price.PriceRates
 			row.Source = PriceSourceCustom
 			row.CustomPriceModelID = price.ModelID
 		} else if rates, found := resolveBuiltinRates(billingModel); found {
-			row.PriceRates = rates
+			row.Currency, row.PriceRates = USD, rates
 			row.Source = PriceSourceBuiltin
 		} else {
 			missing = append(missing, name)
@@ -81,7 +83,7 @@ func (s *Store) ModelPriceRows(models []string, includeCustom bool) ([]PriceRow,
 	}
 	for i := range rows {
 		if price, found := matched[rows[i].ModelID]; found {
-			rows[i].PriceRates = *price.PriceRates
+			rows[i].Currency, rows[i].PriceRates = USD, *price.PriceRates
 			rows[i].Source = PriceSourceReference
 		}
 	}
@@ -96,12 +98,19 @@ func (price CustomPrice) Validate() error {
 	if len(modelID) > 1024 {
 		return invalidf("Model ID is too long")
 	}
+	if !price.Currency.valid() {
+		return invalidf("Model %q: currency must be USD or CNY", modelID)
+	}
 	return price.PriceRates.validate(modelID)
 }
 
-// Custom price changes publish only after the database write succeeds.
+// Custom price changes publish only after the database write succeeds. A
+// price without a currency is in USD.
 func (s *Store) UpsertPrice(price CustomPrice) (CustomPrice, error) {
 	price.ModelID = strings.TrimSpace(price.ModelID)
+	if price.Currency == "" {
+		price.Currency = USD
+	}
 	if err := price.Validate(); err != nil {
 		return CustomPrice{}, err
 	}
@@ -187,7 +196,7 @@ func (s *Store) ResolveModelPrice(upstream, requested string, refresh bool) (Pri
 		return price, model, err
 	}
 	if match.found {
-		price = match.price.resolve(PriceSourceReference)
+		price = match.price.resolve(PriceSourceReference, USD)
 	}
 	return price, model, nil
 }
@@ -196,7 +205,7 @@ func (s *Store) ResolveModelPrice(upstream, requested string, refresh bool) (Pri
 // upstream model must not select a different custom price during usage billing.
 func (s *State) ResolveCustomPrice(billingModel string) Price {
 	if price, ok := s.Prices[NormalizeModelID(billingModel)]; ok {
-		return price.resolve(PriceSourceCustom)
+		return price.PriceRates.resolve(PriceSourceCustom, price.Currency)
 	}
 	return Price{Source: PriceSourceNone}
 }

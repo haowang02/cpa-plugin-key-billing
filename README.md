@@ -14,6 +14,7 @@
 ## 功能特性
 
 - 支持金额、Token、请求三种额度，可按 API Key 独立计时或按订阅计划统一周期重置
+- 模型定价和订阅计划可分别使用美元或人民币计价，统计页面可按任一币种显示
 - 支持按输入 Token 阈值切换长上下文**阶梯计价**
 - 支持按 API Key 设置**最大并发请求数**
 - 支持为每个 API Key 绑定**路由规则**，限制模型访问范围和上游凭证
@@ -85,6 +86,7 @@ plugins:
       debug: false # 是否记录 debug 日志，例如路由日志、匹配参考价日志
       codex_fast_mode_billing: false # 开启后，Codex 的 priority 请求按 2.5 倍计费
       allow_unpriced_models: false # 放行未定价模型的请求，用量按 0 费用记录
+      cny_per_usd: 7 # 汇率：1 美元兑换的人民币数，用于换算不同币种的金额
       mask_api_key_view_emails: false # 对 API Key 查询页面返回的邮箱进行掩码脱敏
       allow_api_key_quota_reset: false # 允许 API Key 用户重置可访问的 Codex 和 Claude 认证文件额度，消耗上游重置次数
       state_file: "plugins/cpa-key-billing-state-v1.db"
@@ -129,6 +131,8 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui#account
 - 每个 API Key 独立记账。独立周期从首次放行开始；统一周期可为各窗口指定下次开始时间，所有绑定 Key 按固定时间重置。
 - 手动重置额度时，统一周期的重置时间保持不变；独立周期在下一次放行时重新开始。
 - 自定义价优先于 models.dev 参考价。没有任何可用价格时拒绝新请求；开启 `allow_unpriced_models` 后放行，用量照常记录，费用为 0，其他额度和路由限制不变。
+- 自定义价和订阅计划各自选择美元或人民币，内置价和参考价为美元。每笔请求按所用价格的币种记账；订阅额度按计划币种扣减，其他币种的消费按 `cny_per_usd` 换算。修改汇率或计划币种不会改写已记录的金额，额度用量按当前汇率重新换算。
+- 分析、请求事件、认证文件和 AI 提供商页面可选择显示币种。默认的“自适应”使每项统计保留其消费的币种，混合多种币种时按美元显示。
 - 请求事件保留最近 365 天。
 
 ## 路由规则

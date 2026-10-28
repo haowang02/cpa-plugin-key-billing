@@ -494,7 +494,7 @@ assert_billing_entry() {
       .source == $source and
       .accounting_quality == "complete" and
       .price_source == "custom" and
-      (.cost.total_usd > 0)
+      .cost.currency == "USD" and .cost.total > 0
     ' "$entry_file" >/dev/null; then
     echo "${client} → ${upstream} 的模型、来源、usage 或定价不正确。" >&2
     return 1
@@ -1050,11 +1050,11 @@ assert_quota_exhausted() {
   management_call POST "$port" "/v0/management/plugins/cpa-key-billing/plans" \
     -H "Content-Type: application/json" \
     --data "$(jq -nc --arg name "$plan_name" --arg scope "$scope" --arg dimension "$dimension" \
-      '{name: $name, windows: [
+      '{name: $name, currency: "CNY", windows: [
         {name: "Short", period_seconds: 3600}, {name: "Budget", period_seconds: 86400}
       ] | map(. + (if $dimension == "requests"
         then {cycle_anchor_at: ((now + .period_seconds / 2 | floor) | todateiso8601)} else {} end) + {
-        amount_usd: (if $dimension == "amount_usd" then 0.0001 else 0 end),
+        amount: (if $dimension == "amount" then 0.0007 else 0 end),
         request_limit: (if $dimension == "requests" then 1 else 0 end),
         token_limit: (if $dimension == "tokens" then 1 else 0 end)
       }), scopes: [$scope]}')" \
@@ -1073,14 +1073,14 @@ assert_quota_exhausted() {
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/keys" >"$runtime_dir/quota-access.json"
   if ! jq -e --arg scope "$scope" --arg dimension "$dimension" \
       --slurpfile events "$runtime_dir/quota-spend-request-events.json" '
-      $events[0].entries[0].cost.total_usd as $cost |
+      $events[0].entries[0].cost.total as $cost |
       first(.keys[] | select(.scope == $scope)) |
       (.windows | length == 2) and .blocked and
       ([.windows[].period_seconds] == [3600, 86400]) and
       all(.windows[]; .started and (.dimensions | length == 1) and
         .dimensions[0].metric == $dimension and .dimensions[0].blocked and
         .dimensions[0].remaining == 0 and
-        (if $dimension == "amount_usd" then ((.dimensions[0].used - $cost) | fabs) < 0.000000000001
+        (if $dimension == "amount" then .dimensions[0].currency == "CNY" and ((.dimensions[0].used - $cost * 7) | fabs) < 0.000000000001
          elif $dimension == "requests" then .dimensions[0].used == 1
          else .dimensions[0].used == ($events[0].entries[0].cost |
            .uncached_input_tokens + .cache_read_tokens + .cache_write_tokens + .billed_output_tokens) end))
@@ -1116,7 +1116,7 @@ assert_quota_exhausted() {
          else .error.type == "rate_limit_error" and .error.code == "rate_limit_exceeded"
          end)
         and (.error.message | startswith("API key subscription quota exhausted"))
-        and (if $dimension == "amount_usd" then (.error.message | contains("$"))
+        and (if $dimension == "amount" then (.error.message | contains("¥"))
              else (.error.message | contains($dimension + " ")) end)
         and (.error.message | contains("on plan \"" + $plan + "\""))
       ' "$response_file" >/dev/null; then
@@ -1240,7 +1240,7 @@ assert_unpriced_model_policy() {
       if ! jq -e --arg model "$model" '
         .entries[0] |
         .billing_model == $model and .price_source == "none" and .failed == false and
-        .cost.total_usd == 0 and .cost.uncached_input_tokens == 80 and .cost.cache_read_tokens == 32 and
+        .cost.total == 0 and .cost.uncached_input_tokens == 80 and .cost.cache_read_tokens == 32 and
         .cost.cache_write_tokens == 16 and .cost.billed_output_tokens == 8
       ' "$events_file" >/dev/null; then
         echo "未定价模型的用量或零费用记账不正确。" >&2
@@ -1298,7 +1298,7 @@ assert_reference_price_billing() {
         .billing_model == $model and .price_source == "reference" and .failed == false and
         .cost.uncached_input_tokens == 80 and .cost.cache_read_tokens == 32 and
         .cost.cache_write_tokens == 16 and .cost.billed_output_tokens == 8 and
-        ((.cost.total_usd - $expected) | fabs) < 0.000000000001
+        ((.cost.total - $expected) | fabs) < 0.000000000001
       ' "$events_file" >/dev/null; then
         echo "参考价准入后的 usage.handle 计费不正确。" >&2
         return 1
@@ -1532,7 +1532,7 @@ run_target() {
         .cache_read_tokens == $cache_read and
         .cache_write_tokens == $cache_write and
         .billed_output_tokens == $output and
-        .total_usd > 0
+        .total > 0
       ' "$request_events_file" >/dev/null; then
       matrix_reasons[$matrix_index]="usage 不符"
       matrix_failed=$((matrix_failed + 1))
@@ -1668,7 +1668,7 @@ run_target() {
   log_step "黑名单：类别排除、单凭证例外、跨规则优先级、全部排除及推理后缀"
   assert_route_blacklist_policy "$port" "$runtime_dir" "$expected_requests"
   expected_requests=$((expected_requests + 2))
-  for dimension in amount_usd requests tokens; do
+  for dimension in amount requests tokens; do
     log_step "订阅额度 ${dimension}：消费、4 种协议拦截与恢复"
     assert_quota_exhausted "$port" "$runtime_dir" "$expected_requests" "$dimension"
     expected_requests=$((expected_requests + 2))

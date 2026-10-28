@@ -269,7 +269,7 @@ function quotaAmount(row) {
 }
 
 function quotaNumber(value, currency) {
-  return currency === "USD" ? usd(value) : Number(value).toLocaleString(locale(), { maximumFractionDigits: 2 });
+  return CURRENCY_SYMBOLS[currency] ? money(value, currency) : Number(value).toLocaleString(locale(), { maximumFractionDigits: 2 });
 }
 
 function quotaLabels(row) {
@@ -294,7 +294,7 @@ function renderQuotaMetrics(usage, scale = 1, tooltip = null) {
     "span",
     { class: "auth-quota-metrics", "data-tip": scale ? null : m("ui.quota_estimate_unavailable"), tooltip },
     metric("square-text", m("ui.tokens"), scale ? tokens(Math.round(usage.tokens * scale)) : "—"),
-    metric("circle-dollar-sign", m("ui.amount"), scale ? usd(usage.cost_usd * scale, 2) : "—")
+    metric("circle-dollar-sign", m("ui.amount"), scale ? usageMoney(usage.cost_usd * scale, usage.charged_in, 2) : "—")
   );
 }
 

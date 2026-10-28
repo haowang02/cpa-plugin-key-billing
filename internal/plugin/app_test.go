@@ -54,6 +54,7 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 	if fields["state_file"].Type != "string" || fields["debug"].Type != "boolean" ||
 		fields["codex_fast_mode_billing"].Type != "boolean" || fields["allow_unpriced_models"].Type != "boolean" ||
 		fields["mask_api_key_view_emails"].Type != "boolean" || fields["allow_api_key_quota_reset"].Type != "boolean" ||
+		fields["cny_per_usd"].Type != "number" || fields["cny_per_usd"].Default != float64(7) ||
 		fields["routing"].Type != "object" || fields["enabled"].Name != "" {
 		t.Fatalf("ConfigFields = %+v", registration.Metadata.ConfigFields)
 	}
@@ -118,7 +119,7 @@ func TestManagementRegistrationExposesOnlyCurrentEndpoints(t *testing.T) {
 	registration := managementRegistration()
 	wantRoutes := map[string]bool{}
 	for _, value := range []string{
-		"GET /keys", "GET /plans", "GET /routes", "GET /credentials", "GET /prices", "GET /prices/reference",
+		"GET /keys", "GET /plans", "GET /routes", "GET /credentials", "GET /currency", "GET /prices", "GET /prices/reference",
 		"POST /prices/reference/refresh", "PUT /prices", "DELETE /prices", "GET /prices/reference/status",
 		"POST /plans", "PATCH /plans", "DELETE /plans",
 		"POST /routes", "PATCH /routes", "DELETE /routes", "PUT /keys/routes",
@@ -150,7 +151,7 @@ func TestManagementRegistrationExposesOnlyCurrentEndpoints(t *testing.T) {
 	}
 
 	wantResources := map[string]bool{
-		"/ui": false, "/profile": false, "/subscription": false, "/routing": false, "/prices": false,
+		"/ui": false, "/profile": false, "/subscription": false, "/routing": false, "/currency": false, "/prices": false,
 		"/analysis": false, "/analysis/speed": false, "/events": false, "/errors": false,
 		"/auth-files": false, "/auth-files/quota": false, "/auth-files/quota/reset": false, "/auth-files/history": false,
 		"/usage/models": false, "/ai-providers": false,

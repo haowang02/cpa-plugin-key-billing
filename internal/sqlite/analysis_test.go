@@ -13,7 +13,7 @@ func TestAnalysisAggregatesOnlyDisplayedUsageDistributions(t *testing.T) {
 	view, err := database.Analysis(billing.RequestEventQuery{
 		From: eventStart.Add(-time.Hour),
 		To:   eventStart.Add(3 * time.Hour),
-	}, eventStart.Add(-billing.RequestEventRetention))
+	}, 7, eventStart.Add(-billing.RequestEventRetention))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestAnalysisDailyTrendUsesBrowserTimeZone(t *testing.T) {
 
 	view, err := database.Analysis(billing.RequestEventQuery{
 		From: from, To: from.Add(72 * time.Hour), Timezone: location,
-	}, from.Add(-billing.RequestEventRetention))
+	}, 7, from.Add(-billing.RequestEventRetention))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestAnalysisScopeSkipsTheRedundantKeyDimension(t *testing.T) {
 		Scope: "scope-a",
 		From:  eventStart.Add(-time.Hour),
 		To:    eventStart.Add(3 * time.Hour),
-	}, eventStart.Add(-billing.RequestEventRetention))
+	}, 7, eventStart.Add(-billing.RequestEventRetention))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,11 +105,12 @@ func TestAnalysisIncludesTokenAndCostBreakdowns(t *testing.T) {
 	state.Keys["scope-a"] = &billing.KeyState{Preview: "sk-tes…0001"}
 	event := requestEvent("scope-a", eventStart)
 	event.Cost = billing.Cost{
-		TotalUSD:            5,
-		UncachedInputUSD:    1,
-		CacheReadUSD:        3,
-		CacheWriteUSD:       0.5,
-		OutputUSD:           0.5,
+		Currency:            billing.USD,
+		Total:               5,
+		UncachedInput:       1,
+		CacheRead:           3,
+		CacheWrite:          0.5,
+		Output:              0.5,
 		UncachedInputTokens: 100,
 		CacheReadTokens:     300,
 		CacheWriteTokens:    50,
@@ -119,7 +120,7 @@ func TestAnalysisIncludesTokenAndCostBreakdowns(t *testing.T) {
 	failed.Cost = billing.Cost{UncachedInputTokens: 400, CacheReadTokens: 100, BilledOutputTokens: 100}
 	zeroInput := requestEvent("scope-b", eventStart)
 	zeroInput.BillingModel, zeroInput.Account = "output-only", "zero@example.com"
-	zeroInput.Cost = billing.Cost{BilledOutputTokens: 40}
+	zeroInput.Cost = billing.Cost{Currency: billing.CNY, Total: 7, Output: 7, BilledOutputTokens: 40}
 	outside := requestEvent("scope-a", eventStart.Add(2*time.Hour))
 	mustSave(t, database, state, billing.Changes{
 		AllKeys: true, NormalRequestEvents: []billing.RequestEvent{event, zeroInput, outside},
@@ -127,7 +128,7 @@ func TestAnalysisIncludesTokenAndCostBreakdowns(t *testing.T) {
 	})
 
 	query := billing.RequestEventQuery{From: eventStart, To: eventStart.Add(2 * time.Hour)}
-	view, err := database.Analysis(query, eventStart)
+	view, err := database.Analysis(query, 7, eventStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,9 +138,10 @@ func TestAnalysisIncludesTokenAndCostBreakdowns(t *testing.T) {
 		math.Abs(summary.CacheRate-800.0/19) > 1e-9 {
 		t.Fatalf("token summary = %+v", summary)
 	}
-	if summary.Cost.TotalUSD != 5 || summary.Cost.InputUSD != 1 ||
+	// CNY costs convert into USD at the rate; a total of both has no currency of its own.
+	if summary.Cost.TotalUSD != 6 || summary.Cost.InputUSD != 1 ||
 		summary.Cost.CacheReadUSD != 3 || summary.Cost.CacheWriteUSD != 0.5 ||
-		summary.Cost.OutputUSD != 0.5 {
+		summary.Cost.OutputUSD != 1.5 || summary.Cost.ChargedIn != "" {
 		t.Fatalf("cost summary = %+v", summary.Cost)
 	}
 	trends := view.Trends
@@ -156,16 +158,17 @@ func TestAnalysisIncludesTokenAndCostBreakdowns(t *testing.T) {
 		}
 		row := rows[0]
 		if row.Requests != 2 || row.TotalTokens != 1100 || row.InputTokens != 950 || row.OutputTokens != 150 ||
-			row.CacheReadTokens != 400 || row.CacheWriteTokens != 50 {
+			row.CacheReadTokens != 400 || row.CacheWriteTokens != 50 || row.ChargedIn != billing.USD {
 			t.Errorf("%s token breakdown = %+v", name, row)
 		}
 		zero := rows[1]
-		if zero.InputTokens != 0 || zero.OutputTokens != 40 || zero.TotalTokens != 40 || zero.CacheReadTokens != 0 || zero.CacheWriteTokens != 0 {
+		if zero.InputTokens != 0 || zero.OutputTokens != 40 || zero.TotalTokens != 40 || zero.CacheReadTokens != 0 || zero.CacheWriteTokens != 0 ||
+			zero.ChargedIn != billing.CNY {
 			t.Errorf("%s output-only breakdown = %+v", name, zero)
 		}
 	}
 	query.Scope = "scope-a"
-	scoped, err := database.Analysis(query, eventStart)
+	scoped, err := database.Analysis(query, 7, eventStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +196,7 @@ func TestAnalysisFullRetentionKeepsZeroUsageAndEmptyScopes(t *testing.T) {
 			{Event: billing.RequestEvent{At: to.Add(-time.Nanosecond), Scope: "orphan"}},
 		},
 	})
-	view, err := d.Analysis(billing.RequestEventQuery{From: from, To: to, Timezone: location}, from)
+	view, err := d.Analysis(billing.RequestEventQuery{From: from, To: to, Timezone: location}, 7, from)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +223,7 @@ func TestAnalysisFallbackLabelsDoNotMergeUserDefinedModels(t *testing.T) {
 		events = append(events, billing.RequestEvent{At: from, BillingModel: model})
 	}
 	mustSave(t, d, billing.NewState(), billing.Changes{NormalRequestEvents: events})
-	view, err := d.Analysis(billing.RequestEventQuery{From: from, To: from.Add(time.Hour)}, from)
+	view, err := d.Analysis(billing.RequestEventQuery{From: from, To: from.Add(time.Hour)}, 7, from)
 	if err != nil {
 		t.Fatal(err)
 	}

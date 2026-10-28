@@ -36,7 +36,9 @@ const PRICE_FIELDS = [
   ["cache_write_per_1m", "ui.cache_write"]
 ];
 
-function priceValue(value) { return value === null || value === undefined ? el("span", { class: "muted", text: "—" }) : usd(value); }
+function priceValue(value, currency) {
+  return value === null || value === undefined ? el("span", { class: "muted", text: "—" }) : money(value, currency);
+}
 
 function longContextPrices(row) {
   const tier = row.long_context;
@@ -64,8 +66,8 @@ function longContextPrices(row) {
             "tr",
             {},
             el("td", { text: m(label) }),
-            el("td", { class: "num" }, priceValue(row[field])),
-            el("td", { class: "num" }, priceValue(tier[field]))
+            el("td", { class: "num" }, priceValue(row[field], row.currency)),
+            el("td", { class: "num" }, priceValue(tier[field], row.currency))
           )
         )
       )
@@ -76,7 +78,10 @@ function longContextPrices(row) {
     { class: "breakdown-value", ...hoverTooltipProps(tooltip) },
     el("span", { class: "long-context-threshold", text: ">" + threshold }),
     " ",
-    PRICE_FIELDS.flatMap(([field], index) => [index > 0 && el("span", { class: "muted", text: DISPLAY_SLASH }), priceValue(tier[field])])
+    PRICE_FIELDS.flatMap(([field], index) => [
+      index > 0 && el("span", { class: "muted", text: DISPLAY_SLASH }),
+      priceValue(tier[field], row.currency)
+    ])
   );
 }
 
@@ -99,7 +104,8 @@ function renderPriceTable() {
           ? el("div", { class: "muted small", text: m("ui.using_the_custom_price_for_value", { v0: row.custom_price_model_id }) })
           : null
       ),
-      PRICE_FIELDS.map(([field]) => el("td", { class: "num" }, priceValue(priced ? row[field] : null))),
+      el("td", {}, priced ? row.currency : priceValue(null)),
+      PRICE_FIELDS.map(([field]) => el("td", { class: "num" }, priceValue(priced ? row[field] : null, row.currency))),
       el("td", {}, row.long_context ? longContextPrices(row) : priceValue(null)),
       el("td", {}, priceSourceTag(row.source)),
       el(
@@ -112,6 +118,7 @@ function renderPriceTable() {
   };
   const headers = [
     m("ui.model"),
+    m("ui.currency"),
     ...PRICE_FIELDS.map(([, label]) => ({ label: m(label), num: true })),
     m("ui.long_context"),
     m("ui.source"),
@@ -155,7 +162,9 @@ function priceNumber(id, emptyValue = 0) {
   return value;
 }
 
+// Reference prices carry no currency; they are in USD.
 function fillPriceFields(row) {
+  $("price-currency").value = row.currency || "USD";
   $("price-in").value = row.input_per_1m ?? 0;
   $("price-out").value = row.output_per_1m ?? 0;
   $("price-cr").value = row.cache_read_per_1m ?? "";
@@ -171,6 +180,7 @@ function fillPriceFields(row) {
 }
 
 function referencePriceText(row) {
+  const usd = (value) => money(value, "USD");
   const prices = [m("ui.input_value", { v0: usd(row.input_per_1m) }), m("ui.output_value", { v0: usd(row.output_per_1m) })];
   if (row.cache_read_per_1m !== null && row.cache_read_per_1m !== undefined) {
     prices.push(m("ui.cache_read_value", { v0: usd(row.cache_read_per_1m) }));
@@ -258,6 +268,7 @@ function editPrice(row) {
   });
 }
 
+$("price-currency").replaceChildren(...currencyOptions());
 $("price-filter").addEventListener("input", renderPriceTable);
 $("price-reference-search").addEventListener("input", () => {
   priceReferenceRequest++;
@@ -290,6 +301,7 @@ $("price-save").onclick = () =>
     if (!model) throw new UIError(m("ui.enter_a_model_id"));
     const price = {
       model_id: model,
+      currency: $("price-currency").value,
       input_per_1m: priceNumber("price-in"),
       output_per_1m: priceNumber("price-out"),
       cache_read_per_1m: priceNumber("price-cr", null),

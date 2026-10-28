@@ -8,12 +8,12 @@ import (
 
 func TestQuotaWindowsValidationAndIdentity(t *testing.T) {
 	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
-	input := []QuotaWindow{{Name: " Long ", AmountUSD: 10, PeriodSeconds: 7200}, {Name: "Short", AmountUSD: 2, PeriodSeconds: 3600}}
+	input := []QuotaWindow{{Name: " Long ", Amount: 10, PeriodSeconds: 7200}, {Name: "Short", Amount: 2, PeriodSeconds: 3600}}
 	windows, err := prepareWindows(input, nil, now)
 	if err != nil || windows[0].Name != "Short" || windows[1].Name != "Long" || windows[0].ID == windows[1].ID {
 		t.Fatalf("windows = %+v, %v", windows, err)
 	}
-	valid := Plan{ID: "p", Windows: windows}
+	valid := Plan{ID: "p", Currency: USD, Windows: windows}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -37,10 +37,10 @@ func TestQuotaWindowsValidationAndIdentity(t *testing.T) {
 		func(p *Plan) { p.Windows[0].PeriodSeconds = 0 },
 		func(p *Plan) { p.Windows[0].PeriodSeconds = -1 },
 		func(p *Plan) { p.Windows[0].PeriodSeconds = maxPeriodSeconds + 1 },
-		func(p *Plan) { p.Windows[0].AmountUSD = math.NaN() },
-		func(p *Plan) { p.Windows[0].AmountUSD = math.Inf(1) },
-		func(p *Plan) { p.Windows[0].AmountUSD = 0 },
-		func(p *Plan) { p.Windows[0].AmountUSD = -1 },
+		func(p *Plan) { p.Windows[0].Amount = math.NaN() },
+		func(p *Plan) { p.Windows[0].Amount = math.Inf(1) },
+		func(p *Plan) { p.Windows[0].Amount = 0 },
+		func(p *Plan) { p.Windows[0].Amount = -1 },
 		func(p *Plan) { p.Windows[0].RequestLimit = -1 },
 		func(p *Plan) { p.Windows[0].RequestLimit = maxQuotaCount + 1 },
 		func(p *Plan) { p.Windows[0].TokenLimit = -1 },
@@ -56,7 +56,7 @@ func TestQuotaWindowsValidationAndIdentity(t *testing.T) {
 		}
 	}
 	for _, anchor := range []time.Time{now.Add(-time.Second), now, now.Add(time.Hour + time.Second)} {
-		input := []QuotaWindow{{Name: "Short", AmountUSD: 1, PeriodSeconds: 3600, CycleAnchorAt: anchor}}
+		input := []QuotaWindow{{Name: "Short", Amount: 1, PeriodSeconds: 3600, CycleAnchorAt: anchor}}
 		if _, err := prepareWindows(input, nil, now); err == nil {
 			t.Fatalf("invalid next start accepted: %v", anchor)
 		}
@@ -88,10 +88,10 @@ func TestQuotaWindowsValidationAndIdentity(t *testing.T) {
 }
 
 func TestPlanAcceptsIndependentQuotaDimensions(t *testing.T) {
-	plan := Plan{ID: "p", Windows: []QuotaWindow{
+	plan := Plan{ID: "p", Currency: USD, Windows: []QuotaWindow{
 		{ID: "requests", Name: "请求", PeriodSeconds: 3600, RequestLimit: maxQuotaCount},
 		{ID: "tokens", Name: "Token", PeriodSeconds: 86400, TokenLimit: maxQuotaCount},
-		{ID: "mixed", Name: "综合", PeriodSeconds: 604800, AmountUSD: 100, TokenLimit: 10000, RequestLimit: 100},
+		{ID: "mixed", Name: "综合", PeriodSeconds: 604800, Amount: 100, TokenLimit: 10000, RequestLimit: 100},
 	}}
 	if err := plan.Validate(); err != nil {
 		t.Fatal(err)

@@ -149,7 +149,7 @@ func TestUsageAfterPriceDeletionKeepsTokensAndZeroCost(t *testing.T) {
 			}
 			event := events[0]
 			if event.Failed != failed || event.PriceSource != billing.PriceSourceNone ||
-				event.Cost.TotalUSD != 0 || event.Cost.UncachedInputTokens != 100 ||
+				event.Cost.Total != 0 || event.Cost.UncachedInputTokens != 100 ||
 				event.Cost.BilledOutputTokens != 25 {
 				t.Fatalf("unpriced usage was not retained at zero cost: %+v", event)
 			}
@@ -203,7 +203,7 @@ func TestReferencePriceAdmissionAndUsageWithoutCustomPrices(t *testing.T) {
 			RequestedAt: app.store.Now(), Detail: UsageDetail{InputTokens: 100, OutputTokens: 20, TotalTokens: 120},
 		})
 		entries := requestEventEntries(t, app)
-		if len(entries) != i+1 || entries[0].PriceSource != billing.PriceSourceReference || entries[0].Cost.TotalUSD <= 0 {
+		if len(entries) != i+1 || entries[0].PriceSource != billing.PriceSourceReference || entries[0].Cost.Total <= 0 {
 			t.Fatalf("reference usage not billed: %+v", entries)
 		}
 	}
@@ -251,7 +251,7 @@ func TestCustomPriceIdentityAcrossListingAdmissionAndUsage(t *testing.T) {
 			if len(events) != 1 || events[0].BillingModel != test.billingID || events[0].PriceSource != test.wantSource || events[0].Cost.AppliedInputPer1M != test.wantRate {
 				t.Fatalf("usage price = %+v", events)
 			}
-			assertCostClose(t, events[0].Cost.TotalUSD, test.wantRate/1000)
+			assertCostClose(t, events[0].Cost.Total, test.wantRate/1000)
 		})
 	}
 }

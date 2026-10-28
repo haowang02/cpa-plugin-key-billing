@@ -22,7 +22,7 @@ func exhaustedApp(t *testing.T, resetAfter time.Duration) *App {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
 	if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{
-		ID: "plan-5", Name: "Plan 5", Windows: []billing.QuotaWindow{{Name: "额度", AmountUSD: 5, PeriodSeconds: int64(resetAfter / time.Second)}},
+		ID: "plan-5", Name: "Plan 5", Windows: []billing.QuotaWindow{{Name: "额度", Amount: 5, PeriodSeconds: int64(resetAfter / time.Second)}},
 	}, []string{billing.CallerScope(testAPIKey)}); errCreate != nil {
 		t.Fatalf("CreatePlanWithBindings error = %v", errCreate)
 	}

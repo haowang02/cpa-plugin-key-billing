@@ -15,7 +15,7 @@ func quotaStore(t *testing.T, window QuotaWindow) (*Store, *memoryRepository, ti
 	store, repo := newAccountStoreWithRepository(t, now)
 	window.ID, window.Name, window.PeriodSeconds = "w", "额度", 3600
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", Windows: []QuotaWindow{window}}}
+		state.Plans = []Plan{{ID: "p", Currency: USD, Windows: []QuotaWindow{window}}}
 		state.Keys["s"] = &KeyState{PlanID: "p", Preview: "sk-tes…0001"}
 	})
 	store.Authorize("s", now)
@@ -59,10 +59,10 @@ func TestQuotaCountsReportedUsage(t *testing.T) {
 
 func TestQuotaTracksTokensWithoutPricing(t *testing.T) {
 	store, _, now := quotaStore(t, QuotaWindow{TokenLimit: 1000})
-	store.ReplaceAll(func(state *State) { state.Prices["gpt-5.5"] = CustomPrice{ModelID: "gpt-5.5"} })
+	store.ReplaceAll(func(state *State) { state.Prices["gpt-5.5"] = CustomPrice{ModelID: "gpt-5.5", Currency: USD} })
 	store.RecordUsage(subsetEvent("s", now))
 	w := store.Authorize("s", now).Windows[0]
-	if !w.Blocked || currentQuotaCycle(t, store).UsedTokens != 1500 || currentQuotaCycle(t, store).SpentUSD != 0 {
+	if !w.Blocked || currentQuotaCycle(t, store).UsedTokens != 1500 || currentQuotaCycle(t, store).Spending.USD != 0 {
 		t.Fatalf("zero price lost tokens: %+v", w)
 	}
 
@@ -70,7 +70,7 @@ func TestQuotaTracksTokensWithoutPricing(t *testing.T) {
 	event := subsetEvent("s", now)
 	event.Breakdown = TokenBreakdown{Quality: TokenAccountingUnclassified, TotalTokens: 1200, UnclassifiedTokens: 1200}
 	store.RecordUsage(event)
-	if w = store.Authorize("s", now).Windows[0]; currentQuotaCycle(t, store).UsedTokens != 1200 || !w.Blocked || currentQuotaCycle(t, store).SpentUSD != 0 {
+	if w = store.Authorize("s", now).Windows[0]; currentQuotaCycle(t, store).UsedTokens != 1200 || !w.Blocked || currentQuotaCycle(t, store).Spending.USD != 0 {
 		t.Fatalf("available tokens lost: %+v", w)
 	}
 	event.Breakdown.Quality = TokenAccountingInconsistent
@@ -103,8 +103,35 @@ func TestQuotaPreservesOverageAndRetriesWrites(t *testing.T) {
 	}
 }
 
+// Spending keeps each request's currency; the plan's currency and the rate
+// apply when it is read, so changing either rewrites nothing.
+func TestQuotaConvertsSpendingIntoPlanCurrency(t *testing.T) {
+	store, _, now := quotaStore(t, QuotaWindow{Amount: 1})
+	store.ReplaceAll(func(state *State) {
+		state.Prices["cny-model"] = CustomPrice{ModelID: "cny-model", Currency: CNY, PriceRates: PriceRates{InputPer1M: 7, OutputPer1M: 7}}
+	})
+	store.RecordUsage(subsetEvent("s", now))
+	event := subsetEvent("s", now)
+	event.UpstreamModel, event.RouteModel = "cny-model", "cny-model"
+	store.RecordUsage(event)
+	spending := currentQuotaCycle(t, store).Spending
+	assertClose(t, "USD spending", spending.USD, wantSubsetCost)
+	assertClose(t, "CNY spending", spending.CNY, 1500*7/1e6)
+	used := func() float64 {
+		value, _ := store.Authorize("s", now).Windows[0].Dimensions[0].Used.Float64()
+		return value
+	}
+	assertClose(t, "USD plan", used(), wantSubsetCost+1500/1e6)
+	cny := CNY
+	if _, err := store.UpdatePlanWithBindings(PlanPatch{ID: "p", Currency: &cny}, nil); err != nil {
+		t.Fatal(err)
+	}
+	store.cfg.CNYPerUSD = 8
+	assertClose(t, "CNY plan", used(), wantSubsetCost*8+1500*7/1e6)
+}
+
 func TestLimitEditsKeepCurrentCounters(t *testing.T) {
-	store, _, now := quotaStore(t, QuotaWindow{AmountUSD: 10})
+	store, _, now := quotaStore(t, QuotaWindow{Amount: 10})
 	store.RecordUsage(subsetEvent("s", now))
 	windows := []QuotaWindow{{ID: "w", Name: "额度", PeriodSeconds: 3600, RequestLimit: 1}}
 	if _, err := store.UpdatePlanWithBindings(PlanPatch{ID: "p", Windows: &windows}, nil); err != nil {
@@ -123,14 +150,14 @@ func TestLimitEditsKeepCurrentCounters(t *testing.T) {
 }
 
 func TestQuotaPreservesNumericBoundaries(t *testing.T) {
-	store, _, now := quotaStore(t, QuotaWindow{AmountUSD: 1, TokenLimit: maxQuotaCount, RequestLimit: maxQuotaCount})
+	store, _, now := quotaStore(t, QuotaWindow{Amount: 1, TokenLimit: maxQuotaCount, RequestLimit: maxQuotaCount})
 	store.ReplaceAll(func(state *State) {
 		key := state.Keys["s"]
 		cycle := key.Cycles["w"]
-		cycle.SpentUSD = math.MaxFloat64 * 0.75
+		cycle.Spending.USD = math.MaxFloat64 * 0.75
 		cycle.UsedTokens, cycle.UsedRequests = maxQuotaCount-1, maxQuotaCount-1
 		key.Cycles["w"] = cycle
-		key.chargeCycles(now, quotaUsage{AmountUSD: math.MaxFloat64 * 0.75, Tokens: 1, Requests: 1})
+		key.chargeCycles(now, quotaUsage{Spending: Spending{USD: math.MaxFloat64 * 0.75}, Tokens: 1, Requests: 1})
 	})
 	view := store.Authorize("s", now)
 	for _, balance := range view.Windows[0].Dimensions {
@@ -142,7 +169,7 @@ func TestQuotaPreservesNumericBoundaries(t *testing.T) {
 		}
 	}
 	cycle := currentQuotaCycle(t, store)
-	if _, err := json.Marshal(cycle); err != nil || cycle.SpentUSD != math.MaxFloat64 {
+	if _, err := json.Marshal(cycle); err != nil || cycle.Spending.USD != math.MaxFloat64 {
 		t.Fatalf("overflow made the cycle unpersistable: %+v, %v", cycle, err)
 	}
 	store.ReplaceAll(func(state *State) {

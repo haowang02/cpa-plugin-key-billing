@@ -147,13 +147,16 @@ function renderAccountModel(model) {
       "div",
       { class: "account-model-price-row" + (longContext ? " tiered" : "") },
       el("span", { class: "account-model-price-label" }, item.label),
-      el("strong", { class: "mono account-model-base-price" }, item.base == null ? "—" : usd(item.base)),
+      el("strong", { class: "mono account-model-base-price" }, item.base == null ? "—" : money(item.base, price.currency)),
       longContext
         ? el(
             "span",
             { class: "account-model-long-price" },
             item.long != null
-              ? [el("span", { class: "account-model-threshold" }, threshold), el("strong", { class: "mono" }, usd(item.long))]
+              ? [
+                  el("span", { class: "account-model-threshold" }, threshold),
+                  el("strong", { class: "mono" }, money(item.long, price.currency))
+                ]
               : el("span", { class: "muted" }, "—")
           )
         : null

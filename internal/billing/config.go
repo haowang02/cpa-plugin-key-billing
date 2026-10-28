@@ -18,6 +18,7 @@ type Config struct {
 	StateFile             string        `yaml:"state_file"`
 	CodexFastModeBilling  bool          `yaml:"codex_fast_mode_billing"`
 	AllowUnpricedModels   bool          `yaml:"allow_unpriced_models"`
+	CNYPerUSD             ExchangeRate  `yaml:"cny_per_usd"`
 	MaskAPIKeyViewEmails  bool          `yaml:"mask_api_key_view_emails"`
 	AllowAPIKeyQuotaReset bool          `yaml:"allow_api_key_quota_reset"`
 	Routing               RoutingConfig `yaml:"routing"`
@@ -33,6 +34,7 @@ func DefaultConfig() Config {
 	return Config{
 		Enabled:   false,
 		StateFile: DefaultStateFile,
+		CNYPerUSD: DefaultExchangeRate,
 		Routing:   RoutingConfig{Strategy: "round-robin", SessionAffinityTTL: "1h"},
 	}
 }
@@ -70,6 +72,9 @@ func (c Config) normalized() (Config, error) {
 	c.StateFile = strings.TrimSpace(c.StateFile)
 	if c.StateFile == "" {
 		c.StateFile = DefaultStateFile
+	}
+	if !c.CNYPerUSD.valid() {
+		return Config{}, fmt.Errorf("cny_per_usd must be a positive number")
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Routing.Strategy)) {
 	case "", "round-robin", "roundrobin", "rr":

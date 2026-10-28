@@ -88,6 +88,18 @@ for (const role of ["admin", "account"]) {
     saveChoice(role, select.id);
     updateRefreshControls();
   };
+  const currency = $((role === "account" ? "account-" : "") + "display-currency");
+  currency.replaceChildren(el("option", { value: "auto", text: m("ui.currency_auto") }), ...currencyOptions());
+  currency.onchange = () => {
+    saveChoice(role, currency.id);
+    renderPage();
+  };
+}
+
+function renderDisplayCurrency() {
+  const { rate } = moneyChoice();
+  const control = $((currentRole === "account" ? "account-" : "") + "display-currency-control");
+  setTextAttribute(control, "data-tip", rate ? m("ui.exchange_rate_value", { v0: rate }) : "");
 }
 
 for (const button of document.querySelectorAll('[data-page-action="refresh"]')) {
@@ -236,6 +248,7 @@ function restoreRolePreferences(role) {
   restoreChoice(role, prefix + "ai-provider-enabled-only", true);
   restoreChoice(role, prefix + "ai-provider-type", "");
   restoreChoice(role, prefix + "auto-refresh", "0");
+  restoreChoice(role, prefix + "display-currency", "auto");
   setPrivacyMask(role, viewPreference(role, prefix + "privacy-mask", false));
   if (!account) {
     restoreChoice(role, "analysis-key", "", true);
@@ -376,6 +389,7 @@ function updatePageControls(account, page) {
   actions.dataset.page = activeTab(account);
   actions.classList.toggle("has-key-filter", keyed);
   $(prefix + "shared-time-filter").classList.toggle("hidden", !page.timeRange);
+  $(prefix + "display-currency-control").classList.toggle("hidden", !page.currency);
   $(prefix + "auto-refresh-control").classList.toggle("hidden", !page.autoRefresh);
   $(prefix + "request-event-columns").classList.toggle("hidden", !page.eventColumns);
   $(prefix + "events-export").classList.toggle("hidden", !page.exportEvents);

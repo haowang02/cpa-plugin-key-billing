@@ -19,7 +19,7 @@ func requestEvent(scope string, at time.Time) billing.RequestEvent {
 		LatencyMS: 1500, TTFTMS: 250,
 		AccountingQuality: billing.TokenAccountingComplete, PriceSource: billing.PriceSourceCustom,
 		Cost: billing.Cost{
-			TotalUSD: 0.5, UncachedInputUSD: 0.2, OutputUSD: 0.3,
+			Total: 0.5, UncachedInput: 0.2, Output: 0.3,
 			UncachedInputTokens: 500, BilledOutputTokens: 500,
 		},
 	}
@@ -189,13 +189,13 @@ func TestRequestEventAccountChangesPreserveHistory(t *testing.T) {
 		if err != nil || errors.Total != test.failed || errors.Entries[0].Source != test.source {
 			t.Fatalf("filtered errors = %+v, err = %v", errors, err)
 		}
-		analysis, err := database.Analysis(query, eventStart)
+		analysis, err := database.Analysis(query, 7, eventStart)
 		if err != nil || analysis.Summary.Requests != int64(test.requests) ||
 			len(analysis.UsageDistribution.Sources) != 1 || analysis.UsageDistribution.Sources[0].Label != test.source {
 			t.Fatalf("filtered analysis = %+v, err = %v", analysis, err)
 		}
 	}
-	analysis, err := database.Analysis(billing.RequestEventQuery{From: eventStart, To: eventStart.Add(time.Hour)}, eventStart)
+	analysis, err := database.Analysis(billing.RequestEventQuery{From: eventStart, To: eventStart.Add(time.Hour)}, 7, eventStart)
 	if err != nil {
 		t.Fatal(err)
 	}

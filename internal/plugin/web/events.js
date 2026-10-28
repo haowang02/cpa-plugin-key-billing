@@ -33,7 +33,8 @@ const EVENT_CSV_COLUMNS = {
     "cache_read_tokens",
     "cache_write_tokens",
     "multiplier",
-    "total_usd",
+    "currency",
+    "cost",
     "user_agent",
     "x_forwarded_for"
   ],
@@ -181,6 +182,7 @@ function eventCSV(entries, kind, account) {
             ...entry.cost,
             ...entry.execution,
             multiplier: entry.cost.multiplier || 1,
+            cost: entry.cost.total,
             input_tokens: requestInputTokens(entry.cost),
             output_tps: outputTPS(entry.cost, entry.latency_ms, measured)
           }

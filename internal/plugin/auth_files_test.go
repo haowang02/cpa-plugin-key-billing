@@ -178,11 +178,11 @@ func TestAuthFilesStatisticsFollowTimeRangeAndAccountScope(t *testing.T) {
 		query     url.Values
 		want      billing.CredentialUsageStats
 	}{
-		{"selected", "", query, billing.CredentialUsageStats{Requests: 3, Failed: 1, InputTokens: 200, CacheReadTokens: 100, OutputTokens: 40, CostUSD: 0.00019}},
-		{"account", accountTestKeyA, query, billing.CredentialUsageStats{Requests: 2, Failed: 1, InputTokens: 100, CacheReadTokens: 50, OutputTokens: 20, CostUSD: 0.000095}},
-		{"default", "", nil, billing.CredentialUsageStats{Requests: 5, Failed: 1, InputTokens: 400, CacheReadTokens: 200, OutputTokens: 80, CostUSD: 0.00038}},
+		{"selected", "", query, billing.CredentialUsageStats{Requests: 3, Failed: 1, InputTokens: 200, CacheReadTokens: 100, OutputTokens: 40, CostUSD: 0.00019, ChargedIn: billing.USD}},
+		{"account", accountTestKeyA, query, billing.CredentialUsageStats{Requests: 2, Failed: 1, InputTokens: 100, CacheReadTokens: 50, OutputTokens: 20, CostUSD: 0.000095, ChargedIn: billing.USD}},
+		{"default", "", nil, billing.CredentialUsageStats{Requests: 5, Failed: 1, InputTokens: 400, CacheReadTokens: 200, OutputTokens: 80, CostUSD: 0.00038, ChargedIn: billing.USD}},
 		{"extended", "", url.Values{"from": {from.Add(-60 * 24 * time.Hour).Format(time.RFC3339Nano)}},
-			billing.CredentialUsageStats{Requests: 6, Failed: 1, InputTokens: 500, CacheReadTokens: 250, OutputTokens: 100, CostUSD: 0.000475}},
+			billing.CredentialUsageStats{Requests: 6, Failed: 1, InputTokens: 500, CacheReadTokens: 250, OutputTokens: 100, CostUSD: 0.000475, ChargedIn: billing.USD}},
 		{"empty", "", url.Values{"from": {to.Add(time.Minute).Format(time.RFC3339Nano)}}, billing.CredentialUsageStats{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

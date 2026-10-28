@@ -83,6 +83,10 @@
       "%q"
     ]
   },
+  "Subscription plan currency must be USD or CNY": {
+    "key": "backend.subscription_plan_currency_must_be_usd_or_cny",
+    "formats": []
+  },
   "Window %q: token and request limits must be integers from 0 to %d": {
     "key": "backend.window_value_token_and_request_limits_must_be_integers_from_0_to_value",
     "formats": [
@@ -157,6 +161,12 @@
   },
   "Model %q: token rates must be finite non-negative numbers": {
     "key": "backend.model_value_token_rates_must_be_finite_non_negative_numbers",
+    "formats": [
+      "%q"
+    ]
+  },
+  "Model %q: currency must be USD or CNY": {
+    "key": "backend.model_value_currency_must_be_usd_or_cny",
     "formats": [
       "%q"
     ]

@@ -18,7 +18,7 @@ func newAccountStoreWithRepository(t *testing.T, now time.Time) (*Store, *memory
 	store.now = func() time.Time { return now }
 	store.ReplaceAll(func(state *State) {
 		state.Prices = map[string]CustomPrice{"gpt-5.5": {
-			ModelID: "gpt-5.5", PriceRates: PriceRates{InputPer1M: 1,
+			ModelID: "gpt-5.5", Currency: USD, PriceRates: PriceRates{InputPer1M: 1,
 				OutputPer1M:     2,
 				CacheReadPer1M:  floatPtr(0.1),
 				CacheWritePer1M: floatPtr(1.25)},
@@ -73,7 +73,7 @@ func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 	store := newAccountStore(t, now)
 	store.ReplaceAll(func(state *State) {
 		state.Prices["claude/gpt-latest"] = CustomPrice{
-			ModelID: "claude/gpt-latest", PriceRates: PriceRates{InputPer1M: 3, OutputPer1M: 4},
+			ModelID: "claude/gpt-latest", Currency: USD, PriceRates: PriceRates{InputPer1M: 3, OutputPer1M: 4},
 		}
 	})
 	event := subsetEvent("scope-a", now)
@@ -84,7 +84,7 @@ func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 	if len(entries) != 1 || entries[0].UpstreamModel != "gpt-5.5" || entries[0].BillingModel != "claude/gpt-latest" {
 		t.Fatalf("request events = %+v", entries)
 	}
-	assertClose(t, "CostUSD", entries[0].Cost.TotalUSD, 0.0015+0.0012+0.0003+0.002)
+	assertClose(t, "Total", entries[0].Cost.Total, 0.0015+0.0012+0.0003+0.002)
 }
 
 func TestRecordUsagePreservesHostModelAndDurationValues(t *testing.T) {
@@ -112,9 +112,9 @@ func TestUsageRequestTimesPreserveWindowAttribution(t *testing.T) {
 	start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, start)
 	store.ReplaceAll(func(state *State) {
-		state.Plans = []Plan{{ID: "p", Windows: []QuotaWindow{
-			{ID: "short", Name: "短时", AmountUSD: 5, PeriodSeconds: 3600},
-			{ID: "long", Name: "预算", AmountUSD: 10, PeriodSeconds: 86400},
+		state.Plans = []Plan{{ID: "p", Currency: USD, Windows: []QuotaWindow{
+			{ID: "short", Name: "短时", Amount: 5, PeriodSeconds: 3600},
+			{ID: "long", Name: "预算", Amount: 10, PeriodSeconds: 86400},
 		}}}
 		state.Keys["scope-a"] = &KeyState{PlanID: "p"}
 	})
@@ -123,7 +123,7 @@ func TestUsageRequestTimesPreserveWindowAttribution(t *testing.T) {
 	event := subsetEvent("scope-a", start.Add(150*time.Minute))
 	wantShort := QuotaCycle{PlanID: "p", StartAt: start.Add(2 * time.Hour), EndAt: start.Add(3 * time.Hour)}
 	wantLong := QuotaCycle{PlanID: "p", StartAt: start, EndAt: start.Add(24 * time.Hour),
-		SpentUSD: wantSubsetCost, UsedTokens: 1500, UsedRequests: 1}
+		Spending: Spending{USD: wantSubsetCost}, UsedTokens: 1500, UsedRequests: 1}
 	for _, requestedAt := range []time.Time{start, {}, start.Add(48 * time.Hour)} {
 		event.RequestedAt = requestedAt
 		store.RecordUsage(event)
@@ -156,8 +156,8 @@ func TestUsageAfterAdministrativeChange(t *testing.T) {
 				store.now = func() time.Time { return now }
 				store.ReplaceAll(func(state *State) {
 					state.Plans = []Plan{
-						{ID: "daily", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 5, PeriodSeconds: 86400}}},
-						{ID: "weekly", Windows: []QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 5, PeriodSeconds: 604800}}},
+						{ID: "daily", Currency: USD, Windows: []QuotaWindow{{ID: "default", Name: "额度", Amount: 5, PeriodSeconds: 86400}}},
+						{ID: "weekly", Currency: USD, Windows: []QuotaWindow{{ID: "default", Name: "额度", Amount: 5, PeriodSeconds: 604800}}},
 					}
 					if unified {
 						for i := range state.Plans {
@@ -191,7 +191,7 @@ func TestUsageAfterAdministrativeChange(t *testing.T) {
 				late := subsetEvent("scope-a", now)
 				late.RequestedAt = start
 				store.RecordUsage(late)
-				if store.state.Keys["scope-a"].Cycles["default"].SpentUSD != 0 {
+				if store.state.Keys["scope-a"].Cycles["default"].Spending.USD != 0 {
 					t.Fatal("old completion restored cleared usage")
 				}
 				store.Authorize("scope-a", now)
@@ -202,7 +202,7 @@ func TestUsageAfterAdministrativeChange(t *testing.T) {
 				}
 				store.RecordUsage(subsetEvent("scope-a", now))
 				cycle := store.state.Keys["scope-a"].Cycles["default"]
-				if cycle.SpentUSD != wantSubsetCost || cycle.UsedRequests != 1 || cycle.UsedTokens != 1500 {
+				if cycle.Spending.USD != wantSubsetCost || cycle.UsedRequests != 1 || cycle.UsedTokens != 1500 {
 					t.Fatalf("new usage lost: %+v", cycle)
 				}
 				if len(mustRequestEvents(t, store, RequestEventQuery{}).Entries) != 4 {

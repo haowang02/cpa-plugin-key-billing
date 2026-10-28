@@ -126,13 +126,13 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 	}
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
 		"name":    "Team Monthly",
-		"windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 20, PeriodSeconds: 2592000, CycleAnchorAt: anchor}},
+		"windows": []billing.QuotaWindow{{Name: "额度", Amount: 20, PeriodSeconds: 2592000, CycleAnchorAt: anchor}},
 	}, http.StatusCreated, &created)
 	if created.Plan.ID != "team-monthly" || created.Plan.Windows[0].PeriodSeconds != 2592000 || !created.Plan.Windows[0].CycleAnchorAt.Equal(anchor) {
 		t.Fatalf("plan = %+v", created.Plan)
 	}
 
-	if resp := callManagement(t, app, http.MethodPost, routePlans, nil, map[string]any{"id": created.Plan.ID, "windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 20, PeriodSeconds: 3600}}}); resp.StatusCode != http.StatusConflict {
+	if resp := callManagement(t, app, http.MethodPost, routePlans, nil, map[string]any{"id": created.Plan.ID, "windows": []billing.QuotaWindow{{Name: "额度", Amount: 20, PeriodSeconds: 3600}}}); resp.StatusCode != http.StatusConflict {
 		t.Fatalf("duplicate plan status = %d", resp.StatusCode)
 	}
 
@@ -141,9 +141,9 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 	}
 	callOK(t, app, http.MethodPatch, routePlans, nil, map[string]any{
 		"id":      "team-monthly",
-		"windows": []billing.QuotaWindow{{ID: created.Plan.Windows[0].ID, Name: "额度", AmountUSD: 50, PeriodSeconds: 3600, CycleAnchorAt: anchor}},
+		"windows": []billing.QuotaWindow{{ID: created.Plan.Windows[0].ID, Name: "额度", Amount: 50, PeriodSeconds: 3600, CycleAnchorAt: anchor}},
 	}, http.StatusOK, &patched)
-	if patched.Plan.Windows[0].AmountUSD != 50 || patched.Plan.Windows[0].PeriodSeconds != 3600 || patched.Plan.Name != "Team Monthly" {
+	if patched.Plan.Windows[0].Amount != 50 || patched.Plan.Windows[0].PeriodSeconds != 3600 || patched.Plan.Name != "Team Monthly" {
 		t.Fatalf("plan = %+v", patched.Plan)
 	}
 
@@ -152,8 +152,8 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 		t.Fatal("name edit removed schedule")
 	}
 	for _, windows := range [][]billing.QuotaWindow{
-		{{ID: created.Plan.Windows[0].ID, Name: "额度", AmountUSD: 50, PeriodSeconds: 3600, CycleAnchorAt: time.Now().Add(-time.Hour)}},
-		{{ID: created.Plan.Windows[0].ID, Name: "额度", AmountUSD: 50, PeriodSeconds: 3600, CycleAnchorAt: anchor}, {Name: "独立", AmountUSD: 1, PeriodSeconds: 7200}},
+		{{ID: created.Plan.Windows[0].ID, Name: "额度", Amount: 50, PeriodSeconds: 3600, CycleAnchorAt: time.Now().Add(-time.Hour)}},
+		{{ID: created.Plan.Windows[0].ID, Name: "额度", Amount: 50, PeriodSeconds: 3600, CycleAnchorAt: anchor}, {Name: "独立", Amount: 1, PeriodSeconds: 7200}},
 	} {
 		if resp := callManagement(t, app, http.MethodPatch, routePlans, nil, map[string]any{"id": created.Plan.ID, "windows": windows}); resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("invalid schedule status: %d", resp.StatusCode)
@@ -186,7 +186,7 @@ func TestKeyResetAcceptsScopeList(t *testing.T) {
 			callOK(t, app, http.MethodPost, routeKeysSync, nil,
 				map[string]any{"keys": keys}, http.StatusOK, nil)
 			callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
-				"id": "daily", "windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 10, PeriodSeconds: 86400, CycleAnchorAt: anchor}},
+				"id": "daily", "windows": []billing.QuotaWindow{{Name: "额度", Amount: 10, PeriodSeconds: 86400, CycleAnchorAt: anchor}},
 				"scopes": scopes,
 			}, http.StatusCreated, nil)
 			for _, scope := range scopes {
@@ -256,8 +256,8 @@ func TestManagementErrorsMapToStatusCodes(t *testing.T) {
 		body       any
 		wantStatus int
 	}{
-		{"zero plan amount", http.MethodPost, routePlans, map[string]any{"id": "x", "windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 0, PeriodSeconds: 86400}}}, http.StatusBadRequest},
-		{"invalid plan period", http.MethodPost, routePlans, map[string]any{"id": "x", "windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 1, PeriodSeconds: -1}}}, http.StatusBadRequest},
+		{"zero plan amount", http.MethodPost, routePlans, map[string]any{"id": "x", "windows": []billing.QuotaWindow{{Name: "额度", Amount: 0, PeriodSeconds: 86400}}}, http.StatusBadRequest},
+		{"invalid plan period", http.MethodPost, routePlans, map[string]any{"id": "x", "windows": []billing.QuotaWindow{{Name: "额度", Amount: 1, PeriodSeconds: -1}}}, http.StatusBadRequest},
 		{"unknown plan", http.MethodPatch, routePlans, map[string]any{"id": "ghost", "name": "Missing"}, http.StatusNotFound},
 		{"bind to unknown plan", http.MethodPost, routeKeysBind, map[string]any{"scope": "abc", "plan_id": "ghost"}, http.StatusNotFound},
 		{"no scope", http.MethodPost, routeKeysUnbind, map[string]any{}, http.StatusBadRequest},
@@ -414,7 +414,7 @@ func TestManagementRoutesWorkWhileDisabled(t *testing.T) {
 		t.Fatalf("prices = %+v", prices)
 	}
 	callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
-		"id": "daily", "windows": []billing.QuotaWindow{{Name: "额度", AmountUSD: 1, PeriodSeconds: 86400}},
+		"id": "daily", "windows": []billing.QuotaWindow{{Name: "额度", Amount: 1, PeriodSeconds: 86400}},
 	}, http.StatusCreated, nil)
 }
 
@@ -682,7 +682,7 @@ func TestManagementWriteFailureReturnsError(t *testing.T) {
 	if _, err := app.store.SyncKeys([]string{apiKey}, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.store.CreatePlanWithBindings(billing.Plan{ID: "p", Windows: []billing.QuotaWindow{{Name: "额度", AmountUSD: 10, PeriodSeconds: 3600}}}, []string{scope}); err != nil {
+	if _, err := app.store.CreatePlanWithBindings(billing.Plan{ID: "p", Windows: []billing.QuotaWindow{{Name: "额度", Amount: 10, PeriodSeconds: 3600}}}, []string{scope}); err != nil {
 		t.Fatal(err)
 	}
 	app.store.Authorize(scope, app.store.Now())

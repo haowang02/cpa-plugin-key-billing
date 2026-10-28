@@ -8,11 +8,11 @@ import (
 func TestResolveCustomPrice(t *testing.T) {
 	state := NewState()
 	state.Prices = map[string]CustomPrice{
-		"gpt-5.5":      {ModelID: "gpt-5.5", PriceRates: PriceRates{InputPer1M: 1, OutputPer1M: 2}},
-		"team/gpt-5.5": {ModelID: "team/gpt-5.5", PriceRates: PriceRates{InputPer1M: 5}},
+		"gpt-5.5":      {ModelID: "gpt-5.5", Currency: USD, PriceRates: PriceRates{InputPer1M: 1, OutputPer1M: 2}},
+		"team/gpt-5.5": {ModelID: "team/gpt-5.5", Currency: CNY, PriceRates: PriceRates{InputPer1M: 5}},
 	}
 	price := state.ResolveCustomPrice("team/gpt-5.5")
-	if price.InputPer1M != 5 || price.CacheReadPer1M != 5 || price.CacheWritePer1M != 5 {
+	if price.Currency != CNY || price.InputPer1M != 5 || price.CacheReadPer1M != 5 || price.CacheWritePer1M != 5 {
 		t.Fatalf("billing model price or cache fallback is wrong: %+v", price)
 	}
 	price = state.ResolveCustomPrice("gpt-5.5")

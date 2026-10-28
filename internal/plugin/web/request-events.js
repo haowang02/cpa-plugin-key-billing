@@ -270,9 +270,9 @@ function requestEventCost({ cost, measured, hasCacheWrite }) {
               "aria-label": m("ui.view_cost_breakdown"),
               ...hoverTooltipProps(() => renderCostTooltip(cost, hasCacheWrite))
             },
-            usd(cost.total_usd)
+            costMoney(cost.total, cost.currency)
           )
-        : usd(cost.total_usd)
+        : costMoney(cost.total, cost.currency)
     ),
     note ? el("div", { class: "muted small" }, note) : null
   ];
@@ -285,10 +285,10 @@ function costTierText(cost) {
 
 function renderCostTooltip(cost, hasCacheWrite) {
   const rows = [
-    [m("ui.uncached_input"), cost.uncached_input_tokens, cost.applied_input_per_1m, cost.uncached_input_usd],
-    [m("ui.cache_read"), cost.cache_read_tokens, cost.applied_cache_read_per_1m, cost.cache_read_usd],
-    ...(hasCacheWrite ? [[m("ui.cache_write"), cost.cache_write_tokens, cost.applied_cache_write_per_1m, cost.cache_write_usd]] : []),
-    [m("ui.output"), cost.billed_output_tokens, cost.applied_output_per_1m, cost.output_usd]
+    [m("ui.uncached_input"), cost.uncached_input_tokens, cost.applied_input_per_1m, cost.uncached_input],
+    [m("ui.cache_read"), cost.cache_read_tokens, cost.applied_cache_read_per_1m, cost.cache_read],
+    ...(hasCacheWrite ? [[m("ui.cache_write"), cost.cache_write_tokens, cost.applied_cache_write_per_1m, cost.cache_write]] : []),
+    [m("ui.output"), cost.billed_output_tokens, cost.applied_output_per_1m, cost.output]
   ];
   return [
     el("div", { class: "cost-tooltip-title", text: m("ui.cost_breakdown") }),
@@ -312,11 +312,11 @@ function renderCostTooltip(cost, hasCacheWrite) {
       el("span", { class: "cost-tooltip-head num" }, m("ui.amount")),
       rows.flatMap(([name, tokenCount, price, amount]) => [
         el("span", {}, name),
-        el("span", { class: "num" }, exactTokens(tokenCount) + " × " + usd(price) + DISPLAY_SLASH + "1M"),
-        el("span", { class: "num" }, usd(amount))
+        el("span", { class: "num" }, exactTokens(tokenCount) + " × " + costMoney(price, cost.currency) + DISPLAY_SLASH + "1M"),
+        el("span", { class: "num" }, costMoney(amount, cost.currency))
       ])
     ),
-    el("div", { class: "cost-tooltip-total" }, el("span", {}, m("ui.total_amount")), el("span", {}, usd(cost.total_usd)))
+    el("div", { class: "cost-tooltip-total" }, el("span", {}, m("ui.total_amount")), el("span", {}, costMoney(cost.total, cost.currency)))
   ];
 }
 

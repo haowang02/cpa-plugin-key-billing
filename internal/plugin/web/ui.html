@@ -92,6 +92,10 @@
               </button>
               <div id="shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="Select time range" data-i18n-aria-label="ui.select_time_range"></div>
             </div>
+            <span id="display-currency-control" class="native-select display-currency-control hidden">
+              <span class="native-select-icon" data-lucide-icon="circle-dollar-sign" aria-hidden="true"></span>
+              <select id="display-currency" aria-label="Display currency" data-i18n-aria-label="ui.display_currency"></select>
+            </span>
             <span id="auto-refresh-control" class="native-select auto-refresh-control hidden">
               <span class="native-select-icon" data-lucide-icon="timer" aria-hidden="true"></span>
               <select id="auto-refresh" aria-label="Auto refresh interval" data-i18n-aria-label="ui.auto_refresh_interval"></select>
@@ -145,6 +149,9 @@
                   <option value="unified" data-i18n="ui.shared_cycles">Shared schedule</option>
                 </select></span>
               </label>
+              <label class="field"> <span data-i18n="ui.currency">Currency</span>
+                <span class="native-select"><select id="plan-currency"></select></span>
+              </label>
             </div>
             <div class="row spread plan-windows-heading">
               <span class="small muted" data-i18n="ui.quota_windows">Quota windows</span>
@@ -195,7 +202,7 @@
         <section id="tab-prices" class="hidden">
           <div class="card">
             <div class="row spread section-toolbar">
-              <h2><span data-i18n="ui.model_pricing">Model pricing</span><span class="price-unit" data-i18n="ui.usd_per_1m_tokens">USD / 1M tokens</span></h2>
+              <h2><span data-i18n="ui.model_pricing">Model pricing</span><span class="price-unit" data-i18n="ui.per_1m_tokens">per 1M tokens</span></h2>
               <div class="row section-actions">
                 <input id="price-filter" placeholder="Search models"  data-i18n-placeholder="ui.search_models"/>
                 <button id="price-reference-refresh" data-i18n="ui.update_references">Update references</button>
@@ -390,6 +397,10 @@
                 </button>
                 <div id="account-shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="Select time range" data-i18n-aria-label="ui.select_time_range"></div>
               </div>
+              <span id="account-display-currency-control" class="native-select display-currency-control hidden">
+                <span class="native-select-icon" data-lucide-icon="circle-dollar-sign" aria-hidden="true"></span>
+                <select id="account-display-currency" aria-label="Display currency" data-i18n-aria-label="ui.display_currency"></select>
+              </span>
               <span id="account-auto-refresh-control" class="native-select auto-refresh-control hidden">
                 <span class="native-select-icon" data-lucide-icon="timer" aria-hidden="true"></span>
                 <select id="account-auto-refresh" aria-label="Auto refresh interval" data-i18n-aria-label="ui.auto_refresh_interval"></select>
@@ -533,6 +544,10 @@
         <div id="price-reference-results" class="price-reference-results" aria-live="polite"></div>
       </div>
       <div class="price-fields">
+        <label class="field"> <span data-i18n="ui.currency">Currency</span>
+          <span class="native-select"><select id="price-currency"></select></span>
+        </label>
+        <span></span>
         <label class="field"> <span data-i18n="ui.input_1m_tokens">Input&thinsp;/&thinsp;1M tokens</span> <input id="price-in" type="number" step="any" min="0" value="0" /> </label>
         <label class="field"> <span data-i18n="ui.output_1m_tokens">Output&thinsp;/&thinsp;1M tokens</span> <input id="price-out" type="number" step="any" min="0" value="0" /> </label>
         <label class="field"> <span data-i18n="ui.cache_read_1m_tokens">Cache read&thinsp;/&thinsp;1M tokens</span> <input id="price-cr" type="number" step="any" min="0" /> </label>

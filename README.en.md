@@ -14,6 +14,7 @@
 ## Features
 
 - Set spending, token, and request quotas for each API key, with independent or shared reset schedules.
+- Price models and subscription plans in USD or CNY, and view usage statistics in either currency.
 - Apply separate rates to requests that exceed a long-context input threshold.
 - Limit concurrent requests per API key.
 - Control access to models and upstream credentials with routing rules.
@@ -91,6 +92,7 @@ plugins:
       debug: false # Include routing and reference-price matching in debug logs
       codex_fast_mode_billing: false # Charge 2.5× for Codex priority requests
       allow_unpriced_models: false # Admit requests for unpriced models and record their usage at zero cost
+      cny_per_usd: 7 # Exchange rate in CNY per USD, used to convert amounts between currencies
       mask_api_key_view_emails: false # Mask email addresses in API key account views
       allow_api_key_quota_reset: false # Allow API key users to reset accessible Codex and Claude auth file quotas using upstream resets
       state_file: "plugins/cpa-key-billing-state-v1.db"
@@ -131,10 +133,12 @@ http(s)://<CLIProxyAPI address>/v0/resource/plugins/cpa-key-billing/ui#account
 ## Billing and quotas
 
 - Keys without a subscription plan still have their usage recorded, but have no subscription quota limit.
-- A plan can contain multiple quota windows. Each window can limit spending in USD, tokens, requests, or any combination of the three.
+- A plan can contain multiple quota windows. Each window can limit spending, tokens, requests, or any combination of the three.
 - Usage is tracked separately for each key, even when keys share a plan. Independent cycles start when the first request is admitted. Shared cycles use the configured schedule for every bound key.
 - A manual quota reset keeps shared reset times unchanged. Independent cycles restart when the next request is admitted.
 - Custom model prices take precedence over models.dev reference prices. Requests without any available price are rejected; with `allow_unpriced_models`, they are admitted and their usage is recorded at zero cost, while every other quota and routing limit still applies.
+- Each custom price and subscription plan is in USD or CNY; built-in and reference prices are in USD. A request's cost stays in the currency of the price it used. A plan's spending quota counts in the plan's currency and converts other currencies at `cny_per_usd`. Changing the rate or a plan's currency never rewrites recorded amounts; quota usage converts at the current rate.
+- The analysis, request event, auth file, and AI provider pages can show amounts in a chosen currency. The default, Auto, keeps each figure in the currency it was charged in and shows a mix of currencies in USD.
 - Request events are retained for 365 days.
 
 ## Routing rules

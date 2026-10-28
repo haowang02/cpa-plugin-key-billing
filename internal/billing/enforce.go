@@ -32,10 +32,10 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 		if settleExpiredCycles(key, at) {
 			changed = touched
 		}
-		view := quotaView(key, plan, at)
+		view := quotaView(key, plan, s.cfg.CNYPerUSD, at)
 		if !view.Blocked && activateCycles(key, plan, at) {
 			changed = touched
-			view = quotaView(key, plan, at)
+			view = quotaView(key, plan, s.cfg.CNYPerUSD, at)
 		}
 		return Decision{Allowed: !view.Blocked, PlanID: plan.ID, PlanName: plan.Name, QuotaView: view}, changed
 	})

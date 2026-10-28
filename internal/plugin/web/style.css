@@ -493,7 +493,7 @@ tbody tr:hover { background: var(--bg-hover); }
 }
 :root .page-navigation button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
 .page-tab-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
-.page-tab-actions > button, .page-tab-actions > .time-range-control, .auto-refresh-control { flex: none; }
+.page-tab-actions > button, .page-tab-actions > .time-range-control, .display-currency-control, .auto-refresh-control { flex: none; }
 .page-tab-actions > .time-range-control { max-width: 35%; }
 .page-key-filter { flex: 0 1 var(--filter-select-max-width); }
 .page-key-filter > select { width: 100%; }
@@ -920,7 +920,7 @@ body.embedded .standalone-actions { display: none; }
   gap: 10px;
   align-items: start;
 }
-.plan-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.plan-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content; gap: 12px; }
 .plan-details input, .plan-details select, .plan-window input { width: 100%; min-width: 0; }
 .plan-window.unified { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
 .plan-window-limits { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 10px; }
@@ -2367,16 +2367,8 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .page-tab-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-tab-actions > :is(.native-select, .time-range-control, button) { width: 100%; max-width: none; }
   .page-tab-actions > .native-select > select { width: 100%; }
-  .page-tab-actions[data-page="analysis"] .auto-refresh-control { width: max-content; justify-self: end; }
-  .page-tab-actions[data-page="analysis"] .auto-refresh-control > select { width: auto; }
-  .page-tab-actions[data-page="analysis"].has-key-filter .auto-refresh-control { grid-column: 1 / -1; }
-  .page-tab-actions[data-page="analysis"]:not(.has-key-filter) { grid-template-columns: minmax(0, 1fr) max-content; }
-  .page-tab-actions[data-page="errors"]:not(.has-key-filter) .time-range-control { grid-column: 1 / -1; }
-  /* The key and time filters share the first line; refresh fills the second beside the column and export buttons. */
-  .page-tab-actions[data-page="request-events"].has-key-filter { display: flex; flex-wrap: wrap; }
-  .page-tab-actions[data-page="request-events"].has-key-filter > :is(.page-key-filter, .time-range-control) { flex: 1 1 calc(50% - 4px); }
-  .page-tab-actions[data-page="request-events"].has-key-filter > .auto-refresh-control { flex: 1 1 0; }
-  .page-tab-actions[data-page="request-events"].has-key-filter > button { width: auto; }
+  /* The controls pair up; without a key filter, the time range takes a line of its own. */
+  .page-tab-actions:not(.has-key-filter) > .time-range-control { grid-column: 1 / -1; }
   .time-range-trigger { width: 100%; }
   .analysis-card-controls { gap: 6px; width: 100%; }
   .usage-distribution-tabs { gap: 4px; --button-padding-inline: 4px; }

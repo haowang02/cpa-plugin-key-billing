@@ -136,7 +136,7 @@ function renderAuthDrawerUsage(usage) {
     stat(m("ui.requests"), tokens(requests, 2), requests >= 1000 ? int(requests) : null),
     stat(m("ui.success_rate"), successRate),
     stat(m("ui.auth_total_tokens"), tokens(totalTokens), totalTokens >= 1000 ? exactTokens(totalTokens) : null),
-    stat(m("ui.cost"), usd(usage.cost_usd, 2))
+    stat(m("ui.cost"), usageMoney(usage.cost_usd, usage.charged_in, 2))
   );
 }
 

@@ -24,11 +24,12 @@ func (d *DB) UpsertPrice(price billing.CustomPrice) error {
 	}
 	_, err := d.db.Exec(`
         INSERT INTO prices (
-            model_id, input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m,
+            model_id, currency, input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m,
             long_context_threshold, long_context_input_per_1m, long_context_output_per_1m,
             long_context_cache_read_per_1m, long_context_cache_write_per_1m
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(model_id COLLATE NOCASE) DO UPDATE SET
+            currency = excluded.currency,
             input_per_1m = excluded.input_per_1m,
             output_per_1m = excluded.output_per_1m,
             cache_read_per_1m = excluded.cache_read_per_1m,
@@ -38,7 +39,7 @@ func (d *DB) UpsertPrice(price billing.CustomPrice) error {
             long_context_output_per_1m = excluded.long_context_output_per_1m,
             long_context_cache_read_per_1m = excluded.long_context_cache_read_per_1m,
             long_context_cache_write_per_1m = excluded.long_context_cache_write_per_1m
-    `, price.ModelID, price.InputPer1M, price.OutputPer1M,
+    `, price.ModelID, string(price.Currency), price.InputPer1M, price.OutputPer1M,
 		optionalPrice(price.CacheReadPer1M), optionalPrice(price.CacheWritePer1M),
 		threshold, tierInput, tierOutput, tierRead, tierWrite)
 	if err != nil {
@@ -56,7 +57,7 @@ func (d *DB) DeletePrice(modelID string) error {
 
 func (d *DB) loadPrices(state *billing.State) error {
 	rows, errQuery := d.db.Query(`
-		SELECT model_id, input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m,
+		SELECT model_id, currency, input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m,
 			long_context_threshold, long_context_input_per_1m, long_context_output_per_1m,
 			long_context_cache_read_per_1m, long_context_cache_write_per_1m
 		FROM prices ORDER BY position`)
@@ -71,7 +72,7 @@ func (d *DB) loadPrices(state *billing.State) error {
 			threshold                                  sql.NullInt64
 			tierInput, tierOutput, tierRead, tierWrite sql.NullFloat64
 		)
-		if errScan := rows.Scan(&price.ModelID, &price.InputPer1M, &price.OutputPer1M, &cacheRead, &cacheWrite,
+		if errScan := rows.Scan(&price.ModelID, &price.Currency, &price.InputPer1M, &price.OutputPer1M, &cacheRead, &cacheWrite,
 			&threshold, &tierInput, &tierOutput, &tierRead, &tierWrite); errScan != nil {
 			return fmt.Errorf("Read model pricing: %w", errScan)
 		}

@@ -77,7 +77,7 @@ func requestEventCost(t *testing.T, app *App) (float64, int64) {
 	var requests int64
 	for _, entry := range requestEventEntries(t, app) {
 		if entry.Scope == flowScope() && (!entry.Failed || entry.AccountingQuality != "") {
-			cost += entry.Cost.TotalUSD
+			cost += entry.Cost.Total
 			requests++
 		}
 	}
@@ -337,7 +337,7 @@ func TestUsageHandlePersistsBillWithoutPlaintextKeys(t *testing.T) {
 		t.Fatalf("persisted key = %+v", key)
 	}
 	requests, errRequests := database.RequestEvents(billing.RequestEventQuery{Scope: flowScope(), Limit: 10}, time.Time{})
-	if errRequests != nil || len(requests.Entries) != 1 || requests.Entries[0].Cost.TotalUSD <= 0 {
+	if errRequests != nil || len(requests.Entries) != 1 || requests.Entries[0].Cost.Total <= 0 {
 		t.Fatalf("persisted request events = %+v, err = %v", requests.Entries, errRequests)
 	}
 	if entry := requests.Entries[0]; entry.Account != "sk-ups…0001" || entry.Source != "deepseek · sk-ups…0001" ||
@@ -376,7 +376,7 @@ func TestUsageHandleSpendDrivesQuotaEnforcement(t *testing.T) {
 		t.Fatalf("SyncKeys error = %v", errSync)
 	}
 	if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{
-		ID: "p", Name: "Tiny", Windows: []billing.QuotaWindow{{Name: "额度", AmountUSD: 0.0015, PeriodSeconds: 86400}},
+		ID: "p", Name: "Tiny", Windows: []billing.QuotaWindow{{Name: "额度", Amount: 0.0015, PeriodSeconds: 86400}},
 	}, []string{flowScope()}); errCreate != nil {
 		t.Fatalf("CreatePlanWithBindings error = %v", errCreate)
 	}

@@ -50,8 +50,8 @@ func TestRepositoryRoundTrip(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "state.db")
 			start := time.Date(2026, 8, 12, 9, 30, 0, 123456789, time.UTC)
 			state := billing.NewState()
-			state.Plans = []billing.Plan{{ID: "weekly", Name: "Weekly 10", Windows: []billing.QuotaWindow{{ID: "default", Name: "额度", AmountUSD: 10, PeriodSeconds: 604800}, {ID: "long", Name: "预算", AmountUSD: 50, PeriodSeconds: 1209600}}}}
-			state.Prices = map[string]billing.CustomPrice{"gpt-5.5": {ModelID: "gpt-5.5", PriceRates: billing.PriceRates{InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: price(.1)}}}
+			state.Plans = []billing.Plan{{ID: "weekly", Name: "Weekly 10", Currency: billing.USD, Windows: []billing.QuotaWindow{{ID: "default", Name: "额度", Amount: 10, PeriodSeconds: 604800}, {ID: "long", Name: "预算", Amount: 50, PeriodSeconds: 1209600}}}}
+			state.Prices = map[string]billing.CustomPrice{"gpt-5.5": {ModelID: "gpt-5.5", Currency: billing.USD, PriceRates: billing.PriceRates{InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: price(.1)}}}
 			state.Routes = []billing.Route{{ID: "fast", Name: "Fast", Rule: billing.RouteRule{Models: []string{"gpt-5.5"}, CredentialIDs: []string{billing.CredentialFingerprint("dummy-allowed")}, CredentialProviders: []billing.CredentialProviderSelector{{Source: "auth-files", Provider: "codex"}}, DeniedModels: []string{"blocked"}, DeniedCredentialIDs: []string{billing.CredentialFingerprint("dummy-denied")}, DeniedCredentialProviders: []billing.CredentialProviderSelector{{Source: "auth-files", Provider: "claude"}}}}}
 			state.ConfigCredentials[billing.CredentialFingerprint("dummy-config")] = billing.ConfigCredential{
 				ConfigCredentialDetails: billing.ConfigCredentialDetails{Provider: "codex", KeyPreview: "sk-tes…0001", Disabled: true, ConfigRef: billing.CredentialFingerprint("dummy-config")},
@@ -63,7 +63,7 @@ func TestRepositoryRoundTrip(t *testing.T) {
 						CredentialProviders: []billing.CredentialProviderSelector{{Source: "ai-providers", Provider: "codex"}},
 						DeniedModels:        []string{"blocked-direct"}, DeniedCredentialIDs: []string{billing.CredentialFingerprint("dummy-direct-denied")}, DeniedCredentialProviders: []billing.CredentialProviderSelector{{Source: "ai-providers", Provider: "claude"}}},
 				},
-				Cycles: map[string]billing.QuotaCycle{"default": {PlanID: "weekly", StartAt: start, EndAt: start.Add(7 * 24 * time.Hour), SpentUSD: 1.5}, "long": {PlanID: "weekly", StartAt: start, EndAt: start.Add(14 * 24 * time.Hour), SpentUSD: 9}}}
+				Cycles: map[string]billing.QuotaCycle{"default": {PlanID: "weekly", StartAt: start, EndAt: start.Add(7 * 24 * time.Hour), Spending: billing.Spending{USD: 1.5}}, "long": {PlanID: "weekly", StartAt: start, EndAt: start.Add(14 * 24 * time.Hour), Spending: billing.Spending{USD: 9}}}}
 
 			database := openDatabase(t, path)
 			for _, price := range state.Prices {
@@ -214,7 +214,7 @@ func TestQuotaConfigurationExtendsExistingJSON(t *testing.T) {
 	database := openDatabase(t, path)
 	// Load the original JSON without counter or schedule extensions.
 	if _, err := database.db.Exec(`INSERT INTO plans (position, id, name, windows_json)
-		VALUES (0, 'p', '团队', '[{"id":"w","name":"额度","period_seconds":3600,"amount_usd":10}]')`); err != nil {
+		VALUES (0, 'p', '团队', '[{"id":"w","name":"额度","period_seconds":3600,"amount":10}]')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.db.Exec(insertKey, "dummy-scope", "sk-dum…0001", "", true, 0, "p", 0,
@@ -224,7 +224,7 @@ func TestQuotaConfigurationExtendsExistingJSON(t *testing.T) {
 	state := mustLoad(t, database).State
 	cycle := state.Keys["dummy-scope"].Cycles["w"]
 	start := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
-	if cycle.SpentUSD != 3.5 || !cycle.StartAt.Equal(start) || cycle.UsedTokens != 0 || cycle.UsedRequests != 0 || !cycle.UsageSince.IsZero() || !state.Plans[0].Windows[0].CycleAnchorAt.IsZero() {
+	if cycle.Spending.USD != 3.5 || !cycle.StartAt.Equal(start) || cycle.UsedTokens != 0 || cycle.UsedRequests != 0 || !cycle.UsageSince.IsZero() || !state.Plans[0].Windows[0].CycleAnchorAt.IsZero() {
 		t.Fatalf("legacy cycle changed: %+v", cycle)
 	}
 	state.Plans[0].Windows[0].TokenLimit = tokenLimit
@@ -298,7 +298,7 @@ func BenchmarkHistoryQueries(b *testing.B) {
 			return err
 		}},
 		{"analysis", func() error {
-			_, err := d.Analysis(billing.RequestEventQuery{From: from, To: to}, from)
+			_, err := d.Analysis(billing.RequestEventQuery{From: from, To: to}, 7, from)
 			return err
 		}},
 	} {

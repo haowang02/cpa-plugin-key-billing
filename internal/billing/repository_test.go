@@ -18,7 +18,7 @@ type memoryRepository struct {
 	closeFail       error
 }
 
-func (r *memoryRepository) CredentialUsageStats([]string, string, time.Time, time.Time) (map[string]CredentialUsageStats, error) {
+func (r *memoryRepository) CredentialUsageStats([]string, string, time.Time, time.Time, ExchangeRate) (map[string]CredentialUsageStats, error) {
 	return map[string]CredentialUsageStats{}, r.fail
 }
 
@@ -30,11 +30,11 @@ func (r *memoryRepository) QuotaWindowHistories(string, string, time.Time, time.
 	return nil, r.fail
 }
 
-func (r *memoryRepository) UsageTotal(string, UsageQuery) (UsageTotal, error) {
+func (r *memoryRepository) UsageTotal(string, UsageQuery, ExchangeRate) (UsageTotal, error) {
 	return UsageTotal{}, r.fail
 }
 
-func (r *memoryRepository) UsageByModel(string, UsageQuery) ([]ModelUsage, error) {
+func (r *memoryRepository) UsageByModel(string, UsageQuery, ExchangeRate) ([]ModelUsage, error) {
 	return nil, r.fail
 }
 
@@ -182,7 +182,7 @@ func (r *memoryRepository) RequestErrors(query RequestErrorQuery, since time.Tim
 	return view, nil
 }
 
-func (r *memoryRepository) Analysis(query RequestEventQuery, since time.Time) (AnalysisView, error) {
+func (r *memoryRepository) Analysis(query RequestEventQuery, rate ExchangeRate, since time.Time) (AnalysisView, error) {
 	return AnalysisView{}, nil
 }
 

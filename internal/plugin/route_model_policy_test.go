@@ -100,7 +100,7 @@ func TestForbiddenModelLeavesTheSubscriptionUntouched(t *testing.T) {
 			}
 			app := restrictApp(t, rule)
 			if _, errCreate := app.store.CreatePlanWithBindings(billing.Plan{
-				ID: "daily", Name: "Daily 1", Windows: []billing.QuotaWindow{{Name: "额度", AmountUSD: 1, PeriodSeconds: 86400}},
+				ID: "daily", Name: "Daily 1", Windows: []billing.QuotaWindow{{Name: "额度", Amount: 1, PeriodSeconds: 86400}},
 			}, nil); errCreate != nil {
 				t.Fatalf("CreatePlanWithBindings error = %v", errCreate)
 			}
