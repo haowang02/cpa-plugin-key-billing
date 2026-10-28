@@ -167,6 +167,12 @@ func (a *App) registration() Registration {
 					Description: "Bill Codex priority requests at 2.5 times the standard cost",
 				},
 				{
+					Name:        "allow_unpriced_models",
+					Default:     defaults.AllowUnpricedModels,
+					Type:        "boolean",
+					Description: "Allow requests without model pricing; record their usage at zero cost while retaining quota and routing limits",
+				},
+				{
 					Name:        "mask_api_key_view_emails",
 					Default:     defaults.MaskAPIKeyViewEmails,
 					Type:        "boolean",
