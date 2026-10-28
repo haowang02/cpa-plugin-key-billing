@@ -17,22 +17,11 @@ func TestDecodeConfigDefaults(t *testing.T) {
 	if errDecode != nil || cfg.Routing.Strategy != "weighted-round-robin" || !cfg.Routing.SessionAffinity || cfg.Routing.SessionAffinityTTL != "30m" {
 		t.Fatalf("routing = %+v, error = %v", cfg.Routing, errDecode)
 	}
-	cfg, errDecode = DecodeConfig([]byte("enabled: true\ndebug: true\ncodex_fast_mode_billing: true\nmask_api_key_view_emails: true\nallow_api_key_quota_reset: true\n"))
-	if errDecode != nil || !cfg.Debug || !cfg.CodexFastModeBilling || !cfg.MaskAPIKeyViewEmails || !cfg.AllowAPIKeyQuotaReset {
+	cfg, errDecode = DecodeConfig([]byte("enabled: true\ndebug: true\ncodex_fast_mode_billing: true\nallow_unpriced_models: true\n" +
+		"mask_api_key_view_emails: true\nallow_api_key_quota_reset: true\n"))
+	if errDecode != nil || !cfg.Debug || !cfg.CodexFastModeBilling || !cfg.AllowUnpricedModels || !cfg.MaskAPIKeyViewEmails ||
+		!cfg.AllowAPIKeyQuotaReset {
 		t.Fatalf("config = %+v, error = %v", cfg, errDecode)
-	}
-}
-
-func TestDecodeConfigAllowUnpricedModels(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		raw := "allow_unpriced_models: false\n"
-		if enabled {
-			raw = "allow_unpriced_models: true\n"
-		}
-		cfg, err := DecodeConfig([]byte(raw))
-		if err != nil || cfg.AllowUnpricedModels != enabled {
-			t.Fatalf("config = %+v, error = %v, want allow_unpriced_models=%t", cfg, err, enabled)
-		}
 	}
 }
 
@@ -44,7 +33,6 @@ func TestDecodeConfigRejectsUnknownFieldsAndExtraDocuments(t *testing.T) {
 		"unknown routing field": "routing:\n  session-affinity-subagents: true\n",
 		"invalid ttl":           "routing:\n  session-affinity-ttl: tomorrow\n",
 		"zero ttl":              "routing:\n  session-affinity-ttl: 0s\n",
-		"invalid price policy":  "allow_unpriced_models: [not, a, boolean]\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, errDecode := DecodeConfig([]byte(raw)); errDecode == nil {

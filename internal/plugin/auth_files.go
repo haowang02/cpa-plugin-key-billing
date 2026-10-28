@@ -180,7 +180,7 @@ func (a *App) authQuotaReset(req ManagementRequest, access viewAccess) Managemen
 	if access.APIKey && !access.Tracked {
 		return apiKeyUnauthorized()
 	}
-	if access.APIKey && !a.store.AllowAPIKeyQuotaReset() {
+	if access.APIKey && !a.store.Config().AllowAPIKeyQuotaReset {
 		return viewJSONError(access, http.StatusForbidden, "forbidden", "Quota resets are disabled for API key users")
 	}
 	resetID := req.Headers.Get("X-Quota-Reset-ID")

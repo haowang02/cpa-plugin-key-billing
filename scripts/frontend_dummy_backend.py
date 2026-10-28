@@ -1920,7 +1920,7 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path.endswith("/profile"):
                 key = LIVE_KEYS[index]
                 self.send_json(200, {"tracked": True, "identity": {"preview": key["preview"], "label": key["label"]},
-                                     "can_reset_auth_quota": self.allow_api_key_quota_reset})
+                                     "can_reset_auth_quota": self.allow_api_key_quota_reset, "can_use_unpriced_models": False})
             elif parsed.path.endswith("/subscription"):
                 key = LIVE_KEYS[index]
                 refresh_key_quota(key)

@@ -25,9 +25,10 @@ type accountConcurrency struct {
 }
 
 type accountProfileResponse struct {
-	Tracked           bool            `json:"tracked"`
-	Identity          accountIdentity `json:"identity"`
-	CanResetAuthQuota bool            `json:"can_reset_auth_quota"`
+	Tracked              bool            `json:"tracked"`
+	Identity             accountIdentity `json:"identity"`
+	CanResetAuthQuota    bool            `json:"can_reset_auth_quota"`
+	CanUseUnpricedModels bool            `json:"can_use_unpriced_models"`
 }
 
 type accountSubscriptionResponse struct {
@@ -58,8 +59,10 @@ type accountRouteCredential struct {
 func (a *App) accountProfile(access viewAccess) ManagementResponse {
 	response := accountProfileResponse{Tracked: access.Tracked}
 	if access.Tracked {
+		cfg := a.store.Config()
 		response.Identity = accountIdentity{Preview: access.Key.Preview, Label: access.Key.Label}
-		response.CanResetAuthQuota = a.store.AllowAPIKeyQuotaReset()
+		response.CanResetAuthQuota = cfg.AllowAPIKeyQuotaReset
+		response.CanUseUnpricedModels = cfg.AllowUnpricedModels
 	}
 	return viewJSON(access, http.StatusOK, response)
 }

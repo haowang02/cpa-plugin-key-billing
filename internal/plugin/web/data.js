@@ -661,7 +661,7 @@ function createPages(role) {
     result.subscription = {
       sections: [
         section(["subscription"], renderAccountSubscription),
-        section(["models", "catalog", "routing"], renderAccountModels),
+        section(["models", "catalog", "routing", "profile"], renderAccountModels),
         section(["routing"], renderAccountRouting)
       ]
     };

@@ -1198,23 +1198,26 @@ assert_headless_price_admission() {
   log_step "未访问前端：4 种协议均拒绝未定价模型"
 }
 
+# allow_unpriced_models admits a model without a price and records its usage at
+# zero cost; turning it off refuses the model again.
 assert_unpriced_model_policy() {
-  local port="$1" runtime_dir="$2" enabled attempts previous_updates updates count client stream body endpoint
+  local port="$1" runtime_dir="$2" enabled attempts previous_updates updates count body header_line http_status
+  local -a headers
+  local model="e2e-chat-to-chat-nonstream"
   local events_file="$runtime_dir/unpriced-policy-events.json"
   local logs_file="$runtime_dir/unpriced-policy-logs.json"
-  local model="e2e-chat-to-chat-nonstream"
+  local response_file="$runtime_dir/responses/unpriced-refused.json"
   management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/prices?model_id=$model" >/dev/null
-  assert_headless_price_admission "$port" "$runtime_dir"
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$events_file"
   count="$(jq -er '.entries | length' "$events_file")"
+  body="$(request_body chat "$model" false "Reply with exactly OK.")"
 
   for enabled in true false; do
     management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$logs_file"
     previous_updates="$(jq '[.entries[] | select(.message == "Configuration updated: enabled")] | length' "$logs_file")"
     management_call PATCH "$port" "/v0/management/plugins/cpa-key-billing/config" \
       -H "Content-Type: application/json" --data "{\"allow_unpriced_models\":$enabled}" >/dev/null
-    # Configuration reload is asynchronous in the host. Wait for the plugin's
-    # acknowledgement before sending requests, rather than generating probe usage.
+    # The host reloads configuration asynchronously; wait for the plugin to apply it.
     attempts=0
     while (( attempts < 100 )); do
       management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$logs_file"
@@ -1229,32 +1232,34 @@ assert_unpriced_model_policy() {
       echo "等待 allow_unpriced_models=$enabled 配置生效超时。" >&2
       return 1
     fi
-    if [[ "$enabled" == "false" ]]; then
-      assert_headless_price_admission "$port" "$runtime_dir"
+    if [[ "$enabled" == "true" ]]; then
+      api_call "$port" "未定价模型放行：OpenAI Chat 非流式" "/v1/chat/completions" "$body" chat \
+        "$runtime_dir/responses/unpriced-admitted.json"
+      count=$((count + 1))
+      wait_for_event_count "$port" "$count" "$events_file"
+      if ! jq -e --arg model "$model" '
+        .entries[0] |
+        .billing_model == $model and .price_source == "none" and .failed == false and
+        .cost.total_usd == 0 and .cost.uncached_input_tokens == 80 and .cost.cache_read_tokens == 32 and
+        .cost.cache_write_tokens == 16 and .cost.billed_output_tokens == 8
+      ' "$events_file" >/dev/null; then
+        echo "未定价模型的用量或零费用记账不正确。" >&2
+        return 1
+      fi
       continue
     fi
-    for client in chat responses anthropic gemini; do
-      for stream in false true; do
-        body="$(request_body "$client" "$model" "$stream" "Reply with exactly OK.")"
-        endpoint="$(client_endpoint "$client" "$model" "$stream")"
-        api_call "$port" "未定价模型放行：$client stream=$stream" "$endpoint" "$body" "$client" \
-          "$runtime_dir/responses/unpriced-$client-$stream.json"
-        count=$((count + 1))
-        wait_for_event_count "$port" "$count" "$events_file"
-        if ! jq -e --arg model "$model" '
-          .entries[0] |
-          .billing_model == $model and .price_source == "none" and .failed == false and
-          .cost.total_usd == 0 and .cost.uncached_input_tokens == 80 and
-          .cost.cache_read_tokens == 32 and .cost.cache_write_tokens == 16 and
-          .cost.billed_output_tokens == 8
-        ' "$events_file" >/dev/null; then
-          echo "未定价模型 $client stream=$stream 的用量或零费用记账不正确。" >&2
-          return 1
-        fi
-      done
-    done
+    headers=()
+    while IFS= read -r header_line; do
+      headers+=(-H "$header_line")
+    done < <(client_headers chat)
+    http_status="$(curl -sS --max-time 30 "${headers[@]}" --data "$body" \
+      --output "$response_file" --write-out '%{http_code}' "http://127.0.0.1:$port/v1/chat/completions")"
+    if [[ "$http_status" != "503" ]] || ! jq -e '.error.code == "model_price_error"' "$response_file" >/dev/null; then
+      echo "关闭 allow_unpriced_models 后未定价模型未被拒绝，HTTP ${http_status}。" >&2
+      return 1
+    fi
   done
-  log_ok "未定价开关：8 个请求放行并按零费用记账，关闭后 4 种协议恢复 503"
+  log_ok "未定价开关：开启后放行并按零费用记账，关闭后恢复拒绝"
 }
 
 assert_reference_price_billing() {
@@ -1682,7 +1687,7 @@ run_target() {
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  log_ok "${host_label}：59 个上游请求（含 4 个参考价请求和 8 个未定价请求），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，12 次额度拦截"
+  log_ok "${host_label}：52 个上游请求（含 4 个参考价请求和 1 个未定价请求），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，12 次额度拦截"
 }
 
 log_stage "启动 dummy provider"

@@ -84,7 +84,7 @@ plugins:
       priority: 100 # 插件调度优先级，数值越大越优先
       debug: false # 是否记录 debug 日志，例如路由日志、匹配参考价日志
       codex_fast_mode_billing: false # 开启后，Codex 的 priority 请求按 2.5 倍计费
-      allow_unpriced_models: false # 允许未定价模型请求，保留用量但按 0 美元记账；默认关闭
+      allow_unpriced_models: false # 放行未定价模型的请求，用量按 0 费用记录
       mask_api_key_view_emails: false # 对 API Key 查询页面返回的邮箱进行掩码脱敏
       allow_api_key_quota_reset: false # 允许 API Key 用户重置可访问的 Codex 和 Claude 认证文件额度，消耗上游重置次数
       state_file: "plugins/cpa-key-billing-state-v1.db"
@@ -93,8 +93,6 @@ plugins:
         session-affinity: false # 同一会话优先复用可用的上游凭证
         session-affinity-ttl: "1h" # 会话绑定的空闲过期时间
 ```
-
-可在 CPA 管理面板的本插件配置中开启 `allow_unpriced_models`，或将上面的配置项设为 `true` 后重新加载配置。
 
 路由规则对上游凭证设有限制时，插件按上述 `routing` 配置调度；其他请求由 CPA 调度。插件配置与 CPA 的全局调度配置相互独立。
 
@@ -130,7 +128,7 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui#account
 - 订阅计划可设置多个自定义额度窗口，每个窗口可单独或组合限制金额、Token、请求数。
 - 每个 API Key 独立记账。独立周期从首次放行开始；统一周期可为各窗口指定下次开始时间，所有绑定 Key 按固定时间重置。
 - 手动重置额度时，统一周期的重置时间保持不变；独立周期在下一次放行时重新开始。
-- 自定义价优先于 models.dev 参考价。没有任何可用价格时，默认拒绝新请求；开启 `allow_unpriced_models` 后可放行未定价模型，仍保留用量和失败详情，但金额按 0 美元记录。模型权限、凭证路由、并发和订阅额度限制仍生效，有效 Token 和成功请求次数仍计入对应配额；价格存储读取错误仍返回 `503`。
+- 自定义价优先于 models.dev 参考价。没有任何可用价格时拒绝新请求；开启 `allow_unpriced_models` 后放行，用量照常记录，费用为 0，其他额度和路由限制不变。
 - 请求事件保留最近 365 天。
 
 ## 路由规则

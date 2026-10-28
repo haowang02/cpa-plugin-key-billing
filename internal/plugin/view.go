@@ -75,7 +75,7 @@ func (a *App) apiKeyViewAccess(req ManagementRequest) (viewAccess, bool) {
 		return viewAccess{}, false
 	}
 	view, tracked := a.store.KeyViewForScope(scope)
-	return viewAccess{APIKey: true, Scope: scope, Tracked: tracked, MaskEmails: a.store.MaskAPIKeyViewEmails(), Key: view}, true
+	return viewAccess{APIKey: true, Scope: scope, Tracked: tracked, MaskEmails: a.store.Config().MaskAPIKeyViewEmails, Key: view}, true
 }
 
 func (a *App) routeResource(req ManagementRequest, suffix string) ManagementResponse {

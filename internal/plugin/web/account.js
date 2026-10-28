@@ -164,6 +164,11 @@ function renderAccountModel(model) {
     el("b", { class: "mono account-model-name", "data-tip": model, "data-tip-overflow": "" }, model),
     price
       ? el("div", { class: "account-model-price-list" }, priceRows.map(priceRow))
-      : el("span", { class: "muted small", text: m("ui.no_price_configured_currently_unavailable") })
+      : el("span", {
+          class: "muted small",
+          text: resources.account.profile.value.can_use_unpriced_models
+            ? m("ui.no_price_configured_not_billed")
+            : m("ui.no_price_configured_currently_unavailable")
+        })
   );
 }

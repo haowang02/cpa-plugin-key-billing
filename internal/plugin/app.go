@@ -170,7 +170,7 @@ func (a *App) registration() Registration {
 					Name:        "allow_unpriced_models",
 					Default:     defaults.AllowUnpricedModels,
 					Type:        "boolean",
-					Description: "Allow requests without model pricing; record their usage at zero cost while retaining quota and routing limits",
+					Description: "Admit requests for models without a price and record their usage at zero cost",
 				},
 				{
 					Name:        "mask_api_key_view_emails",

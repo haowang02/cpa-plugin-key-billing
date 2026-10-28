@@ -90,7 +90,7 @@ plugins:
       priority: 100 # Plugin scheduling priority; higher values take precedence
       debug: false # Include routing and reference-price matching in debug logs
       codex_fast_mode_billing: false # Charge 2.5× for Codex priority requests
-      allow_unpriced_models: false # Allow unpriced models and retain usage at zero USD; disabled by default
+      allow_unpriced_models: false # Admit requests for unpriced models and record their usage at zero cost
       mask_api_key_view_emails: false # Mask email addresses in API key account views
       allow_api_key_quota_reset: false # Allow API key users to reset accessible Codex and Claude auth file quotas using upstream resets
       state_file: "plugins/cpa-key-billing-state-v1.db"
@@ -99,8 +99,6 @@ plugins:
         session-affinity: false # Reuse an available upstream credential for the same session
         session-affinity-ttl: "1h" # Idle timeout for session bindings
 ```
-
-Enable `allow_unpriced_models` in this plugin's configuration in the CPA management panel, or set the option above to `true` and reload the configuration.
 
 For requests with upstream credential restrictions, the plugin selects from the allowed credentials using the `routing` configuration above. Requests without upstream credential restrictions are handed to CPA for scheduling. The plugin's scheduling configuration is independent of CPA's global `routing` configuration.
 
@@ -136,7 +134,7 @@ http(s)://<CLIProxyAPI address>/v0/resource/plugins/cpa-key-billing/ui#account
 - A plan can contain multiple quota windows. Each window can limit spending in USD, tokens, requests, or any combination of the three.
 - Usage is tracked separately for each key, even when keys share a plan. Independent cycles start when the first request is admitted. Shared cycles use the configured schedule for every bound key.
 - A manual quota reset keeps shared reset times unchanged. Independent cycles restart when the next request is admitted.
-- Custom model prices take precedence over models.dev reference prices. Requests without any available price are rejected by default. Enable `allow_unpriced_models` to admit them while retaining usage and failure details at zero USD. Model permissions, credential routing, concurrency, and subscription limits still apply; valid token usage and successful requests still count toward their quotas. Price storage read errors still return `503`.
+- Custom model prices take precedence over models.dev reference prices. Requests without any available price are rejected; with `allow_unpriced_models`, they are admitted and their usage is recorded at zero cost, while every other quota and routing limit still applies.
 - Request events are retained for 365 days.
 
 ## Routing rules

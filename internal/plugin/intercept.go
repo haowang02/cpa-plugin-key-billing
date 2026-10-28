@@ -138,7 +138,7 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	if priceErr != nil {
 		return OKEnvelope(priceRefusal(req.SourceFormat, "price_storage_error", "Failed to load model pricing. Please try again later."))
 	}
-	if price.Source == billing.PriceSourceNone && !a.store.AllowUnpricedModels() {
+	if price.Source == billing.PriceSourceNone && !a.store.Config().AllowUnpricedModels {
 		return OKEnvelope(priceRefusal(req.SourceFormat, "model_price_error", fmt.Sprintf("Model %s has no configured price", model)))
 	}
 	if helper {
