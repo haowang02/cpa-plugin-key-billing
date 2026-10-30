@@ -191,6 +191,12 @@ func (a *App) registration() Registration {
 					Description: "Allow API key users to reset Codex and Claude auth file quotas using upstream resets",
 				},
 				{
+					Name:        "request_event_retention_days",
+					Default:     defaults.RequestEventRetentionDays,
+					Type:        "integer",
+					Description: "Days to keep request and error events",
+				},
+				{
 					Name:        "state_file",
 					Default:     defaults.StateFile,
 					Type:        "string",

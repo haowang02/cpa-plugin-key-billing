@@ -12,16 +12,33 @@ import (
 
 const DefaultStateFile = "plugins/cpa-key-billing-state-v1.db"
 
+const maxRetentionDays = RetentionDays((1<<63 - 1) / (24 * time.Hour))
+
 type Config struct {
-	Enabled               bool          `yaml:"enabled"`
-	Debug                 bool          `yaml:"debug"`
-	StateFile             string        `yaml:"state_file"`
-	CodexFastModeBilling  bool          `yaml:"codex_fast_mode_billing"`
-	AllowUnpricedModels   bool          `yaml:"allow_unpriced_models"`
-	CNYPerUSD             ExchangeRate  `yaml:"cny_per_usd"`
-	MaskAPIKeyViewEmails  bool          `yaml:"mask_api_key_view_emails"`
-	AllowAPIKeyQuotaReset bool          `yaml:"allow_api_key_quota_reset"`
-	Routing               RoutingConfig `yaml:"routing"`
+	Enabled                   bool          `yaml:"enabled"`
+	Debug                     bool          `yaml:"debug"`
+	StateFile                 string        `yaml:"state_file"`
+	CodexFastModeBilling      bool          `yaml:"codex_fast_mode_billing"`
+	RequestEventRetentionDays RetentionDays `yaml:"request_event_retention_days"`
+	AllowUnpricedModels       bool          `yaml:"allow_unpriced_models"`
+	CNYPerUSD                 ExchangeRate  `yaml:"cny_per_usd"`
+	MaskAPIKeyViewEmails      bool          `yaml:"mask_api_key_view_emails"`
+	AllowAPIKeyQuotaReset     bool          `yaml:"allow_api_key_quota_reset"`
+	Routing                   RoutingConfig `yaml:"routing"`
+}
+
+type RetentionDays int
+
+func (d *RetentionDays) UnmarshalYAML(node *yaml.Node) error {
+	if node.Tag != "!!int" {
+		return fmt.Errorf("request_event_retention_days must be an integer from 1 to 106751")
+	}
+	var value int
+	if err := node.Decode(&value); err != nil {
+		return err
+	}
+	*d = RetentionDays(value)
+	return nil
 }
 
 type RoutingConfig struct {
@@ -32,10 +49,11 @@ type RoutingConfig struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Enabled:   false,
-		StateFile: DefaultStateFile,
-		CNYPerUSD: DefaultExchangeRate,
-		Routing:   RoutingConfig{Strategy: "round-robin", SessionAffinityTTL: "1h"},
+		Enabled:                   false,
+		StateFile:                 DefaultStateFile,
+		RequestEventRetentionDays: 365,
+		CNYPerUSD:                 DefaultExchangeRate,
+		Routing:                   RoutingConfig{Strategy: "round-robin", SessionAffinityTTL: "1h"},
 	}
 }
 
@@ -73,6 +91,9 @@ func (c Config) normalized() (Config, error) {
 	if c.StateFile == "" {
 		c.StateFile = DefaultStateFile
 	}
+	if c.RequestEventRetentionDays < 1 || c.RequestEventRetentionDays > maxRetentionDays {
+		return Config{}, fmt.Errorf("request_event_retention_days must be an integer from 1 to 106751")
+	}
 	if !c.CNYPerUSD.valid() {
 		return Config{}, fmt.Errorf("cny_per_usd must be a positive number")
 	}
@@ -98,4 +119,11 @@ func (c Config) normalized() (Config, error) {
 		c.Routing.SessionAffinityTTL = "1s"
 	}
 	return c, nil
+}
+
+func (d RetentionDays) cutoff(now time.Time) time.Time {
+	if d == 0 {
+		return time.Time{}
+	}
+	return now.Add(-time.Duration(d) * 24 * time.Hour)
 }

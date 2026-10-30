@@ -94,6 +94,7 @@ var managementEndpoints = []managementEndpoint{
 	{http.MethodGet, routeEvents, "List request events with pagination", func(a *App, req ManagementRequest) ManagementResponse {
 		return a.listRequestEvents(req, viewAccess{})
 	}},
+	{http.MethodDelete, routeEvents, "Clear request events and their associated errors", (*App).clearRequestEvents},
 	{http.MethodGet, routeErrors, "List error events with pagination", func(a *App, req ManagementRequest) ManagementResponse {
 		return a.listRequestErrors(req, viewAccess{})
 	}},

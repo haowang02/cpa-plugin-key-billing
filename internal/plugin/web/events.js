@@ -252,3 +252,40 @@ for (const account of [false, true]) {
   bindSharedTimeControls(account);
   updateSharedTimeControl(account);
 }
+
+function updateEventCleanupRange() {
+  const custom = $("events-clear-range").value === "custom";
+  $("events-clear-days-field").classList.toggle("hidden", !custom);
+  $("events-clear-days").disabled = !custom;
+  if (custom) $("events-clear-days").focus();
+}
+
+$("events-clear-range").replaceChildren(
+  el("option", { value: "all" }, m("ui.all_request_events")),
+  ...[1, 7, 30, 90, 180, 365].map((days) => el("option", { value: days }, m("ui.events_older_than_days", { count: days }))),
+  el("option", { value: "custom" }, m("ui.custom"))
+);
+setLabeledActionIcon($("events-clear"), "trash-2", m("ui.data_cleanup"));
+$("events-clear-range").onchange = updateEventCleanupRange;
+$("events-clear").onclick = () =>
+  openEditor("events-clear-dialog", null, () => {
+    $("events-clear-range").value = "all";
+    $("events-clear-days").value = "30";
+    updateEventCleanupRange();
+  });
+$("events-clear-confirm").onclick = () => {
+  const range = $("events-clear-range").value;
+  const input = $("events-clear-days");
+  if (range === "custom" && !input.reportValidity()) return;
+  const days = range === "all" ? 0 : Number(range === "custom" ? input.value : range);
+  return submitEditor(
+    "events-clear-dialog",
+    async () => {
+      const result = await plugin("DELETE", "/events", { older_than_days: days }, { command: true });
+      resetEventHistory();
+      notify(m("ui.cleared_request_events", { v0: int(result.cleared) }));
+      await loadPage(false);
+    },
+    m("ui.cleaning")
+  );
+};

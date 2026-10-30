@@ -2131,6 +2131,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             item["disabled"] = bool(body.get("disabled"))
             self.send_json(200, {"status": "ok", "disabled": item["disabled"]})
+        elif route == ("DELETE", f"{API_BASE}/events"):
+            body = json.loads(request_body or b"{}")
+            days = body.get("older_than_days", 0)
+            if type(days) is not int or not 0 <= days <= 106751:
+                self.send_json(400, {"error": {"message": "Cleanup age must be an integer from 0 to 106751"}})
+                return
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days else None
+            cleared = len(REQUEST_EVENTS)
+            REQUEST_EVENTS[:] = [entry for entry in REQUEST_EVENTS
+                                 if cutoff and datetime.fromisoformat(entry["at"].replace("Z", "+00:00")) >= cutoff]
+            retained_ids = {entry["id"] for entry in REQUEST_EVENTS}
+            ERRORS[:] = [entry for entry in ERRORS if entry["id"] in retained_ids]
+            self.send_json(200, {"cleared": cleared - len(REQUEST_EVENTS)})
         elif route == ("DELETE", f"{API_BASE}/plugin-logs"):
             cleared = len(PLUGIN_LOGS)
             PLUGIN_LOGS.clear()

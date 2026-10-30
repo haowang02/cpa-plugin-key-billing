@@ -90,8 +90,19 @@ func (s *Store) Configure(cfg Config) error {
 	if currentPath == path {
 		s.mu.Lock()
 		changed := s.cfg != normalized
+		retentionChanged := s.cfg.RequestEventRetentionDays != normalized.RequestEventRetentionDays
+		if retentionChanged {
+			if err := s.flushChanges(Changes{RequestEventCutoff: normalized.RequestEventRetentionDays.cutoff(s.Now())}); err != nil {
+				s.mu.Unlock()
+				s.recordWriteError(err)
+				return fmt.Errorf("Apply request event retention: %w", err)
+			}
+		}
 		s.cfg = normalized
 		s.mu.Unlock()
+		if retentionChanged {
+			s.recordWriteSuccess()
+		}
 		if changed {
 			s.AddPluginLog(PluginLogInfo, "Configuration updated: %s", normalized.describe())
 		}
@@ -104,7 +115,7 @@ func (s *Store) Configure(cfg Config) error {
 		return errOpen
 	}
 	now := s.Now()
-	snapshot, errLoad := repo.Load(now.Add(-RequestEventRetention), now.Add(-PluginLogRetention))
+	snapshot, errLoad := repo.Load(normalized.RequestEventRetentionDays.cutoff(now), now.Add(-PluginLogRetention))
 	if errLoad != nil {
 		s.closeRepository(repo)
 		return errLoad
@@ -176,6 +187,19 @@ func (s *Store) read(fn func(*State)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	fn(s.state)
+}
+
+// Called with mu held; only successful writes leave the pending queue.
+func (s *Store) flushChanges(current Changes) error {
+	changes := s.dirty.merge(current)
+	if s.repo == nil || changes.empty() {
+		return nil
+	}
+	if err := s.repo.Save(s.state, changes); err != nil {
+		return err
+	}
+	s.dirty = Changes{}
+	return nil
 }
 
 // Usage and cycle settlement stay live when persistence fails; their pending

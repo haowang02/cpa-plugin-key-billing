@@ -89,6 +89,7 @@ plugins:
       cny_per_usd: 7 # 汇率：1 美元兑换的人民币数，用于换算不同币种的金额
       mask_api_key_view_emails: false # 对 API Key 查询页面返回的邮箱进行掩码脱敏
       allow_api_key_quota_reset: false # 允许 API Key 用户重置可访问的 Codex 和 Claude 认证文件额度，消耗上游重置次数
+      request_event_retention_days: 365 # 请求事件及关联错误事件的保留天数，正整数
       state_file: "plugins/cpa-key-billing-state-v1.db"
       routing:
         strategy: "round-robin" # round-robin、weighted-round-robin、fill-first
@@ -133,7 +134,7 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui#account
 - 自定义价优先于 models.dev 参考价。没有任何可用价格时拒绝新请求；开启 `allow_unpriced_models` 后放行，用量照常记录，费用为 0，其他额度和路由限制不变。
 - 自定义价和订阅计划各自选择美元或人民币，内置价和参考价为美元。每笔请求按所用价格的币种记账；订阅额度按计划币种扣减，其他币种的消费按 `cny_per_usd` 换算。修改汇率或计划币种不会改写已记录的金额，额度用量按当前汇率重新换算。
 - 分析、请求事件、认证文件和 AI 提供商页面可选择显示币种。默认的“自适应”使每项统计保留其消费的币种，混合多种币种时按美元显示。
-- 请求事件保留最近 365 天。
+- 请求事件及关联错误事件默认保留最近 365 天，可通过 `request_event_retention_days` 配置（1–106751 天）；缩短期限会清除超期历史。请求事件页面支持清理全部数据或指定天数以前的数据；清理会影响历史统计，不会重置订阅额度已用量。
 
 ## 路由规则
 

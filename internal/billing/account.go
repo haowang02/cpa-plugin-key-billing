@@ -115,7 +115,7 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 		}
 		changes := Changes{
 			Keys:               changedKeys,
-			RequestEventCutoff: at.Add(-RequestEventRetention),
+			RequestEventCutoff: s.cfg.RequestEventRetentionDays.cutoff(at),
 		}
 		if failure == nil {
 			changes.NormalRequestEvents = []RequestEvent{entry}

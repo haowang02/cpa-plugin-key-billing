@@ -607,5 +607,9 @@
   "A credential category cannot be both allowed and denied": {
     "key": "backend.category_permission_conflict",
     "formats": []
+  },
+  "Cleanup age must be an integer from 0 to 106751": {
+    "key": "backend.cleanup_age_must_be_an_integer",
+    "formats": []
   }
 }

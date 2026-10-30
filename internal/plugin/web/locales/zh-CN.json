@@ -764,5 +764,18 @@
   "ui.weight_help": "调度权重说明",
   "ui.weight_summary": "启用加权轮询后生效。",
   "ui.weight_hint": "默认值为 1；小于或等于 0 时不参与加权调度；最大值为 1,000,000。填入后打开加权轮询设置即可生效。",
-  "ui.weight_invalid": "调度权重必须为整数，且不能超过 1,000,000。"
+  "ui.weight_invalid": "调度权重必须为整数，且不能超过 1,000,000。",
+  "ui.data_cleanup": "数据清理",
+  "ui.event_cleanup_hint": "清理所有 API Key 的所选记录及关联错误，无法恢复。",
+  "ui.cleanup_range": "清理范围",
+  "ui.all_request_events": "全部记录",
+  "ui.cleanup_age_days": "自定义天数",
+  "ui.confirm_cleanup": "清理",
+  "ui.cleared_request_events": "已清理 {v0} 条请求事件",
+  "backend.cleanup_age_must_be_an_integer": "清理天数须为 0–106751 的整数，0 表示全部",
+  "ui.clear_request_events": "清理请求事件",
+  "ui.days_ago": "天前",
+  "ui.cleaning": "清理中…",
+  "ui.events_older_than_days": "{count} 天前",
+  "ui.events_older_than_days_one": "{count} 天前"
 }

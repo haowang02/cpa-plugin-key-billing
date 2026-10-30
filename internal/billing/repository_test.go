@@ -47,20 +47,9 @@ func (r *memoryRepository) Load(requestCutoff, pluginCutoff time.Time) (Snapshot
 		r.state = NewState()
 	}
 	if !requestCutoff.IsZero() {
-		kept := r.requestEvents[:0]
-		for _, event := range r.requestEvents {
-			if !event.At.Before(requestCutoff) {
-				kept = append(kept, event)
-			}
+		if _, err := r.ClearRequestEvents(requestCutoff); err != nil {
+			return Snapshot{}, err
 		}
-		r.requestEvents = kept
-		keptErrors := r.requestErrors[:0]
-		for _, event := range r.requestErrors {
-			if !event.Event.At.Before(requestCutoff) {
-				keptErrors = append(keptErrors, event)
-			}
-		}
-		r.requestErrors = keptErrors
 	}
 	r.pluginLogs = keptPluginLogs(r.pluginLogs, pluginCutoff)
 	return Snapshot{State: r.state, RequestEventCount: len(r.requestEvents) + len(r.requestErrors)}, nil
@@ -86,6 +75,16 @@ func (r *memoryRepository) PluginLogsPage(query PluginLogQuery) (PluginLogPage, 
 		}
 	}
 	return page, nil
+}
+
+func (r *memoryRepository) ClearRequestEvents(before time.Time) (int, error) {
+	if r.fail != nil {
+		return 0, r.fail
+	}
+	count := len(r.requestEvents) + len(r.requestErrors)
+	r.requestEvents = slices.DeleteFunc(r.requestEvents, func(event RequestEvent) bool { return before.IsZero() || event.At.Before(before) })
+	r.requestErrors = slices.DeleteFunc(r.requestErrors, func(event RequestErrorEvent) bool { return before.IsZero() || event.Event.At.Before(before) })
+	return count - len(r.requestEvents) - len(r.requestErrors), nil
 }
 
 func (r *memoryRepository) ClearPluginLogs() (int, error) {
@@ -123,21 +122,8 @@ func (r *memoryRepository) Save(state *State, changes Changes) error {
 	if changes.RequestEventCutoff.IsZero() {
 		return nil
 	}
-	kept := r.requestEvents[:0]
-	for _, event := range r.requestEvents {
-		if !event.At.Before(changes.RequestEventCutoff) {
-			kept = append(kept, event)
-		}
-	}
-	r.requestEvents = kept
-	keptErrors := r.requestErrors[:0]
-	for _, event := range r.requestErrors {
-		if !event.Event.At.Before(changes.RequestEventCutoff) {
-			keptErrors = append(keptErrors, event)
-		}
-	}
-	r.requestErrors = keptErrors
-	return nil
+	_, err := r.ClearRequestEvents(changes.RequestEventCutoff)
+	return err
 }
 
 // Filtering and paging are covered by the SQLite repository tests.

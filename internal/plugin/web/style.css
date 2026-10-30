@@ -347,6 +347,12 @@ button.primary:hover:not(:disabled) {
   border-color: var(--primary-hover);
   color: var(--primary-contrast);
 }
+button.primary.danger { background: var(--error-color); border-color: var(--error-color); color: #fff; }
+button.primary.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error-color) 88%, #000);
+  border-color: var(--error-color);
+  color: #fff;
+}
 button.danger { color: var(--error-color); }
 button.danger:hover:not(:disabled) { border-color: var(--error-color); }
 button.link { min-height: 0; border: none; background: none; padding: 2px 4px; color: var(--primary-active); }
@@ -1458,6 +1464,14 @@ dialog {
 dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
 .selection-section { display: grid; gap: 8px; margin-top: 20px; }
+.event-cleanup-dialog { padding: 22px; }
+.event-cleanup-dialog h2 { margin: 0 0 20px; }
+.event-cleanup-fields { display: grid; gap: 10px; }
+.event-cleanup-age { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); }
+.event-cleanup-age input { flex: 1; min-width: 0; }
+.event-cleanup-age > span { flex: none; }
+.event-cleanup-dialog > p { margin: 12px 0 0; line-height: 1.6; }
+.event-cleanup-dialog .dialog-actions { margin-top: 22px; }
 .settings-dialog { width: min(620px, calc(100vw - 32px)); padding: 22px; }
 #credential-dialog { width: min(460px, calc(100vw - 32px)); }
 #credential-dialog label.field { gap: 7px; }
@@ -2214,6 +2228,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   body:not(.embedded) .app-header, body:not(.embedded) .app-header .app-title { gap: 7px; }
   body:not(.embedded) .standalone-actions .icon-action { width: 34px; height: 34px; min-width: 34px; min-height: 34px; }
 }
+.event-actions { display: flex; align-items: center; gap: 8px; }
 .labeled-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
 .labeled-icon-button .lucide-icon { width: 15px; height: 15px; color: var(--text-tertiary); }
 .privacy-mask-button[aria-pressed="true"], .privacy-mask-button[aria-pressed="true"] .lucide-icon { color: var(--primary-active); }
@@ -2354,19 +2369,21 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .page-tab-actions > .native-select > .native-select-icon + select { padding-left: 30px; }
   .time-range-trigger { --button-padding-inline: 8px; gap: 6px; }
   .time-range-chevron { width: 16px; height: 16px; margin-left: 0; }
-  .page-tab-actions > .labeled-icon-button { --button-padding-inline: 9px; }
+  .page-tab-actions .labeled-icon-button { --button-padding-inline: 9px; }
   /* Wrapping chips need the full width; a short value still fits beside its label. */
   .settings-entry-field:has(.settings-chip-list) { display: grid; gap: 4px; }
   .settings-entry-field:has(.settings-chip-list) > .settings-entry-label { max-width: none; }
 }
 /* The page actions share one line until they move to the grid below, so their buttons keep only icons. */
 @media (min-width: 521px) and (max-width: 640px) {
-  .page-tab-actions > .labeled-icon-button > .labeled-icon-text { display: none; }
+  .page-tab-actions .labeled-icon-button > .labeled-icon-text { display: none; }
 }
 @media (max-width: 520px) {
   .page-tab-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-tab-actions > :is(.native-select, .time-range-control, button) { width: 100%; max-width: none; }
   .page-tab-actions > .native-select > select { width: 100%; }
+  .page-tab-actions > .event-actions { grid-column: 1 / -1; }
+  .event-actions > button { flex: 1; min-width: 0; }
   /* The controls pair up; without a key filter, the time range takes a line of its own. */
   .page-tab-actions:not(.has-key-filter) > .time-range-control { grid-column: 1 / -1; }
   .time-range-trigger { width: 100%; }

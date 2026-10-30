@@ -393,7 +393,11 @@ function updatePageControls(account, page) {
   $(prefix + "auto-refresh-control").classList.toggle("hidden", !page.autoRefresh);
   $(prefix + "request-event-columns").classList.toggle("hidden", !page.eventColumns);
   $(prefix + "events-export").classList.toggle("hidden", !page.exportEvents);
-  if (!account) $("shared-key-filter").classList.toggle("hidden", !keyed);
+  $(prefix + "event-actions").classList.toggle("hidden", !page.eventColumns && !page.exportEvents);
+  if (!account) {
+    $("shared-key-filter").classList.toggle("hidden", !keyed);
+    $("events-clear").classList.toggle("hidden", !page.cleanupEvents);
+  }
   if (!page.timeRange) closeSharedTimePopover(account);
   updateRefreshControls();
   schedulePageTabLayout();

@@ -636,6 +636,7 @@ function createPages(role) {
       currency: true,
       autoRefresh: true,
       eventColumns: true,
+      cleanupEvents: !account,
       exportEvents: true,
       list: pagedLists[role].events,
       sections: [keyedSection(["events"], () => renderRequestEvents(account))]
@@ -710,6 +711,15 @@ function createPages(role) {
   return result;
 }
 const pages = { admin: createPages("admin"), account: createPages("account") };
+
+function resetEventHistory() {
+  eventKeysQuery.clear();
+  for (const role of ["admin", "account"]) {
+    for (const kind of ["events", "errors"]) pagedLists[role][kind].reset();
+    for (const query of [analysisQueries[role], speedQueries[role], authFilesQueries[role], aiProvidersQueries[role]]) query.clear();
+    modelUsages[role].clear();
+  }
+}
 
 function currentPage() { return currentRole ? pages[currentRole][activeTab(currentRole === "account")] : null; }
 

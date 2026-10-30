@@ -95,6 +95,7 @@ plugins:
       cny_per_usd: 7 # Exchange rate in CNY per USD, used to convert amounts between currencies
       mask_api_key_view_emails: false # Mask email addresses in API key account views
       allow_api_key_quota_reset: false # Allow API key users to reset accessible Codex and Claude auth file quotas using upstream resets
+      request_event_retention_days: 365 # Retention in days for request events and their associated errors, a positive integer
       state_file: "plugins/cpa-key-billing-state-v1.db"
       routing:
         strategy: "round-robin" # round-robin, weighted-round-robin, fill-first
@@ -139,7 +140,7 @@ http(s)://<CLIProxyAPI address>/v0/resource/plugins/cpa-key-billing/ui#account
 - Custom model prices take precedence over models.dev reference prices. Requests without any available price are rejected; with `allow_unpriced_models`, they are admitted and their usage is recorded at zero cost, while every other quota and routing limit still applies.
 - Each custom price and subscription plan is in USD or CNY; built-in and reference prices are in USD. A request's cost stays in the currency of the price it used. A plan's spending quota counts in the plan's currency and converts other currencies at `cny_per_usd`. Changing the rate or a plan's currency never rewrites recorded amounts; quota usage converts at the current rate.
 - The analysis, request event, auth file, and AI provider pages can show amounts in a chosen currency. The default, Auto, keeps each figure in the currency it was charged in and shows a mix of currencies in USD.
-- Request events are retained for 365 days.
+- Request events and their associated errors are retained for 365 days by default. Configure `request_event_retention_days` (1–106751 days) to change this; shortening it deletes history outside the new window. The request events page can clear all events or events older than a specified number of days; cleanup affects historical statistics and preserves subscription quota usage.
 
 ## Routing rules
 

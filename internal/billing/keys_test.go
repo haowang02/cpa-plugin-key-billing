@@ -95,7 +95,7 @@ func TestDeletedKeyRetainsUsageAndIdentity(t *testing.T) {
 	if rows := mustRequestEvents(t, store, RequestEventQuery{}).Entries; len(rows) != 1 || rows[0].Preview != PreviewKey(deletedKeyPlaintext) {
 		t.Fatalf("deleted key lost its historical identity: %+v", rows)
 	}
-	clock = now.Add(RequestEventRetention + time.Hour)
+	clock = now.Add(365*24*time.Hour + time.Hour)
 	if _, err := store.SyncKeys([]string{keptKeyPlaintext}, false); err != nil {
 		t.Fatal(err)
 	}

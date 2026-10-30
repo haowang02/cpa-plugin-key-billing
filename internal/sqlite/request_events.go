@@ -68,14 +68,34 @@ func (d *DB) requestEventCount() (int, error) {
 	return count, nil
 }
 
+func (d *DB) ClearRequestEvents(before time.Time) (int, error) {
+	return clearRequestEvents(d.db.Exec, before)
+}
+
+func clearRequestEvents(exec execer, before time.Time) (int, error) {
+	query := "DELETE FROM request_events"
+	var args []any
+	if !before.IsZero() {
+		query += " WHERE at < ?"
+		args = append(args, nanos(before))
+	}
+	result, err := exec(query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("Clear request events: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("Count cleared request events: %w", err)
+	}
+	return int(count), nil
+}
+
 func pruneRequestEvents(exec execer, cutoff time.Time) error {
 	if cutoff.IsZero() {
 		return nil
 	}
-	if _, errPrune := exec("DELETE FROM request_events WHERE at < ?", nanos(cutoff)); errPrune != nil {
-		return fmt.Errorf("Clean up request events: %w", errPrune)
-	}
-	return nil
+	_, err := clearRequestEvents(exec, cutoff)
+	return err
 }
 
 // Model filters and their expression index must use the same expression.

@@ -11,6 +11,7 @@ type Repository interface {
 
 	EventKeys(from, to, since time.Time) ([]EventKey, error)
 	RequestEvents(query RequestEventQuery, since time.Time) (RequestEventView, error)
+	ClearRequestEvents(before time.Time) (int, error)
 	RequestErrors(query RequestErrorQuery, since time.Time) (RequestErrorView, error)
 	Analysis(query RequestEventQuery, rate ExchangeRate, since time.Time) (AnalysisView, error)
 	AnalysisSpeed(query RequestEventQuery, since time.Time) (AnalysisSpeedView, error)

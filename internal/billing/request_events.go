@@ -1,6 +1,9 @@
 package billing
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // ExecutionMetadata contains host-reported execution identity. CredentialRef is
 // a plugin fingerprint, and BaseURL omits user info, query strings and fragments.
@@ -56,24 +59,6 @@ type RequestEvent struct {
 	// ReasoningTokens is already included in Cost.BilledOutputTokens.
 	ReasoningTokens int64        `json:"reasoning_tokens,omitempty"`
 	Quota           *QuotaReport `json:"-"`
-}
-
-const RequestEventRetention = 365 * 24 * time.Hour
-
-func usageTimeRange(from, to, now time.Time) (time.Time, time.Time, error) {
-	if to.IsZero() || to.After(now) {
-		to = now
-	}
-	if from.IsZero() {
-		from = to.Add(-30 * 24 * time.Hour)
-	}
-	if cutoff := now.Add(-RequestEventRetention); from.Before(cutoff) {
-		from = cutoff
-	}
-	if !from.Before(to) {
-		return time.Time{}, time.Time{}, invalidf("The time range is outside the retained request history")
-	}
-	return from, to, nil
 }
 
 // Source uses the event's account snapshot; key labels use their current values.
@@ -139,7 +124,7 @@ type RequestEventStatusCounts struct {
 
 func (s *Store) RequestEvents(query RequestEventQuery) (RequestEventView, error) {
 	view, err := withRepository(s, func(repo Repository) (RequestEventView, error) {
-		return repo.RequestEvents(query, s.Now().Add(-RequestEventRetention))
+		return repo.RequestEvents(query, s.cfg.RequestEventRetentionDays.cutoff(s.Now()))
 	})
 	if view.Entries == nil {
 		view.Entries = []RequestEventRow{}
@@ -158,6 +143,31 @@ type EventKey struct {
 
 func (s *Store) EventKeys(from, to time.Time) ([]EventKey, error) {
 	return withRepository(s, func(repo Repository) ([]EventKey, error) {
-		return repo.EventKeys(from, to, s.Now().Add(-RequestEventRetention))
+		return repo.EventKeys(from, to, s.cfg.RequestEventRetentionDays.cutoff(s.Now()))
 	})
+}
+
+func (s *Store) ClearRequestEvents(days RetentionDays) (int, error) {
+	if days < 0 || days > maxRetentionDays {
+		return 0, invalidf("Cleanup age must be an integer from 0 to 106751")
+	}
+	before := days.cutoff(s.Now())
+	cleared, err := func() (int, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.repo == nil {
+			return 0, nil
+		}
+		// Pending usage must reach storage before deletion so retries cannot restore it.
+		if err := s.flushChanges(Changes{}); err != nil {
+			return 0, fmt.Errorf("Save pending usage before clearing request events: %w", err)
+		}
+		return s.repo.ClearRequestEvents(before)
+	}()
+	if err != nil {
+		s.recordWriteError(err)
+	} else {
+		s.recordWriteSuccess()
+	}
+	return cleared, err
 }

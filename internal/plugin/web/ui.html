@@ -100,8 +100,11 @@
               <span class="native-select-icon" data-lucide-icon="timer" aria-hidden="true"></span>
               <select id="auto-refresh" aria-label="Auto refresh interval" data-i18n-aria-label="ui.auto_refresh_interval"></select>
             </span>
-            <button id="request-event-columns" class="labeled-icon-button hidden" type="button" aria-haspopup="dialog" data-i18n="ui.columns">Columns</button>
-            <button id="events-export" class="labeled-icon-button hidden" type="button" data-i18n="ui.export">Export</button>
+            <div id="event-actions" class="event-actions hidden">
+              <button id="request-event-columns" class="labeled-icon-button hidden" type="button" aria-haspopup="dialog" data-i18n="ui.columns">Columns</button>
+              <button id="events-export" class="labeled-icon-button hidden" type="button" data-i18n="ui.export">Export</button>
+              <button id="events-clear" class="labeled-icon-button hidden" type="button" aria-haspopup="dialog" data-i18n="ui.data_cleanup">Cleanup</button>
+            </div>
           </div>
         </div>
         <div id="shared-time-backdrop" class="time-range-backdrop hidden"></div>
@@ -405,8 +408,10 @@
                 <span class="native-select-icon" data-lucide-icon="timer" aria-hidden="true"></span>
                 <select id="account-auto-refresh" aria-label="Auto refresh interval" data-i18n-aria-label="ui.auto_refresh_interval"></select>
               </span>
-              <button id="account-request-event-columns" class="labeled-icon-button hidden" type="button" aria-haspopup="dialog" data-i18n="ui.columns">Columns</button>
-              <button id="account-events-export" class="labeled-icon-button hidden" type="button" data-i18n="ui.export">Export</button>
+              <div id="account-event-actions" class="event-actions hidden">
+                <button id="account-request-event-columns" class="labeled-icon-button hidden" type="button" aria-haspopup="dialog" data-i18n="ui.columns">Columns</button>
+                <button id="account-events-export" class="labeled-icon-button hidden" type="button" data-i18n="ui.export">Export</button>
+              </div>
             </div>
           </div>
           <div id="account-shared-time-backdrop" class="time-range-backdrop hidden"></div>
@@ -529,7 +534,7 @@
     <footer class="page-footer">
       <span>© 2026 <a href="https://github.com/haowang02/cpa-plugin-key-billing" target="_blank" rel="noopener noreferrer">CPA Key Billing</a></span>
       <span>&thinsp;·&thinsp;<a href="https://github.com/haowang02/cpa-plugin-key-billing/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" data-i18n="ui.license">License</a></span>
-      <span>&thinsp;·&thinsp;<span data-i18n="ui.version">Version</span>: v1.4.13</span>
+      <span>&thinsp;·&thinsp;<span data-i18n="ui.version">Version</span>: v1.4.14</span>
     </footer>
 
     <div id="notice" class="notice" popover="manual"></div>
@@ -571,6 +576,26 @@
       <div id="action-content" class="muted small" style="white-space: pre-line"></div>
       <input id="action-input" class="dialog-input" />
       <div class="row dialog-actions"> <button id="action-cancel" data-i18n="ui.cancel">Cancel</button> <button id="action-confirm" class="primary" data-i18n="ui.confirm">Confirm</button> </div>
+    </dialog>
+
+    <dialog id="events-clear-dialog" class="event-cleanup-dialog" aria-labelledby="events-clear-title" aria-describedby="events-clear-hint">
+      <h2 id="events-clear-title" data-i18n="ui.clear_request_events">Clear request events</h2>
+      <div class="editor-state notice hidden"></div>
+      <div class="event-cleanup-fields">
+        <label class="field">
+          <span data-i18n="ui.cleanup_range">Cleanup range</span>
+          <span class="native-select"><select id="events-clear-range"></select></span>
+        </label>
+        <label id="events-clear-days-field" class="event-cleanup-age hidden">
+          <input id="events-clear-days" type="number" inputmode="numeric" min="1" max="106751" step="1" value="30" required disabled aria-label="Custom age in days" data-i18n-aria-label="ui.cleanup_age_days" />
+          <span data-i18n="ui.days_ago">days ago</span>
+        </label>
+      </div>
+      <p id="events-clear-hint" class="muted small" data-i18n="ui.event_cleanup_hint">Deletes matching records and linked errors for all API keys. This cannot be undone.</p>
+      <div class="row dialog-actions">
+        <button data-i18n="ui.cancel">Cancel</button>
+        <button id="events-clear-confirm" class="primary danger" data-i18n="ui.confirm_cleanup">Clear events</button>
+      </div>
     </dialog>
 
     <dialog id="request-event-columns-dialog" class="settings-dialog list-dialog column-settings-dialog" aria-labelledby="request-event-columns-title" aria-describedby="request-event-columns-hint">

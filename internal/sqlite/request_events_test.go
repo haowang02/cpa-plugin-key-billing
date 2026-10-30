@@ -48,7 +48,7 @@ func requestEventDatabase(t *testing.T) (*DB, *billing.State) {
 
 func mustQueryRequestEvents(t *testing.T, database *DB, query billing.RequestEventQuery) billing.RequestEventView {
 	t.Helper()
-	view, err := database.RequestEvents(query, eventStart.Add(-billing.RequestEventRetention))
+	view, err := database.RequestEvents(query, eventStart.Add(-365*24*time.Hour))
 	if err != nil {
 		t.Fatalf("RequestEvents error = %v", err)
 	}
@@ -260,7 +260,7 @@ func TestRequestEventRowsFollowTheKeyTheyName(t *testing.T) {
 
 func TestRequestEventsKeepTheRetentionWindow(t *testing.T) {
 	database, state := requestEventDatabase(t)
-	cutoff := eventStart.Add(180*24*time.Hour - billing.RequestEventRetention)
+	cutoff := eventStart.Add(180*24*time.Hour - 365*24*time.Hour)
 	view, err := database.RequestEvents(billing.RequestEventQuery{}, cutoff)
 	if err != nil || view.Total != 6 {
 		t.Fatalf("six-month history: %+v, %v", view, err)
@@ -273,9 +273,9 @@ func TestRequestEventsKeepTheRetentionWindow(t *testing.T) {
 
 	mustSave(t, database, state, billing.Changes{
 		NormalRequestEvents: []billing.RequestEvent{requestEvent("scope-a", later)},
-		RequestEventCutoff:  later.Add(-billing.RequestEventRetention),
+		RequestEventCutoff:  later.Add(-365 * 24 * time.Hour),
 	})
-	view, err = database.RequestEvents(billing.RequestEventQuery{}, later.Add(-billing.RequestEventRetention))
+	view, err = database.RequestEvents(billing.RequestEventQuery{}, later.Add(-365*24*time.Hour))
 	if err != nil {
 		t.Fatalf("RequestEvents error = %v", err)
 	}

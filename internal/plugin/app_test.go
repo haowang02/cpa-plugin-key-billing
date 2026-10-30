@@ -55,6 +55,7 @@ func TestRegisterDeclaresExpectedCapabilities(t *testing.T) {
 		fields["codex_fast_mode_billing"].Type != "boolean" || fields["allow_unpriced_models"].Type != "boolean" ||
 		fields["mask_api_key_view_emails"].Type != "boolean" || fields["allow_api_key_quota_reset"].Type != "boolean" ||
 		fields["cny_per_usd"].Type != "number" || fields["cny_per_usd"].Default != float64(7) ||
+		fields["request_event_retention_days"].Type != "integer" || fields["request_event_retention_days"].Default != float64(365) ||
 		fields["routing"].Type != "object" || fields["enabled"].Name != "" {
 		t.Fatalf("ConfigFields = %+v", registration.Metadata.ConfigFields)
 	}
@@ -126,7 +127,7 @@ func TestManagementRegistrationExposesOnlyCurrentEndpoints(t *testing.T) {
 		"POST /keys/bind", "POST /keys/unbind", "POST /keys/reset",
 		"POST /keys/label", "POST /keys/concurrency", "POST /keys/sync",
 		"POST /credentials/sync",
-		"GET /analysis", "GET /analysis/speed", "GET /events", "GET /events/keys", "GET /errors",
+		"GET /analysis", "GET /analysis/speed", "GET /events", "DELETE /events", "GET /events/keys", "GET /errors",
 		"GET /plugin-logs", "DELETE /plugin-logs", "GET /auth-files", "GET /auth-files/quota",
 		"POST /auth-files/quota/reset", "GET /auth-files/history", "GET /usage/models",
 		"GET /ai-providers", "POST /ai-providers/balance", "POST /ai-providers/note",

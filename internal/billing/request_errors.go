@@ -62,7 +62,7 @@ type RequestErrorFilterValues struct {
 
 func (s *Store) RequestErrors(query RequestErrorQuery) (RequestErrorView, error) {
 	view, err := withRepository(s, func(repo Repository) (RequestErrorView, error) {
-		return repo.RequestErrors(query, s.Now().Add(-RequestEventRetention))
+		return repo.RequestErrors(query, s.cfg.RequestEventRetentionDays.cutoff(s.Now()))
 	})
 	if view.Entries == nil {
 		view.Entries = []RequestErrorRow{}

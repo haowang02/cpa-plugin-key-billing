@@ -13,7 +13,7 @@ func TestAnalysisAggregatesOnlyDisplayedUsageDistributions(t *testing.T) {
 	view, err := database.Analysis(billing.RequestEventQuery{
 		From: eventStart.Add(-time.Hour),
 		To:   eventStart.Add(3 * time.Hour),
-	}, 7, eventStart.Add(-billing.RequestEventRetention))
+	}, 7, eventStart.Add(-365*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestAnalysisDailyTrendUsesBrowserTimeZone(t *testing.T) {
 
 	view, err := database.Analysis(billing.RequestEventQuery{
 		From: from, To: from.Add(72 * time.Hour), Timezone: location,
-	}, 7, from.Add(-billing.RequestEventRetention))
+	}, 7, from.Add(-365*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestAnalysisScopeSkipsTheRedundantKeyDimension(t *testing.T) {
 		Scope: "scope-a",
 		From:  eventStart.Add(-time.Hour),
 		To:    eventStart.Add(3 * time.Hour),
-	}, 7, eventStart.Add(-billing.RequestEventRetention))
+	}, 7, eventStart.Add(-365*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestAnalysisFullRetentionKeepsZeroUsageAndEmptyScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	from := time.Date(2025, 9, 1, 12, 30, 0, 0, location)
-	to := from.Add(billing.RequestEventRetention)
+	to := from.Add(365 * 24 * time.Hour)
 	state := billing.NewState()
 	mustSave(t, d, state, billing.Changes{
 		NormalRequestEvents: []billing.RequestEvent{
@@ -261,7 +261,7 @@ func TestAnalysisSpeedMeasuresTPSOfOneModel(t *testing.T) {
 
 	view, err := database.AnalysisSpeed(billing.RequestEventQuery{
 		Model: "gpt-5.5", From: eventStart, To: eventStart.Add(2 * time.Hour),
-	}, eventStart.Add(-billing.RequestEventRetention))
+	}, eventStart.Add(-365*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

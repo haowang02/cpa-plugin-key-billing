@@ -119,14 +119,14 @@ func (s *Store) AnalysisSpeed(query RequestEventQuery) (AnalysisSpeedView, error
 }
 
 func readAnalysis[T any](s *Store, query RequestEventQuery, read func(Repository, RequestEventQuery, time.Time) (T, error)) (T, error) {
-	now := s.Now()
-	from, to, err := usageTimeRange(query.From, query.To, now)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	query.From, query.To = from, to
 	return withRepository(s, func(repo Repository) (T, error) {
-		return read(repo, query, now.Add(-RequestEventRetention))
+		now := s.Now()
+		from, to, err := s.cfg.usageTimeRange(query.From, query.To, now)
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		query.From, query.To = from, to
+		return read(repo, query, s.cfg.RequestEventRetentionDays.cutoff(now))
 	})
 }

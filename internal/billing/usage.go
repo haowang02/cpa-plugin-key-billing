@@ -59,11 +59,11 @@ type ModelMatch struct {
 
 // A non-empty scope limits usage to one API key's requests.
 func (s *Store) CredentialUsageStats(authIndexes []string, scope string, from, to time.Time) (map[string]CredentialUsageStats, error) {
-	from, to, err := usageTimeRange(from, to, s.Now())
-	if err != nil {
-		return nil, err
-	}
 	return withRepository(s, func(repo Repository) (map[string]CredentialUsageStats, error) {
+		from, to, err := s.cfg.usageTimeRange(from, to, s.Now())
+		if err != nil {
+			return nil, err
+		}
 		return repo.CredentialUsageStats(authIndexes, scope, from, to, s.cfg.CNYPerUSD)
 	})
 }
@@ -71,7 +71,11 @@ func (s *Store) CredentialUsageStats(authIndexes []string, scope string, from, t
 func (s *Store) UsageTotals(scope string, queries []UsageQuery) ([]UsageTotal, error) {
 	return withRepository(s, func(repo Repository) ([]UsageTotal, error) {
 		totals := make([]UsageTotal, len(queries))
+		cutoff := s.cfg.RequestEventRetentionDays.cutoff(s.Now())
 		for i, query := range queries {
+			if query.From.Before(cutoff) {
+				query.From = cutoff
+			}
 			total, err := repo.UsageTotal(scope, query, s.cfg.CNYPerUSD)
 			if err != nil {
 				return nil, err
@@ -83,21 +87,37 @@ func (s *Store) UsageTotals(scope string, queries []UsageQuery) ([]UsageTotal, e
 }
 
 func (s *Store) UsageByModel(scope string, query UsageQuery) ([]ModelUsage, error) {
-	var err error
-	if query.From, query.To, err = usageTimeRange(query.From, query.To, s.Now()); err != nil {
-		return nil, err
-	}
 	return withRepository(s, func(repo Repository) ([]ModelUsage, error) {
+		var err error
+		if query.From, query.To, err = s.cfg.usageTimeRange(query.From, query.To, s.Now()); err != nil {
+			return nil, err
+		}
 		return repo.UsageByModel(scope, query, s.cfg.CNYPerUSD)
 	})
 }
 
 func (s *Store) UsageSources(scope string, query UsageQuery) ([]string, error) {
-	var err error
-	if query.From, query.To, err = usageTimeRange(query.From, query.To, s.Now()); err != nil {
-		return nil, err
-	}
 	return withRepository(s, func(repo Repository) ([]string, error) {
+		var err error
+		if query.From, query.To, err = s.cfg.usageTimeRange(query.From, query.To, s.Now()); err != nil {
+			return nil, err
+		}
 		return repo.UsageSources(scope, query)
 	})
+}
+
+func (c Config) usageTimeRange(from, to, now time.Time) (time.Time, time.Time, error) {
+	if to.IsZero() || to.After(now) {
+		to = now
+	}
+	if from.IsZero() {
+		from = to.Add(-30 * 24 * time.Hour)
+	}
+	if cutoff := c.RequestEventRetentionDays.cutoff(now); from.Before(cutoff) {
+		from = cutoff
+	}
+	if !from.Before(to) {
+		return time.Time{}, time.Time{}, invalidf("The time range is outside the retained request history")
+	}
+	return from, to, nil
 }

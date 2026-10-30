@@ -8,7 +8,7 @@ func TestDecodeConfigDefaults(t *testing.T) {
 		t.Fatalf("DecodeConfig: %v", errDecode)
 	}
 	if !cfg.Enabled || cfg.Debug || cfg.CodexFastModeBilling || cfg.AllowUnpricedModels || cfg.MaskAPIKeyViewEmails || cfg.AllowAPIKeyQuotaReset ||
-		cfg.CNYPerUSD != 7 || cfg.StateFile != DefaultStateFile {
+		cfg.RequestEventRetentionDays != 365 || cfg.CNYPerUSD != 7 || cfg.StateFile != DefaultStateFile {
 		t.Fatalf("config = %+v", cfg)
 	}
 	if cfg.Routing != DefaultConfig().Routing {
@@ -19,9 +19,9 @@ func TestDecodeConfigDefaults(t *testing.T) {
 		t.Fatalf("routing = %+v, error = %v", cfg.Routing, errDecode)
 	}
 	cfg, errDecode = DecodeConfig([]byte("enabled: true\ndebug: true\ncodex_fast_mode_billing: true\nallow_unpriced_models: true\n" +
-		"mask_api_key_view_emails: true\nallow_api_key_quota_reset: true\ncny_per_usd: 7.2\n"))
+		"mask_api_key_view_emails: true\nallow_api_key_quota_reset: true\ncny_per_usd: 7.2\nrequest_event_retention_days: 30\n"))
 	if errDecode != nil || !cfg.Debug || !cfg.CodexFastModeBilling || !cfg.AllowUnpricedModels || !cfg.MaskAPIKeyViewEmails ||
-		!cfg.AllowAPIKeyQuotaReset || cfg.CNYPerUSD != 7.2 {
+		!cfg.AllowAPIKeyQuotaReset || cfg.CNYPerUSD != 7.2 || cfg.RequestEventRetentionDays != 30 {
 		t.Fatalf("config = %+v, error = %v", cfg, errDecode)
 	}
 }
@@ -34,6 +34,10 @@ func TestDecodeConfigRejectsUnknownFieldsAndExtraDocuments(t *testing.T) {
 		"unknown routing field": "routing:\n  session-affinity-subagents: true\n",
 		"invalid ttl":           "routing:\n  session-affinity-ttl: tomorrow\n",
 		"zero ttl":              "routing:\n  session-affinity-ttl: 0s\n",
+		"zero retention":        "request_event_retention_days: 0\n",
+		"negative retention":    "request_event_retention_days: -1\n",
+		"fractional retention":  "request_event_retention_days: 1.5\n",
+		"overflow retention":    "request_event_retention_days: 106752\n",
 		"zero exchange rate":    "cny_per_usd: 0\n",
 	} {
 		t.Run(name, func(t *testing.T) {
