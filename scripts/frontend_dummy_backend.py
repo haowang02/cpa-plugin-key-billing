@@ -33,12 +33,11 @@ HOST_SHELL = r"""<!doctype html>
 <title>__HOST_LABEL__ · CPA Key Billing 样式预览</title>
 <script>
 {
-  const version="__HOST_MODE__"==="cpamp"?"v2":"v1";
-  const scope=version==="v2"?"v2|"+location.host:location.host+"|"+navigator.userAgent;
+  const scope="__HOST_MODE__"==="cpamp"?"v2|"+location.host:location.host;
   const secret=new TextEncoder().encode("cli-proxy-api-webui::secure-storage|"+scope);
   const data=new TextEncoder().encode(JSON.stringify({state:{apiBase:location.origin,managementKey:"dummy",rememberPassword:true},version:0}));
   const encoded=data.map((byte,index)=>byte^secret[index%secret.length]);
-  localStorage.setItem("cli-proxy-auth","enc::"+version+"::"+btoa(String.fromCharCode(...encoded)));
+  localStorage.setItem("cli-proxy-auth","enc::v2::"+btoa(String.fromCharCode(...encoded)));
 }
 </script>
 <style>

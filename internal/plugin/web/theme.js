@@ -1,20 +1,4 @@
 "use strict";
-function panelStoredValue(name) {
-  try {
-    let raw = localStorage.getItem(name);
-    if (!raw) return null;
-    const prefix = /^enc::v([12])::/.exec(raw);
-    if (prefix) {
-      const scope = prefix[1] === "2" ? "v2|" + location.host : location.host + "|" + navigator.userAgent;
-      const secret = new TextEncoder().encode("cli-proxy-api-webui::secure-storage|" + scope);
-      const binary = atob(raw.slice(prefix[0].length));
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) ^ secret[i % secret.length];
-      raw = new TextDecoder().decode(bytes);
-    }
-    return JSON.parse(raw);
-  } catch (_) { return null; }
-}
 
 /* Apply the host or stored theme before painting the body. */
 (function () {

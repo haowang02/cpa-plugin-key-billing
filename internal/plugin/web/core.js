@@ -8,23 +8,11 @@ const { message: m, setText, setAttribute: setTextAttribute, UIError } = window.
 const locale = () => window.billingI18n.locale();
 window.billingI18n.initialize();
 
-/* A same-origin iframe can borrow the panel's obfuscated management key. When
- * it is unavailable, the standalone login can use its own encrypted vault. */
 const CREDENTIAL_DB = "cpa-key-billing-credentials";
 const CREDENTIAL_STORE = "vault";
 const CREDENTIAL_KEY = "wrapping-key";
 const SESSION_CREDENTIAL_PREFIX = "cpa-key-billing.session.v1.";
 const VIEW_PREFERENCE_PREFIX = "cpa-key-billing.view.v1.";
-
-function readPanelKey() {
-  const fromStore = panelStoredValue("cli-proxy-auth")?.state?.managementKey;
-  if (typeof fromStore === "string" && fromStore.trim()) return fromStore.trim();
-
-  const direct = panelStoredValue("managementKey");
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
-
-  return "";
-}
 
 const embedded = window.parent !== window;
 document.body.classList.toggle("embedded", embedded);
