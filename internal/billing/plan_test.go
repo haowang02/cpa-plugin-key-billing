@@ -32,6 +32,12 @@ func TestQuotaWindowsValidationAndIdentity(t *testing.T) {
 	}
 	for _, change := range []func(*Plan){
 		func(p *Plan) { p.Windows = nil },
+		func(p *Plan) {
+			p.SharedQuota = true
+			for i := range p.Windows {
+				p.Windows[i].CycleAnchorAt = time.Time{}
+			}
+		},
 		func(p *Plan) { p.Windows[0].Name = " long " },
 		func(p *Plan) { p.Windows[0].PeriodSeconds = 7200 },
 		func(p *Plan) { p.Windows[0].PeriodSeconds = 0 },
@@ -76,7 +82,7 @@ func TestQuotaWindowsValidationAndIdentity(t *testing.T) {
 	cycle := window.newCycle(valid.ID, now)
 	cycle.UsageSince = cycle.EndAt
 	key := KeyState{PlanID: valid.ID, Cycles: map[string]QuotaCycle{window.ID: cycle}}
-	if key.ValidateCycles(valid) == nil {
+	if key.ValidateCycles(&valid) == nil {
 		t.Fatal("usage cutoff outside cycle accepted")
 	}
 	shifted := clonePlan(valid)

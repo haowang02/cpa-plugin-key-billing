@@ -1172,6 +1172,62 @@ assert_quota_exhausted() {
   management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/plans?id=$plan" >/dev/null
 }
 
+assert_shared_quota() {
+  local port="$1" runtime_dir="$2" key body status scope
+  local api="/v0/management/plugins/cpa-key-billing"
+  local keys_file="$runtime_dir/shared-keys.json"
+  management_call POST "$port" "$api/keys/sync" -H "Content-Type: application/json" \
+    --data '{"keys":["e2e-downstream-key","e2e-shared-key"]}' >/dev/null
+  management_call GET "$port" "$api/keys" >"$keys_file"
+  management_call POST "$port" "$api/plans" -H "Content-Type: application/json" \
+    --data "$(jq -c '{id:"shared-e2e", name:"Shared", shared_quota:true,
+      windows:[{name:"Hourly", period_seconds:3600, request_limit:2, token_limit:100000,
+        amount:10, cycle_anchor_at:((now + 1800 | floor) | todateiso8601)}],
+      scopes:[.keys[] | select(.in_config) | .scope]}' "$keys_file")" >/dev/null
+  body="$(request_body chat "gpt-5.6-sol" false "Reply with exactly OK.")"
+  for key in e2e-downstream-key e2e-shared-key; do
+    status="$(curl -sS --max-time 30 -H "Content-Type: application/json" -H "Authorization: Bearer $key" \
+      --data "$body" --output "$runtime_dir/responses/shared-spend.json" --write-out '%{http_code}' \
+      "http://127.0.0.1:$port/v1/chat/completions")"
+    if [[ "$status" != "200" ]]; then
+      echo "共享额度未耗尽时的请求失败：HTTP $status" >&2
+      return 1
+    fi
+    sleep "$usage_settle_seconds"
+  done
+  management_call GET "$port" "$api/keys" >"$keys_file"
+  if ! jq -e '[.keys[] | select(.plan_id == "shared-e2e")] |
+      length == 2 and all(.[]; .shared_quota and .blocked and
+        all(.windows[].dimensions[] | select(.metric == "requests"); .used == 2))' "$keys_file" >/dev/null; then
+    echo "多个 Key 未累计扣减共享额度" >&2
+    return 1
+  fi
+  management_call GET "$port" "$api/events?limit=2" >"$runtime_dir/shared-events.json"
+  if ! jq -e '.entries | length == 2 and (map(.scope) | unique | length == 2)' "$runtime_dir/shared-events.json" >/dev/null; then
+    echo "共享额度丢失了各 Key 的独立用量记录" >&2
+    return 1
+  fi
+  for key in e2e-downstream-key e2e-shared-key; do
+    status="$(curl -sS --max-time 30 -H "Content-Type: application/json" -H "Authorization: Bearer $key" \
+      --data "$body" --output "$runtime_dir/responses/shared-blocked.json" --write-out '%{http_code}' \
+      "http://127.0.0.1:$port/v1/chat/completions")"
+    if [[ "$status" != "429" ]]; then
+      echo "共享额度耗尽后未统一拦截：HTTP $status" >&2
+      return 1
+    fi
+  done
+  scope="$(jq -er 'first(.keys[] | select(.plan_id == "shared-e2e")).scope' "$keys_file")"
+  management_call POST "$port" "$api/keys/reset" -H "Content-Type: application/json" \
+    --data "$(jq -nc --arg scope "$scope" '{mode:"all",scopes:[$scope]}')" >/dev/null
+  management_call GET "$port" "$api/keys" >"$keys_file"
+  if ! jq -e '[.keys[] | select(.plan_id == "shared-e2e")] |
+      length == 2 and all(.[]; (.blocked | not) and all(.windows[].dimensions[]; .used == 0))' "$keys_file" >/dev/null; then
+    echo "单 Key 重置未清零整个共享额度池" >&2
+    return 1
+  fi
+  management_call DELETE "$port" "$api/plans?id=shared-e2e" >/dev/null
+}
+
 assert_headless_price_admission() {
   local port="$1" runtime_dir="$2" client header_line body endpoint http_status
   local -a headers
@@ -1674,6 +1730,9 @@ run_target() {
     expected_requests=$((expected_requests + 2))
   done
 
+  log_step "共享额度：两个 Key 累计消费、统一拦截、单 Key 重置整个池"
+  assert_shared_quota "$port" "$runtime_dir"
+
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/plugin-logs" >"$runtime_dir/plugin-logs.json"
   if ! jq -e '[.entries[] | select(.level == "info" and (.message | contains("Loaded billing database")))] | length == 1' \
     "$runtime_dir/plugin-logs.json" >/dev/null; then
@@ -1687,7 +1746,7 @@ run_target() {
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  log_ok "${host_label}：52 个上游请求（含 4 个参考价请求和 1 个未定价请求），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，12 次额度拦截"
+  log_ok "${host_label}：54 个上游请求（含 4 个参考价请求和 1 个未定价请求），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，14 次额度拦截"
 }
 
 log_stage "启动 dummy provider"

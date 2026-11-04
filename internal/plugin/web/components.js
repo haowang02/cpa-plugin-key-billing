@@ -552,7 +552,7 @@ function settingsEntryField(label, content) {
   );
 }
 
-function settingsCard(title, fields, onEdit, onDelete) {
+function settingsCard(title, fields, onEdit, onDelete, actions = []) {
   return el(
     "article",
     { class: "inset-card settings-entry", role: "listitem" },
@@ -563,6 +563,7 @@ function settingsCard(title, fields, onEdit, onDelete) {
       el(
         "div",
         { class: "row settings-entry-actions" },
+        ...actions,
         el("button", { class: "link", text: m("ui.edit"), onclick: onEdit }),
         el("button", { class: "link danger", text: m("ui.delete"), onclick: onDelete })
       )

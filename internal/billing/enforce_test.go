@@ -72,7 +72,7 @@ func TestQuotaWindowSchedules(t *testing.T) {
 			if !next.Allowed || !next.Windows[0].StartAt.Equal(wantStart) || next.Windows[1].Dimensions[0].Used != "0" {
 				t.Fatalf("idle restart: %+v", next)
 			}
-			if err := store.state.Keys["s"].ValidateCycles(store.state.Plans[0]); err != nil {
+			if err := store.state.Keys["s"].ValidateCycles(&store.state.Plans[0]); err != nil {
 				t.Fatal(err)
 			}
 			boundary := next.Windows[1].EndAt

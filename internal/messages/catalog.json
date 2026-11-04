@@ -211,10 +211,6 @@
     "key": "backend.the_subscription_plan_bound_to_this_api_key_does_not_exist",
     "formats": []
   },
-  "Invalid quota cycle data for this API key": {
-    "key": "backend.invalid_quota_cycle_data_for_this_api_key",
-    "formats": []
-  },
   "Reference price provider ID and model ID are required": {
     "key": "backend.reference_price_provider_id_and_model_id_are_required",
     "formats": []
@@ -427,11 +423,16 @@
   },
   "Upstream returned HTTP %d: Credentials are invalid or expired": {
     "key": "backend.upstream_credentials_invalid",
-    "formats": ["%d"]
+    "formats": [
+      "%d"
+    ]
   },
   "Upstream returned HTTP %d: Credentials are invalid or expired: %s": {
     "key": "backend.upstream_credentials_invalid_detail",
-    "formats": ["%d", "%s"]
+    "formats": [
+      "%d",
+      "%s"
+    ]
   },
   "Upstream returned HTTP %d: %s": {
     "key": "backend.upstream_returned_http_value_value",
@@ -610,6 +611,18 @@
   },
   "Cleanup age must be an integer from 0 to 106751": {
     "key": "backend.cleanup_age_must_be_an_integer",
+    "formats": []
+  },
+  "Shared quotas require a shared reset schedule": {
+    "key": "backend.shared_quotas_require_a_shared_reset_schedule",
+    "formats": []
+  },
+  "This subscription plan does not share quota": {
+    "key": "backend.this_subscription_plan_does_not_share_quota",
+    "formats": []
+  },
+  "Invalid quota cycle data": {
+    "key": "backend.invalid_quota_cycle_data",
     "formats": []
   }
 }

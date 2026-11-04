@@ -149,16 +149,18 @@
             <input id="plan-id" type="hidden" />
             <div class="plan-details">
               <label class="field"> <span data-i18n="ui.plan_name">Plan name</span> <input id="plan-name" placeholder="Team quota"  data-i18n-placeholder="ui.team_quota"/> </label>
-              <label class="field"> <span data-i18n="ui.cycle_mode">Reset schedule</span>
-                <span class="native-select"><select id="plan-cycle-mode">
+              <label class="field"> <span data-i18n="ui.plan_type">Plan type</span>
+                <span class="native-select"><select id="plan-type">
                   <option value="independent" data-i18n="ui.independent_cycles">Per-key schedule</option>
                   <option value="unified" data-i18n="ui.shared_cycles">Shared schedule</option>
+                  <option value="shared" data-i18n="ui.shared_quota">Shared quota</option>
                 </select></span>
               </label>
               <label class="field"> <span data-i18n="ui.currency">Currency</span>
                 <span class="native-select"><select id="plan-currency"></select></span>
               </label>
             </div>
+            <p id="plan-type-note" class="small muted"></p>
             <div class="row spread plan-windows-heading">
               <span class="small muted" data-i18n="ui.quota_windows">Quota windows</span>
               <button id="plan-window-add" type="button" class="link small" data-i18n="ui.add_window">Add window</button>
@@ -698,6 +700,7 @@
       /*components.js*/
       /*sortable.js*/
       /*data.js*/
+      /*date-time.js*/
       /*time-range.js*/
       /*model-usage.js*/
       /*credentials.js*/
@@ -705,6 +708,7 @@
       /*table-selection.js*/
       /*keys.js*/
       /*routing.js*/
+      /*quota.js*/
       /*plans.js*/
       /*prices.js*/
       /*analysis.js*/

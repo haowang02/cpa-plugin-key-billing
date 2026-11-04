@@ -8,6 +8,7 @@ port: __PORT__
 auth-dir: "__RUNTIME_DIR__/auth"
 api-keys:
   - "e2e-downstream-key"
+  - "e2e-shared-key"
 logging-to-file: false
 remote-management:
   allow-remote: false

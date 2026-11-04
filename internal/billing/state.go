@@ -47,10 +47,10 @@ type KeyState struct {
 	//
 	// Key records are permanent: historical events resolve their scope to the
 	// preview and label here, even after the key leaves CPA's configuration.
-	InConfig         bool                  `json:"in_config,omitempty"`
-	DeletedAt        time.Time             `json:"deleted_at,omitzero"`
-	PlanID           string                `json:"plan_id,omitempty"`
-	ConcurrencyLimit int                   `json:"concurrency_limit,omitempty"`
-	RouteBindings    RouteBindings         `json:"route_bindings"`
-	Cycles           map[string]QuotaCycle `json:"cycles"`
+	InConfig         bool          `json:"in_config,omitempty"`
+	DeletedAt        time.Time     `json:"deleted_at,omitzero"`
+	PlanID           string        `json:"plan_id,omitempty"`
+	ConcurrencyLimit int           `json:"concurrency_limit,omitempty"`
+	RouteBindings    RouteBindings `json:"route_bindings"`
+	Cycles           QuotaCycles   `json:"cycles"`
 }

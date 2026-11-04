@@ -26,16 +26,20 @@ func (s *Store) Authorize(scope string, at time.Time) Decision {
 		if key == nil || key.PlanID == "" {
 			return allowed, Changes{}
 		}
-		plan, _ := state.FindPlan(key.PlanID)
-		touched := Changes{Keys: []string{scope}}
-		var changed Changes
-		if settleExpiredCycles(key, at) {
-			changed = touched
+		plan := state.FindPlan(key.PlanID)
+		if plan == nil {
+			return allowed, Changes{}
 		}
-		view := quotaView(key, plan, s.cfg.CNYPerUSD, at)
-		if !view.Blocked && activateCycles(key, plan, at) {
-			changed = touched
-			view = quotaView(key, plan, s.cfg.CNYPerUSD, at)
+		changed := settleQuota(scope, key, plan, at)
+		view := quotaView(key.Cycles, plan, s.cfg.CNYPerUSD, at)
+		if !view.Blocked {
+			if key.Cycles.activate(plan, at) {
+				changed.Keys = []string{scope}
+			}
+			if plan.SharedQuota && plan.Cycles.activate(plan, at) {
+				changed.PlanCycles = []string{plan.ID}
+			}
+			view = quotaView(key.Cycles, plan, s.cfg.CNYPerUSD, at)
 		}
 		return Decision{Allowed: !view.Blocked, PlanID: plan.ID, PlanName: plan.Name, QuotaView: view}, changed
 	})

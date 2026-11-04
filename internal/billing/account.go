@@ -99,7 +99,7 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 			ReasoningTokens:     event.Breakdown.Output.ReasoningTokens,
 			Quota:               event.Quota,
 		}
-		var changedKeys []string
+		changes := Changes{RequestEventCutoff: s.cfg.RequestEventRetentionDays.cutoff(at)}
 		if key := state.ensureKey(scope, event.KeyPreview); key != nil {
 			usage := quotaUsage{Spending: spent(cost.Total, cost.Currency)}
 			if !failed {
@@ -109,13 +109,12 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 				usage.Tokens = event.Breakdown.TotalTokens
 			}
 			missingCycleTime = event.RequestedAt.IsZero() && len(key.Cycles) > 0 && usage != (quotaUsage{})
-			key.chargeCycles(event.RequestedAt, usage)
-			settleExpiredCycles(key, at)
-			changedKeys = []string{scope}
-		}
-		changes := Changes{
-			Keys:               changedKeys,
-			RequestEventCutoff: s.cfg.RequestEventRetentionDays.cutoff(at),
+			plan := state.FindPlan(key.PlanID)
+			if chargeQuota(key, plan, event.RequestedAt, usage) {
+				changes.PlanCycles = []string{key.PlanID}
+			}
+			changes = changes.merge(settleQuota(scope, key, plan, at))
+			changes.Keys = []string{scope}
 		}
 		if failure == nil {
 			changes.NormalRequestEvents = []RequestEvent{entry}

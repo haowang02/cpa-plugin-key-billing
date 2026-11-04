@@ -72,6 +72,14 @@ func saveStateTables(tx *sql.Tx, state *billing.State, changes billing.Changes) 
 		if err := replacePlans(tx, state); err != nil {
 			return err
 		}
+	} else {
+		for _, id := range changes.PlanCycles {
+			if plan := state.FindPlan(id); plan != nil {
+				if err := savePlanCycles(tx, plan); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	if changes.Routes {
 		if err := replaceRoutes(tx, state); err != nil {

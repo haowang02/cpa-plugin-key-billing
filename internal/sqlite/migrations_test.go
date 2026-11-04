@@ -159,7 +159,7 @@ VALUES('legacy-scope','plan',4.5,'[{"kind":"model","value":"model-a"}]');`
 				if snapshot.RequestEventCount != 2 || len(snapshot.State.Prices) != 1 || snapshot.State.Prices["model-a"].ModelID != "model-a" || snapshot.State.Prices["model-a"].InputPer1M != 0 || snapshot.State.Plans[0].Windows[0].PeriodSeconds != 2592000 {
 					t.Fatal("history or prices changed", snapshot)
 				}
-				converted, _ := snapshot.State.FindPlan("legacy-zero")
+				converted := snapshot.State.FindPlan("legacy-zero")
 				cycle := snapshot.State.Keys["zero-active"].Cycles["default"]
 				if converted.Windows[0].PeriodSeconds != 365*24*3600 || cycle.Spending.USD != 2 ||
 					!cycle.EndAt.Equal(time.Unix(0, 123456789).Add(365*24*time.Hour)) || len(snapshot.State.Keys["zero-idle"].Cycles) != 0 {
@@ -610,7 +610,7 @@ func TestRequestEventMetadataMigrationAndRollback(t *testing.T) {
 							t.Fatalf("historical request metadata was invented: %+v", entry)
 						}
 					}
-					if plan, _ := mustLoad(t, database).State.FindPlan("stored"); version >= 13 &&
+					if plan := mustLoad(t, database).State.FindPlan("stored"); version >= 13 &&
 						(plan.Currency != billing.USD || len(plan.Windows) != 1 || plan.Windows[0].Amount != 2.5) {
 						t.Fatalf("stored plan = %+v", plan)
 					}
@@ -780,6 +780,8 @@ func downgradeToV19(t *testing.T, d *DB) {
 		ALTER TABLE request_events RENAME COLUMN output_cost TO output_usd;
 		ALTER TABLE prices DROP COLUMN currency;
 		ALTER TABLE plans DROP COLUMN currency;
+		ALTER TABLE plans DROP COLUMN shared_quota;
+		ALTER TABLE plans DROP COLUMN cycles_json;
 		ALTER TABLE config_credentials DROP COLUMN auth_index;
 		ALTER TABLE config_credentials DROP COLUMN type;
 		ALTER TABLE config_credentials DROP COLUMN name;

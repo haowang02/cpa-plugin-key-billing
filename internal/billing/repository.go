@@ -1,6 +1,9 @@
 package billing
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 type Repository interface {
 	OpenReferencePrices() (ReferencePriceRepository, error)
@@ -40,6 +43,7 @@ type Changes struct {
 	AllKeys bool
 
 	Plans             bool
+	PlanCycles        []string
 	Routes            bool
 	ConfigCredentials bool
 
@@ -51,7 +55,7 @@ type Changes struct {
 const maxPendingRequestRecords = 1000
 
 func (c Changes) empty() bool {
-	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && !c.Routes && !c.ConfigCredentials &&
+	return len(c.Keys) == 0 && !c.AllKeys && !c.Plans && len(c.PlanCycles) == 0 && !c.Routes && !c.ConfigCredentials &&
 		len(c.NormalRequestEvents) == 0 && len(c.RequestErrorEvents) == 0 && c.RequestEventCutoff.IsZero()
 }
 
@@ -65,11 +69,17 @@ func (c Changes) merge(next Changes) Changes {
 	merged := Changes{
 		AllKeys:             c.AllKeys || next.AllKeys,
 		Plans:               c.Plans || next.Plans,
+		PlanCycles:          slices.Clone(c.PlanCycles),
 		Routes:              c.Routes || next.Routes,
 		ConfigCredentials:   c.ConfigCredentials || next.ConfigCredentials,
 		NormalRequestEvents: append(append([]RequestEvent(nil), c.NormalRequestEvents...), next.NormalRequestEvents...),
 		RequestErrorEvents:  append(append([]RequestErrorEvent(nil), c.RequestErrorEvents...), next.RequestErrorEvents...),
 		RequestEventCutoff:  next.RequestEventCutoff,
+	}
+	for _, id := range next.PlanCycles {
+		if !slices.Contains(merged.PlanCycles, id) {
+			merged.PlanCycles = append(merged.PlanCycles, id)
+		}
 	}
 	if merged.RequestEventCutoff.Before(c.RequestEventCutoff) {
 		merged.RequestEventCutoff = c.RequestEventCutoff

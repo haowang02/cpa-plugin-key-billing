@@ -147,9 +147,10 @@ func TestUsageRequestTimesPreserveWindowAttribution(t *testing.T) {
 }
 
 func TestUsageAfterAdministrativeChange(t *testing.T) {
-	for _, unified := range []bool{false, true} {
+	for _, mode := range []string{"independent", "unified", "shared"} {
+		unified := mode != "independent"
 		for _, operation := range []string{"reset", "rebind", "schedule"} {
-			t.Run(fmt.Sprintf("%t/%s", unified, operation), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/%s", mode, operation), func(t *testing.T) {
 				start := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 				now := start
 				store := newAccountStore(t, start)
@@ -161,6 +162,7 @@ func TestUsageAfterAdministrativeChange(t *testing.T) {
 					}
 					if unified {
 						for i := range state.Plans {
+							state.Plans[i].SharedQuota = mode == "shared"
 							w := &state.Plans[i].Windows[0]
 							w.CycleAnchorAt = start.Add(time.Duration(w.PeriodSeconds) * time.Second)
 						}
@@ -204,6 +206,12 @@ func TestUsageAfterAdministrativeChange(t *testing.T) {
 				cycle := store.state.Keys["scope-a"].Cycles["default"]
 				if cycle.Spending.USD != wantSubsetCost || cycle.UsedRequests != 1 || cycle.UsedTokens != 1500 {
 					t.Fatalf("new usage lost: %+v", cycle)
+				}
+				if mode == "shared" {
+					plan := store.state.FindPlan(store.state.Keys["scope-a"].PlanID)
+					if pool := plan.Cycles["default"]; pool.Spending != cycle.Spending || pool.UsedRequests != 1 || pool.UsedTokens != 1500 {
+						t.Fatalf("shared pool charged old usage: %+v", pool)
+					}
 				}
 				if len(mustRequestEvents(t, store, RequestEventQuery{}).Entries) != 4 {
 					t.Fatal("administrative change lost request history")

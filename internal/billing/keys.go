@@ -27,25 +27,34 @@ type KeyView struct {
 func (s *Store) KeyViews() []KeyView {
 	now := s.Now()
 	return updateResult(s, func(state *State) ([]KeyView, Changes) {
-		var settled []string
+		var changes Changes
+		for i := range state.Plans {
+			plan := &state.Plans[i]
+			if plan.Cycles.settle(now) {
+				changes.PlanCycles = append(changes.PlanCycles, plan.ID)
+			}
+		}
 		views := make([]KeyView, 0, len(state.Keys))
 		for scope, key := range state.Keys {
 			if key == nil {
 				continue
 			}
-			if key.DeletedAt.IsZero() && settleExpiredCycles(key, now) {
-				settled = append(settled, scope)
+			if key.DeletedAt.IsZero() && key.Cycles.settle(now) {
+				changes.Keys = append(changes.Keys, scope)
 			}
-			views = append(views, s.keyView(state, scope, key, now))
+			views = append(views, s.keyView(state, scope, key, state.FindPlan(key.PlanID), now))
 		}
 		sortKeyViews(views, s.configOrder)
-		return views, Changes{Keys: settled}
+		return views, changes
 	})
 }
 
 // keyView needs the store lock for its concurrency and exchange rate.
-func (s *Store) keyView(state *State, scope string, key *KeyState, now time.Time) KeyView {
-	plan, _ := state.FindPlan(key.PlanID)
+func (s *Store) keyView(state *State, scope string, key *KeyState, plan *Plan, now time.Time) KeyView {
+	planName := ""
+	if plan != nil {
+		planName = plan.Name
+	}
 	routeNames := make(map[string]string, len(key.RouteBindings.RouteIDs))
 	for _, id := range key.RouteBindings.RouteIDs {
 		route, _ := state.findRoute(id)
@@ -58,8 +67,8 @@ func (s *Store) keyView(state *State, scope string, key *KeyState, now time.Time
 		InConfig:           key.InConfig,
 		DeletedAt:          key.DeletedAt,
 		PlanID:             key.PlanID,
-		PlanName:           plan.Name,
-		QuotaView:          quotaView(key, plan, s.cfg.CNYPerUSD, now),
+		PlanName:           planName,
+		QuotaView:          quotaView(key.Cycles, plan, s.cfg.CNYPerUSD, now),
 		ConcurrencyLimit:   key.ConcurrencyLimit,
 		CurrentConcurrency: s.activeByScope[scope],
 		RouteBindings:      key.RouteBindings.clone(),
@@ -82,11 +91,9 @@ func (s *Store) KeyViewForScope(scope string) (KeyView, bool) {
 			return result{}, Changes{}
 		}
 		now := s.Now()
-		changed := Changes{}
-		if settleExpiredCycles(key, now) {
-			changed.Keys = []string{scope}
-		}
-		return result{view: s.keyView(state, scope, key, now), ok: true}, changed
+		plan := state.FindPlan(key.PlanID)
+		changed := settleQuota(scope, key, plan, now)
+		return result{view: s.keyView(state, scope, key, plan, now), ok: true}, changed
 	})
 	return current.view, current.ok
 }
@@ -109,6 +116,14 @@ func sortKeyViews(views []KeyView, configOrder map[string]int) {
 	})
 }
 
+func (key *KeyState) bindPlan(id string) bool {
+	if key.PlanID == id {
+		return false
+	}
+	key.PlanID, key.Cycles = id, nil
+	return true
+}
+
 func (s *Store) BindKey(scope, planID string) error {
 	scope = normalizeScope(scope)
 	planID = strings.TrimSpace(planID)
@@ -116,19 +131,17 @@ func (s *Store) BindKey(scope, planID string) error {
 		return invalidf("API key identifier and subscription plan ID are required")
 	}
 	_, err := editConfiguration(s, func(state *State) (struct{}, Changes, error) {
-		plan, exists := state.FindPlan(planID)
-		if !exists {
+		plan := state.FindPlan(planID)
+		if plan == nil {
 			return struct{}{}, Changes{}, notFoundf("Subscription plan %q does not exist", planID)
 		}
 		key := state.liveKey(scope)
 		if key == nil {
 			return struct{}{}, Changes{}, notFoundf("API key %q does not exist", scope)
 		}
-		if key.PlanID == plan.ID {
+		if !key.bindPlan(plan.ID) {
 			return struct{}{}, Changes{}, nil
 		}
-		key.Cycles = nil
-		key.PlanID = plan.ID
 		return struct{}{}, Changes{Keys: []string{scope}}, nil
 	})
 	return err
@@ -144,65 +157,10 @@ func (s *Store) UnbindKey(scope string) error {
 		if key == nil || key.PlanID == "" {
 			return struct{}{}, Changes{}, nil
 		}
-		key.PlanID = ""
-		key.Cycles = nil
+		key.bindPlan("")
 		return struct{}{}, Changes{Keys: []string{scope}}, nil
 	})
 	return err
-}
-
-type ResetRequest struct {
-	Mode   string   `json:"mode"`
-	Scopes []string `json:"scopes,omitempty"`
-}
-
-type ResetResult struct {
-	Keys    int `json:"keys"`
-	Windows int `json:"windows"`
-}
-
-func (s *Store) ResetQuota(req ResetRequest) (ResetResult, error) {
-	req.Scopes = normalizeScopes(req.Scopes)
-	if req.Mode == "global" {
-		if len(req.Scopes) != 0 {
-			return ResetResult{}, invalidf("A reset of all quotas cannot specify individual keys")
-		}
-	} else if req.Mode == "all" {
-		if len(req.Scopes) == 0 {
-			return ResetResult{}, invalidf("Select the API keys to reset")
-		}
-	} else {
-		return ResetResult{}, invalidf("Invalid quota reset mode")
-	}
-	return editConfiguration(s, func(state *State) (ResetResult, Changes, error) {
-		scopes := req.Scopes
-		if req.Mode == "global" {
-			for scope, key := range state.Keys {
-				if key != nil && key.DeletedAt.IsZero() && key.PlanID != "" {
-					scopes = append(scopes, scope)
-				}
-			}
-		}
-		for _, scope := range scopes {
-			key := state.liveKey(scope)
-			if key == nil || key.PlanID == "" {
-				return ResetResult{}, Changes{}, invalidf("The API key does not exist or has no subscription plan")
-			}
-		}
-		result := ResetResult{}
-		var changed []string
-		for _, scope := range scopes {
-			key := state.Keys[scope]
-			count := len(key.Cycles)
-			key.Cycles = nil
-			if count > 0 {
-				changed = append(changed, scope)
-				result.Keys++
-				result.Windows += count
-			}
-		}
-		return result, Changes{Keys: changed}, nil
-	})
 }
 
 func (s *Store) SetLabel(scope, label string) error {

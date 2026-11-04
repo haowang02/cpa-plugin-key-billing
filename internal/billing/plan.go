@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"crypto/rand"
 	"encoding/hex"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -12,10 +13,12 @@ import (
 
 // Window amounts are in Currency.
 type Plan struct {
-	ID       string        `json:"id"`
-	Name     string        `json:"name"`
-	Currency Currency      `json:"currency"`
-	Windows  []QuotaWindow `json:"windows"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Currency    Currency      `json:"currency"`
+	Windows     []QuotaWindow `json:"windows"`
+	SharedQuota bool          `json:"shared_quota"`
+	Cycles      QuotaCycles   `json:"-"`
 }
 
 // Zero disables a quota dimension. An absent anchor starts cycles on admission.
@@ -43,6 +46,9 @@ func (p Plan) Validate() error {
 	}
 	if len(p.Windows) == 0 {
 		return invalidf("A subscription plan requires at least one quota window")
+	}
+	if p.SharedQuota && p.Windows[0].CycleAnchorAt.IsZero() {
+		return invalidf("Shared quotas require a shared reset schedule")
 	}
 	ids := make(map[string]bool)
 	names := make(map[string]bool)
@@ -124,27 +130,19 @@ func (w QuotaWindow) sameSchedule(other QuotaWindow) bool {
 
 func clonePlan(plan Plan) Plan {
 	plan.Windows = slices.Clone(plan.Windows)
+	plan.Cycles = maps.Clone(plan.Cycles)
 	return plan
 }
 
-func (s *State) FindPlan(id string) (Plan, bool) {
+func (s *State) FindPlan(id string) *Plan {
 	id = strings.TrimSpace(id)
-	for _, plan := range s.Plans {
+	for i := range s.Plans {
+		plan := &s.Plans[i]
 		if plan.ID == id && id != "" {
-			return plan, true
+			return plan
 		}
 	}
-	return Plan{}, false
-}
-
-func (s *Store) Plans() []Plan {
-	plans := []Plan{}
-	s.read(func(state *State) {
-		for _, plan := range state.Plans {
-			plans = append(plans, clonePlan(plan))
-		}
-	})
-	return plans
+	return nil
 }
 
 // CreatePlanWithBindings creates a plan and binds the selected currently
@@ -152,6 +150,7 @@ func (s *Store) Plans() []Plan {
 func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error) {
 	plan.ID = strings.TrimSpace(plan.ID)
 	plan.Name = strings.TrimSpace(plan.Name)
+	plan.Cycles = nil
 	if plan.Currency == "" {
 		plan.Currency = USD
 	}
@@ -159,8 +158,7 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 	return editConfiguration(s, func(state *State) (Plan, Changes, error) {
 		if plan.ID == "" {
 			plan.ID = freeID(plan.Name, "plan", func(id string) bool {
-				_, exists := state.FindPlan(id)
-				return exists
+				return state.FindPlan(id) != nil
 			})
 		}
 		windows, err := prepareWindows(plan.Windows, nil, s.Now())
@@ -171,7 +169,7 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 		if errValidate := plan.Validate(); errValidate != nil {
 			return Plan{}, Changes{}, errValidate
 		}
-		if _, exists := state.FindPlan(plan.ID); exists {
+		if state.FindPlan(plan.ID) != nil {
 			return Plan{}, Changes{}, conflictf("Subscription plan %q already exists", plan.ID)
 		}
 		if plan.Name == "" {
@@ -188,8 +186,7 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 		}
 		state.Plans = append(state.Plans, plan)
 		for _, scope := range scopes {
-			state.Keys[scope].PlanID = plan.ID
-			state.Keys[scope].Cycles = nil
+			state.Keys[scope].bindPlan(plan.ID)
 		}
 		return clonePlan(plan), Changes{Plans: true, Keys: scopes}, nil
 	})
@@ -197,10 +194,11 @@ func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error)
 
 // Changing the currency keeps the usage of current cycles, which convert into it.
 type PlanPatch struct {
-	ID       string         `json:"id"`
-	Name     *string        `json:"name,omitempty"`
-	Currency *Currency      `json:"currency,omitempty"`
-	Windows  *[]QuotaWindow `json:"windows,omitempty"`
+	ID          string         `json:"id"`
+	Name        *string        `json:"name,omitempty"`
+	Currency    *Currency      `json:"currency,omitempty"`
+	Windows     *[]QuotaWindow `json:"windows,omitempty"`
+	SharedQuota *bool          `json:"shared_quota,omitempty"`
 }
 
 // UpdatePlanWithBindings applies a plan edit and, when scopes is non-nil,
@@ -213,80 +211,77 @@ func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan,
 	}
 
 	return editConfiguration(s, func(state *State) (Plan, Changes, error) {
-		for i := range state.Plans {
-			if state.Plans[i].ID != patch.ID {
+		plan := state.FindPlan(patch.ID)
+		if plan == nil {
+			return Plan{}, Changes{}, notFoundf("Subscription plan %q does not exist", patch.ID)
+		}
+		updated := *plan
+		if patch.Name != nil {
+			updated.Name = strings.TrimSpace(*patch.Name)
+		}
+		if patch.Currency != nil {
+			updated.Currency = *patch.Currency
+		}
+		if patch.SharedQuota != nil {
+			updated.SharedQuota = *patch.SharedQuota
+		}
+		if patch.Windows != nil {
+			windows, err := prepareWindows(*patch.Windows, updated.Windows, s.Now())
+			if err != nil {
+				return Plan{}, Changes{}, err
+			}
+			updated.Windows = windows
+		}
+		if errValidate := updated.Validate(); errValidate != nil {
+			return Plan{}, Changes{}, errValidate
+		}
+		var selected map[string]bool
+		if scopes != nil {
+			normalized := normalizeScopes(*scopes)
+			selected = make(map[string]bool, len(normalized))
+			for _, scope := range normalized {
+				key := state.Keys[scope]
+				if key == nil || !key.DeletedAt.IsZero() && key.PlanID != patch.ID {
+					return Plan{}, Changes{}, notFoundf("API key %q does not exist", scope)
+				}
+				if key.PlanID != "" && key.PlanID != patch.ID {
+					return Plan{}, Changes{}, conflictf("API key %q is already bound to another subscription plan", scope)
+				}
+				selected[scope] = true
+			}
+		}
+
+		var resetWindows []string
+		for _, old := range plan.Windows {
+			if updated.SharedQuota != plan.SharedQuota || !slices.ContainsFunc(updated.Windows, func(window QuotaWindow) bool {
+				return window.ID == old.ID && window.sameSchedule(old)
+			}) {
+				resetWindows = append(resetWindows, old.ID)
+			}
+		}
+		for _, id := range resetWindows {
+			delete(updated.Cycles, id)
+		}
+
+		for scope, key := range state.Keys {
+			if key == nil || key.PlanID != patch.ID {
 				continue
 			}
-			updated := state.Plans[i]
-			if patch.Name != nil {
-				updated.Name = strings.TrimSpace(*patch.Name)
+			if scopes != nil && !selected[scope] {
+				key.bindPlan("")
+				continue
 			}
-			if patch.Currency != nil {
-				updated.Currency = *patch.Currency
+			for _, id := range resetWindows {
+				delete(key.Cycles, id)
 			}
-			if patch.Windows != nil {
-				windows, err := prepareWindows(*patch.Windows, updated.Windows, s.Now())
-				if err != nil {
-					return Plan{}, Changes{}, err
-				}
-				updated.Windows = windows
-			}
-			if errValidate := updated.Validate(); errValidate != nil {
-				return Plan{}, Changes{}, errValidate
-			}
-			var selected map[string]struct{}
-			if scopes != nil {
-				normalized := normalizeScopes(*scopes)
-				selected = make(map[string]struct{}, len(normalized))
-				for _, scope := range normalized {
-					key := state.Keys[scope]
-					if key == nil || !key.DeletedAt.IsZero() && key.PlanID != patch.ID {
-						return Plan{}, Changes{}, notFoundf("API key %q does not exist", scope)
-					}
-					if key.PlanID != "" && key.PlanID != patch.ID {
-						return Plan{}, Changes{}, conflictf("API key %q is already bound to another subscription plan", scope)
-					}
-					selected[scope] = struct{}{}
-				}
-			}
-
-			var resetWindows []string
-			if patch.Windows != nil {
-				for _, old := range state.Plans[i].Windows {
-					if !slices.ContainsFunc(updated.Windows, func(window QuotaWindow) bool {
-						return window.ID == old.ID && window.sameSchedule(old)
-					}) {
-						resetWindows = append(resetWindows, old.ID)
-					}
-				}
-			}
-
-			for scope, key := range state.Keys {
-				if key == nil || key.PlanID != patch.ID {
-					continue
-				}
-				_, shouldBind := selected[scope]
-				if scopes != nil && !shouldBind {
-					key.PlanID, key.Cycles = "", nil
-					continue
-				}
-				for _, id := range resetWindows {
-					delete(key.Cycles, id)
-				}
-			}
-			if scopes != nil {
-				for scope := range selected {
-					key := state.Keys[scope]
-					if key.PlanID == "" {
-						key.PlanID = patch.ID
-						key.Cycles = nil
-					}
-				}
-			}
-			state.Plans[i] = updated
-			return clonePlan(updated), Changes{Plans: true, AllKeys: true}, nil
 		}
-		return Plan{}, Changes{}, notFoundf("Subscription plan %q does not exist", patch.ID)
+		if scopes != nil {
+			for scope := range selected {
+				state.Keys[scope].bindPlan(patch.ID)
+			}
+		}
+		*plan = updated
+		return clonePlan(updated), Changes{Plans: true, AllKeys: true}, nil
 	})
 }
 
@@ -308,10 +303,36 @@ func (s *Store) DeletePlan(id string) (int, error) {
 			if key == nil || key.PlanID != id {
 				continue
 			}
-			key.PlanID = ""
-			key.Cycles = nil
+			key.bindPlan("")
 			released++
 		}
 		return released, Changes{Plans: true, AllKeys: true}, nil
+	})
+}
+
+type PlanView struct {
+	Plan
+	Quota *QuotaView `json:"quota,omitempty"`
+}
+
+func (s *Store) PlanViews() []PlanView {
+	now := s.Now()
+	return updateResult(s, func(state *State) ([]PlanView, Changes) {
+		views := make([]PlanView, 0, len(state.Plans))
+		changes := Changes{}
+		for i := range state.Plans {
+			plan := &state.Plans[i]
+			view := PlanView{}
+			if plan.SharedQuota {
+				if plan.Cycles.settle(now) {
+					changes.PlanCycles = append(changes.PlanCycles, plan.ID)
+				}
+				quota := quotaView(nil, plan, s.cfg.CNYPerUSD, now)
+				view.Quota = &quota
+			}
+			view.Plan = clonePlan(*plan)
+			views = append(views, view)
+		}
+		return views, changes
 	})
 }

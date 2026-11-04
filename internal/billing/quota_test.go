@@ -3,6 +3,7 @@ package billing
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -81,25 +82,42 @@ func TestQuotaTracksTokensWithoutPricing(t *testing.T) {
 }
 
 func TestQuotaPreservesOverageAndRetriesWrites(t *testing.T) {
-	store, repo, now := quotaStore(t, QuotaWindow{RequestLimit: 1, TokenLimit: 1})
-	repo.fail = errors.New("dummy write failure")
-	var group sync.WaitGroup
-	for range 8 {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			store.RecordUsage(subsetEvent("s", now))
-		}()
-	}
-	group.Wait()
-	w := store.Authorize("s", now).Windows[0]
-	if currentQuotaCycle(t, store).UsedRequests != 8 || currentQuotaCycle(t, store).UsedTokens != 12000 || !w.Blocked {
-		t.Fatalf("concurrent overage lost: %+v", w)
-	}
-	repo.fail = nil
-	store.Authorize("s", now)
-	if len(repo.requestEvents) != 8 || !store.dirty.empty() {
-		t.Fatal("write retry duplicated or lost usage")
+	for _, shared := range []bool{false, true} {
+		t.Run(fmt.Sprint(shared), func(t *testing.T) {
+			store, repo, now := quotaStore(t, QuotaWindow{RequestLimit: 1, TokenLimit: 1})
+			if shared {
+				store.ReplaceAll(func(state *State) {
+					state.Plans[0].SharedQuota = true
+					state.Plans[0].Windows[0].CycleAnchorAt = now.Add(time.Hour)
+					state.Keys["other"] = &KeyState{PlanID: "p", Preview: "sk-dum…0002"}
+				})
+				store.Authorize("s", now)
+				store.Authorize("other", now)
+			}
+			repo.fail = errors.New("dummy write failure")
+			var group sync.WaitGroup
+			for i := range 8 {
+				scope := "s"
+				if shared && i%2 == 1 {
+					scope = "other"
+				}
+				group.Add(1)
+				go func() {
+					defer group.Done()
+					store.RecordUsage(subsetEvent(scope, now))
+				}()
+			}
+			group.Wait()
+			w := store.Authorize("s", now).Windows[0]
+			if w.Dimensions[0].Used != "12000" || w.Dimensions[1].Used != "8" || !w.Blocked {
+				t.Fatalf("concurrent overage lost: %+v", w)
+			}
+			repo.fail = nil
+			store.Authorize("s", now)
+			if len(repo.requestEvents) != 8 || !store.dirty.empty() {
+				t.Fatal("write retry duplicated or lost usage")
+			}
+		})
 	}
 }
 
@@ -157,7 +175,7 @@ func TestQuotaPreservesNumericBoundaries(t *testing.T) {
 		cycle.Spending.USD = math.MaxFloat64 * 0.75
 		cycle.UsedTokens, cycle.UsedRequests = maxQuotaCount-1, maxQuotaCount-1
 		key.Cycles["w"] = cycle
-		key.chargeCycles(now, quotaUsage{Spending: Spending{USD: math.MaxFloat64 * 0.75}, Tokens: 1, Requests: 1})
+		chargeQuota(key, nil, now, quotaUsage{Spending: Spending{USD: math.MaxFloat64 * 0.75}, Tokens: 1, Requests: 1})
 	})
 	view := store.Authorize("s", now)
 	for _, balance := range view.Windows[0].Dimensions {
@@ -180,5 +198,101 @@ func TestQuotaPreservesNumericBoundaries(t *testing.T) {
 	cycle = currentQuotaCycle(t, store)
 	if cycle.UsedTokens != math.MaxInt64 || cycle.UsedRequests != math.MaxInt64 {
 		t.Fatalf("usage counter overflow wrapped: %+v", cycle)
+	}
+}
+
+func TestSharedQuotaLifecycle(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	store := newAccountStore(t, now)
+	store.now = func() time.Time { return now }
+	store.ReplaceAll(func(state *State) {
+		for _, scope := range []string{"a", "b", "c"} {
+			state.Keys[scope] = &KeyState{Preview: "sk-dum…0001"}
+		}
+	})
+	window := QuotaWindow{
+		Name: "Hourly", PeriodSeconds: 3600, CycleAnchorAt: now.Add(time.Hour),
+		Amount: 2 * wantSubsetCost, TokenLimit: 3000, RequestLimit: 2,
+	}
+	long := window
+	long.Name, long.PeriodSeconds, long.CycleAnchorAt = "Budget", 7200, now.Add(2*time.Hour)
+	plan, err := store.CreatePlanWithBindings(Plan{ID: "pool", SharedQuota: true, Windows: []QuotaWindow{window, long}}, []string{"a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Authorize("a", now)
+	store.RecordUsage(subsetEvent("a", now))
+	if err := store.BindKey("b", plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Authorize("b", now).Allowed {
+		t.Fatal("joining key was blocked before the limit")
+	}
+	store.RecordUsage(subsetEvent("b", now))
+	if err := store.BindKey("c", plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"a", "b", "c"} {
+		if d := store.Authorize(scope, now); d.Allowed || !d.SharedQuota || !d.Windows[0].Blocked || !d.Windows[1].Blocked {
+			t.Fatalf("pool exhaustion did not block %s: %+v", scope, d)
+		}
+		for _, balance := range store.Authorize(scope, now).Windows[0].Dimensions {
+			if !balance.Blocked {
+				t.Fatalf("shared %s usage was not accumulated: %+v", balance.Metric, balance)
+			}
+		}
+	}
+	if err := store.UnbindKey("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BindKey("a", plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !store.PlanViews()[0].Quota.Blocked || store.Authorize("a", now).Allowed {
+		t.Fatal("rebinding refunded pool usage")
+	}
+	store.ReplaceAll(func(state *State) { state.Keys["b"].DeletedAt = now })
+	if store.Authorize("c", now).Allowed {
+		t.Fatal("deleting a member refunded pool usage")
+	}
+	if _, err := store.ClearRequestEvents(0); err != nil {
+		t.Fatal(err)
+	}
+	if !store.PlanViews()[0].Quota.Blocked {
+		t.Fatal("history cleanup refunded pool usage")
+	}
+	now = now.Add(time.Hour)
+	d := store.Authorize("c", now)
+	if d.Allowed || d.Windows[0].Blocked || !d.Windows[1].Blocked || len(store.state.FindPlan(plan.ID).Cycles) != 1 {
+		t.Fatalf("window expiration affected the wrong quota: %+v", d)
+	}
+	if _, err := store.ResetQuota(ResetRequest{Mode: "all", Scopes: []string{"c", "missing"}}); err == nil || !store.PlanViews()[0].Quota.Blocked {
+		t.Fatal("invalid selection partially reset the pool")
+	}
+	result, err := store.ResetQuota(ResetRequest{Mode: "all", Scopes: []string{"a", "c"}})
+	if err != nil || result.Pools != 1 || result.Windows != 1 || len(store.state.Keys["b"].Cycles) != 0 {
+		t.Fatalf("pool reset was not atomic or counted twice: %+v, %v", result, err)
+	}
+	if view := store.PlanViews()[0].Quota; view.Blocked || !view.Windows[0].EndAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("manual reset changed the schedule: %+v", view)
+	}
+	store.Authorize("c", now)
+	store.RecordUsage(subsetEvent("c", now))
+	now = now.Add(time.Hour)
+	if d := store.Authorize("a", now); !d.Allowed || d.Windows[0].Dimensions[0].Used != "0" || d.Windows[1].Dimensions[0].Used != "0" {
+		t.Fatalf("scheduled reset did not replenish pool: %+v", d)
+	}
+	store.RecordUsage(subsetEvent("a", now))
+	shared := false
+	if _, err := store.UpdatePlanWithBindings(PlanPatch{ID: plan.ID, SharedQuota: &shared}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.state.FindPlan(plan.ID).Cycles) != 0 {
+		t.Fatal("scope change kept shared counters")
+	}
+	for _, scope := range []string{"a", "c"} {
+		if d := store.Authorize(scope, now); d.SharedQuota || d.Windows[0].Dimensions[0].Used != "0" {
+			t.Fatal("scope change retained per-key counters")
+		}
 	}
 }

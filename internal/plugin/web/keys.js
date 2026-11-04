@@ -92,13 +92,7 @@ function setSelectedConcurrency(keys, raw) {
 }
 
 function resetSelectedKeys(keys) {
-  const shared = keys.filter((key) => key.windows[0]?.cycle_anchor_at).length;
-  const note =
-    shared === keys.length
-      ? m("ui.clear_usage_in_all_windows_and_keep_the_scheduled_reset_times")
-      : shared === 0
-        ? m("ui.all_quota_cycles_will_end_new_cycles_start_when_the_next_request_is_admitted")
-        : m("ui.batch_reset_mixed_cycles");
+  const note = quotaResetNote(keys);
   return openActionDialog(m("ui.batch_reset_subscription_quota", { count: keys.length }), note, undefined, () =>
     keySelection.run(keys, (_, group) => writeAdmin("POST", "/keys/reset", { mode: "all", scopes: group.map((key) => key.scope) }), {
       groupBy: () => "reset",
@@ -254,17 +248,10 @@ function renderKeys() {
             text: m("ui.reset"),
             disabled: deleted || view.unlimited || saving,
             onclick: () =>
-              openActionDialog(
-                m("ui.reset_subscription_quota"),
-                view.windows[0]?.cycle_anchor_at
-                  ? m("ui.clear_usage_in_all_windows_and_keep_the_scheduled_reset_times")
-                  : m("ui.all_quota_cycles_will_end_new_cycles_start_when_the_next_request_is_admitted"),
-                undefined,
-                async () => {
-                  await mutateAdmin("POST", "/keys/reset", { mode: "all", scopes: [view.scope] });
-                  notify(m("ui.subscription_quota_reset"));
-                }
-              )
+              openActionDialog(m("ui.reset_subscription_quota"), quotaResetNote([view]), undefined, async () => {
+                await mutateAdmin("POST", "/keys/reset", { mode: "all", scopes: [view.scope] });
+                notify(m("ui.subscription_quota_reset"));
+              })
           }),
           el("button", {
             class: "link",
@@ -435,6 +422,6 @@ $("keys-reset-all").onclick = () =>
     undefined,
     async () => {
       const result = await mutateAdmin("POST", "/keys/reset", { mode: "global" });
-      notify(result.keys ? m("ui.reset_quotas_for_value_api_keys", { v0: result.keys }) : m("ui.no_quotas_to_reset"));
+      notify(result.keys || result.pools ? m("ui.subscription_quota_reset") : m("ui.no_quotas_to_reset"));
     }
   );

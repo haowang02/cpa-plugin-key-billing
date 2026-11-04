@@ -221,6 +221,14 @@ func TestQuotaConfigurationExtendsExistingJSON(t *testing.T) {
 		`{"w":{"plan_id":"p","start_at":"2026-09-08T12:00:00Z","end_at":"2026-09-08T13:00:00Z","spent_usd":3.5}}`, `{}`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.db.Exec(`ALTER TABLE plans DROP COLUMN shared_quota;
+        ALTER TABLE plans DROP COLUMN cycles_json; PRAGMA user_version=24;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database = openDatabase(t, path)
 	state := mustLoad(t, database).State
 	cycle := state.Keys["dummy-scope"].Cycles["w"]
 	start := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
@@ -239,7 +247,13 @@ func TestQuotaConfigurationExtendsExistingJSON(t *testing.T) {
 	}
 	cycle.UsageSince = start.Add(30 * time.Minute)
 	state.Keys["dummy-scope"].Cycles["w"] = cycle
+	state.Plans[0].SharedQuota = true
+	state.Plans[0].Cycles = billing.QuotaCycles{"w": cycle}
 	mustSave(t, database, state, billing.Changes{Plans: true, AllKeys: true})
+	cycle.UsedRequests++
+	state.Plans[0].Cycles["w"] = cycle
+	mustSave(t, database, state, billing.Changes{PlanCycles: []string{"p"}})
+
 	var version int
 	if err := database.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatalf("schema changed: %d, %v", version, err)

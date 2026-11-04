@@ -28,6 +28,7 @@ const (
 	routeReferencePricesStatus  = "/prices/reference/status"
 	routeReferencePricesRefresh = "/prices/reference/refresh"
 	routePlans                  = "/plans"
+	routePlansReset             = "/plans/reset"
 	routeRoutes                 = "/routes"
 	routeKeysRoutes             = "/keys/routes"
 	routeKeysBind               = "/keys/bind"
@@ -63,7 +64,7 @@ var managementEndpoints = []managementEndpoint{
 		return JSONResponse(http.StatusOK, map[string]any{"keys": a.keyRows()})
 	}},
 	{http.MethodGet, routePlans, "View subscription plans", func(a *App, _ ManagementRequest) ManagementResponse {
-		return JSONResponse(http.StatusOK, map[string]any{"plans": a.store.Plans()})
+		return JSONResponse(http.StatusOK, map[string]any{"plans": a.store.PlanViews()})
 	}},
 	{http.MethodGet, routeRoutes, "View routing rules", func(a *App, _ ManagementRequest) ManagementResponse {
 		return JSONResponse(http.StatusOK, map[string]any{"routes": a.routeRows()})
@@ -77,6 +78,7 @@ var managementEndpoints = []managementEndpoint{
 	{http.MethodDelete, routePrices, "Delete custom model pricing", (*App).deletePrice},
 	{http.MethodPut, routePrices, "Update model pricing", (*App).putPrices},
 	{http.MethodPost, routePlans, "Create subscription plan", (*App).createPlan},
+	{http.MethodPost, routePlansReset, "Reset a shared quota pool", (*App).resetPlan},
 	{http.MethodPatch, routePlans, "Update subscription plan", (*App).updatePlan},
 	{http.MethodDelete, routePlans, "Delete subscription plan and unbind API keys", (*App).deletePlan},
 	{http.MethodPost, routeRoutes, "Create routing rule", (*App).createRoute},
@@ -233,10 +235,10 @@ func (a *App) mutateWithView(req ManagementRequest, path string, handle func(*Ap
 	}
 	view := map[string]any{}
 	switch path {
-	case routePlans, routeRoutes, routeKeysBind, routeKeysUnbind, routeKeysReset, routeKeysLabel, routeKeysConcurrency, routeKeysRoutes:
+	case routePlans, routePlansReset, routeRoutes, routeKeysBind, routeKeysUnbind, routeKeysReset, routeKeysLabel, routeKeysConcurrency, routeKeysRoutes:
 		view["keys"] = a.keyRows()
-		if path == routePlans {
-			view["plans"] = a.store.Plans()
+		if path == routePlans || path == routePlansReset || path == routeKeysReset {
+			view["plans"] = a.store.PlanViews()
 		}
 		if path == routeRoutes || path == routeKeysRoutes {
 			view["routes"] = a.routeRows()

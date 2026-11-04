@@ -176,7 +176,7 @@ func TestConfigurationWriteFailureKeepsState(t *testing.T) {
 		{"concurrency", func(s *Store) error { return s.SetConcurrencyLimit("key", 1) }},
 		{"sync", func(s *Store) error { _, err := s.SyncKeys([]string{"sk-test-sync-0001"}, false); return err }},
 		{"edit windows", func(s *Store) error {
-			windows := s.Plans()[0].Windows
+			windows := s.PlanViews()[0].Windows
 			windows[0].PeriodSeconds = 7200
 			_, err := s.UpdatePlanWithBindings(PlanPatch{ID: "p", Windows: &windows}, nil)
 			return err
@@ -197,14 +197,16 @@ func TestConfigurationWriteFailureKeepsState(t *testing.T) {
 			store.now = func() time.Time { return now }
 			store.ReplaceAll(func(state *State) {
 				window := QuotaWindow{ID: "default", Name: "额度", Amount: 10, PeriodSeconds: 3600, CycleAnchorAt: now.Add(time.Hour)}
-				state.Plans = []Plan{{ID: "p", Currency: USD, Windows: []QuotaWindow{window}}}
+				state.Plans = []Plan{{ID: "p", Currency: USD, SharedQuota: true, Windows: []QuotaWindow{window}}}
 				cycle := window.newCycle("p", now)
 				cycle.Spending.USD = 5
+				state.Plans[0].Cycles = QuotaCycles{"default": cycle}
 				state.Routes = []Route{{ID: "r", Name: "r", Rule: RouteRule{DeniedModels: []string{"gpt"}, DeniedCredentialIDs: []string{CredentialFingerprint("dummy")}}}, {ID: "keep", Name: "keep"}}
 				state.Keys["key"] = &KeyState{Preview: "unknown", InConfig: true, PlanID: "p",
 					Cycles:        map[string]QuotaCycle{"default": cycle},
 					RouteBindings: RouteBindings{RouteIDs: []string{"r", "keep"}}}
 			})
+			beforePool := store.PlanViews()[0].Cycles["default"]
 			before, err := json.Marshal(store.state)
 			if err != nil {
 				t.Fatal(err)
@@ -217,7 +219,7 @@ func TestConfigurationWriteFailureKeepsState(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if string(before) != string(after) {
+			if string(before) != string(after) || store.PlanViews()[0].Cycles["default"] != beforePool {
 				t.Fatal("failed edit changed the live state")
 			}
 			if !store.dirty.empty() {

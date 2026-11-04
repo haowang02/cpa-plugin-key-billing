@@ -111,6 +111,8 @@ CREATE TABLE plans (
 	id              TEXT    NOT NULL UNIQUE,
 	name            TEXT    NOT NULL DEFAULT '',
 	windows_json    TEXT    NOT NULL,
+	shared_quota    INTEGER NOT NULL DEFAULT 0,
+	cycles_json     TEXT    NOT NULL DEFAULT '{}',
 	currency        TEXT    NOT NULL DEFAULT 'USD'
 );
 

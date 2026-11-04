@@ -122,7 +122,7 @@ func TestManagementRegistrationExposesOnlyCurrentEndpoints(t *testing.T) {
 	for _, value := range []string{
 		"GET /keys", "GET /plans", "GET /routes", "GET /credentials", "GET /currency", "GET /prices", "GET /prices/reference",
 		"POST /prices/reference/refresh", "PUT /prices", "DELETE /prices", "GET /prices/reference/status",
-		"POST /plans", "PATCH /plans", "DELETE /plans",
+		"POST /plans", "PATCH /plans", "DELETE /plans", "POST /plans/reset",
 		"POST /routes", "PATCH /routes", "DELETE /routes", "PUT /keys/routes",
 		"POST /keys/bind", "POST /keys/unbind", "POST /keys/reset",
 		"POST /keys/label", "POST /keys/concurrency", "POST /keys/sync",

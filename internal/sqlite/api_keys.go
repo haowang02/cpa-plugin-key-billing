@@ -82,7 +82,7 @@ func (d *DB) loadKeys(state *billing.State) error {
 		if key.Cycles == nil {
 			return fmt.Errorf("Quota cycles must be a JSON object")
 		}
-		plan, _ := state.FindPlan(key.PlanID)
+		plan := state.FindPlan(key.PlanID)
 		if err := key.ValidateCycles(plan); err != nil {
 			return err
 		}

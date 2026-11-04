@@ -53,11 +53,24 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 22 {
 		steps = append(steps, migrateCredentialNotes)
 	}
-	steps = append(steps, migrateCurrencies)
+	if version <= 23 {
+		steps = append(steps, migrateCurrencies)
+	}
+	steps = append(steps, migrateSharedQuotas)
 	for _, step := range steps {
 		if err := step(tx); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateSharedQuotas(tx *sql.Tx) error {
+	_, err := tx.Exec(`
+		ALTER TABLE plans ADD COLUMN shared_quota INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE plans ADD COLUMN cycles_json TEXT NOT NULL DEFAULT '{}';`)
+	if err != nil {
+		return fmt.Errorf("Add shared subscription quotas: %w", err)
 	}
 	return nil
 }
@@ -629,7 +642,8 @@ func migrateQuotaWindows(tx *sql.Tx) error {
 		if cycle != (billing.QuotaCycle{}) {
 			key.Cycles["default"] = cycle
 		}
-		if err := key.ValidateCycles(plans[key.PlanID]); err != nil {
+		plan := plans[key.PlanID]
+		if err := key.ValidateCycles(&plan); err != nil {
 			rows.Close()
 			return fmt.Errorf("Migrate quota cycles: %w", err)
 		}

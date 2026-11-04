@@ -174,8 +174,9 @@ func TestPlansCRUDThroughTheManagementAPI(t *testing.T) {
 }
 
 func TestKeyResetAcceptsScopeList(t *testing.T) {
-	for _, unified := range []bool{false, true} {
-		t.Run(fmt.Sprint(unified), func(t *testing.T) {
+	for _, mode := range []string{"independent", "unified", "shared"} {
+		unified := mode != "independent"
+		t.Run(mode, func(t *testing.T) {
 			app := newConfiguredApp(t)
 			anchor := time.Time{}
 			if unified {
@@ -186,7 +187,7 @@ func TestKeyResetAcceptsScopeList(t *testing.T) {
 			callOK(t, app, http.MethodPost, routeKeysSync, nil,
 				map[string]any{"keys": keys}, http.StatusOK, nil)
 			callOK(t, app, http.MethodPost, routePlans, nil, map[string]any{
-				"id": "daily", "windows": []billing.QuotaWindow{{Name: "额度", Amount: 10, PeriodSeconds: 86400, CycleAnchorAt: anchor}},
+				"id": "daily", "shared_quota": mode == "shared", "windows": []billing.QuotaWindow{{Name: "额度", Amount: 10, PeriodSeconds: 86400, CycleAnchorAt: anchor}},
 				"scopes": scopes,
 			}, http.StatusCreated, nil)
 			for _, scope := range scopes {
@@ -195,8 +196,12 @@ func TestKeyResetAcceptsScopeList(t *testing.T) {
 				}
 			}
 
+			resetScopes := scopes
+			if mode == "shared" {
+				resetScopes = scopes[:1]
+			}
 			var result billing.ResetResult
-			callOK(t, app, http.MethodPost, routeKeysReset, nil, billing.ResetRequest{Mode: "all", Scopes: scopes}, http.StatusOK, &result)
+			callOK(t, app, http.MethodPost, routeKeysReset, nil, billing.ResetRequest{Mode: "all", Scopes: resetScopes}, http.StatusOK, &result)
 			if result.Keys != 2 {
 				t.Fatalf("reset = %d, want 2", result.Keys)
 			}
@@ -206,7 +211,22 @@ func TestKeyResetAcceptsScopeList(t *testing.T) {
 					t.Fatalf("reset changed schedule for %q: %+v", scope, byScope[scope])
 				}
 			}
-
+			if mode == "shared" {
+				app.store.Authorize(scopes[0], time.Now())
+				var response struct {
+					View struct {
+						Plans []billing.PlanView `json:"plans"`
+						Keys  []billing.KeyView  `json:"keys"`
+					} `json:"view"`
+				}
+				callOK(t, app, http.MethodPost, routePlansReset, url.Values{"view": {"1"}},
+					map[string]any{"data": map[string]any{"id": "daily"}}, http.StatusOK, &response)
+				if len(response.View.Plans) != 1 || response.View.Plans[0].Quota == nil || !response.View.Plans[0].Quota.SharedQuota || len(response.View.Keys) != 2 {
+					t.Fatalf("reset mutation view = %+v", response)
+				}
+			} else if resp := callManagement(t, app, http.MethodPost, routePlansReset, nil, map[string]any{"id": "daily"}); resp.StatusCode != http.StatusBadRequest {
+				t.Fatal("per-key plan accepted pool reset")
+			}
 		})
 	}
 }
