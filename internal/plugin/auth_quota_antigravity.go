@@ -74,6 +74,7 @@ func antigravityQuotaRows(quota map[string]any) []quotaRow {
 			continue
 		}
 		groupLabel := firstString(group, "displayName", "display_name")
+		meter := antigravityGroupMeter(groupLabel)
 		var groupMessage messages.Message
 		if groupLabel == "" {
 			groupLabel = fmt.Sprintf("Quota group %d", groupIndex+1)
@@ -105,7 +106,7 @@ func antigravityQuotaRows(quota map[string]any) []quotaRow {
 			}
 			groupRows = append(groupRows, quotaRow{
 				Label: label, GroupLabel: groupLabel, LabelMessage: labelMessage, GroupMessage: groupMessage,
-				RemainingPercent: remaining, windowSeconds: windowSeconds,
+				RemainingPercent: remaining, windowSeconds: windowSeconds, meter: meter,
 				ResetAt: quotaResetAt(firstString(bucket, "resetTime", "reset_time")),
 			})
 		}

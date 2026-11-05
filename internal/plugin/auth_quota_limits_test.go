@@ -149,6 +149,65 @@ func TestFetchedQuotaKeysUnifiedWindowsAndCoversModelFamilies(t *testing.T) {
 	}
 }
 
+func TestQuotaUsageSeparatesAntigravityGroups(t *testing.T) {
+	app, _ := newAppWithPriceAndState(t, true)
+	now := app.store.Now().Truncate(time.Second)
+	for _, event := range []struct {
+		model, apiKey string
+		offset        time.Duration
+		tokens        int64
+	}{
+		{"gemini-3-flash", "sk-dummy-one", -time.Hour, 100},
+		{"claude-sonnet-4-6", "sk-dummy-one", -time.Hour, 200},
+		{"gpt-oss-120b", "sk-dummy-one", -time.Hour, 400},
+		{"gemini-4-argon-high", "sk-dummy-one", -6 * time.Hour, 800},
+		{"gemini-3-flash", "sk-dummy-two", -time.Hour, 1600},
+		{"gemini-3-flash", "sk-dummy-one", -4 * time.Hour, 3200},
+		{"gemini-3-flash", "sk-dummy-one", -4*time.Hour - time.Second, 6400},
+		{"gemini-3-flash", "sk-dummy-one", -7 * 24 * time.Hour, 12800},
+	} {
+		// One priced alias for every upstream model keeps cost and grouping independent.
+		publishUsageRecord(t, app, UsageRecord{Provider: "antigravity", AuthType: "oauth", AuthIndex: "ag-1",
+			APIKey: event.apiKey, Model: event.model, Alias: "gpt-5.5", RequestedAt: now.Add(event.offset),
+			Detail: UsageDetail{InputTokens: event.tokens, TotalTokens: event.tokens}})
+	}
+	var groups []any
+	for _, label := range []string{"Gemini Models", "Claude & GPT Models", "Gemini 4 Argon", "Gemini 5 Argon"} {
+		groups = append(groups, map[string]any{"displayName": label, "buckets": []any{
+			map[string]any{"window": "weekly", "remainingFraction": 0.58, "resetTime": now.Add(24 * time.Hour).Format(time.RFC3339)},
+			map[string]any{"window": "5h", "remainingFraction": 1.0, "resetTime": now.Add(time.Hour).Format(time.RFC3339)},
+		}})
+	}
+	for _, tc := range []struct {
+		scope  string
+		tokens []int64
+	}{
+		{"", []int64{4900, 11300, 600, 600, 0, 800, -1, -1}},
+		{billing.CallerScope("sk-dummy-one"), []int64{3300, 9700, 600, 600, 0, 800, -1, -1}},
+	} {
+		quota := authQuotaResponse{Quota: antigravityQuotaRows(map[string]any{"groups": groups})}
+		if err := app.attachQuotaUsage(tc.scope, map[quotaCredential]*authQuotaResponse{{"ag-1", "antigravity"}: &quota}); err != nil {
+			t.Fatal(err)
+		}
+		if len(quota.Quota) != len(tc.tokens) {
+			t.Fatalf("quota rows = %+v", quota.Quota)
+		}
+		for i, expected := range tc.tokens {
+			row := quota.Quota[i]
+			if expected < 0 {
+				if row.Usage != nil || row.UsageQuery != nil {
+					t.Fatalf("unknown group reports usage: %+v", row)
+				}
+				continue
+			}
+			if row.Usage == nil || row.UsageQuery == nil || row.Usage.Tokens != expected ||
+				math.Abs(row.Usage.CostUSD-float64(expected)*1e-6) > 1e-12 {
+				t.Fatalf("scoped=%v, row %d usage=%+v, want %d tokens", tc.scope != "", i, row.Usage, expected)
+			}
+		}
+	}
+}
+
 func TestQuotaHistoryFollowsPlanChangesAndMatchesCurrentUsage(t *testing.T) {
 	app, _ := newAppWithPriceAndState(t, true)
 	now := app.store.Now()

@@ -10,10 +10,8 @@ import (
 	"cpa-key-billing/internal/messages"
 )
 
-// quotaMeter says which requests on a credential count against a quota
-// window; the zero meter counts all of them. Windows without a meter cover
-// traffic the plugin cannot tell apart, such as Code Review or an Antigravity
-// model group, and report no usage.
+// quotaMeter selects a credential's requests for a quota window.
+// A nil meter leaves usage unknown; a zero meter counts every model.
 type quotaMeter struct {
 	models billing.ModelMatch
 	// Exclusive windows alone meter their models, so windows over every
@@ -87,6 +85,25 @@ const claudeUnifiedLimit = "unified"
 // claudeModelMeter meters a weekly limit Claude keeps for one model family.
 func claudeModelMeter(family string) *quotaMeter {
 	return &quotaMeter{models: billing.ModelMatch{Include: []string{family}}}
+}
+
+func antigravityGroupMeter(label string) *quotaMeter {
+	words := strings.FieldsFunc(strings.ToLower(label), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
+	var models billing.ModelMatch
+	switch strings.Join(words, " ") {
+	case "gemini", "gemini models":
+		// Argon has its own pool.
+		models = billing.ModelMatch{Include: []string{"gemini-"}, Exclude: []string{"gemini-4-argon"}}
+	case "claude gpt", "claude gpt models", "claude and gpt", "claude and gpt models":
+		models.Include = []string{"claude-", "gpt-"}
+	case "gemini 4 argon", "gemini 4 argon models":
+		models.Include = []string{"gemini-4-argon"}
+	default:
+		return nil
+	}
+	return &quotaMeter{models: models}
 }
 
 // periodSeconds is the length of a period reported by its start and reset.

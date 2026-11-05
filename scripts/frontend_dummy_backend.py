@@ -668,11 +668,14 @@ def quota_usage(tokens, cost_usd, models=CODEX_MODELS):
 QUOTA_WINDOW_LENGTHS = {"5 小时限额": timedelta(hours=5), "周限额": timedelta(days=7), "月度额度": timedelta(days=30)}
 
 
-def quota_row(label, remaining_percent, reset_seconds, **extra):
+def quota_row(label, remaining_percent, reset_seconds, *, include=(), exclude=(), **extra):
     reset_at = NOW + timedelta(seconds=reset_seconds)
     row = {"label": label, "remaining_percent": remaining_percent, "reset_at": iso(reset_at), **extra}
     if "usage" in row:
         row["usage_query"] = {"from": iso(reset_at - QUOTA_WINDOW_LENGTHS[label]), "to": iso(NOW)}
+        for key, values in (("include", include), ("exclude", exclude)):
+            if values:
+                row["usage_query"][key] = list(values)
     return row
 
 
@@ -741,10 +744,16 @@ AUTH_FILE_QUOTAS = {
     "auth-demo-antigravity": {
         "plan": "Google AI Pro",
         "quota": [
-            quota_row("5 小时限额", 99, 10800, group_label="Claude and GPT Models"),
-            quota_row("周限额", 99, 518400, group_label="Claude and GPT Models"),
-            quota_row("5 小时限额", 82, 14400, group_label="Gemini Models"),
-            quota_row("周限额", 93, 432000, group_label="Gemini Models"),
+            quota_row("5 小时限额", 100, 14400, group_label="Gemini Models",
+                      include=("gemini-",), exclude=("gemini-4-argon",), **quota_usage(0, 0, ("gemini-3-flash",))),
+            quota_row("周限额", 93, 432000, group_label="Gemini Models",
+                      include=("gemini-",), exclude=("gemini-4-argon",), **quota_usage(3_910_024, 2.17, ("gemini-3-flash", "gemini-3.1-pro"))),
+            quota_row("5 小时限额", 99, 14400, group_label="Claude and GPT Models",
+                      include=("claude-", "gpt-"), **quota_usage(245_118, 0.63, ("claude-sonnet-4-6", "gpt-oss-120b"))),
+            quota_row("周限额", 99, 518400, group_label="Claude and GPT Models",
+                      include=("claude-", "gpt-"), **quota_usage(1_822_391, 4.72, ("claude-sonnet-4-6", "gpt-oss-120b"))),
+            quota_row("周限额", 58, 432000, group_label="Gemini 4 Argon",
+                      include=("gemini-4-argon",), **quota_usage(6_380_000, 9.64, ("gemini-4-argon",))),
         ],
     },
     "auth-demo-kimi": {
@@ -901,7 +910,9 @@ def usage_models(query, scope=""):
         periods = [*AUTH_FILE_QUOTAS.get(auth_index, {}).get("quota", []),
                    *(period for window in AUTH_FILE_HISTORY.get(auth_index, []) for period in window["periods"])]
         for period in periods:
-            if "usage_query" in period and (period["usage_query"]["from"], period["usage_query"]["to"]) == bounds:
+            window = period.get("usage_query")
+            if (window and (window["from"], window["to"]) == bounds
+                    and all(window.get(key, []) == query.get(key, []) for key in ("include", "exclude"))):
                 return {"models": model_split(period["usage"]["tokens"], period["usage"]["cost_usd"], period["_models"])}
         return {"models": model_usage([entry for entry in filter_event_time(REQUEST_EVENTS, query)
                                        if entry["auth_index"] == auth_index and (not scope or entry["scope"] == scope)])}
