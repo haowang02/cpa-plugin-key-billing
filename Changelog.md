@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.4.17
+
+### 后端
+
+- Antigravity 按模型组和额度窗口统计 Token 与成本，Gemini 4 Argon 独立统计，避免重复计入 Gemini 通用额度。
+
+### 前端
+
+- 认证文件页面补全 Antigravity 进度条下方的 Token 和成本，悬停可查看对应模型明细。
+
 ## v1.4.16
 
 ### 升级须知
