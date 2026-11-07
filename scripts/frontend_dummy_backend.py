@@ -448,8 +448,8 @@ AUTH_FILES = [
         "email": "ai-lab@example.com",
         "disabled": False,
         "unavailable": False,
-        "priority": 5,
-        "weight": 5,
+        "priority": 0,
+        "weight": 1,
         "quota_supported": True,
     },
     {
@@ -640,7 +640,6 @@ def credential_usage(rows):
 
 CODEX_MODELS = ("gpt-5.6-sol", "gpt-5.6-luna", "codex-auto-review")
 CLAUDE_MODELS = ("claude-sonnet-5-5", "claude-opus-5-5")
-SPARK_MODELS = ("gpt-5.3-codex-spark",)
 
 
 def model_split(tokens, cost_usd, models):
@@ -698,22 +697,6 @@ AUTH_FILE_QUOTAS = {
         ],
         "quota": [
             quota_row("周限额", 62, 432000, limit_key="codex", **quota_usage(48_612_340, 36.2)),
-            quota_row(
-                "5 小时限额",
-                100,
-                18000,
-                label_prefix="GPT-5.3-Codex-Spark ",
-                limit_key="GPT-5.3-Codex-Spark",
-                **quota_usage(0, 0),
-            ),
-            quota_row(
-                "周限额",
-                100,
-                604800,
-                label_prefix="GPT-5.3-Codex-Spark ",
-                limit_key="GPT-5.3-Codex-Spark",
-                **quota_usage(0, 0),
-            ),
         ],
     },
     "auth-demo-codex-plus": {
@@ -744,16 +727,16 @@ AUTH_FILE_QUOTAS = {
     "auth-demo-antigravity": {
         "plan": "Google AI Pro",
         "quota": [
-            quota_row("5 小时限额", 100, 14400, group_label="Gemini Models",
-                      include=("gemini-",), exclude=("gemini-4-argon",), **quota_usage(0, 0, ("gemini-3-flash",))),
-            quota_row("周限额", 93, 432000, group_label="Gemini Models",
-                      include=("gemini-",), exclude=("gemini-4-argon",), **quota_usage(3_910_024, 2.17, ("gemini-3-flash", "gemini-3.1-pro"))),
-            quota_row("5 小时限额", 99, 14400, group_label="Claude and GPT Models",
-                      include=("claude-", "gpt-"), **quota_usage(245_118, 0.63, ("claude-sonnet-4-6", "gpt-oss-120b"))),
-            quota_row("周限额", 99, 518400, group_label="Claude and GPT Models",
-                      include=("claude-", "gpt-"), **quota_usage(1_822_391, 4.72, ("claude-sonnet-4-6", "gpt-oss-120b"))),
-            quota_row("周限额", 58, 432000, group_label="Gemini 4 Argon",
-                      include=("gemini-4-argon",), **quota_usage(6_380_000, 9.64, ("gemini-4-argon",))),
+            quota_row("5 小时限额", 100, 9300, group_label="Gemini Models",
+                      include=("gemini-",), exclude=("gemini-4-argon",), **quota_usage(1_520, 0.002, ("gemini-3-flash",))),
+            quota_row("周限额", 100, 568800, group_label="Gemini Models",
+                      include=("gemini-",), exclude=("gemini-4-argon",), **quota_usage(22_814, 0.03, ("gemini-3-flash",))),
+            quota_row("5 小时限额", 100, 14400, group_label="Claude and GPT models",
+                      include=("claude-", "gpt-"), **quota_usage(0, 0, ("claude-sonnet-4-6", "gpt-oss-120b"))),
+            quota_row("周限额", 99, 568740, group_label="Claude and GPT models",
+                      include=("claude-", "gpt-"), **quota_usage(0, 0, ("claude-sonnet-4-6", "gpt-oss-120b"))),
+            quota_row("周限额", 100, 568800, group_label="Gemini 4 Argon",
+                      include=("gemini-4-argon",), **quota_usage(17_024, 0.05, ("gemini-4-argon",))),
         ],
     },
     "auth-demo-kimi": {
@@ -797,7 +780,7 @@ def localized_quota_labels(rows):
     for row in rows:
         key = labels.get(row.get("label", ""))
         if key:
-            row["label"] = row.get("label_prefix", "") + english[key]
+            row["label"] = english[key]
             row["label_message"] = {"message_key": key}
     return rows
 
@@ -856,13 +839,6 @@ AUTH_FILE_HISTORY = {
             quota_period(NOW - timedelta(days=2), WEEK, 38, 48_612_340, 36.2, ["Pro 200"]),
             *[quota_period(NOW - timedelta(days=2 + 7 * week), WEEK, 70 + week * 6, 90_402_118 + week * 7_301_224,
                            round(67.31 + week * 5.44, 2), ["Pro 200"], reason="scheduled") for week in range(1, 5)],
-        ]},
-        {"label": "5 小时限额", "label_prefix": "GPT-5.3-Codex-Spark ", "periods": [
-            quota_period(NOW - timedelta(days=3, hours=4), FIVE_HOURS, 12, 1_204_877, 0.94, ["Pro 200"], reason="scheduled", models=SPARK_MODELS),
-            quota_period(NOW - timedelta(days=11, hours=8), FIVE_HOURS, 4, 380_105, 0.3, ["Pro 200"], reason="scheduled", models=SPARK_MODELS),
-        ]},
-        {"label": "周限额", "label_prefix": "GPT-5.3-Codex-Spark ", "periods": [
-            quota_period(NOW - timedelta(days=4), WEEK, 12, 1_584_982, 1.24, ["Pro 200"], models=SPARK_MODELS),
         ]},
     ],
     "auth-demo-claude": [
@@ -1050,6 +1026,22 @@ PRICES = [
         "source": "custom",
     },
     {
+        "model_id": "gemini-3-flash",
+        "currency": "USD",
+        "input_per_1m": 0.5,
+        "output_per_1m": 3,
+        "cache_read_per_1m": 0.05,
+        "source": "custom",
+    },
+    {
+        "model_id": "gemini-4-argon",
+        "currency": "USD",
+        "input_per_1m": 2,
+        "output_per_1m": 12,
+        "cache_read_per_1m": 0.2,
+        "source": "custom",
+    },
+    {
         "model_id": "claude/deepseek-v4-pro",
         "currency": "CNY",
         "input_per_1m": 3,
@@ -1179,7 +1171,13 @@ UNASSIGNED_EVENT_SAMPLES = [
     event_sample(None, "codex · dev-team@example.com", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "medium", "auto", 1810, 0, 0, (0, 0, 0, 0), (5, 0.5, 5, 30), failed=True, auth_index="auth-demo-codex-plus"),
 ]
 
-EVENT_SAMPLES = SUCCESS_EVENT_SAMPLES * 2 + FAILURE_EVENT_SAMPLES + UNASSIGNED_EVENT_SAMPLES
+ANTIGRAVITY_EVENT_SAMPLES = [
+    event_sample(2, "antigravity · ai-lab@example.com", "antigravity", "gemini-3-flash", "AntigravityExecutor", "", "auto", 3920, 1210, 0, (1204, 18432, 0, 310), (0.5, 0.05, 0.5, 3), auth_index="auth-demo-antigravity"),
+    event_sample(4, "antigravity · ai-lab@example.com", "antigravity", "gemini-4-argon", "AntigravityExecutor", "high", "auto", 8410, 2930, 120, (2048, 12288, 0, 640), (2, 0.2, 2, 12), auth_index="auth-demo-antigravity"),
+]
+
+# ERRORS address events by position; add new samples at the end.
+EVENT_SAMPLES = SUCCESS_EVENT_SAMPLES * 2 + FAILURE_EVENT_SAMPLES + UNASSIGNED_EVENT_SAMPLES + ANTIGRAVITY_EVENT_SAMPLES
 
 
 def make_request_events():
@@ -1908,7 +1906,7 @@ class Handler(BaseHTTPRequestHandler):
     allow_api_key_quota_reset = False
 
     def send_response(self, code, message=None):
-        time.sleep(random.uniform(0.4, 0.6))
+        time.sleep(random.uniform(0.05, 0.15))
         super().send_response(code, message)
 
     def send_html(self, body):
