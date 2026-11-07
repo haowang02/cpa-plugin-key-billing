@@ -72,6 +72,9 @@ function renderCollection(target, items, { render, headers, attrs, selection, em
         )
       : rows;
   }
+  // WebKit lays out a query container before styling rows inserted into it; holding the height until the swap is laid out
+  // keeps the page from briefly shrinking and clamping its scroll offset.
+  target.style.minBlockSize = target.offsetHeight + "px";
   target.replaceChildren(
     ...(selection && items.length
       ? [el("label", { class: "selection-mobile" }, selection.checkbox(), el("span", { text: m("ui.select_all_visible") }))]
@@ -82,6 +85,7 @@ function renderCollection(target, items, { render, headers, attrs, selection, em
   if (headers) content.scrollLeft = tableLeft;
   target.scrollTop = top;
   target.scrollLeft = left;
+  target.style.minBlockSize = "";
   refreshHoverTooltip();
   return rows;
 }
