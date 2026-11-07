@@ -925,12 +925,13 @@ body.embedded .standalone-actions { display: none; }
   border: 1px solid var(--border-primary);
   border-radius: 8px;
   gap: 10px;
-  align-items: start;
 }
 .plan-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content; gap: 12px; }
 .plan-details input, .plan-details select, .plan-window input { width: 100%; min-width: 0; }
 .plan-window.unified { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
-.plan-window-limits { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 10px; }
+.plan-window-limits { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+/* Fields in a row share label and control tracks, so neither a wrapped label nor an error moves a neighbouring input. */
+.plan-window .field { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 4px; }
 .period-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .plan-window .window-delete {
   position: absolute;
@@ -951,6 +952,7 @@ body.embedded .standalone-actions { display: none; }
 }
 .plan-window .window-delete:hover:not(:disabled) { color: var(--error-color); background: var(--bg-hover); }
 .plan-window button.window-delete:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--primary-color); }
+.field-control { display: grid; align-content: start; gap: 4px; min-width: 0; }
 .field-error { color: var(--error-color); }
 .field-error:empty { display: none; }
 :root .plan-window input[aria-invalid="true"] { border-color: var(--error-color); box-shadow: inset 0 0 0 1px var(--error-color); }

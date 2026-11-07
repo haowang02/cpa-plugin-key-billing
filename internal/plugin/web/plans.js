@@ -143,7 +143,7 @@ function validatePlanPeriod(row) {
 
 function setPlanFieldError(input, message) {
   if (message) input.setAttribute("aria-invalid", "true"); else input.removeAttribute("aria-invalid");
-  setText(input.closest(".field").querySelector(":scope > .field-error"), message);
+  setText(input.closest(".field").querySelector(":scope > .field-control > .field-error"), message);
 }
 
 function validatePlanAnchor(row, required = true) {
@@ -176,8 +176,13 @@ function addPlanWindow(quotaWindow = {}) {
     "data-anchor": quotaWindow.cycle_anchor_at || "",
     "data-period": String(seconds || "")
   });
-  const field = (label, input, className = "") =>
-    el("label", { class: "field " + className }, label, input, el("span", { class: "field-error small" }));
+  const field = (label, control, className = "") =>
+    el(
+      "label",
+      { class: "field " + className },
+      label,
+      el("span", { class: "field-control" }, control, el("span", { class: "field-error small" }))
+    );
   const anchorInput = el("input", {
     name: "window_anchor",
     type: "text",
