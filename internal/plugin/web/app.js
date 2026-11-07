@@ -129,10 +129,7 @@ async function setLoginMode(mode, preserveError) {
   setTextAttribute($("gate-key"), "placeholder", account ? m("ui.enter_api_key") : m("ui.enter_management_key"));
   setText($("gate-submit"), account ? m("ui.view_my_usage") : m("ui.open_management_console"));
   $("gate-key").value = "";
-  if (!preserveError) {
-    setText($("gate-error"), "");
-    $("gate-error").className = "notice err";
-  }
+  if (!preserveError) $("gate-error").replaceChildren();
   const saved = await recalledCredential(loginMode);
   if (ticket !== loginModeRequest) return;
   if (saved) setTextAttribute($("gate-key"), "placeholder", m("ui.key_remembered"));
@@ -142,7 +139,7 @@ async function setLoginMode(mode, preserveError) {
 function showGate(mode, error) {
   sessionGeneration++;
   clearTableSelection();
-  hideNotice();
+  clearToasts();
   closeHoverTooltip();
   try { sessionStorage.removeItem(SESSION_CREDENTIAL_PREFIX + mode); } catch (_) {}
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
@@ -158,9 +155,7 @@ function showGate(mode, error) {
   $("app").classList.add("hidden");
   $("account-app").classList.add("hidden");
   $("gate").classList.remove("hidden");
-  const box = $("gate-error");
-  setText(box, error || "");
-  box.className = error ? "notice err show" : "notice err";
+  $("gate-error").replaceChildren(...(error ? [notice(error, "error")] : []));
   setLoginMode(mode, true);
 }
 
@@ -170,8 +165,7 @@ async function submitLogin() {
   let key = $("gate-key").value.trim();
   if (!key) key = await recalledCredential(role);
   if (!key) {
-    setText($("gate-error"), role === "account" ? m("ui.enter_an_api_key") : m("ui.enter_a_management_key"));
-    $("gate-error").className = "notice err show";
+    $("gate-error").replaceChildren(notice(role === "account" ? m("ui.enter_an_api_key") : m("ui.enter_a_management_key"), "error"));
     return;
   }
   $("gate-submit").disabled = true;
@@ -181,7 +175,7 @@ async function submitLogin() {
     try { await saveCredential(role, key, $("gate-remember").checked); } catch (err) {
       if (generation !== sessionGeneration) return;
       const message = m("ui.signed_in_but_the_session_was_not_saved_value", { v0: err.message || err });
-      notify(message, "err");
+      notify(message, "error");
     }
     $("gate-key").value = "";
   } catch (err) {

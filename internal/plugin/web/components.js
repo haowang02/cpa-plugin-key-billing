@@ -89,22 +89,7 @@ function renderCollection(target, items, { render, headers, attrs, selection, em
   refreshHoverTooltip();
   return rows;
 }
-let noticeTimer = 0;
-function hideNotice() {
-  clearTimeout(noticeTimer);
-  const node = $("notice");
-  node.className = "notice";
-  if (node.hidePopover && node.matches(":popover-open")) node.hidePopover();
-}
 
-function notify(message, kind) {
-  const node = $("notice");
-  setText(node, message);
-  node.className = "notice show " + (kind || "ok");
-  if (node.showPopover && !node.matches(":popover-open")) { node.showPopover(); }
-  clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(hideNotice, kind === "err" ? 9000 : 4000);
-}
 async function fail(err) {
   if (err instanceof StaleRequestError) return;
   if (err instanceof AuthError) {
@@ -114,7 +99,7 @@ async function fail(err) {
     if (generation === sessionGeneration) showGate(role, err.message);
     return;
   }
-  notify(err.message || String(err), "err");
+  notify(err.message || String(err), "error");
 }
 async function guard(fn) { try { await fn(); } catch (err) { await fail(err); } }
 
@@ -158,7 +143,7 @@ function openEditor(id, kind, initialize) {
   try {
     editor.data = kind ? editorData(kind) : undefined;
     editor.initial = initialize(editor.data);
-    editor.notice.className = "editor-state notice hidden";
+    editor.notice.replaceChildren();
     updateEditorControls(editor);
     dialog.showModal();
     dialog.querySelector("input:not([type=hidden]):not(.hidden):enabled")?.focus();
@@ -172,16 +157,13 @@ async function submitEditor(id, save, pendingLabel = m("ui.saving")) {
   const label = window.billingI18n.boundText(editor.button);
   updateEditorControls(editor);
   setText(editor.button, pendingLabel);
-  editor.notice.className = "editor-state notice hidden";
+  editor.notice.replaceChildren();
   try {
     const saved = await save(editor);
     if (saved !== false && editorCurrent(editor)) editor.dialog.close();
   } catch (error) {
     if (error instanceof AuthError || error instanceof StaleRequestError) return fail(error);
-    if (editorCurrent(editor)) {
-      editor.notice.className = "editor-state notice err show";
-      setText(editor.notice, error.message || String(error));
-    }
+    if (editorCurrent(editor)) editor.notice.replaceChildren(notice(error.message || String(error), "error"));
   } finally {
     editor.saving = false;
     if (editors.get(editor.dialog) === editor) {
@@ -213,6 +195,8 @@ const LUCIDE_ICONS = {
   "info": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`,
   "pencil": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/></svg>`,
   "circle-check": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></svg>`,
+  "circle-alert": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-alert"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>`,
+  "triangle-alert": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-alert"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
   "route": `<svg class="lucide lucide-route" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>`,
   "astroid": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-astroid"><path d="M12.983 21.186a1 1 0 0 1-1.966 0 10 10 0 0 0-8.203-8.203 1 1 0 0 1 0-1.966 10 10 0 0 0 8.203-8.203 1 1 0 0 1 1.966 0 10 10 0 0 0 8.203 8.203 1 1 0 0 1 0 1.966 10 10 0 0 0-8.203 8.203"/></svg>`,
   x: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg>`,

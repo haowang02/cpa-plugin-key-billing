@@ -57,8 +57,6 @@
   --analysis-color-5: var(--viz-failure);
   --analysis-color-6: #23a6c7;
   --analysis-segment-border: var(--bg-primary);
-  --notice-success-bg: color-mix(in srgb, var(--success-badge-text) 14%, var(--floating-surface));
-  --notice-error-bg: color-mix(in srgb, var(--failure-badge-text) 14%, var(--floating-surface));
   --shadow: 0 1px 2px 0 #00000014;
   --radius-md: 8px;
   --page-gap: 16px;
@@ -726,23 +724,6 @@ button.inline-icon-button.copied, button.inline-icon-button.copied:hover { color
 :root[data-cpamp-plugin-host="true"] button.inline-icon-button { min-height: 22px; padding: 0; }
 .inline-icon-button .lucide-icon { width: 12px; height: 12px; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-.notice { padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 14px; display: none; border: 1px solid transparent; }
-.notice.show { display: block; }
-.notice.err { background: var(--notice-error-bg); color: var(--failure-badge-text); border-color: var(--failure-badge-border); }
-.notice.ok { background: var(--notice-success-bg); color: var(--success-badge-text); border-color: var(--success-badge-border); }
-#notice {
-  position: fixed;
-  z-index: 2000;
-  top: max(14px, env(safe-area-inset-top));
-  right: auto;
-  bottom: auto;
-  left: 50%;
-  width: min(520px, calc(100vw - 24px));
-  margin: 0;
-  box-shadow: var(--floating-shadow);
-  transform: translateX(-50%);
-  pointer-events: none;
-}
 .hidden { display: none !important; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .gate { max-width: 520px; margin: 9vh auto; padding: 20px; }
@@ -1482,7 +1463,6 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
 .quota-period-list > .auth-quota-row:first-child { padding-top: 0; border-top: 0; }
 .quota-period-usage { display: inline-flex; align-items: center; gap: 6px; }
 .quota-period-plans { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
-.retry-button { margin-top: 10px; }
 .display-contents { display: contents; }
 .switch-field { display: flex; align-items: center; gap: 8px; color: var(--text-primary); font-size: 13px; margin-top: 16px; }
 .switch-field input { width: auto; }
@@ -2023,6 +2003,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   color: var(--text-tertiary);
   font-size: 12px;
 }
+.event-load-state > .notice { flex: 1; margin: 0; }
 @media (max-width: 768px) {
   :root { --page-gap: 12px; }
   .wrap { padding: 14px 12px 0; }

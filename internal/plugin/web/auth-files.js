@@ -697,14 +697,14 @@ async function resetAuthQuota(file, account) {
       if (authQuotaCacheCurrent(account, owner, generation, index)) {
         const failed = owner.authQuotaErrors.has(index);
         if (!cooldownCleared) {
-          notify(m("ui.quota_reset_but_cooldown_clear_failed"), "err");
+          notify(m("ui.quota_reset_but_cooldown_clear_failed"), "error");
           return;
         }
         notify(
           failed
             ? m("ui.quota_reset_but_refresh_failed_please_update_the_quota_manually")
             : m("ui.reset_quota_for_value", { v0: file.name }),
-          failed ? "err" : "ok"
+          failed ? "error" : "success"
         );
       }
     },

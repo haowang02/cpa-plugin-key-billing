@@ -81,12 +81,9 @@ function renderAuthDrawerHistory() {
   switcher.classList.toggle("hidden", !history?.windows.length);
   if (!history) {
     $("auth-drawer-usage").replaceChildren(
-      ...(error
-        ? [
-            el("div", { class: "credential-error", text: error }),
-            el("button", { class: "retry-button", onclick: () => retryAuthDrawerHistory() }, m("ui.retry"))
-          ]
-        : [el("div", { class: "muted small", text: m("ui.loading") })])
+      error
+        ? notice(error, "error", el("button", { type: "button", onclick: retryAuthDrawerHistory }, m("ui.retry")))
+        : el("div", { class: "muted small", text: m("ui.loading") })
     );
     $("auth-drawer-models").replaceChildren();
     switcher.replaceChildren();

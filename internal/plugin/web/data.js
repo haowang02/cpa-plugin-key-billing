@@ -279,28 +279,34 @@ function createPagedList(kind, account) {
     renderEmpty() {
       if (list.data) return false;
       list.rendered = null;
-      const message = query.error ? m("ui.failed_to_load_value_value", { v0: view.label, v1: query.error }) : m("ui.loading");
       list.scroller.replaceChildren(
-        el(
-          "div",
-          { class: "empty" },
-          el("div", { text: message }),
-          query.error && !query.task
-            ? el("button", { class: "retry-button", onclick: () => guard(() => list.load(true)) }, m("ui.retry"))
-            : null
-        )
+        query.error
+          ? notice(
+              m("ui.failed_to_load_value_value", { v0: view.label, v1: query.error }),
+              "error",
+              !query.task && el("button", { type: "button", onclick: () => guard(() => list.load(true)) }, m("ui.retry"))
+            )
+          : el("div", { class: "empty", text: m("ui.loading") })
       );
       return true;
+    },
+    loadState() {
+      if (query.task)
+        return el("div", { class: "event-load-state", role: "status", text: list.append ? m("ui.loading_more") : m("ui.loading") });
+      if (!query.error) return null;
+      const retry = el("button", { type: "button", onclick: () => list.loadMore(true) }, m("ui.retry"));
+      return el(
+        "div",
+        { class: "event-load-state", role: "alert" },
+        notice(m("ui.failed_to_load_more", { v0: query.error }), "error", retry)
+      );
     },
     renderStatus() {
       const scroller = list.scroller;
       const top = scroller.scrollTop, left = scroller.scrollLeft;
-      const error = query.task ? "" : query.error;
-      let message = error ? m("ui.failed_to_load_value", { v0: error }) : "";
-      if (query.task) message = list.append ? m("ui.loading_more") : m("ui.loading");
+      const status = list.loadState();
       const previous = scroller.querySelector(":scope > .event-load-state");
-      if ((previous?.textContent || "") === message) return;
-      const status = message ? el("div", { class: "event-load-state", role: error ? "alert" : "status", text: message }) : null;
+      if ((previous?.textContent || "") === (status?.textContent || "")) return;
       if (status && previous) previous.replaceWith(status); else if (status) scroller.append(status); else previous?.remove();
       scroller.scrollTop = top;
       scroller.scrollLeft = left;
@@ -789,14 +795,8 @@ function renderDataNotice() {
     })
   );
   if (!account && page.groups.includes("configuration")) errors.push(...resourceGroups.admin.configuration.syncErrors);
-  const target = $(account ? "account-data-status" : "admin-data-status");
-  target.classList.toggle("show", !!errors.length);
-  target.replaceChildren(
-    ...(errors.length
-      ? [
-          el("div", { text: errors.join("；") }),
-          el("button", { class: "retry-button", disabled: !!page.task, onclick: refreshPage }, page.task ? m("ui.retrying") : m("ui.retry"))
-        ]
-      : [])
-  );
+  const status = $(account ? "account-data-status" : "admin-data-status");
+  if (!errors.length) return status.replaceChildren();
+  const retry = el("button", { type: "button", disabled: !!page.task, onclick: refreshPage }, page.task ? m("ui.retrying") : m("ui.retry"));
+  status.replaceChildren(notice(errors.join("\n"), "error", retry));
 }

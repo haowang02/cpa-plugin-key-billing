@@ -1,0 +1,83 @@
+[data-kind="success"] {
+  --notice-accent: var(--success-badge-text);
+  --notice-tint: var(--success-badge-bg);
+  --notice-border: var(--success-badge-border);
+}
+[data-kind="info"] {
+  --notice-accent: var(--info-badge-text);
+  --notice-tint: var(--info-badge-bg);
+  --notice-border: var(--info-badge-border);
+}
+[data-kind="warning"] { --notice-accent: var(--amber-text); --notice-tint: var(--amber-10); --notice-border: var(--amber-30); }
+[data-kind="error"] {
+  --notice-accent: var(--failure-badge-text);
+  --notice-tint: var(--failure-badge-bg);
+  --notice-border: var(--failure-badge-border);
+}
+.notice-icon { color: var(--notice-accent); }
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--notice-border);
+  border-radius: var(--radius-md);
+  background: var(--notice-tint);
+  color: var(--text-primary);
+}
+.notice-text { display: flex; flex: 1 1 16em; gap: 8px; overflow-wrap: anywhere; white-space: pre-line; }
+.notice-text > .notice-icon { width: 16px; height: 16px; margin-block: 3px; }
+.notice > button { margin-left: auto; }
+
+/* Toasts sit under the host's floating header, centred like CPAMC's own. */
+.toast-region {
+  inset: calc(var(--host-header-inset, 0px) + max(12px, env(safe-area-inset-top))) 0 auto;
+  width: min(420px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+  pointer-events: none;
+}
+.toast-region:popover-open { display: grid; justify-items: center; gap: 8px; }
+@media (min-width: 641px) {
+  /* CPAMP shows its own notifications at the top right. */
+  :root[data-cpamp-plugin-host="true"]:not([data-cpamp-standalone]) .toast-region { margin-right: 16px; justify-items: end; }
+}
+@media (max-width: 640px) {
+  .toast-region { width: auto; margin-inline: 12px; }
+  .toast-region:popover-open { justify-items: stretch; }
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 100%;
+  padding: 8px 6px 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--floating-surface);
+  color: var(--text-primary);
+  box-shadow: var(--floating-shadow);
+  pointer-events: auto;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+@starting-style {
+  .toast { opacity: 0; transform: translateY(-8px); }
+}
+.toast[data-leaving] { opacity: 0; transform: translateY(-8px); transition-duration: 0.15s; }
+:root[data-cpamp-plugin-host="true"] .toast { border-color: var(--notice-border); }
+.toast > .notice-icon { width: 28px; height: 28px; padding: 6px; border-radius: 50%; background: var(--notice-tint); }
+.toast-message { flex: 1; min-width: 0; padding-block: 3px; font-weight: 500; overflow-wrap: anywhere; white-space: pre-line; }
+.toast-close { --icon-action-size: 28px; }
+@media (pointer: coarse) {
+  .toast-close { --icon-action-size: 40px; margin-block: -6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { transition-property: opacity; }
+}

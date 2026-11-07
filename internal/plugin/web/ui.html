@@ -16,6 +16,7 @@
     <style>
       /*style.css*/
       /*table-selection.css*/
+      /*notice.css*/
     </style>
     <script>
       /*theme.js*/
@@ -36,7 +37,7 @@
         </div>
         <form id="gate-form">
           <input id="gate-username" class="hidden" type="text" name="access-role" autocomplete="username" value="admin" />
-          <div id="gate-error" class="notice err"></div>
+          <div id="gate-error" role="alert"></div>
           <label class="field">
             <span id="gate-key-label" data-i18n="ui.management_key">Management key</span>
             <input id="gate-key" type="password" autocomplete="current-password" placeholder="Enter management key"  data-i18n-placeholder="ui.enter_management_key"/>
@@ -102,7 +103,7 @@
         </div>
         <div id="shared-time-backdrop" class="time-range-backdrop hidden"></div>
 
-        <div id="admin-data-status" class="notice err" role="status"></div>
+        <div id="admin-data-status" role="status"></div>
         <section id="tab-keys">
           <div class="card">
             <div class="row spread section-toolbar">
@@ -135,7 +136,7 @@
           </div>
           <dialog id="plan-dialog" class="settings-dialog plan-dialog">
             <h2 id="plan-dialog-title" data-i18n="ui.create_plan">Create plan</h2>
-            <div class="editor-state notice hidden"></div>
+            <div class="editor-state" role="alert"></div>
             <input id="plan-id" type="hidden" />
             <div class="plan-details">
               <label class="field"> <span data-i18n="ui.plan_name">Plan name</span> <input id="plan-name" placeholder="Team quota"  data-i18n-placeholder="ui.team_quota"/> </label>
@@ -172,7 +173,7 @@
           </div>
           <dialog id="route-dialog" class="settings-dialog route-dialog">
             <h2 id="route-dialog-title" data-i18n="ui.create_rule">Create rule</h2>
-            <div class="editor-state notice hidden"></div>
+            <div class="editor-state" role="alert"></div>
             <input id="route-id" type="hidden" />
             <div class="route-form-toolbar">
               <label class="field"> <span data-i18n="ui.rule_name">Rule name</span> <input id="route-name" placeholder="Codex auth files"  data-i18n-placeholder="ui.codex_auth_files"/> </label>
@@ -331,7 +332,7 @@
             <button type="button" class="icon-action" data-page-action="logout" aria-label="Sign out" data-i18n-aria-label="ui.sign_out"></button>
           </div>
         </header>
-        <div id="account-data-status" class="notice err" role="status"></div>
+        <div id="account-data-status" role="status"></div>
         <section id="account-untracked" class="card account-empty hidden">
           <h2 data-i18n="ui.no_billing_records_yet">No usage recorded yet</h2>
           <p class="muted" data-i18n="ui.this_api_key_is_valid_but_the_plugin_has_not_received_any_attributable_usage_yet">This API key is valid. Usage will appear here after the plugin receives a usage record for it.</p>
@@ -496,12 +497,12 @@
       <span>&thinsp;·&thinsp;<span data-i18n="ui.version">Version</span>: v1.4.19</span>
     </footer>
 
-    <div id="notice" class="notice" popover="manual"></div>
+    <section id="toasts" class="toast-region" popover="manual" aria-label="Notifications" data-i18n-aria-label="ui.notifications"></section>
     <div id="hover-tooltip" class="hover-tooltip" popover="manual" role="tooltip" tabindex="0"></div>
 
     <dialog id="price-dialog" class="settings-dialog">
       <h2 id="price-dialog-title" data-i18n="ui.edit_model_pricing">Edit model pricing</h2>
-      <div class="editor-state notice hidden"></div>
+      <div class="editor-state" role="alert"></div>
       <label class="field"> <span data-i18n="ui.model_id">Model ID</span> <input class="mono price-dialog-model" id="price-model" placeholder="Model ID" maxlength="1024"  data-i18n-placeholder="ui.model_id"/> </label>
       <div class="price-reference">
         <label class="field"> <span data-i18n="ui.choose_reference_price">Use reference price</span> <input id="price-reference-search" placeholder="Search reference models" autocomplete="off"  data-i18n-placeholder="ui.search_reference_models"/> </label>
@@ -529,7 +530,7 @@
 
     <dialog id="action-dialog">
       <h2 id="action-dialog-title"></h2>
-      <div class="editor-state notice hidden"></div>
+      <div class="editor-state" role="alert"></div>
       <div id="action-content" class="muted small" style="white-space: pre-line"></div>
       <input id="action-input" class="dialog-input" />
       <div class="row dialog-actions"> <button id="action-cancel" data-i18n="ui.cancel">Cancel</button> <button id="action-confirm" class="primary" data-i18n="ui.confirm">Confirm</button> </div>
@@ -537,7 +538,7 @@
 
     <dialog id="events-clear-dialog" class="event-cleanup-dialog" aria-labelledby="events-clear-title" aria-describedby="events-clear-hint">
       <h2 id="events-clear-title" data-i18n="ui.clear_request_events">Clear request events</h2>
-      <div class="editor-state notice hidden"></div>
+      <div class="editor-state" role="alert"></div>
       <div class="event-cleanup-fields">
         <label class="field">
           <span data-i18n="ui.cleanup_range">Cleanup range</span>
@@ -558,7 +559,7 @@
     <dialog id="request-event-columns-dialog" class="settings-dialog list-dialog column-settings-dialog" aria-labelledby="request-event-columns-title" aria-describedby="request-event-columns-hint">
       <h2 id="request-event-columns-title" data-i18n="ui.columns">Columns</h2>
       <p id="request-event-columns-hint" data-i18n="ui.request_event_columns_hint">Choose the columns to show and drag them to reorder the table.</p>
-      <div class="editor-state notice hidden"></div>
+      <div class="editor-state" role="alert"></div>
       <div id="request-event-columns-list" class="column-settings"></div>
       <p id="request-event-columns-status" class="visually-hidden" aria-live="polite"></p>
       <div class="row dialog-actions">
@@ -570,7 +571,7 @@
 
     <dialog id="credential-dialog" aria-labelledby="credential-dialog-title">
       <h2 id="credential-dialog-title"></h2>
-      <div class="editor-state notice hidden"></div>
+      <div class="editor-state" role="alert"></div>
       <label class="field"><span data-i18n="ui.label">Label</span><input id="credential-note" type="text" autocomplete="off" placeholder="Leave empty to clear the label" data-i18n-placeholder="ui.clear_label_placeholder" /></label>
       <div class="credential-editor-fields">
         <div class="credential-editor-control">
@@ -628,7 +629,7 @@
     <dialog id="route-picker" class="settings-dialog list-dialog route-picker" aria-labelledby="route-picker-title" aria-describedby="route-picker-identity">
       <h2 id="route-picker-title" data-i18n="ui.edit_api_key_routing_rules">Edit API key routing rules</h2>
       <p id="route-picker-identity" class="mask-blur"></p>
-      <div id="route-picker-notice" class="editor-state notice hidden"></div>
+      <div class="editor-state" role="alert"></div>
       <div class="route-form-toolbar">
         <input id="route-picker-search" type="search" placeholder="Search routing rules, upstream credentials, or models" aria-label="Search routing rules, upstream credentials, or models" autocomplete="off"  data-i18n-placeholder="ui.search_routing_rules_upstream_credentials_or_models" data-i18n-aria-label="ui.search_routing_rules_upstream_credentials_or_models"/>
         <div class="row compact-actions">
@@ -651,6 +652,7 @@
       /*format.js*/
       /*components.js*/
       /*tooltip.js*/
+      /*notice.js*/
       /*select.js*/
       /*sortable.js*/
       /*data.js*/
