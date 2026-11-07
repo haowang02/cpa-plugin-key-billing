@@ -456,7 +456,7 @@ function renderAuthFiles(account) {
     selection: account ? null : authSelection,
     headers: [
       m("ui.auth_files"),
-      ...(!account ? [{ label: "", class: "credential-edit-column" }] : []),
+      ...(!account ? [""] : []),
       m("ui.plan"),
       ...credentialMetricHeaders(),
       { label: m("ui.quota"), class: "credential-quota-column" },

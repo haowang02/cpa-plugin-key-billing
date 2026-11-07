@@ -1152,8 +1152,6 @@ body.privacy-masked .mask-select:not(:has(option[value=""]:checked))::before {
 .credential-list { container: credential-table / inline-size; }
 .credential-table { width: 100%; min-width: 0; table-layout: auto; }
 .credential-table th:not(.credential-quota-column) { width: 1%; }
-.credential-edit-column, .credential-edit-cell { width: 28px; min-width: 28px; }
-.credential-edit-cell { vertical-align: middle; }
 .credential-edit-cell > button { width: 26px; height: 26px; min-height: 26px; padding: 4px; }
 .credential-edit-cell .lucide-icon { width: 15px; height: 15px; }
 .credential-meta > .credential-name-tag { max-width: min(180px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1369,82 +1367,51 @@ body.privacy-masked .mask-select:not(:has(option[value=""]:checked))::before {
   white-space: nowrap;
 }
 .auth-plan-expiry .inline-icon-button { display: none; }
-@container credential-table (min-width: 901px) {
+@container credential-table (width > 900px) {
   .auth-plan-expiry-separator, .auth-plan-expiry.end-time .auth-plan-time-left, .auth-plan-expiry:not(.end-time) .auth-plan-end-time {
     display: none;
   }
   .auth-plan-expiry .inline-icon-button { display: grid; }
 }
+/* Card cells flow in DOM order, so rows without an edit button, plan or actions need no layout of their own. */
 @container credential-table (max-width: 900px) {
   .credential-table, .credential-table tbody { display: block; }
   .credential-table thead { display: none; }
-  .credential-table .credential-row {
-    display: grid;
-    grid-auto-columns: minmax(0, 1fr);
-    grid-template-areas: "identity identity identity actions" "inflight usage usage usage" "quota quota quota quota";
-    gap: 16px;
-    padding: 16px;
-    border-bottom: 1px solid var(--border-color);
-  }
-  .credential-table .credential-row:has(> .credential-plan-cell) {
-    grid-template-areas: "identity identity plan actions" "inflight usage usage usage" "quota quota quota quota";
-  }
-
-  .credential-table .credential-row:has(> .credential-edit-cell) {
-    grid-template-areas: "identity identity edit actions" "inflight usage usage usage" "quota quota quota quota";
-  }
-  .credential-table .credential-row:has(> .credential-edit-cell):has(> .credential-plan-cell) {
-    grid-template-areas: "identity identity edit actions" "plan plan plan plan" "inflight usage usage usage" "quota quota quota quota";
-  }
-  .credential-edit-cell { grid-area: edit; align-self: start; }
+  .credential-table .credential-row { display: grid; border-bottom: 1px solid var(--border-color); }
   .credential-table .credential-row:last-child { border-bottom: none; }
   .credential-table td { display: block; min-width: 0; padding: 0; border: none; }
-  .credential-identity-cell { grid-area: identity; }
-  .credential-row:not(:has(> .credential-actions-cell)) > .credential-identity-cell { grid-column: 1 / -1; }
-  .credential-plan-cell { grid-area: plan; }
-  .credential-inflight-cell { grid-area: inflight; }
-  .credential-usage-cell { grid-area: usage; }
+  .credential-table .credential-edit-cell { justify-self: end; align-self: start; }
+  .credential-table :is(.credential-plan-cell, .credential-quota-cell) { grid-column: 1 / -1; }
   .credential-usage { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; min-width: 0; }
-  .credential-quota-cell { grid-area: quota; }
-  .credential-actions-cell { grid-area: actions; }
-  /* Cards drop actions that never apply to the row; the table keeps the column. */
-  .credential-actions-cell.unavailable { display: none; }
   .auth-quota-actions { flex-direction: row; }
   .credential-metric-label { display: block; }
   .auth-quota-list { gap: 10px 16px; }
 }
+/* The edit button and the actions close the first row. */
+@container credential-table (560px < width <= 900px) {
+  .credential-table .credential-row { grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto; gap: 16px; padding: 16px; }
+  .credential-table .credential-identity-cell { grid-column: 1 / 4; }
+  .credential-table .credential-inflight-cell { grid-column: 1; }
+  .credential-table .credential-usage-cell { grid-column: 2 / -1; }
+  .credential-table .credential-actions-cell { grid-area: 1 / -2; }
+}
+/* Only the edit button stays beside the identity; the actions close the card. */
 @container credential-table (max-width: 560px) {
-  .credential-table .credential-row {
-    grid-template-columns: minmax(0, 1fr) max-content;
-    grid-template-areas: "identity identity" "inflight inflight" "usage usage" "quota quota" "actions actions";
-    gap: 10px 14px;
-    padding: 14px;
-  }
-  .credential-table .credential-row:has(> .credential-plan-cell) {
-    grid-template-areas: "identity identity" "plan expiry" "inflight inflight" "usage usage" "quota quota" "actions actions";
-  }
-  .credential-table .credential-row:not(:has(> .credential-actions-cell)),
-  .credential-table .credential-row:has(> .credential-actions-cell.unavailable) {
-    grid-template-areas: "identity identity" "inflight inflight" "usage usage" "quota quota";
-  }
-
-  .credential-table .credential-row:has(> .credential-edit-cell) {
-    grid-template-areas: "identity edit" "inflight inflight" "usage usage" "quota quota" "actions actions";
-  }
-  .credential-table .credential-row:has(> .credential-edit-cell):has(> .credential-plan-cell) {
-    grid-template-areas: "identity edit" "plan expiry" "inflight inflight" "usage usage" "quota quota" "actions actions";
-  }
+  .credential-table .credential-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px 14px; padding: 14px; }
+  .credential-table :is(.credential-inflight-cell, .credential-usage-cell, .credential-actions-cell) { grid-column: 1 / -1; }
+  /* The icon, not its hit area, lines up with the card's right edge. */
+  .credential-table .credential-edit-cell { margin-right: -5px; }
   .auth-quota-list { grid-template-columns: minmax(0, 1fr); }
   .credential-actions { --button-min-height: 30px; }
   .credential-usage-item { gap: 4px; font-size: 12px; }
   .credential-usage-item > .lucide-icon { width: 12px; height: 12px; }
-  .credential-table .credential-plan-cell { display: contents; }
-  .credential-plan-cell .credential-metric { grid-area: plan; }
-  .auth-plan-expiry { grid-area: expiry; align-self: start; margin: 0; font-size: 13px; color: var(--text-primary); }
-  .credential-table .credential-metric { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+  .credential-table :is(.credential-plan-cell, .credential-metric) { display: flex; flex-wrap: wrap; align-items: baseline; }
+  .credential-table .credential-plan-cell { gap: 2px 12px; }
+  .credential-table .credential-metric { gap: 2px 6px; }
+  .auth-plan-expiry { margin: 0 0 0 auto; color: var(--text-primary); font-size: 13px; }
 }
 @container credential-table (max-width: 320px) {
-  .credential-usage-item { flex-direction: column; align-items: flex-start; }
+  .credential-usage { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 dialog, .time-range-popover { max-height: 80dvh; }
 dialog {
@@ -2179,9 +2146,12 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
     min-width: 0;
     white-space: normal;
   }
-  /* The switches take the first line; category, search and the refresh icon share the second. */
+  /* The switches take the first line; category, search and the refresh icon share the second.
+     A lone switch leaves the rest of its line to the category filter, so search widens below. */
   .section-actions.credential-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
   .credential-filter-switches { display: flex; flex-wrap: wrap; grid-column: 1 / -1; gap: 8px; }
+  .credential-filter-switches:has(> :only-child) { grid-column: auto; }
+  .credential-filter-switches:has(> :only-child) ~ :is(.native-select, input[type="search"]) { grid-column: span 2; }
   .credential-filter-switches > .toggle-filter { flex: 1 1 auto; }
   .credential-filter-bar input[type="search"], .credential-filter-bar .native-select, .credential-filter-bar select {
     width: 100%;

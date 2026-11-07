@@ -79,7 +79,7 @@ function renderAIProviders(account) {
     selection: account ? null : aiSelection,
     headers: [
       m("ui.ai_providers"),
-      ...(!account ? [{ label: "", class: "credential-edit-column" }] : []),
+      ...(!account ? [""] : []),
       ...credentialMetricHeaders(),
       { label: m("ui.balance"), class: "credential-quota-column" },
       ...(!account ? [m("ui.actions")] : [])
