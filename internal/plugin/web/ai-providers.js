@@ -151,7 +151,7 @@ function renderAIProviderRow(provider, account) {
             "button",
             {
               type: "button",
-              class: "labeled-icon-button round-icon-button" + (loading ? " loading" : ""),
+              class: "icon-action" + (loading ? " loading" : ""),
               disabled:
                 !upstream || loading || aiSelection.running || aiProviderStatusSaving ||
                 $("ai-provider-query-balances").dataset.loading === "true",

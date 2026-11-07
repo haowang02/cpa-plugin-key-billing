@@ -483,7 +483,7 @@ function renderAuthFileRow(file, account) {
         "button",
         {
           type: "button",
-          class: "labeled-icon-button round-icon-button",
+          class: "icon-action",
           "aria-label": m("ui.reset_quota"),
           "data-tip": m("ui.reset_quota"),
           disabled: !canResetAuthQuota(file, account),
@@ -495,7 +495,7 @@ function renderAuthFileRow(file, account) {
       "button",
       {
         type: "button",
-        class: "labeled-icon-button round-icon-button" + (loading ? " loading" : ""),
+        class: "icon-action" + (loading ? " loading" : ""),
         disabled: !canRefreshAuthQuota(file) || loading || ui.bulk.dataset.loading === "true" || (!account && authSelection.running),
         "aria-label": m("ui.update_quotas"),
         "data-tip": authQuotaRefreshTitle(file) || m("ui.update_quotas"),

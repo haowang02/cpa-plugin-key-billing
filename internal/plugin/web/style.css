@@ -323,7 +323,7 @@ h2 { font-size: 15px; margin: 0 0 12px; }
 }
 button {
   appearance: none;
-  min-height: var(--button-min-height, 35px);
+  min-height: 35px;
   font: inherit;
   font-weight: 400;
   line-height: 1.5;
@@ -467,19 +467,6 @@ tbody tr:hover { background: var(--bg-hover); }
 .page-navigation.compact .tabs { position: absolute; visibility: hidden; pointer-events: none; }
 .page-navigation.compact .page-tab-select { display: inline-flex; }
 .page-tab-tools { display: flex; flex: none; align-items: center; gap: 4px; }
-.page-tab-tools > .icon-action {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  line-height: 0;
-}
 :root .page-navigation button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
 .page-tab-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .page-tab-actions > button, .page-tab-actions > .time-range-control, .display-currency-control, .auto-refresh-control { flex: none; }
@@ -633,7 +620,7 @@ tbody tr:hover { background: var(--bg-hover); }
 }
 :root[data-cpamp-plugin-host="true"] .toggle-filter.compact-toggle { border-color: transparent; background: transparent; }
 :root[data-cpamp-plugin-host="true"] button:not(.link, .icon-action, .routing-section-toggle, .routing-option) {
-  min-height: var(--button-min-height, 34px);
+  min-height: 34px;
   padding: 0 var(--button-padding-inline, 12px);
   border-color: var(--app-border, var(--border-color));
   border-radius: var(--button-radius, var(--app-radius-md, 12px));
@@ -834,22 +821,8 @@ button.inline-icon-button.copied, button.inline-icon-button.copied:hover { color
   backdrop-filter: var(--glass-backdrop-filter, none);
   -webkit-backdrop-filter: var(--glass-backdrop-filter, none);
 }
-.standalone-actions .icon-action {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  min-width: 38px;
-  min-height: 38px;
-  padding: 0;
-  border-radius: 11px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  line-height: 0;
-}
-.standalone-actions .icon-action:hover:not(:disabled), .standalone-actions .icon-action[aria-expanded="true"] {
-  border-color: transparent;
+.standalone-actions .icon-action { --icon-action-size: 38px; border-radius: 11px; }
+.standalone-actions .icon-action[aria-expanded="true"] {
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
 }
@@ -872,6 +845,22 @@ button.inline-icon-button.copied, button.inline-icon-button.copied:hover { color
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
 }
+/* Icon-only controls carry no frame; buttons with a label keep the bordered button look. */
+button.icon-action {
+  display: grid;
+  place-items: center;
+  width: var(--icon-action-size, 34px);
+  height: var(--icon-action-size, 34px);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  line-height: 0;
+}
+button.icon-action:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
 .icon-action .lucide-icon { width: 16px; height: 16px; }
 body.embedded .standalone-actions { display: none; }
 .account-subscription-stats { margin-bottom: 16px; }
@@ -915,21 +904,12 @@ body.embedded .standalone-actions { display: none; }
 .plan-window .field { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 4px; }
 .period-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .plan-window .window-delete {
+  --icon-action-size: 20px;
   position: absolute;
   top: 2px;
   right: 2px;
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  border: 0;
   border-radius: 50%;
-  background: transparent;
   color: var(--text-tertiary);
-  line-height: 1;
 }
 .plan-window .window-delete:hover:not(:disabled) { color: var(--error-color); background: var(--bg-hover); }
 .plan-window button.window-delete:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--primary-color); }
@@ -939,18 +919,7 @@ body.embedded .standalone-actions { display: none; }
 :root .plan-window input[aria-invalid="true"] { border-color: var(--error-color); box-shadow: inset 0 0 0 1px var(--error-color); }
 .date-time-control { position: relative; min-width: 0; }
 :root .date-time-control > input { padding-right: 36px; }
-:root .date-time-control > .icon-action {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 28px;
-  height: 28px;
-  min-height: 0;
-  padding: 6px;
-  border: 0;
-  background: transparent;
-}
+:root .date-time-control > .icon-action { --icon-action-size: 28px; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
 .date-time-clock { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .date-time-clock input { width: 100%; min-width: 0; }
 @media (max-width: 640px) {
@@ -1128,8 +1097,9 @@ body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked)):
 .credential-list { container: credential-table / inline-size; }
 .credential-table { width: 100%; min-width: 0; table-layout: auto; }
 .credential-table th:not(.credential-quota-column) { width: 1%; }
-.credential-edit-cell > button { width: 26px; height: 26px; min-height: 26px; padding: 4px; }
-.credential-edit-cell .lucide-icon { width: 15px; height: 15px; }
+:is(.credential-edit-cell, .credential-actions) { --icon-action-size: 26px; }
+:is(.credential-edit-cell, .credential-actions) .icon-action { border-radius: 50%; }
+:is(.credential-edit-cell, .credential-actions) .lucide-icon { width: 15px; height: 15px; }
 .credential-meta > .credential-name-tag { max-width: min(180px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .credential-row.disabled > :not(.credential-actions-cell, .credential-edit-cell, .selection-cell) { opacity: 0.68; }
 .credential-metric { display: grid; gap: 3px; min-width: 0; }
@@ -1195,24 +1165,8 @@ body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked)):
 :root[data-theme="dark"] .provider-icon[data-provider="kimi"], :root[data-theme="dark"] .provider-icon[data-provider="xai"] {
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
 }
-.credential-actions {
-  --button-min-height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  width: max-content;
-  margin-left: auto;
-}
+.credential-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; width: max-content; margin-left: auto; }
 .auth-quota-actions { display: flex; flex-direction: column; gap: 6px; }
-.round-icon-button {
-  --button-padding-inline: 0;
-  --button-radius: 50%;
-  width: var(--button-min-height);
-  height: var(--button-min-height);
-  padding: 0;
-  flex: none;
-}
 .credential-actions .loading .lucide-icon,
 [data-page-action="refresh"]:disabled .lucide-icon,
 .credential-filter-bar [data-loading="true"] .lucide-icon {
@@ -1378,7 +1332,7 @@ body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked)):
   /* The icon, not its hit area, lines up with the card's right edge. */
   .credential-table .credential-edit-cell { margin-right: -5px; }
   .auth-quota-list { grid-template-columns: minmax(0, 1fr); }
-  .credential-actions { --button-min-height: 30px; }
+  .credential-actions { --icon-action-size: 30px; }
   .credential-usage-item { gap: 4px; font-size: 12px; }
   .credential-usage-item > .lucide-icon { width: 12px; height: 12px; }
   .credential-table :is(.credential-plan-cell, .credential-metric) { display: flex; flex-wrap: wrap; align-items: baseline; }
@@ -1495,14 +1449,7 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
 @keyframes drawer-in {
   from { translate: 100% 0; }
 }
-.drawer-header {
-  --button-min-height: 32px;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 18px 20px 16px;
-  border-bottom: 1px solid var(--border-color);
-}
+.drawer-header { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 16px; border-bottom: 1px solid var(--border-color); }
 .drawer-identity { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; }
 .drawer-title { min-width: 0; }
 .drawer-title h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2173,12 +2120,12 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
     padding: 4px;
     border-radius: 14px;
   }
-  .standalone-actions .icon-action { width: 36px; height: 36px; min-width: 36px; min-height: 36px; }
+  .standalone-actions .icon-action { --icon-action-size: 36px; }
 }
 @media (max-width: 520px) {
   body:not(.embedded) #account-identity { display: none; }
   body:not(.embedded) .app-header, body:not(.embedded) .app-header .app-title { gap: 7px; }
-  body:not(.embedded) .standalone-actions .icon-action { width: 34px; height: 34px; min-width: 34px; min-height: 34px; }
+  body:not(.embedded) .standalone-actions .icon-action { --icon-action-size: 34px; }
 }
 .event-actions { display: flex; align-items: center; gap: 8px; }
 .labeled-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }

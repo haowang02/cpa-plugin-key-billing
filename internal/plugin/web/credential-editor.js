@@ -4,7 +4,7 @@ function credentialEditCell(edit, disabled) {
     { class: "credential-edit-cell" },
     el(
       "button",
-      { type: "button", class: "inline-icon-button link", "aria-label": m("ui.edit"), disabled, onclick: () => guard(edit) },
+      { type: "button", class: "icon-action", "aria-label": m("ui.edit"), disabled, onclick: () => guard(edit) },
       actionIcon("pencil")
     )
   );
