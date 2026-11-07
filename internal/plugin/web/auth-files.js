@@ -39,7 +39,7 @@ function refreshSelectedAuthQuotas(files) {
       const error = owner.authQuotaErrors.get(file.auth_index);
       if (error) throw new UIError(error);
     },
-    { concurrency: AUTH_QUOTA_BATCH_CONCURRENCY, refresh: () => persistAuthQuotaCache(false) }
+    { concurrency: AUTH_QUOTA_BATCH_CONCURRENCY, refresh: () => persistAuthQuotaCache(false), success: m("ui.quotas_refreshed") }
   );
 }
 
@@ -622,7 +622,10 @@ async function setAuthFileEnabled(file, enabled) {
 
 function setSelectedAuthFilesEnabled(files, enabled) {
   const owner = adminUIState;
-  return authSelection.run(files, (file) => patchAuthFileStatus(file, enabled), { refresh: () => refreshAuthFileStatuses(files, owner) });
+  return authSelection.run(files, (file) => patchAuthFileStatus(file, enabled), {
+    refresh: () => refreshAuthFileStatuses(files, owner),
+    success: enabled ? m("ui.auth_files_enabled") : m("ui.auth_files_disabled")
+  });
 }
 
 const AUTH_QUOTA_TIMEOUT_MS = 65000;
@@ -695,17 +698,10 @@ async function resetAuthQuota(file, account) {
       if (!authQuotaCacheCurrent(account, owner, generation, index)) return;
       await refreshAuthQuota(file, account);
       if (authQuotaCacheCurrent(account, owner, generation, index)) {
-        const failed = owner.authQuotaErrors.has(index);
-        if (!cooldownCleared) {
-          notify(m("ui.quota_reset_but_cooldown_clear_failed"), "error");
-          return;
-        }
-        notify(
-          failed
-            ? m("ui.quota_reset_but_refresh_failed_please_update_the_quota_manually")
-            : m("ui.reset_quota_for_value", { v0: file.name }),
-          failed ? "error" : "success"
-        );
+        if (!cooldownCleared) notify(m("ui.quota_reset_but_cooldown_clear_failed"), "warning");
+        else if (owner.authQuotaErrors.has(index))
+          notify(m("ui.quota_reset_but_refresh_failed_please_update_the_quota_manually"), "warning");
+        else notify(m("ui.auth_quota_reset"));
       }
     },
     m("ui.confirm_reset")

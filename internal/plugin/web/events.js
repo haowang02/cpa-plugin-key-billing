@@ -222,7 +222,7 @@ async function exportEvents(kind, account) {
     const stamp = new Date().toISOString().replaceAll(":", "-").slice(0, 19);
     const name = "cpa-key-billing-" + (account ? "account-" : "") + view.tab + "-";
     downloadCSV(name + stamp + ".csv", eventCSV(entries, kind, account));
-    notify(m("ui.exported_value_value_records", { v0: int(entries.length), v1: view.label }));
+    notify(m("ui.exported_records", { count: int(entries.length) }));
   } finally {
     button.disabled = false;
     setLabeledActionIcon(button, "download", m("ui.export"));
@@ -282,7 +282,7 @@ $("events-clear-confirm").onclick = () => {
     async () => {
       const result = await plugin("DELETE", "/events", { older_than_days: days }, { command: true });
       resetEventHistory();
-      notify(m("ui.cleared_request_events", { v0: int(result.cleared) }));
+      notify(m("ui.cleared_request_events", { count: int(result.cleared) }));
       await loadPage(false);
     },
     m("ui.cleaning")

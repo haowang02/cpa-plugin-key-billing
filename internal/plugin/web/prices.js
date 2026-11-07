@@ -328,6 +328,6 @@ $("price-reference-refresh").onclick = () =>
     button.disabled = true;
     try {
       const result = await mutateAdmin("POST", "/prices/reference/refresh", null, { timeoutMS: 45000 });
-      notify(result.changed ? m("ui.reference_prices_updated") : m("ui.reference_prices_are_up_to_date"));
+      if (result.changed) notify(m("ui.reference_prices_updated")); else notify(m("ui.reference_prices_are_up_to_date"), "info");
     } finally { button.disabled = false; }
   });

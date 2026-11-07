@@ -191,7 +191,7 @@ function querySelectedAIBalances(providers) {
       const error = owner.aiBalanceErrors.get(provider.auth_index);
       if (error) throw new UIError(error);
     },
-    { groupBy: (provider) => provider.auth_index, concurrency: AI_BALANCE_BATCH_CONCURRENCY }
+    { groupBy: (provider) => provider.auth_index, concurrency: AI_BALANCE_BATCH_CONCURRENCY, success: m("ui.balances_updated") }
   );
 }
 

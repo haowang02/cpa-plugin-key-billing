@@ -367,14 +367,14 @@ async function importPanelLabels(load) {
     }
   } catch (err) {
     if (err instanceof AuthError || err instanceof StaleRequestError) throw err;
-    throw new UIError(m("ui.imported_value_labels_import_interrupted_value", { v0: imported, v1: err.message || err }));
+    throw new UIError(m("ui.label_import_stopped", { count: imported, error: err.message || err }));
   } finally { if (imported && generation === sessionGeneration) renderPage(); }
   const skipped = labels.length - imported - unchanged;
   notify(
-    m("ui.imported_value_labelsvaluevalue", {
-      v0: imported,
-      v1: unchanged ? m("ui.value_unchanged", { v0: unchanged }) : "",
-      v2: skipped ? m("ui.value_unmatched_labels_skipped", { v0: skipped }) : ""
+    m("ui.imported_labels", {
+      count: imported,
+      unchanged: unchanged ? m("ui.labels_unchanged", { count: unchanged }) : "",
+      skipped: skipped ? m("ui.labels_unmatched", { count: skipped }) : ""
     })
   );
 }
@@ -424,6 +424,6 @@ $("keys-reset-all").onclick = () =>
     undefined,
     async () => {
       const result = await mutateAdmin("POST", "/keys/reset", { mode: "global" });
-      notify(result.keys || result.pools ? m("ui.subscription_quota_reset") : m("ui.no_quotas_to_reset"));
+      if (result.keys || result.pools) notify(m("ui.subscription_quota_reset")); else notify(m("ui.no_quotas_to_reset"), "info");
     }
   );

@@ -204,7 +204,12 @@ async function setAIProvidersEnabled(providers, enabled, selection = null) {
       throw new StaleRequestError();
     const group = (provider) => targets.get(provider.ref).group;
     const save = (provider) => setConfiguredProviderEnabled(targets.get(provider.ref), enabled);
-    if (selection) await selection.run(providers, save, { groupBy: group, refresh: () => readAIProviders(false, true) });
+    if (selection)
+      await selection.run(providers, save, {
+        groupBy: group,
+        refresh: () => readAIProviders(false, true),
+        success: enabled ? m("ui.ai_providers_enabled") : m("ui.ai_providers_disabled")
+      });
     else {
       try { for (const provider of new Map(providers.map((item) => [group(item), item])).values()) await save(provider); } finally {
         if (generation === sessionGeneration) await readAIProviders(false, true);

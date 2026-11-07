@@ -174,8 +174,7 @@ async function submitLogin() {
     if (generation !== sessionGeneration) return;
     try { await saveCredential(role, key, $("gate-remember").checked); } catch (err) {
       if (generation !== sessionGeneration) return;
-      const message = m("ui.signed_in_but_the_session_was_not_saved_value", { v0: err.message || err });
-      notify(message, "error");
+      notify(m("ui.signed_in_but_the_session_was_not_saved_value", { v0: err.message || err }), "warning");
     }
     $("gate-key").value = "";
   } catch (err) {

@@ -145,6 +145,6 @@ $("plugin-logs-clear").onclick = () =>
     undefined,
     async () => {
       const result = await mutateAdmin("DELETE", "/plugin-logs");
-      notify(m("ui.cleared_value_plugin_log_entries", { v0: result.cleared }));
+      notify(m("ui.cleared_plugin_log_entries", { count: int(result.cleared) }));
     }
   );

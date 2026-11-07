@@ -152,7 +152,7 @@ function createTableSelection({ id, label, eligible = () => true, disabledTip, c
             error: failures[0].error.message || String(failures[0].error)
           })
         );
-      notify(success || m("ui.batch_success"));
+      notify(success);
     }
   };
 }
