@@ -497,14 +497,16 @@ function bindSharedTimeControls(account) {
   };
 }
 
+// The narrow-screen backdrop closes on its own click. Closing on its press would hide it before the click,
+// which touch browsers then deliver to the trigger underneath, reopening the popover.
 addEventListener(
   "pointerdown",
   (event) => {
     for (const account of [false, true]) {
       const popover = $(sharedTimeID(account, "popover"));
       if (
-        !popover.classList.contains("hidden") && !popover.contains(event.target) &&
-        !$(sharedTimeID(account, "trigger")).contains(event.target)
+        !popover.classList.contains("hidden") &&
+        !["popover", "trigger", "backdrop"].some((part) => $(sharedTimeID(account, part)).contains(event.target))
       ) { closeSharedTimePopover(account); }
     }
   },
