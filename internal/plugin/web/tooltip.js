@@ -1,18 +1,35 @@
+// One popover serves every [data-tip] anchor. A mouse has to rest on an anchor before its tooltip opens;
+// while one is open, or just after it closes, the next opens at once. Keyboard focus and touch taps open it directly.
+const HOVER_TOOLTIP_DELAY = 400;
+const HOVER_TOOLTIP_SKIP_DELAY = 300;
 let hoverTooltipAnchor = null;
+let hoverTooltipPending = null;
 let hoverTooltipPoint = null;
 let hoverTooltipSource = "keyboard";
 let hoverTooltipTimer = 0;
+let hoverTooltipWarmUntil = 0;
 // Popover focus changes fire focusin synchronously.
 let hoverTooltipTransitioning = false;
+
+function hoverTooltipProps(content, enabled = Boolean(content)) {
+  return { tabindex: enabled ? "0" : null, tooltip: enabled ? content : null };
+}
+
+// A render may replace an anchor under a resting pointer.
+function currentTooltipAnchor(anchor, point) {
+  return anchor.isConnected ? anchor : point && document.elementFromPoint(point.x, point.y)?.closest("[data-tip]");
+}
 
 function closeHoverTooltip() {
   clearTimeout(hoverTooltipTimer);
   hoverTooltipTimer = 0;
+  hoverTooltipPending = null;
   if (hoverTooltipAnchor) {
     const describedBy = (hoverTooltipAnchor.getAttribute("aria-describedby") || "").split(/\s+/)
       .filter((id) => id && id !== "hover-tooltip");
     if (describedBy.length) hoverTooltipAnchor.setAttribute("aria-describedby", describedBy.join(" "));
     else hoverTooltipAnchor.removeAttribute("aria-describedby");
+    hoverTooltipWarmUntil = performance.now() + HOVER_TOOLTIP_SKIP_DELAY;
   }
   hoverTooltipAnchor = null;
   const tooltip = $("hover-tooltip");
@@ -22,24 +39,30 @@ function closeHoverTooltip() {
   }
 }
 
+function scheduleHoverTooltipOpen(anchor, point) {
+  if (hoverTooltipAnchor || performance.now() < hoverTooltipWarmUntil) return showHoverTooltip(anchor, { point, source: "mouse" });
+  clearTimeout(hoverTooltipTimer);
+  hoverTooltipPending = anchor;
+  hoverTooltipTimer = setTimeout(() => {
+    hoverTooltipPending = null;
+    const current = currentTooltipAnchor(anchor, point);
+    if (current) showHoverTooltip(current, { point, source: "mouse" });
+  }, HOVER_TOOLTIP_DELAY);
+}
+
 function scheduleHoverTooltipClose(next) {
+  if (hoverTooltipPending && !hoverTooltipPending.contains(next)) closeHoverTooltip();
   const tooltip = $("hover-tooltip");
-  if (next && (tooltip.contains(next) || hoverTooltipAnchor?.contains(next))) return;
+  if (!hoverTooltipAnchor || (next && (tooltip.contains(next) || hoverTooltipAnchor.contains(next)))) return;
   if (hoverTooltipSource === "touch") return;
   clearTimeout(hoverTooltipTimer);
   if (next?.closest?.("button, input, select, textarea, a[href]")) closeHoverTooltip();
   else hoverTooltipTimer = setTimeout(closeHoverTooltip, 150);
 }
 
-function hoverTooltipProps(content, enabled = Boolean(content)) {
-  return { tabindex: enabled ? "0" : null, tooltip: enabled ? content : null };
-}
-
 function refreshHoverTooltip() {
   if (!hoverTooltipAnchor) return;
-  const anchor = hoverTooltipAnchor.isConnected
-    ? hoverTooltipAnchor
-    : hoverTooltipPoint && document.elementFromPoint(hoverTooltipPoint.x, hoverTooltipPoint.y)?.closest("[data-tip]");
+  const anchor = currentTooltipAnchor(hoverTooltipAnchor, hoverTooltipPoint);
   if (anchor) showHoverTooltip(anchor, { point: hoverTooltipPoint, source: hoverTooltipSource }); else closeHoverTooltip();
 }
 
@@ -80,12 +103,9 @@ document.addEventListener("pointerover", (event) => {
   }
   if (event.pointerType === "touch") return;
   const anchor = event.target.closest("[data-tip]");
-  if (anchor === hoverTooltipAnchor) {
-    clearTimeout(hoverTooltipTimer);
-    return;
-  }
-  if (anchor) showHoverTooltip(anchor, { point: { x: event.clientX, y: event.clientY }, source: "mouse" });
-  else scheduleHoverTooltipClose(event.target);
+  if (!anchor) scheduleHoverTooltipClose(event.target);
+  else if (anchor === hoverTooltipAnchor) clearTimeout(hoverTooltipTimer);
+  else if (anchor !== hoverTooltipPending) scheduleHoverTooltipOpen(anchor, { x: event.clientX, y: event.clientY });
 });
 document.addEventListener("pointerout", (event) => { if (event.pointerType !== "touch") scheduleHoverTooltipClose(event.relatedTarget); });
 document.addEventListener("focusin", (event) => {
@@ -95,9 +115,10 @@ document.addEventListener("focusin", (event) => {
   }
   const anchor = event.target.closest("[data-tip]");
   if (anchor && !hoverTooltipTransitioning) {
+    // Pointer presses focus too; only keyboard focus opens a tooltip.
     queueMicrotask(() => {
-      if (anchor.contains(document.activeElement) && !(anchor === hoverTooltipAnchor && hoverTooltipSource === "touch"))
-        showHoverTooltip(anchor);
+      const focused = document.activeElement;
+      if (anchor.contains(focused) && focused.matches(":focus-visible")) showHoverTooltip(anchor);
     });
   }
 });
@@ -127,6 +148,8 @@ window.addEventListener("resize", closeHoverTooltip);
 document.addEventListener(
   "scroll",
   (event) => {
+    // Content scrolling under the pointer is not a rest on the pending anchor.
+    if (hoverTooltipPending) return closeHoverTooltip();
     const tooltip = $("hover-tooltip"), anchor = hoverTooltipAnchor;
     if (!anchor || tooltip.contains(event.target)) return;
     const bounds = anchor.getBoundingClientRect();
