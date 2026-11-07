@@ -380,6 +380,8 @@ input:focus, ui-select:is(:focus-visible, :state(open)), .time-range-trigger[ari
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
   outline: none;
 }
+/* Scrolling lists clip at their padding edge, so they pad by the 3px focus ring and give the space back in margins. */
+.price-reference-results, .time-range-hour-list, .column-settings { margin: -3px; padding: 3px; }
 input[type="radio"] { accent-color: var(--primary-color); }
 input[type="number"] { width: 110px; }
 .lucide-icon { display: block; flex: none; width: 1em; height: 1em; }
@@ -474,7 +476,9 @@ tbody tr:hover { background: var(--bg-hover); }
 .page-navigation.compact .tabs { position: absolute; visibility: hidden; pointer-events: none; }
 .page-navigation.compact .page-tab-select { display: inline-flex; }
 .page-tab-tools { display: flex; flex: none; align-items: center; gap: 4px; }
-:root .page-navigation button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+/* The switcher clips its tab bar, so the tabs and the dropdown that replaces them show focus inside their own box. */
+:root .page-navigation button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; box-shadow: none; }
+:root .page-tab-select:is(:focus-visible, :state(open)) { box-shadow: inset 0 0 0 1px var(--primary-color); }
 .page-tab-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .page-tab-actions > button, .page-tab-actions > .time-range-control, .display-currency-control, .auto-refresh-control { flex: none; }
 .page-tab-actions > .time-range-control { max-width: 35%; }
@@ -1384,7 +1388,7 @@ html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
   .credential-editor-fields { grid-template-columns: 1fr; }
 }
 .price-dialog-model { margin: 0 0 16px; font-size: 14px; overflow-wrap: anywhere; }
-.price-reference { margin-bottom: 18px; }
+.price-reference { display: grid; gap: 8px; margin-bottom: 18px; }
 .price-reference input { width: 100%; }
 .price-reference-results {
   display: flex;
@@ -1393,7 +1397,6 @@ html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
   max-height: 180px;
   overflow: auto;
   overscroll-behavior: contain;
-  margin-top: 8px;
 }
 .price-reference-option {
   display: grid;
@@ -1791,8 +1794,11 @@ body:not(.embedded) #keys-import-labels { display: none; }
   color: var(--text-secondary);
   text-align: left;
 }
-:root .choice-menu button.choice-option:hover:not(:disabled) {
+/* Like a native menu, the keyboard's current option is highlighted rather than ringed, which the list would clip. */
+:root .choice-menu button.choice-option:is(:hover:not(:disabled), :focus-visible) {
   border-color: transparent;
+  outline: none;
+  box-shadow: none;
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   color: var(--text-primary);
 }
@@ -1819,6 +1825,7 @@ body:not(.embedded) #keys-import-labels { display: none; }
 :root .time-range-popover .time-range-modes button { padding-inline: 4px; white-space: nowrap; }
 .time-range-custom { display: grid; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); }
 .time-range-units, .time-range-endpoints, .time-range-hours { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.time-range-hours > div { display: grid; gap: 8px; }
 :root .time-range-popover .time-range-endpoints button {
   padding-block: 8px;
   display: grid;
@@ -1837,15 +1844,7 @@ body:not(.embedded) #keys-import-labels { display: none; }
 :root .calendar-picker .calendar-grid button.range-end { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
 :root .calendar-picker .calendar-grid button.range-start.range-end { border-radius: var(--radius-md); }
 :root .calendar-picker .calendar-grid .outside-month { color: var(--text-tertiary); }
-.time-range-hour-list {
-  position: relative;
-  display: grid;
-  gap: 4px;
-  max-height: 220px;
-  overflow: auto;
-  margin-top: 8px;
-  overscroll-behavior: contain;
-}
+.time-range-hour-list { position: relative; display: grid; gap: 4px; max-height: 220px; overflow: auto; overscroll-behavior: contain; }
 .time-range-hour-list button { display: flex; align-items: center; justify-content: space-between; gap: 4px; text-align: left; }
 .picker-actions { justify-content: flex-end; margin-left: auto; }
 .date-time-popover > .picker-actions { margin-top: 14px; }
