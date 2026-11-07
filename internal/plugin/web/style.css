@@ -1317,7 +1317,7 @@ body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked)):
   .credential-table td { display: block; min-width: 0; padding: 0; border: none; }
   .credential-table .credential-edit-cell { justify-self: end; align-self: start; }
   .credential-table :is(.credential-plan-cell, .credential-quota-cell) { grid-column: 1 / -1; }
-  .credential-usage { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+  .credential-usage { min-width: 0; }
   .auth-quota-actions { flex-direction: row; }
   .credential-metric-label { display: block; }
   .auth-quota-list { gap: 10px 16px; }
@@ -1329,6 +1329,7 @@ body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked)):
   .credential-table .credential-inflight-cell { grid-column: 1; }
   .credential-table .credential-usage-cell { grid-column: 2 / -1; }
   .credential-table .credential-actions-cell { grid-area: 1 / -2; }
+  .credential-usage { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 }
 /* Only the edit button stays beside the identity; the actions close the card. */
 @container credential-table (max-width: 560px) {
@@ -1338,15 +1339,10 @@ body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked)):
   .credential-table .credential-edit-cell { margin-right: -5px; }
   .auth-quota-list { grid-template-columns: minmax(0, 1fr); }
   .credential-actions { --icon-action-size: 30px; }
-  .credential-usage-item { gap: 4px; font-size: 12px; }
-  .credential-usage-item > .lucide-icon { width: 12px; height: 12px; }
   .credential-table :is(.credential-plan-cell, .credential-metric) { display: flex; flex-wrap: wrap; align-items: baseline; }
   .credential-table .credential-plan-cell { gap: 2px 12px; }
   .credential-table .credential-metric { gap: 2px 6px; }
   .auth-plan-expiry { margin: 0 0 0 auto; color: var(--text-primary); font-size: 13px; }
-}
-@container credential-table (max-width: 320px) {
-  .credential-usage { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 dialog, .time-range-popover { max-height: 80dvh; }
 dialog {
