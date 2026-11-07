@@ -61,7 +61,6 @@ function renderSelectOptions(select, options) {
   }
   for (const option of previous.values()) option.remove();
   select.value = selected;
-  if (select.selectedIndex < 0) select.value = "";
 }
 
 function populateEventFilterSelect(select, defaultLabel, values, valueOf = (item) => item, labelOf = valueOf) {
@@ -138,7 +137,7 @@ function renderEventKeys() {
 }
 
 function updateFilterClearButton(button) {
-  const selects = button.parentElement.querySelectorAll("select");
+  const selects = button.parentElement.querySelectorAll("ui-select");
   button.disabled = !Array.from(selects).some((select) => select.value);
 }
 

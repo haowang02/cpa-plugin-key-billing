@@ -483,6 +483,8 @@
   "ui.no_reference_prices_found": "未找到参考价",
   "ui.enter_a_model_name_to_search": "输入模型名称搜索",
   "ui.searching": "正在搜索…",
+  "ui.search": "搜索",
+  "ui.no_matches": "没有匹配项",
   "ui.failed_to_search_reference_prices_value": "搜索参考价失败：{v0}",
   "ui.add_model_pricing": "新增模型定价",
   "ui.cannot_read_cpamc_labels_open_cpamc_from_this_cpa_s_address_and_try_again": "无法读取 CPAMC 备注，请通过当前 CPA 的地址打开 CPAMC 后重试",

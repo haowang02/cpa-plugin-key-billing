@@ -67,9 +67,7 @@
                 <button type="button" data-tab="ai-providers" data-i18n="ui.ai_providers">AI Providers</button>
                 <button type="button" data-tab="settings" data-i18n="ui.settings">Settings</button>
               </div>
-              <span class="native-select page-tab-select">
-                <select id="page-tab-select" aria-label="Select view" data-i18n-aria-label="ui.select_view"></select>
-              </span>
+              <ui-select id="page-tab-select" class="page-tab-select" aria-label="Select view" data-i18n-aria-label="ui.select_view"></ui-select>
             </div>
             <div class="page-tab-tools">
               <button
@@ -84,9 +82,7 @@
             </div>
           </nav>
           <div id="page-tab-actions" class="page-tab-actions hidden">
-            <span id="shared-key-filter" class="native-select mask-select page-key-filter hidden">
-              <select id="analysis-key" aria-label="Filter by API key" data-i18n-aria-label="ui.filter_by_api_key"> <option value="" data-i18n="ui.all_api_keys">All API keys</option> </select>
-            </span>
+            <ui-select id="analysis-key" class="mask-select page-key-filter hidden" searchable aria-label="Filter by API key" data-i18n-aria-label="ui.filter_by_api_key"> <option value="" data-i18n="ui.all_api_keys">All API keys</option> </ui-select>
             <div id="shared-time-filter" class="time-range-control hidden">
               <button id="shared-time-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
                 <span class="time-range-icon" data-lucide-icon="clock" aria-hidden="true"></span>
@@ -95,14 +91,8 @@
               </button>
               <div id="shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="Select time range" data-i18n-aria-label="ui.select_time_range"></div>
             </div>
-            <span id="display-currency-control" class="native-select display-currency-control hidden">
-              <span class="native-select-icon" data-lucide-icon="circle-dollar-sign" aria-hidden="true"></span>
-              <select id="display-currency" aria-label="Display currency" data-i18n-aria-label="ui.display_currency"></select>
-            </span>
-            <span id="auto-refresh-control" class="native-select auto-refresh-control hidden">
-              <span class="native-select-icon" data-lucide-icon="timer" aria-hidden="true"></span>
-              <select id="auto-refresh" aria-label="Auto refresh interval" data-i18n-aria-label="ui.auto_refresh_interval"></select>
-            </span>
+            <ui-select id="display-currency" class="display-currency-control hidden" icon="circle-dollar-sign" aria-label="Display currency" data-i18n-aria-label="ui.display_currency"></ui-select>
+            <ui-select id="auto-refresh" class="auto-refresh-control hidden" icon="timer" aria-label="Auto refresh interval" data-i18n-aria-label="ui.auto_refresh_interval"></ui-select>
             <div id="event-actions" class="event-actions hidden">
               <button id="request-event-columns" class="labeled-icon-button hidden" type="button" aria-haspopup="dialog" data-i18n="ui.columns">Columns</button>
               <button id="events-export" class="labeled-icon-button hidden" type="button" data-i18n="ui.export">Export</button>
@@ -150,15 +140,13 @@
             <div class="plan-details">
               <label class="field"> <span data-i18n="ui.plan_name">Plan name</span> <input id="plan-name" placeholder="Team quota"  data-i18n-placeholder="ui.team_quota"/> </label>
               <label class="field"> <span data-i18n="ui.plan_type">Plan type</span>
-                <span class="native-select"><select id="plan-type">
+                <ui-select id="plan-type">
                   <option value="independent" data-i18n="ui.independent_cycles">Per-key schedule</option>
                   <option value="unified" data-i18n="ui.shared_cycles">Shared schedule</option>
                   <option value="shared" data-i18n="ui.shared_quota">Shared quota</option>
-                </select></span>
+                </ui-select>
               </label>
-              <label class="field"> <span data-i18n="ui.currency">Currency</span>
-                <span class="native-select"><select id="plan-currency"></select></span>
-              </label>
+              <label class="field"> <span data-i18n="ui.currency">Currency</span> <ui-select id="plan-currency"></ui-select> </label>
             </div>
             <p id="plan-type-note" class="small muted"></p>
             <div class="row spread plan-windows-heading">
@@ -227,19 +215,13 @@
             <div class="row spread section-toolbar">
               <h2 data-i18n="ui.request_events">Request events</h2>
               <div class="row section-actions event-card-actions">
-                <span class="native-select">
-                  <select id="request-event-model" aria-label="Filter by model" data-i18n-aria-label="ui.filter_by_model"> <option value="" data-i18n="ui.all_models">All models</option> </select>
-                </span>
-                <span class="native-select mask-select">
-                  <select id="request-event-source" aria-label="Filter by source" data-i18n-aria-label="ui.filter_by_source"> <option value="" data-i18n="ui.all_sources">All sources</option> </select>
-                </span>
-                <span class="native-select">
-                  <select id="request-event-status" aria-label="Filter by result" data-i18n-aria-label="ui.filter_by_result">
-                    <option value="" data-i18n="ui.all_results">All results</option>
-                    <option value="false" data-i18n="ui.succeeded">Succeeded</option>
-                    <option value="true" data-i18n="ui.failed">Failed</option>
-                  </select>
-                </span>
+                <ui-select id="request-event-model" searchable aria-label="Filter by model" data-i18n-aria-label="ui.filter_by_model"> <option value="" data-i18n="ui.all_models">All models</option> </ui-select>
+                <ui-select id="request-event-source" class="mask-select" searchable aria-label="Filter by source" data-i18n-aria-label="ui.filter_by_source"> <option value="" data-i18n="ui.all_sources">All sources</option> </ui-select>
+                <ui-select id="request-event-status" aria-label="Filter by result" data-i18n-aria-label="ui.filter_by_result">
+                  <option value="" data-i18n="ui.all_results">All results</option>
+                  <option value="false" data-i18n="ui.succeeded">Succeeded</option>
+                  <option value="true" data-i18n="ui.failed">Failed</option>
+                </ui-select>
                 <button id="request-events-filter-clear" class="link" type="button" disabled data-i18n="ui.clear_filters">Clear filters</button>
               </div>
             </div>
@@ -253,11 +235,9 @@
             <div class="row spread section-toolbar">
               <h2 data-i18n="ui.error_events">Error events</h2>
               <div class="row section-actions event-card-actions">
-                <span class="native-select"> <select id="error-model" aria-label="Filter by model" data-i18n-aria-label="ui.filter_by_model"> <option value="" data-i18n="ui.all_models">All models</option> </select> </span>
-                <span class="native-select mask-select"> <select id="error-source" aria-label="Filter by source" data-i18n-aria-label="ui.filter_by_source"> <option value="" data-i18n="ui.all_sources">All sources</option> </select> </span>
-                <span class="native-select">
-                  <select id="error-type" aria-label="Filter by error type" data-i18n-aria-label="ui.filter_by_error_type"> <option value="" data-i18n="ui.all_error_types">All error types</option> </select>
-                </span>
+                <ui-select id="error-model" searchable aria-label="Filter by model" data-i18n-aria-label="ui.filter_by_model"> <option value="" data-i18n="ui.all_models">All models</option> </ui-select>
+                <ui-select id="error-source" class="mask-select" searchable aria-label="Filter by source" data-i18n-aria-label="ui.filter_by_source"> <option value="" data-i18n="ui.all_sources">All sources</option> </ui-select>
+                <ui-select id="error-type" searchable aria-label="Filter by error type" data-i18n-aria-label="ui.filter_by_error_type"> <option value="" data-i18n="ui.all_error_types">All error types</option> </ui-select>
                 <button id="errors-filter-clear" class="link" type="button" disabled data-i18n="ui.clear_filters">Clear filters</button>
               </div>
             </div>
@@ -281,16 +261,14 @@
                     <span data-i18n="ui.quota_estimate">Quota estimate</span>
                   </label>
                 </div>
-                <span class="native-select">
-                  <select id="auth-provider" aria-label="Filter by auth file category" data-i18n-aria-label="ui.filter_by_auth_file_category">
-                    <option value="" data-i18n="ui.all_categories">All categories</option>
-                    <option value="claude">Claude</option>
-                    <option value="antigravity">Antigravity</option>
-                    <option value="codex">Codex</option>
-                    <option value="xai">xAI</option>
-                    <option value="kimi">Kimi</option>
-                  </select>
-                </span>
+                <ui-select id="auth-provider" aria-label="Filter by auth file category" data-i18n-aria-label="ui.filter_by_auth_file_category">
+                  <option value="" data-i18n="ui.all_categories">All categories</option>
+                  <option value="claude">Claude</option>
+                  <option value="antigravity">Antigravity</option>
+                  <option value="codex">Codex</option>
+                  <option value="xai">xAI</option>
+                  <option value="kimi">Kimi</option>
+                </ui-select>
                 <input id="auth-search" type="search" placeholder="Search auth files" autocomplete="off"  data-i18n-placeholder="ui.search_auth_files"/>
                 <button id="auth-refresh-filtered" class="labeled-icon-button" type="button" data-i18n="ui.update_quotas">Refresh quota</button>
               </div>
@@ -310,11 +288,9 @@
                     <span data-i18n="ui.enabled_only">Enabled only</span>
                   </label>
                 </div>
-                <span class="native-select">
-                  <select id="ai-provider-type" aria-label="Filter by provider type" data-i18n-aria-label="ui.filter_by_ai_provider_type">
-                    <option value="" data-i18n="ui.all_types">All types</option>
-                  </select>
-                </span>
+                <ui-select id="ai-provider-type" aria-label="Filter by provider type" data-i18n-aria-label="ui.filter_by_ai_provider_type">
+                  <option value="" data-i18n="ui.all_types">All types</option>
+                </ui-select>
                 <input id="ai-provider-search" type="search" placeholder="Search AI providers" autocomplete="off"  data-i18n-placeholder="ui.search_ai_providers"/>
                 <button id="ai-provider-query-balances" class="labeled-icon-button" type="button" data-i18n="ui.query_balance">Query balance</button>
               </div>
@@ -329,14 +305,12 @@
               <h2 data-i18n="ui.plugin_logs">Plugin logs</h2>
               <div class="row section-actions">
                 <input id="plugin-log-filter" placeholder="Search loaded logs" class="wide-search"  data-i18n-placeholder="ui.search_loaded_logs"/>
-                <span class="native-select">
-                  <select id="plugin-log-level" aria-label="Filter by level" data-i18n-aria-label="ui.filter_by_level">
-                    <option value="all" data-i18n="ui.all_levels">All levels</option>
-                    <option value="debug" data-i18n="ui.debug">Debug</option>
-                    <option value="info" data-i18n="ui.info">Info</option>
-                    <option value="error" data-i18n="ui.error">Error</option>
-                  </select>
-                </span>
+                <ui-select id="plugin-log-level" aria-label="Filter by level" data-i18n-aria-label="ui.filter_by_level">
+                  <option value="all" data-i18n="ui.all_levels">All levels</option>
+                  <option value="debug" data-i18n="ui.debug">Debug</option>
+                  <option value="info" data-i18n="ui.info">Info</option>
+                  <option value="error" data-i18n="ui.error">Error</option>
+                </ui-select>
                 <button id="plugin-logs-clear" class="danger" data-i18n="ui.clear_logs">Clear logs</button>
               </div>
             </div>
@@ -374,9 +348,7 @@
                   <button type="button" data-account-tab="auth-files" data-i18n="ui.auth_files">Auth Files</button>
                   <button type="button" data-account-tab="ai-providers" data-i18n="ui.ai_providers">AI Providers</button>
                 </div>
-                <span class="native-select page-tab-select">
-                  <select id="account-page-tab-select" aria-label="Select view" data-i18n-aria-label="ui.select_view"></select>
-                </span>
+                <ui-select id="account-page-tab-select" class="page-tab-select" aria-label="Select view" data-i18n-aria-label="ui.select_view"></ui-select>
               </div>
               <div class="page-tab-tools">
                 <button
@@ -405,14 +377,8 @@
                 </button>
                 <div id="account-shared-time-popover" class="time-range-popover hidden" role="dialog" aria-label="Select time range" data-i18n-aria-label="ui.select_time_range"></div>
               </div>
-              <span id="account-display-currency-control" class="native-select display-currency-control hidden">
-                <span class="native-select-icon" data-lucide-icon="circle-dollar-sign" aria-hidden="true"></span>
-                <select id="account-display-currency" aria-label="Display currency" data-i18n-aria-label="ui.display_currency"></select>
-              </span>
-              <span id="account-auto-refresh-control" class="native-select auto-refresh-control hidden">
-                <span class="native-select-icon" data-lucide-icon="timer" aria-hidden="true"></span>
-                <select id="account-auto-refresh" aria-label="Auto refresh interval" data-i18n-aria-label="ui.auto_refresh_interval"></select>
-              </span>
+              <ui-select id="account-display-currency" class="display-currency-control hidden" icon="circle-dollar-sign" aria-label="Display currency" data-i18n-aria-label="ui.display_currency"></ui-select>
+              <ui-select id="account-auto-refresh" class="auto-refresh-control hidden" icon="timer" aria-label="Auto refresh interval" data-i18n-aria-label="ui.auto_refresh_interval"></ui-select>
               <div id="account-event-actions" class="event-actions hidden">
                 <button id="account-request-event-columns" class="labeled-icon-button hidden" type="button" aria-haspopup="dialog" data-i18n="ui.columns">Columns</button>
                 <button id="account-events-export" class="labeled-icon-button hidden" type="button" data-i18n="ui.export">Export</button>
@@ -444,19 +410,13 @@
               <div class="row spread section-toolbar">
                 <h2 data-i18n="ui.request_events">Request events</h2>
                 <div class="row section-actions event-card-actions">
-                  <span class="native-select">
-                    <select id="account-request-event-model" aria-label="Filter by model" data-i18n-aria-label="ui.filter_by_model"> <option value="" data-i18n="ui.all_models">All models</option> </select>
-                  </span>
-                  <span class="native-select mask-select">
-                    <select id="account-request-event-source" aria-label="Filter by source" data-i18n-aria-label="ui.filter_by_source"> <option value="" data-i18n="ui.all_sources">All sources</option> </select>
-                  </span>
-                  <span class="native-select">
-                    <select id="account-request-event-status" aria-label="Filter by result" data-i18n-aria-label="ui.filter_by_result">
-                      <option value="" data-i18n="ui.all_results">All results</option>
-                      <option value="false" data-i18n="ui.succeeded">Succeeded</option>
-                      <option value="true" data-i18n="ui.failed">Failed</option>
-                    </select>
-                  </span>
+                  <ui-select id="account-request-event-model" searchable aria-label="Filter by model" data-i18n-aria-label="ui.filter_by_model"> <option value="" data-i18n="ui.all_models">All models</option> </ui-select>
+                  <ui-select id="account-request-event-source" class="mask-select" searchable aria-label="Filter by source" data-i18n-aria-label="ui.filter_by_source"> <option value="" data-i18n="ui.all_sources">All sources</option> </ui-select>
+                  <ui-select id="account-request-event-status" aria-label="Filter by result" data-i18n-aria-label="ui.filter_by_result">
+                    <option value="" data-i18n="ui.all_results">All results</option>
+                    <option value="false" data-i18n="ui.succeeded">Succeeded</option>
+                    <option value="true" data-i18n="ui.failed">Failed</option>
+                  </ui-select>
                   <button id="account-request-events-filter-clear" class="link" type="button" disabled data-i18n="ui.clear_filters">Clear filters</button>
                 </div>
               </div>
@@ -469,11 +429,9 @@
               <div class="row spread section-toolbar">
                 <h2 data-i18n="ui.error_events">Error events</h2>
                 <div class="row section-actions event-card-actions">
-                  <span class="native-select"> <select id="account-error-model"> <option value="" data-i18n="ui.all_models">All models</option> </select> </span>
-                  <span class="native-select mask-select"> <select id="account-error-source"> <option value="" data-i18n="ui.all_sources">All sources</option> </select> </span>
-                  <span class="native-select">
-                    <select id="account-error-type" aria-label="Filter by error type" data-i18n-aria-label="ui.filter_by_error_type"> <option value="" data-i18n="ui.all_error_types">All error types</option> </select>
-                  </span>
+                  <ui-select id="account-error-model" searchable aria-label="Filter by model" data-i18n-aria-label="ui.filter_by_model"> <option value="" data-i18n="ui.all_models">All models</option> </ui-select>
+                  <ui-select id="account-error-source" class="mask-select" searchable aria-label="Filter by source" data-i18n-aria-label="ui.filter_by_source"> <option value="" data-i18n="ui.all_sources">All sources</option> </ui-select>
+                  <ui-select id="account-error-type" searchable aria-label="Filter by error type" data-i18n-aria-label="ui.filter_by_error_type"> <option value="" data-i18n="ui.all_error_types">All error types</option> </ui-select>
                   <button id="account-errors-filter-clear" class="link" type="button" disabled data-i18n="ui.clear_filters">Clear filters</button>
                 </div>
               </div>
@@ -492,16 +450,14 @@
                       <span data-i18n="ui.enabled_only">Enabled only</span>
                     </label>
                   </div>
-                  <span class="native-select">
-                    <select id="account-auth-provider" aria-label="Filter by auth file category" data-i18n-aria-label="ui.filter_by_auth_file_category">
-                      <option value="" data-i18n="ui.all_categories">All categories</option>
-                      <option value="claude">Claude</option>
-                      <option value="antigravity">Antigravity</option>
-                      <option value="codex">Codex</option>
-                      <option value="xai">xAI</option>
-                      <option value="kimi">Kimi</option>
-                    </select>
-                  </span>
+                  <ui-select id="account-auth-provider" aria-label="Filter by auth file category" data-i18n-aria-label="ui.filter_by_auth_file_category">
+                    <option value="" data-i18n="ui.all_categories">All categories</option>
+                    <option value="claude">Claude</option>
+                    <option value="antigravity">Antigravity</option>
+                    <option value="codex">Codex</option>
+                    <option value="xai">xAI</option>
+                    <option value="kimi">Kimi</option>
+                  </ui-select>
                   <input id="account-auth-search" type="search" placeholder="Search auth files" autocomplete="off"  data-i18n-placeholder="ui.search_auth_files"/>
                   <button id="account-auth-refresh-filtered" class="labeled-icon-button" type="button" data-i18n="ui.update_quotas">Refresh quota</button>
                 </div>
@@ -521,11 +477,9 @@
                       <span data-i18n="ui.enabled_only">Enabled only</span>
                     </label>
                   </div>
-                  <span class="native-select">
-                    <select id="account-ai-provider-type" aria-label="Filter by provider type" data-i18n-aria-label="ui.filter_by_ai_provider_type">
-                      <option value="" data-i18n="ui.all_types">All types</option>
-                    </select>
-                  </span>
+                  <ui-select id="account-ai-provider-type" aria-label="Filter by provider type" data-i18n-aria-label="ui.filter_by_ai_provider_type">
+                    <option value="" data-i18n="ui.all_types">All types</option>
+                  </ui-select>
                   <input id="account-ai-provider-search" type="search" placeholder="Search AI providers" autocomplete="off"  data-i18n-placeholder="ui.search_ai_providers"/>
                 </div>
               </div>
@@ -554,9 +508,7 @@
         <div id="price-reference-results" class="price-reference-results" aria-live="polite"></div>
       </div>
       <div class="price-fields">
-        <label class="field"> <span data-i18n="ui.currency">Currency</span>
-          <span class="native-select"><select id="price-currency"></select></span>
-        </label>
+        <label class="field"> <span data-i18n="ui.currency">Currency</span> <ui-select id="price-currency"></ui-select> </label>
         <span></span>
         <label class="field"> <span data-i18n="ui.input_1m_tokens">Input&thinsp;/&thinsp;1M tokens</span> <input id="price-in" type="number" step="any" min="0" value="0" /> </label>
         <label class="field"> <span data-i18n="ui.output_1m_tokens">Output&thinsp;/&thinsp;1M tokens</span> <input id="price-out" type="number" step="any" min="0" value="0" /> </label>
@@ -589,7 +541,7 @@
       <div class="event-cleanup-fields">
         <label class="field">
           <span data-i18n="ui.cleanup_range">Cleanup range</span>
-          <span class="native-select"><select id="events-clear-range"></select></span>
+          <ui-select id="events-clear-range"></ui-select>
         </label>
         <label id="events-clear-days-field" class="event-cleanup-age hidden">
           <input id="events-clear-days" type="number" inputmode="numeric" min="1" max="106751" step="1" value="30" required disabled aria-label="Custom age in days" data-i18n-aria-label="ui.cleanup_age_days" />
@@ -698,6 +650,7 @@
       /*core.js*/
       /*format.js*/
       /*components.js*/
+      /*select.js*/
       /*sortable.js*/
       /*data.js*/
       /*date-time.js*/

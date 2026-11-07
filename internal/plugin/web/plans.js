@@ -235,13 +235,9 @@ function addPlanWindow(quotaWindow = {}) {
           }
         }),
         el(
-          "span",
-          { class: "native-select" },
-          el(
-            "select",
-            { name: "window_unit", "aria-label": m("ui.period_unit") },
-            PERIOD_UNITS.map(([value, label]) => el("option", { value: String(value), selected: value === unit, text: label }))
-          )
+          "ui-select",
+          { name: "window_unit", "aria-label": m("ui.period_unit") },
+          PERIOD_UNITS.map(([value, label]) => el("option", { value: String(value), selected: value === unit, text: label }))
         )
       )
     ),

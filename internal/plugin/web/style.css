@@ -359,7 +359,7 @@ button.danger:hover:not(:disabled) { border-color: var(--error-color); }
 button.link { min-height: 0; border: none; background: none; padding: 2px 4px; color: var(--primary-active); }
 button.link:hover:not(:disabled) { background: none; color: var(--text-primary); text-decoration: underline; }
 button.link.danger:hover:not(:disabled) { color: var(--error-color); }
-input, select, textarea {
+input, ui-select, textarea {
   font: inherit;
   font-weight: 400;
   color: var(--text-primary);
@@ -369,62 +369,45 @@ input, select, textarea {
   padding: 6px 9px;
   transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
-input:not([type="checkbox"]):not([type="radio"]), select { min-height: 35px; }
-input:focus, select:focus, textarea:focus {
+input:not([type="checkbox"]):not([type="radio"]), ui-select { min-height: 35px; }
+input:focus, ui-select:is(:focus, :state(open)), textarea:focus {
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
   outline: none;
 }
 input[type="radio"] { accent-color: var(--primary-color); }
 input[type="number"] { width: 110px; }
-.native-select {
-  position: relative;
+ui-select {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   min-width: 0;
   max-width: 100%;
-  color: var(--text-secondary);
-}
-.native-select::after {
-  content: "";
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  width: 20px;
-  height: 20px;
-  background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
-    center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
-    center / contain no-repeat;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-.native-select > select {
-  -webkit-appearance: none;
-  appearance: none;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  padding-right: 36px;
-  color: var(--text-primary);
-  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
   white-space: nowrap;
 }
-.native-select-icon {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  width: 15px;
-  height: 15px;
-  transform: translateY(-50%);
-  color: var(--text-tertiary);
-  pointer-events: none;
+ui-select > option { display: none; }
+ui-select[disabled] { opacity: 0.6; cursor: not-allowed; }
+ui-select::part(icon) { flex: none; width: 15px; height: 15px; color: var(--text-tertiary); }
+ui-select::part(value) { display: grid; flex: 1; min-width: 0; }
+/* Every option label shares one cell, so the control keeps the width of its longest option. */
+ui-select::part(label) { grid-area: 1 / 1; overflow: hidden; text-overflow: ellipsis; visibility: hidden; }
+ui-select::part(current) { visibility: visible; }
+ui-select:state(placeholder)::part(current) { color: var(--text-tertiary); }
+ui-select::part(chevron) {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: -2px;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
 }
-.native-select-icon + select { padding-left: 34px; }
-label.field > .native-select, label.field > .native-select > select { width: 100%; }
+ui-select:state(open)::part(chevron) { transform: rotate(180deg); }
+label.field > ui-select { width: 100%; }
 label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
-:root:not([data-cpamp-plugin-host="true"]) label.field input, :root:not([data-cpamp-plugin-host="true"]) label.field select {
+:root:not([data-cpamp-plugin-host="true"]) label.field input, :root:not([data-cpamp-plugin-host="true"]) label.field ui-select {
   font-size: 14px;
   line-height: 1.5;
 }
@@ -479,8 +462,7 @@ tbody tr:hover { background: var(--bg-hover); }
   .tabs > button.active:hover:not(:active) { translate: 0 -1px; }
   .tabs > button:active { scale: 0.96; transition-duration: 0.08s; }
 }
-.page-tab-select { display: none; width: 160px; }
-.page-tab-select > select { width: 100%; font-size: 13px; font-weight: 600; }
+.page-tab-select { display: none; width: 160px; font-size: 13px; font-weight: 600; }
 /* Keep the hidden tabs measurable so the dropdown follows their translated width. */
 .page-navigation.compact .tabs { position: absolute; visibility: hidden; pointer-events: none; }
 .page-navigation.compact .page-tab-select { display: inline-flex; }
@@ -503,7 +485,6 @@ tbody tr:hover { background: var(--bg-hover); }
 .page-tab-actions > button, .page-tab-actions > .time-range-control, .display-currency-control, .auto-refresh-control { flex: none; }
 .page-tab-actions > .time-range-control { max-width: 35%; }
 .page-key-filter { flex: 0 1 var(--filter-select-max-width); }
-.page-key-filter > select { width: 100%; }
 .tag {
   display: inline-flex;
   align-items: center;
@@ -610,21 +591,21 @@ tbody tr:hover { background: var(--bg-hover); }
   );
   mask-image: linear-gradient(#000, rgb(0 0 0 / 0.9) 24%, rgb(0 0 0 / 0.58) 48%, rgb(0 0 0 / 0.22) 72%, transparent);
 }
-:root[data-cpamp-plugin-host="true"] input, :root[data-cpamp-plugin-host="true"] select, :root[data-cpamp-plugin-host="true"] textarea {
+:root[data-cpamp-plugin-host="true"] input, :root[data-cpamp-plugin-host="true"] ui-select, :root[data-cpamp-plugin-host="true"] textarea {
   min-height: 34px;
   border-color: var(--app-input-border, var(--border-primary));
   background: var(--app-input-bg, var(--app-surface-strong, var(--bg-primary)));
   box-shadow: none;
 }
-:root[data-cpamp-plugin-host="true"] input:not([type="checkbox"]):not([type="radio"]), :root[data-cpamp-plugin-host="true"] select {
+:root[data-cpamp-plugin-host="true"] input:not([type="checkbox"]):not([type="radio"]), :root[data-cpamp-plugin-host="true"] ui-select {
   padding-block: 5px;
 }
-:root[data-cpamp-plugin-host="true"] label.field input, :root[data-cpamp-plugin-host="true"] label.field select {
+:root[data-cpamp-plugin-host="true"] label.field input, :root[data-cpamp-plugin-host="true"] label.field ui-select {
   font-size: 13px;
   line-height: 1.5;
 }
 :root[data-cpamp-plugin-host="true"] input:focus,
-:root[data-cpamp-plugin-host="true"] select:focus,
+:root[data-cpamp-plugin-host="true"] ui-select:is(:focus, :state(open)),
 :root[data-cpamp-plugin-host="true"] textarea:focus {
   border-color: var(--app-input-border-focus, var(--primary-color));
   background: var(--app-input-bg-focus, var(--app-surface-strong, var(--bg-primary)));
@@ -701,7 +682,7 @@ tbody tr:hover { background: var(--bg-hover); }
   background: transparent;
   color: color-mix(in srgb, var(--text-secondary) 84%, var(--text-primary));
 }
-:root[data-cpamp-plugin-host="true"] .page-tab-tools > .icon-action, :root[data-cpamp-plugin-host="true"] .page-tab-select > select {
+:root[data-cpamp-plugin-host="true"] .page-tab-tools > .icon-action, :root[data-cpamp-plugin-host="true"] .page-tab-select {
   border-radius: 999px;
 }
 :root[data-cpamp-plugin-host="true"] .tabs > button.active {
@@ -722,10 +703,10 @@ tbody tr:hover { background: var(--bg-hover); }
 .quota-fill.medium { background: var(--quota-medium-color); }
 .quota-fill.low { background: var(--quota-low-color); }
 @media (prefers-reduced-motion: reduce) {
-  body, button, input, select, textarea, .quota-fill, .account-model-card, .lucide-chevron-icon { transition: none; }
+  body, button, input, ui-select, textarea, .quota-fill, .account-model-card, .lucide-chevron-icon { transition: none; }
 }
 .concurrency-editor { display: flex; align-items: center; gap: 7px; min-width: 172px; }
-.concurrency-editor .native-select, .concurrency-editor select { width: 96px; min-width: 96px; }
+.concurrency-editor ui-select { width: 96px; min-width: 96px; }
 .concurrency-editor .small { white-space: nowrap; }
 .key-plan-select { max-width: 240px; }
 .api-key-identity { display: inline-flex; align-items: baseline; flex: 0 1 auto; gap: 6px; min-width: 0; max-width: 100%; }
@@ -927,7 +908,7 @@ body.embedded .standalone-actions { display: none; }
   gap: 10px;
 }
 .plan-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content; gap: 12px; }
-.plan-details input, .plan-details select, .plan-window input { width: 100%; min-width: 0; }
+.plan-details input, .plan-details ui-select, .plan-window input { width: 100%; min-width: 0; }
 .plan-window.unified { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
 .plan-window-limits { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 /* Fields in a row share label and control tracks, so neither a wrapped label nor an error moves a neighbouring input. */
@@ -1067,7 +1048,7 @@ details[open] > .details-summary .lucide-chevron-icon, .routing-section-toggle[a
 .section-loading { min-height: 400px; }
 .credential-filter-bar { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .credential-filter-switches { display: contents; }
-.credential-filter-bar .native-select, .credential-filter-bar select { min-width: 150px; }
+.credential-filter-bar ui-select { min-width: 150px; }
 .credential-filter-bar input[type="search"] { flex: 0 1 var(--filter-search-width); min-width: 140px; }
 .toggle-filter {
   display: inline-flex;
@@ -1142,16 +1123,8 @@ details[open] > .details-summary .lucide-chevron-icon, .routing-section-toggle[a
 .toggle-filter.compact-toggle:focus-within { border-color: transparent; box-shadow: none; }
 /* Keep the blur below a third of the font size so dense scripts retain separate glyphs. */
 body.privacy-masked .mask-blur { filter: blur(0.28em); }
-/* Blur selected identities without blurring the native control's border or arrow. */
-body.privacy-masked .mask-select:not(:has(option[value=""]:checked))::before {
-  content: "";
-  position: absolute;
-  inset: 1px 30px 1px 1px;
-  border-radius: var(--radius-md);
-  backdrop-filter: blur(0.28em);
-  -webkit-backdrop-filter: blur(0.28em);
-  pointer-events: none;
-}
+/* The empty value is the unfiltered choice; any other selected identity is blurred. */
+body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked))::part(current) { filter: blur(0.28em); }
 .credential-list { container: credential-table / inline-size; }
 .credential-table { width: 100%; min-width: 0; table-layout: auto; }
 .credential-table th:not(.credential-quota-column) { width: 1%; }
@@ -1808,7 +1781,7 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
 }
 /* Filters share one search width and one select cap so no single control dominates a wrapped toolbar. */
 .wide-search, #price-filter, .credential-filter-bar input[type="search"] { width: var(--filter-search-width); max-width: 100%; }
-.section-actions .native-select, .section-actions select, .page-key-filter { max-width: var(--filter-select-max-width); }
+.section-actions ui-select, .page-key-filter { max-width: var(--filter-select-max-width); }
 .section-toolbar, .settings-section-header { margin-bottom: 12px; }
 .section-toolbar h2, .settings-section-header h2, .account-plan h2 { margin: 0; }
 .section-actions { min-width: 0; }
@@ -1852,8 +1825,8 @@ body:not(.embedded) #keys-import-labels { display: none; }
 }
 .time-range-trigger[aria-expanded="true"] .time-range-chevron { transform: rotate(180deg); }
 .time-range-popover { position: absolute; top: calc(100% + 6px); right: 0; }
-.date-time-popover, .selection-menu { position: fixed; margin: 0; inset: auto; color: var(--text-primary); }
-.time-range-popover, .date-time-popover, .selection-menu {
+.date-time-popover, .choice-menu { position: fixed; margin: 0; inset: auto; color: var(--text-primary); }
+.time-range-popover, .date-time-popover, .choice-menu {
   z-index: 1200;
   width: min(360px, calc(100vw - 24px));
   overflow: auto;
@@ -1865,9 +1838,14 @@ body:not(.embedded) #keys-import-labels { display: none; }
   transform-origin: top right;
   animation: time-range-in 150ms ease-out both;
 }
-.selection-menu { gap: 2px; width: max-content; min-width: 112px; max-width: calc(100vw - 24px); padding: 6px; }
-.selection-menu:popover-open { display: grid; }
-:root .selection-menu button.selection-option {
+.choice-menu { gap: 4px; width: max-content; min-width: 112px; max-width: min(460px, calc(100vw - 24px)); padding: 6px; }
+.choice-menu:popover-open { display: flex; flex-direction: column; }
+.choice-search { flex: none; width: 100%; }
+.choice-options { display: grid; gap: 2px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+:root .choice-menu button.choice-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   padding: 8px 12px;
   border-color: transparent;
@@ -1876,17 +1854,21 @@ body:not(.embedded) #keys-import-labels { display: none; }
   color: var(--text-secondary);
   text-align: left;
 }
-:root .selection-menu button.selection-option:hover:not(:disabled) {
+:root .choice-menu button.choice-option:hover:not(:disabled) {
   border-color: transparent;
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   color: var(--text-primary);
 }
-:root .selection-menu button.selection-option[aria-checked="true"] {
+:root .choice-menu button.choice-option[aria-selected="true"] {
   border-color: transparent;
   background: color-mix(in srgb, var(--primary-color) 14%, transparent);
   color: var(--primary-active);
   font-weight: 600;
 }
+.choice-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.choice-check { flex: none; width: 15px; height: 15px; visibility: hidden; }
+.choice-option[aria-selected="true"] > .choice-check { visibility: visible; }
+.choice-empty { padding: 14px 12px; color: var(--text-tertiary); font-size: 13px; text-align: center; }
 @media (max-width: 640px) {
   .date-time-popover { inset: auto 12px 12px; margin-inline: auto; max-height: calc(100dvh - 24px); }
 }
@@ -1968,7 +1950,7 @@ body:not(.embedded) #keys-import-labels { display: none; }
   background: var(--app-input-bg-focus, var(--bg-primary));
   box-shadow: inset 0 0 0 1px var(--focus-inset);
 }
-:root[data-cpamp-plugin-host="true"] .time-range-popover, :root[data-cpamp-plugin-host="true"] .selection-menu {
+:root[data-cpamp-plugin-host="true"] .time-range-popover, :root[data-cpamp-plugin-host="true"] .choice-menu {
   border-color: color-mix(in srgb, var(--app-input-border-focus, var(--primary-color)) 28%, var(--app-border-strong, var(--border-color)));
   background: var(--app-surface-strong, var(--floating-surface));
   box-shadow: var(--floating-shadow, none);
@@ -2132,7 +2114,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
     width: 100%;
   }
   /* Cells size the controls here, so the shared search width and select cap step aside. */
-  .section-toolbar > .section-actions > *, .section-actions .native-select, .section-actions select { max-width: none; }
+  .section-toolbar > .section-actions > *, .section-actions ui-select { max-width: none; }
   .section-actions .wide-search, #price-filter { width: 100%; min-width: 0; }
   /* Flattening the button group lets the four controls share the two-column grid. */
   #tab-keys .section-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2143,7 +2125,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   /* Search takes the whole line; the remaining controls split the next one and wrap labels too long for half of it. */
   #tab-prices .section-actions, #tab-plugin-logs .section-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #price-filter, #plugin-log-filter { grid-column: 1 / -1; }
-  #tab-prices .section-actions > *, #tab-plugin-logs .section-actions > *, #tab-plugin-logs .section-actions select {
+  #tab-prices .section-actions > *, #tab-plugin-logs .section-actions > *, #tab-plugin-logs .section-actions ui-select {
     align-self: stretch;
     width: 100%;
     min-width: 0;
@@ -2154,15 +2136,12 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .section-actions.credential-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
   .credential-filter-switches { display: flex; flex-wrap: wrap; grid-column: 1 / -1; gap: 8px; }
   .credential-filter-switches:has(> :only-child) { grid-column: auto; }
-  .credential-filter-switches:has(> :only-child) ~ :is(.native-select, input[type="search"]) { grid-column: span 2; }
+  .credential-filter-switches:has(> :only-child) ~ :is(ui-select, input[type="search"]) { grid-column: span 2; }
   .credential-filter-switches > .toggle-filter { flex: 1 1 auto; }
-  .credential-filter-bar input[type="search"], .credential-filter-bar .native-select, .credential-filter-bar select {
-    width: 100%;
-    min-width: 0;
-  }
+  .credential-filter-bar input[type="search"], .credential-filter-bar ui-select { width: 100%; min-width: 0; }
   .credential-filter-bar > .labeled-icon-button > span { display: none; }
   .section-actions.event-card-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .section-actions.event-card-actions .native-select, .section-actions.event-card-actions select { width: 100%; min-width: 0; }
+  .section-actions.event-card-actions ui-select { width: 100%; min-width: 0; }
   .event-card-actions > .link { justify-self: start; }
   .page-tab-actions .time-range-popover {
     position: fixed;
@@ -2267,8 +2246,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
 /* Titles take the height of a control row, so they line up across cards with or without controls. */
 .analysis-card-header h2 { display: flex; align-items: center; min-height: 35px; margin: 0; }
 .analysis-card-controls { gap: 12px; flex-wrap: nowrap; min-width: 0; max-width: 100%; }
-.analysis-card-controls > .native-select { flex: 0 1 auto; }
-.analysis-card-controls select { width: 100%; }
+.analysis-card-controls > ui-select { flex: 0 1 auto; }
 .analysis-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .analysis-legend-item {
   display: inline-flex;
@@ -2325,7 +2303,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
 }
 .usage-distribution-metrics > [data-tip] { cursor: help; }
 .usage-distribution-metrics > [tabindex]:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-.event-card-actions select { min-width: 132px; }
+.event-card-actions ui-select { min-width: 132px; }
 @media (max-width: 1100px) {
   .analysis-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -2336,10 +2314,9 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .usage-distribution-chart { width: min(240px, 75vw); height: min(240px, 75vw); }
 }
 @media (max-width: 640px) {
-  .page-tab-actions > .native-select > select, .credential-filter-bar > .native-select > select { padding-left: 8px; padding-right: 26px; }
-  .page-tab-actions > .native-select::after, .credential-filter-bar > .native-select::after { right: 6px; width: 16px; height: 16px; }
+  .page-tab-actions > ui-select, .credential-filter-bar > ui-select { gap: 6px; padding-inline: 8px; }
+  .page-tab-actions > ui-select::part(chevron), .credential-filter-bar > ui-select::part(chevron) { width: 16px; height: 16px; }
   .credential-filter-switches > .toggle-filter { padding-inline: 8px; }
-  .page-tab-actions > .native-select > .native-select-icon + select { padding-left: 30px; }
   .time-range-trigger { --button-padding-inline: 8px; gap: 6px; }
   .time-range-chevron { width: 16px; height: 16px; margin-left: 0; }
   .page-tab-actions .labeled-icon-button { --button-padding-inline: 9px; }
@@ -2353,8 +2330,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
 }
 @media (max-width: 520px) {
   .page-tab-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .page-tab-actions > :is(.native-select, .time-range-control, button) { width: 100%; max-width: none; }
-  .page-tab-actions > .native-select > select { width: 100%; }
+  .page-tab-actions > :is(ui-select, .time-range-control, button) { width: 100%; max-width: none; }
   .page-tab-actions > .event-actions { grid-column: 1 / -1; }
   .event-actions > button { flex: 1; min-width: 0; }
   /* The controls pair up; without a key filter, the time range takes a line of its own. */
@@ -2363,8 +2339,8 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .analysis-card-controls { gap: 6px; width: 100%; }
   .usage-distribution-tabs { gap: 4px; --button-padding-inline: 4px; }
   .usage-distribution-tabs button { font-size: 12px; }
-  .analysis-card-controls select { padding-left: 8px; padding-right: 26px; font-size: 12px; }
-  .analysis-card-controls > .native-select::after { right: 6px; width: 16px; height: 16px; }
+  .analysis-card-controls ui-select { gap: 6px; padding-inline: 8px; font-size: 12px; }
+  .analysis-card-controls ui-select::part(chevron) { width: 16px; height: 16px; }
   .analysis-summary-grid { grid-template-columns: 1fr; }
   .analysis-summary-details { gap: 5px; }
   .analysis-summary-line { gap: 2px; font-size: 10px; }

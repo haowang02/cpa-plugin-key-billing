@@ -141,8 +141,10 @@ function renderKeys() {
       const saving = adminUIState.keySubmissions.has(view.scope) || keySelection.running;
       const name = apiKeyIdentity(view).primary;
       const select = el(
-        "select",
+        "ui-select",
         {
+          class: "key-plan-select",
+          searchable: true,
           name: "plan_id",
           disabled: deleted || saving || !plans,
           "data-tip": !plans ? resources.admin.plans.error || m("ui.loading_subscription_plans") : null,
@@ -172,7 +174,7 @@ function renderKeys() {
         ? CONCURRENCY_OPTIONS
         : [...CONCURRENCY_OPTIONS, currentConcurrencyLimit].sort((a, b) => a - b);
       const concurrencySelect = el(
-        "select",
+        "ui-select",
         {
           "aria-label": m("ui.maximum_concurrent_requests_for_value", { v0: name }),
           disabled: deleted || saving,
@@ -204,7 +206,7 @@ function renderKeys() {
       const concurrency = el(
         "div",
         { class: "concurrency-editor" },
-        el("span", { class: "native-select" }, concurrencySelect),
+        concurrencySelect,
         el("span", { class: "small muted", text: m("ui.current_value", { v0: int(view.current_concurrency) }) })
       );
 
@@ -223,7 +225,7 @@ function renderKeys() {
             ]
           })
         ),
-        el("td", {}, el("span", { class: "native-select key-plan-select" }, select)),
+        el("td", {}, select),
         el("td", {}, renderKeyRoutes(view)),
         el("td", {}, concurrency),
         el("td", {}, usage),

@@ -80,22 +80,19 @@ function createTableSelection({ id, label, eligible = () => true, disabledTip, c
     },
     select(label, options, apply, disabled = false) {
       return el(
-        "span",
-        { class: "native-select batch-select" },
-        el(
-          "select",
-          {
-            "aria-label": label,
-            disabled: this.busy || disabled,
-            onchange: (event) => {
-              const value = event.target.value;
-              event.target.selectedIndex = 0;
-              guard(() => apply(value));
-            }
-          },
-          el("option", { selected: true, disabled: true, text: label }),
-          options
-        )
+        "ui-select",
+        {
+          class: "batch-select",
+          placeholder: label,
+          "aria-label": label,
+          disabled: this.busy || disabled,
+          onchange: (event) => {
+            const value = event.target.value;
+            event.target.selectedIndex = -1;
+            guard(() => apply(value));
+          }
+        },
+        options
       );
     },
     async run(items, apply, { groupBy = id, concurrency = 1, refresh, keepSelection = false, success } = {}) {

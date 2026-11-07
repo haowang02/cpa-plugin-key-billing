@@ -374,7 +374,7 @@ function restoreChoice(role, id, fallback, allowMissing = false) {
     return;
   }
   if (!Array.from(control.options).some((option) => option.value === value)) {
-    if (allowMissing && value) control.add(el("option", { value, text: value })); else value = fallback;
+    if (allowMissing && value) control.append(el("option", { value, text: value })); else value = fallback;
   }
   control.value = value;
 }

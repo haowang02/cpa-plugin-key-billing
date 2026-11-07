@@ -483,6 +483,8 @@
   "ui.no_reference_prices_found": "No reference prices found",
   "ui.enter_a_model_name_to_search": "Enter a model name to search",
   "ui.searching": "Searching…",
+  "ui.search": "Search",
+  "ui.no_matches": "No matches",
   "ui.failed_to_search_reference_prices_value": "Failed to search reference prices: {v0}",
   "ui.add_model_pricing": "Add model pricing",
   "ui.cannot_read_cpamc_labels_open_cpamc_from_this_cpa_s_address_and_try_again": "Cannot read CPAMC labels. Open CPAMC from this CPA’s address and try again.",
