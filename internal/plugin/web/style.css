@@ -257,7 +257,8 @@
   --analysis-segment-border: var(--app-surface, var(--bg-primary));
 }
 :root[data-cpamp-plugin-host="true"][data-theme="dark"] { --floating-shadow: 0 16px 34px rgb(0 0 0 / 0.55); }
-* { box-sizing: border-box; }
+/* Renders replace whole sections, leaving scroll anchoring no node to hold; WebKit (Safari 27+, every iOS browser) then jumps. */
+* { box-sizing: border-box; overflow-anchor: none; }
 body {
   margin: 0;
   background-color: var(--bg-secondary);
