@@ -1,0 +1,67 @@
+name: Download badge
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: download-badge
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Publish plugin download count
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Count release package downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[].assets[] | select(.name != "checksums.txt") | .download_count' \
+            | awk '{ total += $1 } END { print total + 0 }' > count
+          echo "Plugin package downloads: $(cat count)"
+
+      - name: Render endpoint badge
+        run: |
+          mkdir badge
+          python3 - "$(cat count)" > badge/downloads.json <<'EOF'
+          import json
+          import sys
+
+          count = int(sys.argv[1])
+          message = str(count)
+          for power, suffix in ((10**6, "M"), (10**3, "k")):
+              if count >= power:
+                  scaled = count / power
+                  message = f"{scaled:.1f}".removesuffix(".0") if scaled < 10 else str(round(scaled))
+                  message += suffix
+                  break
+          json.dump({"schemaVersion": 1, "label": "downloads", "message": message, "color": "brightgreen"}, sys.stdout)
+          print()
+          EOF
+          cat badge/downloads.json
+
+      - name: Publish badges branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: badge
+        run: |
+          published="$(gh api "repos/$GITHUB_REPOSITORY/contents/downloads.json?ref=badges" \
+            -H "Accept: application/vnd.github.raw" 2>/dev/null || true)"
+          if [ "$published" = "$(cat downloads.json)" ]; then
+            echo "Badge unchanged."
+            exit 0
+          fi
+          git init -q -b badges
+          git add downloads.json
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "chore: update download badge"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
