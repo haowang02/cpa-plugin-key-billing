@@ -11,7 +11,7 @@ const PLUGIN_LOG_FILTERS = {
   level: {
     id: "log-level",
     label: m("ui.level"),
-    icon: "signal",
+    icon: "logs",
     options: () => {
       const counts = pagedList("logs").data?.level_counts || {};
       return Object.entries(pluginLogLevels).map(([level, { label }]) => ({ value: level, label, detail: int(counts[level]) }));

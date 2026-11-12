@@ -1,0 +1,111 @@
+.choice-menu { gap: 4px; width: max-content; min-width: 112px; max-width: min(460px, calc(100vw - 24px)); padding: 6px; }
+.choice-menu:popover-open { display: flex; flex-direction: column; }
+.choice-pane { display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0; }
+.choice-menu.choice-columns { min-width: min(380px, calc(100vw - 24px)); max-width: min(600px, calc(100vw - 24px)); padding: 0; gap: 0; }
+.choice-menu.choice-columns:popover-open { flex-direction: row; align-items: stretch; }
+.choice-columns > .choice-pane { flex: 1; padding: 6px; }
+.choice-categories {
+  flex: none;
+  min-width: 128px;
+  max-width: 176px;
+  padding: 6px;
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+:root .choice-menu button.choice-category {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 35px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+}
+:root .choice-menu button.choice-category:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-primary);
+}
+:root .choice-menu button.choice-category[aria-current="true"] {
+  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+  color: var(--primary-active);
+  font-weight: 600;
+}
+:root .choice-menu button.choice-category:focus-visible, :root .choice-menu .tabs > button:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+.choice-columns:has(> .choice-pane.hidden) { min-width: 112px; }
+.choice-columns:has(> .choice-pane.hidden) > .choice-categories { border-right: 0; }
+:root .choice-menu button.choice-back { display: none; }
+.choice-back-icon { width: 15px; height: 15px; transform: rotate(180deg); }
+.choice-control { display: flex; flex-direction: column; gap: 8px; padding: 6px 8px; }
+.choice-control-label { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.choice-control > .tabs { width: 100%; }
+.choice-control > .tabs > button { flex: 1; justify-content: center; min-width: 52px; }
+.choice-note { color: var(--text-tertiary); font-size: 12px; overflow-wrap: anywhere; }
+.choice-search { flex: none; width: 100%; min-width: 0; }
+.choice-options { display: grid; gap: 2px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+:root .choice-menu button.choice-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+}
+/* Like a native menu, the keyboard's current option is highlighted rather than ringed, which the list would clip. */
+:root .choice-menu button.choice-option:is(:hover:not(:disabled), :focus-visible) {
+  border-color: transparent;
+  outline: none;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-primary);
+}
+:root .choice-menu button.choice-option[aria-selected="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+  color: var(--primary-active);
+  font-weight: 600;
+}
+:root .choice-menu button.choice-danger { color: var(--failure-badge-text); }
+:root .choice-menu button.choice-danger:is(:hover:not(:disabled), :focus-visible) {
+  background: var(--failure-badge-bg);
+  color: var(--failure-badge-text);
+}
+.choice-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.choice-icon { flex: none; width: 15px; height: 15px; color: var(--text-tertiary); }
+.choice-danger > .choice-icon { color: inherit; }
+.choice-detail { flex: none; color: var(--text-tertiary); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.choice-check { flex: none; width: 15px; height: 15px; visibility: hidden; }
+.choice-option:is([aria-selected="true"], [aria-checked="true"]) > .choice-check, .choice-category[aria-checked="true"] > .choice-check {
+  visibility: visible;
+}
+.choice-category-chevron { color: var(--text-tertiary); }
+.choice-separator { flex: none; height: 1px; margin: 4px 6px; background: var(--border-color); }
+.choice-empty { padding: 14px 12px; color: var(--text-tertiary); font-size: 13px; text-align: center; }
+@media (max-width: 520px) {
+  .choice-menu.choice-columns { min-width: min(240px, calc(100vw - 24px)); }
+  .choice-columns:not(.choice-drilled) > .choice-pane, .choice-columns.choice-drilled > .choice-categories { display: none; }
+  .choice-columns > .choice-categories { max-width: none; width: 100%; border-right: 0; }
+  :root .choice-columns.choice-drilled button.choice-back {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 4px 8px;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-align: left;
+  }
+}

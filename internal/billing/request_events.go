@@ -107,6 +107,9 @@ type RequestEventView struct {
 }
 
 type RequestEventFilterValues struct {
+	KeyCounts         map[string]int           `json:"key_counts,omitempty"`
+	ModelCounts       map[string]int           `json:"model_counts"`
+	CredentialCounts  map[string]int           `json:"-"`
 	Models            []string                 `json:"models"`
 	Credentials       []string                 `json:"-"`
 	CredentialOptions []CredentialFilterOption `json:"credential_options"`
@@ -117,6 +120,7 @@ type RequestEventFilterValues struct {
 type CredentialFilterOption struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
+	Count int    `json:"count"`
 }
 
 type RequestEventStatusCounts struct {

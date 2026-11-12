@@ -18,12 +18,11 @@ func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate
 			Credentials: []billing.AnalysisComposition{},
 		},
 	}
-	view.Trends = analysisTrendPoints(query)
-	boundaries := view.Trends.Requests
-	if len(boundaries) == 0 {
+	view.Trends = analysisTrends(query)
+	if len(view.Trends.Requests) == 0 {
 		return view, nil
 	}
-	statement, args := analysisSQL(query, rate, since, boundaries)
+	statement, args := analysisSQL(query, rate, since, view.Trends.Start)
 	rows, err := d.db.Query(statement, args...)
 	if err != nil {
 		return billing.AnalysisView{}, fmt.Errorf("Aggregate analysis data: %w", err)
@@ -46,14 +45,14 @@ func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate
 			return billing.AnalysisView{}, fmt.Errorf("Read analysis data: %w", err)
 		}
 		summaryCurrencies = summaryCurrencies.with(currencies)
-		trends.Requests[index].Value += float64(part.Requests)
-		trends.UncachedInputTokens[index].Value += float64(part.InputTokens - part.CacheReadTokens - part.CacheWriteTokens)
-		trends.OutputTokens[index].Value += float64(part.OutputTokens)
-		trends.CacheReadTokens[index].Value += float64(part.CacheReadTokens)
-		trends.CacheWriteTokens[index].Value += float64(part.CacheWriteTokens)
-		trends.TotalCost[index].Value += part.Cost.TotalUSD
+		trends.Requests[index] += float64(part.Requests)
+		trends.UncachedInputTokens[index] += float64(part.InputTokens - part.CacheReadTokens - part.CacheWriteTokens)
+		trends.OutputTokens[index] += float64(part.OutputTokens)
+		trends.CacheReadTokens[index] += float64(part.CacheReadTokens)
+		trends.CacheWriteTokens[index] += float64(part.CacheWriteTokens)
+		trends.TotalCost[index] += part.Cost.TotalUSD
 		part.TotalTokens = part.InputTokens + part.OutputTokens
-		trends.TotalTokens[index].Value += float64(part.TotalTokens)
+		trends.TotalTokens[index] += float64(part.TotalTokens)
 		summary.Requests += part.Requests
 		summary.Failed += part.Failed
 		summary.InputTokens += part.InputTokens
@@ -86,12 +85,6 @@ func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate
 	if summary.InputTokens > 0 {
 		summary.CacheRate = float64(summary.CacheReadTokens) * 100 / float64(summary.InputTokens)
 	}
-	for index := range boundaries {
-		input := trends.UncachedInputTokens[index].Value + trends.CacheReadTokens[index].Value + trends.CacheWriteTokens[index].Value
-		if input > 0 {
-			trends.CacheRate[index].Value = trends.CacheReadTokens[index].Value * 100 / input
-		}
-	}
 	if err := d.labelAnalysisKeys(keys); err != nil {
 		return billing.AnalysisView{}, err
 	}
@@ -111,31 +104,26 @@ func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate
 	return view, nil
 }
 
-func analysisTrendPoints(query billing.RequestEventQuery) billing.AnalysisTrends {
+// Hours follow the browser's wall clock, so the first one starts on the local
+// hour before From. Subtracting the elapsed part of that hour keeps the
+// selected occurrence of a repeated DST hour.
+func analysisTrends(query billing.RequestEventQuery) billing.AnalysisTrends {
 	location := query.Timezone
 	if location == nil {
 		location = time.UTC
 	}
-	daily := query.To.Sub(query.From) > 24*time.Hour
-	start := query.From
-	if daily {
-		local := query.From.In(location)
-		start = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
+	local := query.From.In(location)
+	start := query.From.Add(-time.Duration(local.Minute())*time.Minute -
+		time.Duration(local.Second())*time.Second - time.Duration(local.Nanosecond()))
+	hours := 0
+	if query.To.After(start) {
+		hours = int((query.To.Sub(start) + time.Hour - 1) / time.Hour)
 	}
-	points := []billing.AnalysisTrendPoint{}
-	for cursor := start; cursor.Before(query.To); {
-		points = append(points, billing.AnalysisTrendPoint{Time: cursor})
-		if daily {
-			cursor = cursor.AddDate(0, 0, 1)
-		} else {
-			cursor = cursor.Add(time.Hour)
-		}
-	}
+	series := func() []float64 { return make([]float64, hours) }
 	return billing.AnalysisTrends{
-		Requests: points, TotalTokens: slices.Clone(points),
-		UncachedInputTokens: slices.Clone(points), OutputTokens: slices.Clone(points),
-		CacheReadTokens: slices.Clone(points), CacheWriteTokens: slices.Clone(points),
-		CacheRate: slices.Clone(points), TotalCost: slices.Clone(points),
+		Start: start, Requests: series(), TotalTokens: series(),
+		UncachedInputTokens: series(), OutputTokens: series(),
+		CacheReadTokens: series(), CacheWriteTokens: series(), TotalCost: series(),
 	}
 }
 
@@ -194,40 +182,26 @@ func (groups analysisGroups) finish() []billing.AnalysisComposition {
 	return rows
 }
 
-func analysisSQL(query billing.RequestEventQuery, rate billing.ExchangeRate, since time.Time, boundaries []billing.AnalysisTrendPoint) (string, []any) {
+func analysisSQL(query billing.RequestEventQuery, rate billing.ExchangeRate, since time.Time, start time.Time) (string, []any) {
 	where, args := eventFilter(requestEventSource, query, since)
 	modelSQL := "coalesce(NULLIF(" + eventModelSQL + ", ''), '')"
 	credentialSQL := "coalesce(NULLIF(" + requestEventCredentialName + ", ''), '')"
 	costsSQL := strings.Join([]string{usdSumSQL("total_cost", rate), usdSumSQL("uncached_input_cost", rate),
 		usdSumSQL("cache_read_cost", rate), usdSumSQL("cache_write_cost", rate), usdSumSQL("output_cost", rate)}, ", ")
-	var statement strings.Builder
-	queryArgs := make([]any, 0, len(boundaries)*(len(args)+2))
-	for index, boundary := range boundaries {
-		end := query.To
-		if index+1 < len(boundaries) {
-			end = boundaries[index+1].Time
-		}
-		if index > 0 {
-			statement.WriteString(" UNION ALL ")
-		}
-		// Indexed calendar ranges preserve DST without a CASE per event.
-		statement.WriteString(`SELECT ` + fmt.Sprint(index) + `, r.scope, ` + modelSQL + `, ` + credentialSQL + `,
-			count(*), sum(r.failed != 0),
-			sum(r.uncached_input_tokens + r.cache_read_tokens + r.cache_write_tokens), sum(r.billed_output_tokens),
-			sum(r.cache_read_tokens), sum(r.cache_write_tokens), ` + costsSQL + `, ` + costCurrenciesSQL + where + `
-			AND r.at >= ? AND r.at < ? GROUP BY 2, 3, 4`)
-		queryArgs = append(queryArgs, args...)
-		queryArgs = append(queryArgs, nanos(boundary.Time), nanos(end))
-	}
-	return statement.String(), queryArgs
+	statement := `SELECT (r.at - ?) / ?, r.scope, ` + modelSQL + `, ` + credentialSQL + `,
+		count(*), sum(r.failed != 0),
+		sum(r.uncached_input_tokens + r.cache_read_tokens + r.cache_write_tokens), sum(r.billed_output_tokens),
+		sum(r.cache_read_tokens), sum(r.cache_write_tokens), ` + costsSQL + `, ` + costCurrenciesSQL + where + `
+		GROUP BY 1, 2, 3, 4`
+	return statement, append([]any{nanos(start), int64(time.Hour)}, args...)
 }
 
 // AnalysisSpeed reads the TPS of the selected model's requests. Quantiles need
 // every sample, so rows are bucketed here rather than aggregated in SQL.
 func (d *DB) AnalysisSpeed(query billing.RequestEventQuery, since time.Time) (billing.AnalysisSpeedView, error) {
-	points := analysisTrendPoints(query).Requests
-	view := billing.AnalysisSpeedView{Trend: make([]billing.SpeedTrendPoint, len(points))}
-	if len(points) == 0 {
+	times := speedTrendTimes(query)
+	view := billing.AnalysisSpeedView{Trend: make([]billing.SpeedTrendPoint, len(times))}
+	if len(times) == 0 {
 		return view, nil
 	}
 	where, args := eventFilter(requestEventSource, query, since)
@@ -239,14 +213,14 @@ func (d *DB) AnalysisSpeed(query billing.RequestEventQuery, since time.Time) (bi
 	}
 	defer rows.Close()
 	var total []float64
-	buckets := make([][]float64, len(points))
+	buckets := make([][]float64, len(times))
 	for rows.Next() {
 		var at int64
 		var tps float64
 		if err := rows.Scan(&at, &tps); err != nil {
 			return billing.AnalysisSpeedView{}, fmt.Errorf("Read speed analysis data: %w", err)
 		}
-		index := sort.Search(len(points), func(i int) bool { return nanos(points[i].Time) > at }) - 1
+		index := sort.Search(len(times), func(i int) bool { return nanos(times[i]) > at }) - 1
 		total = append(total, tps)
 		buckets[index] = append(buckets[index], tps)
 	}
@@ -254,10 +228,35 @@ func (d *DB) AnalysisSpeed(query billing.RequestEventQuery, since time.Time) (bi
 		return billing.AnalysisSpeedView{}, fmt.Errorf("Read speed analysis data: %w", err)
 	}
 	view.Summary = speedStats(total)
-	for index, point := range points {
-		view.Trend[index] = billing.SpeedTrendPoint{Time: point.Time, SpeedStats: speedStats(buckets[index])}
+	for index, start := range times {
+		view.Trend[index] = billing.SpeedTrendPoint{Time: start, SpeedStats: speedStats(buckets[index])}
 	}
 	return view, nil
+}
+
+// Quantiles cannot be merged afterwards, so ranges over a day are bucketed
+// here by the browser's calendar days, which DST makes 23 or 25 hours long.
+func speedTrendTimes(query billing.RequestEventQuery) []time.Time {
+	daily := query.To.Sub(query.From) > 24*time.Hour
+	start := query.From
+	if daily {
+		location := query.Timezone
+		if location == nil {
+			location = time.UTC
+		}
+		local := query.From.In(location)
+		start = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
+	}
+	var times []time.Time
+	for cursor := start; cursor.Before(query.To); {
+		times = append(times, cursor)
+		if daily {
+			cursor = cursor.AddDate(0, 0, 1)
+		} else {
+			cursor = cursor.Add(time.Hour)
+		}
+	}
+	return times
 }
 
 func speedStats(values []float64) billing.SpeedStats {

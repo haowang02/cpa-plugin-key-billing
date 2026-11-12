@@ -54,7 +54,7 @@ function filterOptions(account, filter) {
   return options;
 }
 
-// A bar shows each active filter as a chip and offers the rest from its add button; apply(filter) runs after a change.
+// A bar shows each active filter as a chip; its menu lists every filter beside the choices of one; apply(filter) runs after a change.
 // Its state lives on its element: the filters it shows, the chips it drew, and the search filter being edited.
 function renderFilterBar(target, account, filters, apply) {
   const bar = (target.filterBar ||= { target, chips: "", editing: null });
@@ -69,11 +69,7 @@ function drawFilterBar(bar) {
   const chips = JSON.stringify([account, filters.map((filter) => filter.id), active.map((filter) => filter.id)]);
   if (bar.chips !== chips) {
     bar.chips = chips;
-    const inactive = filters.filter((filter) => !active.includes(filter));
-    target.replaceChildren(
-      ...active.map((filter) => filterChip(bar, filter)),
-      ...(inactive.length ? [addFilterButton(bar, inactive)] : [])
-    );
+    target.replaceChildren(...active.map((filter) => filterChip(bar, filter)), ...(filters.length ? [addFilterButton(bar)] : []));
   }
   for (const chip of target.children) chip.refresh?.();
 }
@@ -106,7 +102,13 @@ function filterChip(bar, filter) {
   const value = el("span", { class: "filter-chip-value" + (filter.masked ? " mask-blur" : "") });
   const button = el(
     "button",
-    { type: "button", class: "filter-chip-body", onclick: () => openFilterChoices(bar, filter, button) },
+    {
+      type: "button",
+      class: "filter-chip-body",
+      "aria-haspopup": "menu",
+      "aria-expanded": "false",
+      onclick: () => openFilterMenu(bar, button, filter.id)
+    },
     el("span", { class: "filter-chip-label", text: filter.label }),
     value
   );
@@ -149,43 +151,50 @@ function searchFilterChip(bar, filter, remove) {
   return chip;
 }
 
-function openFilterChoices(bar, filter, anchor) {
+function filterCategory(bar, filter) {
+  const category = { value: filter.id, label: filter.label, icon: filter.icon };
+  if (filter.options)
+    return {
+      ...category,
+      searchable: filter.searchable,
+      choices: () =>
+        filterOptions(bar.account, filter).map((option) => ({
+          ...option,
+          selected: option.value === filterValue(bar.account, filter),
+          masked: filter.masked
+        })),
+      select: (value) => changeFilter(bar, filter, value)
+    };
+  return {
+    ...category,
+    checked: filter.toggle ? filterValue(bar.account, filter) : undefined,
+    run: () => {
+      if (filter.toggle) changeFilter(bar, filter, !filterValue(bar.account, filter));
+      else {
+        bar.editing = filter.id;
+        drawFilterBar(bar);
+        bar.target.querySelector(".filter-chip-input").focus();
+      }
+    }
+  };
+}
+
+function openFilterMenu(bar, anchor, category) {
   toggleChoiceMenu(anchor, {
-    label: filter.label,
-    searchable: filter.searchable,
-    choices: () =>
-      filterOptions(bar.account, filter).map((option) => ({
-        ...option,
-        selected: option.value === filterValue(bar.account, filter),
-        masked: filter.masked
-      })),
-    select: (value) => changeFilter(bar, filter, value),
+    label: m("ui.filter"),
+    categories: () => bar.filters.map((filter) => filterCategory(bar, filter)),
+    category,
     onToggle: (open) => anchor.setAttribute("aria-expanded", String(open))
   });
 }
 
-function addFilterButton(bar, filters) {
+function addFilterButton(bar) {
   const button = el(
     "button",
     { type: "button", class: "filter-add", "aria-haspopup": "menu", "aria-expanded": "false" },
     actionIcon("plus"),
     el("span", { text: m("ui.filter") })
   );
-  button.onclick = () =>
-    toggleChoiceMenu(button, {
-      label: m("ui.add_filter"),
-      menu: true,
-      choices: () => filters.map((filter) => ({ value: filter, label: filter.label, icon: filter.icon, submenu: !!filter.options })),
-      select: (filter) => {
-        if (filter.options) openFilterChoices(bar, filter, button);
-        else if (filter.toggle) changeFilter(bar, filter, true);
-        else {
-          bar.editing = filter.id;
-          drawFilterBar(bar);
-          bar.target.querySelector(".filter-chip-input").focus();
-        }
-      },
-      onToggle: (open) => button.setAttribute("aria-expanded", String(open))
-    });
+  button.onclick = () => openFilterMenu(bar, button);
   return button;
 }

@@ -205,12 +205,14 @@ function timeAxis(axis, width) {
 
 function isDailyTrend(points) { return points.length > 1 && new Date(points[1].time) - new Date(points[0].time) > 12 * 3600000; }
 
-function trendLabels(points) {
+// Hours spanning more than a day also name their date.
+function trendLabels(times, daily) {
+  const date = { month: "numeric", day: "numeric" };
   const format = new Intl.DateTimeFormat(
     locale(),
-    isDailyTrend(points) ? { month: "numeric", day: "numeric" } : { hour: "2-digit", minute: "2-digit", hour12: false }
+    daily ? date : { ...(times.length > 24 ? date : {}), hour: "2-digit", minute: "2-digit", hour12: false }
   );
-  return points.map((point) => format.format(new Date(point.time)));
+  return times.map((time) => format.format(new Date(time)));
 }
 
 function compactDistribution(rows, metric) {
@@ -299,153 +301,12 @@ function renderUsageDistributionChart(account, rows, dimension, dimensionLabel, 
   );
 }
 
-function renderUsageTrendChart(account, trends, chargedIn, colors) {
-  const canvas = $("usage-trend-chart");
-  const points = trends.total_tokens;
-  if (!points.length) {
-    canvas.closest(".usage-trend-card").querySelector(".analysis-legend").replaceChildren();
-    updateAnalysisChart(account, "trend", canvas, null, { empty: m("ui.no_trend_data_in_this_time_range") });
-    return;
-  }
-  const values = (name) => trends[name].map((point) => Number(point.value || 0));
-  const totalTokens = values("total_tokens");
-  const cacheWriteTokens = values("cache_write_tokens");
-  const average = totalTokens.reduce((sum, value) => sum + value, 0) / totalTokens.length;
-  const axis = chartAxisColors();
-  const tokenDataset = (label, data, color) => ({
-    type: "bar",
-    label,
-    data,
-    yAxisID: "tokens",
-    stack: "tokens",
-    metric: "tokens",
-    backgroundColor: color,
-    borderColor: color,
-    borderWidth: 0,
-    borderRadius: 0,
-    maxBarThickness: 42,
-    categoryPercentage: 0.76,
-    barPercentage: 0.9
-  });
-  const datasets = [
-    tokenDataset(m("ui.input"), values("input_tokens"), colors[0]),
-    tokenDataset(m("ui.output"), values("output_tokens"), colors[2]),
-    tokenDataset(m("ui.cache_read"), values("cache_read_tokens"), colors[1])
-  ];
-  if (cacheWriteTokens.some((value) => value > 0)) { datasets.push(tokenDataset(m("ui.cache_write"), cacheWriteTokens, colors[4])); }
-  datasets.push({
-    type: "line",
-    label: m("ui.requests_4"),
-    data: values("requests"),
-    yAxisID: "requests",
-    metric: "requests",
-    borderColor: "#ff6048",
-    backgroundColor: "#ff6048",
-    borderWidth: 2.5,
-    borderDash: [7, 5],
-    pointRadius: 2,
-    pointHoverRadius: 5,
-    tension: 0.38
-  });
-  const costs = values("total_cost");
-  if (costs.length) {
-    datasets.push({
-      type: "line",
-      label: m("ui.total_cost"),
-      data: costs,
-      yAxisID: "cost",
-      metric: "cost",
-      borderColor: colors[5],
-      backgroundColor: colors[5],
-      borderWidth: 2.5,
-      pointRadius: 2,
-      pointHoverRadius: 5,
-      tension: 0.38
-    });
-  }
-  datasets.push({
-    type: "line",
-    label: m("ui.average_value", { v0: tokens(average) }),
-    data: totalTokens.map(() => average),
-    yAxisID: "tokens",
-    stack: "average",
-    metric: "average",
-    borderColor: axis.text,
-    borderWidth: 1.5,
-    borderDash: [5, 5],
-    pointRadius: 0,
-    pointHoverRadius: 0
-  });
-  const width = canvas.parentElement.clientWidth;
-  canvas.closest(".usage-trend-card").querySelector(".analysis-legend")
-    .replaceChildren(...datasets.map((dataset) => analysisLegendItem(dataset.borderColor, dataset.label)));
-  updateAnalysisChart(account, "trend", canvas, {
-    type: "bar",
-    data: { labels: trendLabels(points), datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 300 },
-      onResize: (chart, size) => {
-        chart.options.scales.x.ticks.maxTicksLimit = timeTickLimit(size.width);
-        chart.options.scales.requests.display = !compactChart(size.width);
-        chart.options.scales.cost.display = !compactChart(size.width) && costs.length > 0;
-      },
-      interaction: { mode: "index", intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: chartTooltip({
-          usePointStyle: true,
-          boxWidth: 8,
-          boxHeight: 8,
-          boxPadding: 6,
-          filter: (context) => context.dataset.metric !== "average",
-          callbacks: {
-            labelPointStyle: () => ({ pointStyle: "circle", rotation: 0 }),
-            label: (context) => {
-              const value = Number(context.raw || 0);
-              if (context.dataset.metric === "requests") { return context.dataset.label + ": " + int(value); }
-              if (context.dataset.metric === "cost") { return context.dataset.label + ": " + usageMoney(value, chargedIn); }
-              return context.dataset.label + ": " + tokens(value);
-            },
-            footer: (items) => (items.length ? m("ui.total_tokens_value", { v0: tokens(totalTokens[items[0].dataIndex]) }) : "")
-          }
-        })
-      },
-      scales: {
-        x: { ...timeAxis(axis, width), stacked: true },
-        tokens: {
-          stacked: true,
-          beginAtZero: true,
-          grid: { color: axis.grid },
-          border: { color: axis.grid },
-          ticks: { color: axis.text, maxTicksLimit: 5, callback: (value) => tokens(value) }
-        },
-        requests: {
-          beginAtZero: true,
-          position: "right",
-          display: !compactChart(width),
-          grid: { drawOnChartArea: false },
-          ticks: { color: axis.text, precision: 0 }
-        },
-        cost: {
-          beginAtZero: true,
-          position: "right",
-          display: !compactChart(width) && costs.length > 0,
-          grid: { drawOnChartArea: false },
-          ticks: { color: axis.text, callback: (value) => usageMoney(value, chargedIn) }
-        }
-      }
-    }
-  });
-}
-
-function drawAnalysisTrend(canvas, points) {
+function drawAnalysisTrend(canvas, series) {
   const context = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
   context.clearRect(0, 0, width, height);
-  const values = points.map((point) => Number(point.value || 0));
+  const values = [...series];
   if (!values.length) return;
   if (values.length === 1) values.push(values[0]);
   const padding = 12;
@@ -496,7 +357,7 @@ function renderAnalysisSummary(summary, trends, daily) {
   const cost = summary.cost;
   const averageLabel = daily ? m("ui.daily_average") : m("ui.hourly_average");
   const average = (total) => (trends.requests.length ? Number(total || 0) / trends.requests.length : 0);
-  const peakCacheRate = Math.max(0, ...trends.cache_rate.map((point) => Number(point.value || 0)));
+  const peakCacheRate = Math.max(0, ...trends.cache_rate);
   const card = (title, value, statistic, rows, trend) =>
     el(
       "section",
@@ -595,17 +456,15 @@ function renderAnalysisDistribution(account, { colors = analysisColors(), animat
     },
     Object.entries(DISTRIBUTION_METRICS).map(([key, item]) => el("option", { value: key, text: item.option, selected: key === metric }))
   );
-  const tabs = Object.entries(labels).map(([key, label]) =>
-    el("button", {
-      type: "button",
-      class: key === dimension ? "active" : "",
-      text: label,
-      onclick: () => {
-        analysisDimensions[role] = key;
-        saveViewPreference(role, "analysis-dimension", key);
-        if (key !== dimension) renderAnalysisDistribution(account, { animate: true });
-      }
-    })
+  const tabs = segmentedControl(
+    m("ui.distribution_dimension"),
+    Object.entries(labels).map(([value, label]) => ({ value, label })),
+    dimension,
+    (key) => {
+      analysisDimensions[role] = key;
+      saveViewPreference(role, "analysis-dimension", key);
+      renderAnalysisDistribution(account, { animate: true });
+    }
   );
   const list = rows.map((row, index) => {
     const breakdown = modelUsageTooltip(account, distributionUsageQuery(analysis, dimension, row));
@@ -630,10 +489,8 @@ function renderAnalysisDistribution(account, { colors = analysisColors(), animat
       )
     );
   });
-  target.querySelector(".analysis-card-header").replaceChildren(
-    el("h2", {}, m("ui.usage_distribution")),
-    el("div", { class: "row analysis-card-controls" }, el("div", { class: "usage-distribution-tabs" }, tabs), metricSelect)
-  );
+  target.querySelector(".analysis-heading")
+    .replaceChildren(el("h2", {}, m("ui.usage_distribution")), el("div", { class: "row analysis-controls" }, tabs, metricSelect));
   target.querySelector(".usage-distribution-list").replaceChildren(...list);
   target.querySelector(".usage-distribution-layout").classList.toggle("hidden", !rows.length);
   target.querySelector(".usage-distribution-empty").classList.toggle("hidden", !!rows.length);
@@ -665,7 +522,7 @@ function renderSpeedTrend(account, view) {
     },
     rows.map((row) => el("option", { value: row.key, text: row.key + DISPLAY_SEPARATOR + int(row.requests), selected: row.key === model }))
   );
-  card.querySelector(".analysis-card-controls").replaceChildren(...(rows.length ? [select] : []));
+  card.querySelector(".analysis-controls").replaceChildren(...(rows.length ? [select] : []));
   const speed = state.speed;
   const stats = speed?.summary;
   const colors = analysisColors();
@@ -745,7 +602,7 @@ function renderSpeedChart(account, canvas, speed, palette, empty) {
   ];
   updateAnalysisChart(account, "speed", canvas, {
     type: "bar",
-    data: { labels: trendLabels(points), datasets },
+    data: { labels: trendLabels(points.map((point) => point.time), isDailyTrend(points)), datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -786,14 +643,15 @@ function renderAnalysisUsage(account, content, analysis, view) {
   const charts = analysisCharts[account ? "account" : "admin"];
   const state = { ...view, analysis, identities: account ? null : keyDirectory.value };
   if (sameRender(charts.usageRendered, state)) return;
-  const trends = analysis.trends;
+  const daily = new Date(analysis.usage_query.to) - new Date(analysis.usage_query.from) > 24 * 3600000;
+  const trends = usageTrendSeries(analysis.trends, daily);
   const colors = analysisColors();
-  content.querySelector(".analysis-summary-grid")
-    .replaceWith(renderAnalysisSummary(analysis.summary, trends, isDailyTrend(trends.total_tokens)));
+  content.querySelector(".analysis-summary-grid").replaceWith(renderAnalysisSummary(analysis.summary, trends, daily));
   for (const canvas of content.querySelectorAll("[data-analysis-trend]")) {
     drawAnalysisTrend(canvas, trends[canvas.dataset.analysisTrend]);
   }
-  renderUsageTrendChart(account, trends, analysis.summary.cost.charged_in, colors);
+  renderUsageTrendControls(account);
+  renderUsageTrendChart(account, colors);
   renderAnalysisDistribution(account, { colors });
   charts.usageRendered = state;
 }
@@ -810,14 +668,19 @@ function renderAnalysis(account) {
       el(
         "section",
         { class: "card usage-trend-card" },
-        el("div", { class: "row spread analysis-card-header" }, el("h2", {}, m("ui.usage_trend"))),
+        el(
+          "div",
+          { class: "row spread analysis-heading" },
+          el("h2", {}, m("ui.usage_trend")),
+          el("div", { class: "row analysis-controls" })
+        ),
         el("div", { class: "analysis-legend" }),
         analysisChartPanel("analysis-trend-chart", "usage-trend-chart", m("ui.usage_trend_chart"))
       ),
       el(
         "section",
         { id: "usage-distribution", class: "card usage-distribution-card" },
-        el("div", { class: "row spread analysis-card-header" }),
+        el("div", { class: "row spread analysis-heading" }),
         el(
           "div",
           { class: "usage-distribution-layout" },
@@ -831,9 +694,9 @@ function renderAnalysis(account) {
         { id: "speed-trend", class: "card" },
         el(
           "div",
-          { class: "row spread analysis-card-header" },
+          { class: "row spread analysis-heading" },
           el("h2", {}, m("ui.speed_trend")),
-          el("div", { class: "row analysis-card-controls" })
+          el("div", { class: "row analysis-controls" })
         ),
         el("div", { class: "analysis-legend" }),
         analysisChartPanel("analysis-trend-chart", "speed-trend-chart", m("ui.speed_trend_chart"))

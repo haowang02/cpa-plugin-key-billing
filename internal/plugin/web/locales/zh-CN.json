@@ -774,7 +774,6 @@
   "backend.this_subscription_plan_does_not_share_quota": "此订阅计划未启用共享额度",
   "backend.invalid_quota_cycle_data": "额度周期数据无效",
   "ui.more_actions": "更多操作",
-  "ui.add_filter": "添加筛选",
   "ui.remove_filter_value": "移除筛选：{v0}",
   "ui.keyword": "关键词",
   "ui.category": "类别",
@@ -785,5 +784,10 @@
   "time.refresh_every_second": "每 {count} 秒",
   "time.refresh_every_minute": "每 {count} 分钟",
   "time.refresh_every_minute_one": "每 {count} 分钟",
-  "ui.credential": "凭证"
+  "ui.credential": "凭证",
+  "ui.trend_metric": "趋势指标",
+  "ui.trend_bucket": "统计粒度",
+  "ui.by_hour": "按小时",
+  "ui.by_day": "按天",
+  "ui.distribution_dimension": "分布维度"
 }

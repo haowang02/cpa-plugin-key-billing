@@ -132,6 +132,11 @@ func (d *DB) RequestEvents(query billing.RequestEventQuery, since time.Time) (bi
 			return billing.RequestEventView{}, errFilters
 		}
 		view.Filters = filters
+		if err := d.countEventFilters(filters, query, func(selection billing.RequestEventQuery) (string, []any) {
+			return eventFilter(requestEventSource, selection, since)
+		}); err != nil {
+			return billing.RequestEventView{}, err
+		}
 	}
 
 	counts := d.db.QueryRow(`
@@ -274,6 +279,54 @@ func (d *DB) requestEventFilterValues(query billing.RequestEventQuery, since tim
 		Models: models.sorted(), Credentials: credentials.sorted(),
 		Executors: executors.sorted(), Providers: providers.sorted(),
 	}, nil
+}
+
+// Each filter's counts cover the events matching every other selection, so its
+// options show what choosing them would list. where builds the event filter.
+func (d *DB) countEventFilters(filters *billing.RequestEventFilterValues, query billing.RequestEventQuery,
+	where func(billing.RequestEventQuery) (string, []any)) error {
+	count := func(expression string, selection billing.RequestEventQuery) (map[string]int, error) {
+		filter, args := where(selection)
+		if query.Failed != nil {
+			filter += " AND r.failed = ?"
+			args = append(args, *query.Failed)
+		}
+		rows, err := d.db.Query("SELECT "+expression+", count(*)"+filter+" GROUP BY 1", args...)
+		if err != nil {
+			return nil, fmt.Errorf("Count event filter values: %w", err)
+		}
+		defer rows.Close()
+		counts := map[string]int{}
+		for rows.Next() {
+			var value string
+			var events int
+			if err := rows.Scan(&value, &events); err != nil {
+				return nil, fmt.Errorf("Count event filter values: %w", err)
+			}
+			counts[value] = events
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("Count event filter values: %w", err)
+		}
+		return counts, nil
+	}
+	var err error
+	if query.Scope == "" {
+		selection := query
+		selection.KeyScope, selection.KeyScopeEmpty = "", false
+		if filters.KeyCounts, err = count("r.scope", selection); err != nil {
+			return err
+		}
+	}
+	selection := query
+	selection.Model = ""
+	if filters.ModelCounts, err = count(eventModelSQL, selection); err != nil {
+		return err
+	}
+	selection = query
+	selection.Credential = ""
+	filters.CredentialCounts, err = count(requestEventCredentialName, selection)
+	return err
 }
 
 func scanRequestEventRow(rows *sql.Rows) (billing.RequestEventRow, error) {

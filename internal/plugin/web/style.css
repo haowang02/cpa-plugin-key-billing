@@ -386,8 +386,9 @@ ui-select {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
-  max-width: 100%;
+  width: max-content;
+  min-width: min(72px, 100%);
+  max-width: min(240px, 100%);
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
@@ -396,11 +397,8 @@ ui-select {
 ui-select > option { display: none; }
 ui-select[disabled] { opacity: 0.6; cursor: not-allowed; }
 .time-range-icon { flex: none; width: 15px; height: 15px; color: var(--text-tertiary); }
-ui-select::part(value) { display: grid; flex: 1; min-width: 0; }
-/* Every option label shares one cell, so the control keeps the width of its longest option. */
-ui-select::part(label) { grid-area: 1 / 1; overflow: hidden; text-overflow: ellipsis; visibility: hidden; }
-ui-select::part(current) { visibility: visible; }
-ui-select:state(placeholder)::part(current) { color: var(--text-tertiary); }
+ui-select::part(value) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+ui-select:state(placeholder)::part(value) { color: var(--text-tertiary); }
 ui-select::part(chevron), .time-range-chevron {
   flex: none;
   width: 18px;
@@ -564,14 +562,15 @@ tbody tr:hover { background: var(--bg-hover); }
   border-color: var(--border-subtle, var(--app-border));
   background: var(--surface-subtle, var(--app-surface-muted));
 }
-:root[data-cpamp-plugin-host="true"] button:not(.link, .icon-action, .routing-section-toggle, .routing-option, .filter-chip-body) {
+:root[data-cpamp-plugin-host="true"]
+  button:not(.link, .icon-action, .routing-section-toggle, .routing-option, .filter-chip-body, .tabs > button, .choice-menu button) {
   min-height: 34px;
   padding: 0 var(--button-padding-inline, 12px);
   border-radius: var(--button-radius, var(--app-radius-md, 12px));
   line-height: 1.2;
 }
 :root[data-cpamp-plugin-host="true"]
-  button:not(.link):not(.routing-section-toggle):not(.routing-option):hover:not(:disabled, .filter-chip-body),
+  button:not(.link, .routing-section-toggle, .routing-option, .filter-chip-body, .tabs > button, .choice-menu button):hover:not(:disabled),
 :root[data-cpamp-plugin-host="true"] ui-select:hover:not([disabled]) {
   border-color: var(--border-hover);
   background: var(--app-accent-soft, var(--bg-hover));
@@ -1600,7 +1599,6 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
   .route-picker { width: calc(100vw - 32px); }
 }
 .account-plan h2 { margin: 0; }
-.usage-distribution-tabs button { white-space: nowrap; }
 .event-list-card {
   height: calc(100svh - var(--event-list-top, var(--page-gap)) - var(--page-gap));
   min-height: 0;
@@ -1642,47 +1640,6 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
   transform-origin: top right;
   animation: time-range-in 150ms ease-out both;
 }
-.choice-menu { gap: 4px; width: max-content; min-width: 112px; max-width: min(460px, calc(100vw - 24px)); padding: 6px; }
-.choice-menu:popover-open { display: flex; flex-direction: column; }
-.choice-search { flex: none; width: 100%; }
-.choice-options { display: grid; gap: 2px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-:root .choice-menu button.choice-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 12px;
-  border-color: transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary);
-  text-align: left;
-}
-/* Like a native menu, the keyboard's current option is highlighted rather than ringed, which the list would clip. */
-:root .choice-menu button.choice-option:is(:hover:not(:disabled), :focus-visible) {
-  border-color: transparent;
-  outline: none;
-  box-shadow: none;
-  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
-  color: var(--text-primary);
-}
-:root .choice-menu button.choice-option[aria-selected="true"] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
-  color: var(--primary-active);
-  font-weight: 600;
-}
-:root .choice-menu button.choice-option.danger { color: var(--error-color); }
-.choice-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.choice-icon { flex: none; width: 15px; height: 15px; color: var(--text-tertiary); }
-.choice-option.danger > .choice-icon { color: inherit; }
-.choice-detail { flex: none; color: var(--text-tertiary); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
-.choice-check { flex: none; width: 15px; height: 15px; visibility: hidden; }
-.choice-option:is([aria-selected="true"], [aria-checked="true"]) > .choice-check { visibility: visible; }
-.choice-submenu { color: var(--text-tertiary); }
-.choice-separator { flex: none; height: 1px; margin: 4px 6px; background: var(--border-color); }
-.choice-caption { padding: 6px 12px 2px; color: var(--text-tertiary); font-size: 12px; overflow-wrap: anywhere; }
-.choice-empty { padding: 14px 12px; color: var(--text-tertiary); font-size: 13px; text-align: center; }
 @media (max-width: 640px) {
   .date-time-popover { inset: auto 12px 12px; margin-inline: auto; max-height: calc(100dvh - 24px); }
 }
@@ -1985,11 +1942,11 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   background: color-mix(in srgb, var(--analysis-accent) 5%, var(--bg-primary));
 }
 .analysis-trend-chart { position: relative; height: 360px; min-width: 0; }
-.analysis-card-header { margin-bottom: 12px; }
+.analysis-heading { margin-bottom: 12px; }
 /* Titles take the height of a control row, so they line up across cards with or without controls. */
-.analysis-card-header h2 { display: flex; align-items: center; min-height: 35px; margin: 0; }
-.analysis-card-controls { gap: 12px; flex-wrap: nowrap; min-width: 0; max-width: 100%; }
-.analysis-card-controls > ui-select { flex: 0 1 auto; }
+.analysis-heading h2 { display: flex; align-items: center; min-height: 35px; margin: 0; }
+.analysis-controls { gap: 8px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.analysis-controls > ui-select { flex: 0 1 auto; }
 .analysis-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .analysis-legend-item {
   display: inline-flex;
@@ -2005,11 +1962,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   white-space: nowrap;
 }
 .analysis-legend-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--legend-color); }
-.usage-distribution-tabs { display: flex; gap: 8px; flex: 1 0 auto; }
-.usage-distribution-tabs button { flex: 1 0 auto; }
-:root .usage-distribution-tabs button.active,
-:root .time-range-popover .time-range-options button.active,
-:root .calendar-picker .calendar-grid button.active {
+:root .time-range-popover .time-range-options button.active, :root .calendar-picker .calendar-grid button.active {
   border-color: var(--primary-color);
   color: var(--primary-active);
   box-shadow: inset 0 0 0 1px var(--primary-color);
@@ -2061,11 +2014,10 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .settings-entry-field:has(.settings-chip-list) > .settings-entry-label { max-width: none; }
 }
 @media (max-width: 520px) {
-  .analysis-card-controls { gap: 6px; width: 100%; }
-  .usage-distribution-tabs { gap: 4px; --button-padding-inline: 4px; }
-  .usage-distribution-tabs button { font-size: 12px; }
-  .analysis-card-controls ui-select { gap: 6px; padding-inline: 8px; font-size: 12px; }
-  .analysis-card-controls ui-select::part(chevron) { width: 16px; height: 16px; }
+  .analysis-controls { gap: 6px; width: 100%; }
+  .analysis-controls > .tabs > button { font-size: 12px; }
+  .analysis-controls ui-select { gap: 6px; padding-inline: 8px; font-size: 12px; }
+  .analysis-controls ui-select::part(chevron) { width: 16px; height: 16px; }
   .analysis-summary-grid { grid-template-columns: 1fr; }
   .analysis-summary-details { gap: 5px; }
   .analysis-summary-line { gap: 2px; font-size: 10px; }

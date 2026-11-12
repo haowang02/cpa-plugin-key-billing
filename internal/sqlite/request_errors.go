@@ -25,18 +25,27 @@ func appendRequestErrorEvent(tx *sql.Tx, entry billing.RequestErrorEvent) error 
 	return nil
 }
 
+func requestErrorEventQuery(query billing.RequestErrorQuery) billing.RequestEventQuery {
+	return billing.RequestEventQuery{
+		Scope: query.Scope, KeyScope: query.KeyScope, KeyScopeEmpty: query.KeyScopeEmpty,
+		Model: query.Model, Credential: query.Credential, Executor: query.Executor, Provider: query.Provider,
+		From: query.From, To: query.To, SnapshotID: query.SnapshotID,
+	}
+}
+
 func requestErrorFilter(query billing.RequestErrorQuery, since time.Time) (string, []any) {
+	return requestErrorEventFilter(query, requestErrorEventQuery(query), since)
+}
+
+// events selects the request events; query adds only its error fields.
+func requestErrorEventFilter(query billing.RequestErrorQuery, events billing.RequestEventQuery, since time.Time) (string, []any) {
 	source := " FROM request_errors e"
 	if query.StatusCode <= 0 && strings.TrimSpace(query.ErrorType) == "" && !query.ErrorTypeEmpty {
 		// Keep large error bodies out of counts and ID-only pages.
 		source += " INDEXED BY request_errors_event_type_status"
 	}
 	source += " JOIN request_events r ON r.id = e.request_event_id WHERE r.at >= ?"
-	where, args := eventFilter(source, billing.RequestEventQuery{
-		Scope: query.Scope, KeyScope: query.KeyScope, KeyScopeEmpty: query.KeyScopeEmpty,
-		Model: query.Model, Credential: query.Credential, Executor: query.Executor, Provider: query.Provider,
-		From: query.From, To: query.To, SnapshotID: query.SnapshotID,
-	}, since)
+	where, args := eventFilter(source, events, since)
 	if query.StatusCode > 0 {
 		where += " AND e.status_code = ?"
 		args = append(args, query.StatusCode)
@@ -97,6 +106,12 @@ func (d *DB) RequestErrors(query billing.RequestErrorQuery, since time.Time) (bi
 			return billing.RequestErrorView{}, err
 		}
 		view.Filters = filters
+		if err := d.countEventFilters(&filters.RequestEventFilterValues, requestErrorEventQuery(query),
+			func(selection billing.RequestEventQuery) (string, []any) {
+				return requestErrorEventFilter(query, selection, since)
+			}); err != nil {
+			return billing.RequestErrorView{}, err
+		}
 	}
 	limit := query.Limit
 	if limit <= 0 {
@@ -167,8 +182,10 @@ func (d *DB) requestErrorFilterValues(query billing.RequestErrorQuery, since tim
 		return nil, fmt.Errorf("Read error event filters: %w", err)
 	}
 	result := &billing.RequestErrorFilterValues{
-		Models: models.sorted(), Credentials: credentials.sorted(),
-		Executors: executors.sorted(), Providers: providers.sorted(),
+		RequestEventFilterValues: billing.RequestEventFilterValues{
+			Models: models.sorted(), Credentials: credentials.sorted(),
+			Executors: executors.sorted(), Providers: providers.sorted(),
+		},
 		ErrorTypes: errorTypes.sorted(), StatusCodes: make([]int, 0, len(codes)),
 	}
 	for code := range codes {

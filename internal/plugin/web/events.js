@@ -51,12 +51,19 @@ const API_KEY_FILTER = {
   masked: true,
   source: eventKeysQuery,
   load: readEventKeys,
-  options: () => {
+  options: (account) => {
     const keys = eventKeysQuery.value || [];
+    // Only the event lists count their rows per key.
+    const list = { "request-events": "events", errors: "errors" }[currentTab];
+    const counts = list && pagedList(list, account).data?.filter_options?.key_counts;
+    const detail = (scope) => (counts ? int(counts[scope] || 0) : null);
     return [
-      ...keys.filter((key) => key.scope)
-        .map((key) => ({ value: key.scope, label: apiKeyIdentity(key).text + (key.deleted_at ? m("ui.deleted_2") : "") })),
-      ...(keys.some((key) => !key.scope) ? [{ value: EMPTY_FIELD, label: m("ui.unassigned") }] : [])
+      ...keys.filter((key) => key.scope).map((key) => ({
+        value: key.scope,
+        label: apiKeyIdentity(key).text + (key.deleted_at ? m("ui.deleted_2") : ""),
+        detail: detail(key.scope)
+      })),
+      ...(keys.some((key) => !key.scope) ? [{ value: EMPTY_FIELD, label: m("ui.unassigned"), detail: detail("") }] : [])
     ];
   },
   describe: (value) => (value === EMPTY_FIELD ? m("ui.unassigned") : apiKeyIdentity({ scope: value }).text)
@@ -71,7 +78,10 @@ function modelFilter(id, kind) {
     label: m("ui.model"),
     icon: "astroid",
     searchable: true,
-    options: (account) => (pagedList(kind, account).data?.filter_options?.models || []).map((model) => ({ value: model, label: model }))
+    options: (account) => {
+      const filters = pagedList(kind, account).data?.filter_options;
+      return (filters?.models || []).map((model) => ({ value: model, label: model, detail: int(filters.model_counts?.[model] || 0) }));
+    }
   };
 }
 
@@ -91,6 +101,7 @@ function disambiguateCredentialOptions(options) {
   const prepared = options.map((option) => ({
     value: option.value,
     label: String(displayLabel(option.label)),
+    detail: int(option.count || 0),
     digest: String(option.value || "")
   }));
   const groups = new Map();
@@ -100,11 +111,14 @@ function disambiguateCredentialOptions(options) {
   }
   return prepared.map((item) => {
     const group = groups.get(item.label);
-    if (group.length < 2) return { value: item.value, label: item.label };
-    let length = Math.min(6, item.digest.length);
-    while (length < item.digest.length && group.some((other) => other !== item && other.digest.startsWith(item.digest.slice(0, length))))
-      length++;
-    return { value: item.value, label: item.label + DISPLAY_SEPARATOR + "#" + item.digest.slice(0, length).toUpperCase() };
+    let label = item.label;
+    if (group.length > 1) {
+      let length = Math.min(6, item.digest.length);
+      while (length < item.digest.length && group.some((other) => other !== item && other.digest.startsWith(item.digest.slice(0, length))))
+        length++;
+      label += DISPLAY_SEPARATOR + "#" + item.digest.slice(0, length).toUpperCase();
+    }
+    return { value: item.value, label, detail: item.detail };
   });
 }
 

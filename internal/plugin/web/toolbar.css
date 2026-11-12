@@ -5,21 +5,26 @@
 /* The switcher clips its tab bar while the bar is too wide, so its controls show focus inside their own box. */
 .page-tab-switcher { position: relative; flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .tabs {
+  --tab-hover-bg: var(--bg-hover);
+  --tab-selected-bg: var(--floating-surface);
+  --tab-selected-text: var(--text-primary);
+  --tab-selected-shadow: 0 1px 3px rgb(0 0 0 / 0.12), inset 0 0 0 1px var(--border-primary);
   display: flex;
   gap: 2px;
   width: max-content;
   padding: 2px;
   border: 1px solid var(--border-color);
   border-radius: calc(var(--radius-md) + 2px);
-  background: var(--bg-primary);
+  background: var(--bg-tertiary);
 }
 .tabs > button {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 6px;
   min-height: 29px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -29,15 +34,40 @@
   line-height: 1.2;
   white-space: nowrap;
 }
-.tabs > button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
-.tabs > button.active { background: var(--bg-tertiary); color: var(--text-primary); box-shadow: var(--shadow); }
+.tabs > button:hover:not(:disabled) { background: var(--tab-hover-bg); color: var(--text-primary); }
+.tabs > button.active, .tabs > button.active:hover:not(:disabled) {
+  background: var(--tab-selected-bg);
+  color: var(--tab-selected-text);
+  box-shadow: var(--tab-selected-shadow);
+}
+/* Outside CPAMP, which gives the tab bar its glass surface, the page tabs are an underlined row. */
+:root:not([data-cpamp-plugin-host="true"]) .page-tab-switcher > .tabs {
+  --tab-selected-bg: transparent;
+  --tab-selected-shadow: none;
+  padding: 2px 0 3px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+}
+:root:not([data-cpamp-plugin-host="true"]) .page-tab-switcher > .tabs > button { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+:root:not([data-cpamp-plugin-host="true"]) .page-tab-switcher > .tabs > button::after {
+  content: "";
+  position: absolute;
+  inset: auto 10px -3px;
+  height: 2px;
+  border-radius: 999px;
+  background: transparent;
+}
+:root:not([data-cpamp-plugin-host="true"]) .page-tab-switcher > .tabs > button.active::after { background: var(--text-primary); }
 :root .page-tab-switcher button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; box-shadow: none; }
 .page-tab-menu {
   --button-padding-inline: 10px;
   display: none;
   align-items: center;
   gap: 6px;
-  min-width: 160px;
+  width: max-content;
+  min-width: 112px;
+  max-width: min(240px, 100%);
   font-size: 13px;
   font-weight: 600;
 }
@@ -155,19 +185,23 @@
 #app.untracked :is(.toolbar-main, .time-range-control, .page-view) { display: none; }
 
 :root[data-cpamp-plugin-host="true"] .tabs {
-  border-color: var(--glass-border, var(--border-color));
+  --tab-hover-bg: color-mix(in srgb, var(--primary-color) 6%, var(--app-surface-strong, var(--bg-primary)));
+  --tab-selected-bg: color-mix(in srgb, var(--primary-color) 12%, var(--app-surface-strong, var(--bg-primary)));
+  --tab-selected-text: var(--primary-active);
+  --tab-selected-shadow: 0 1px 3px rgb(15 23 42 / 0.1), inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 16%, transparent);
+  border-color: var(--border-subtle, var(--border-color));
   border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-subtle, var(--bg-tertiary)) 78%, var(--bg-primary));
+  box-shadow: inset 0 1px 2px rgb(15 23 42 / 0.04);
+}
+:root[data-cpamp-plugin-host="true"] .page-tab-switcher > .tabs {
+  border-color: var(--glass-border, var(--border-color));
   background: var(--glass-bg, var(--bg-primary));
   box-shadow: var(--glass-shadow, none);
   backdrop-filter: var(--glass-backdrop-filter, none);
 }
-/* The bar takes the host's control radius; its tabs follow the curve inside its padding and border. */
-:root[data-cpamp-plugin-host="true"] .tabs > button { min-height: 28px; padding: 0 14px; border-radius: calc(var(--radius-md) - 3px); }
-:root[data-cpamp-plugin-host="true"] .tabs > button.active {
-  background: color-mix(in srgb, var(--bg-primary) 88%, var(--primary-color));
-  color: var(--primary-active);
-  box-shadow: 0 1px 3px #0f17211a, inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 16%, transparent);
-}
+:root[data-cpamp-plugin-host="true"] .tabs > button { border-radius: calc(var(--radius-md) - 3px); }
+:root[data-cpamp-plugin-host="true"][data-theme="dark"] .tabs { --tab-selected-text: var(--primary-color); }
 :root[data-cpamp-plugin-host="true"] .toolbar-button { min-width: 34px; }
 :root[data-cpamp-plugin-host="true"] .filter-chip { min-height: 34px; }
 

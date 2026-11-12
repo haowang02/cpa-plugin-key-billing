@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -39,41 +40,8 @@ func TestAnalysisAggregatesOnlyDisplayedUsageDistributions(t *testing.T) {
 		t.Fatalf("API Key percentages = %+v", usage.APIKeys)
 	}
 	trend := view.Trends.Requests
-	if len(trend) != 4 || trend[0].Value != 0 || trend[1].Value != 3 ||
-		!trend[0].Time.Equal(eventStart.Add(-time.Hour)) {
+	if len(trend) != 4 || trend[0] != 0 || trend[1] != 3 || !view.Trends.Start.Equal(eventStart.Add(-time.Hour)) {
 		t.Fatalf("hourly request trend = %+v", trend)
-	}
-}
-
-func TestAnalysisDailyTrendUsesBrowserTimeZone(t *testing.T) {
-	database := openTestDB(t)
-	state := billing.NewState()
-	state.Keys["scope-a"] = &billing.KeyState{Preview: "sk-tes…0001"}
-	location, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		t.Fatal(err)
-	}
-	from := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
-	events := []billing.RequestEvent{
-		requestEvent("scope-a", time.Date(2026, 3, 8, 4, 59, 0, 0, time.UTC)),
-		requestEvent("scope-a", time.Date(2026, 3, 8, 5, 1, 0, 0, time.UTC)),
-		requestEvent("scope-a", time.Date(2026, 3, 9, 4, 1, 0, 0, time.UTC)),
-	}
-	mustSave(t, database, state, billing.Changes{
-		AllKeys: true, NormalRequestEvents: events,
-	})
-
-	view, err := database.Analysis(billing.RequestEventQuery{
-		From: from, To: from.Add(72 * time.Hour), Timezone: location,
-	}, 7, from.Add(-365*24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantStart := time.Date(2026, 3, 7, 0, 0, 0, 0, location)
-	trend := view.Trends.Requests
-	if len(trend) != 4 || !trend[0].Time.Equal(wantStart) ||
-		trend[0].Value != 1 || trend[1].Value != 1 || trend[2].Value != 1 || trend[3].Value != 0 {
-		t.Fatalf("daily request trend = %+v", trend)
 	}
 }
 
@@ -145,9 +113,9 @@ func TestAnalysisIncludesTokenAndCostBreakdowns(t *testing.T) {
 		t.Fatalf("cost summary = %+v", summary.Cost)
 	}
 	trends := view.Trends
-	if len(trends.UncachedInputTokens) != 2 || trends.UncachedInputTokens[0].Value != 100 ||
-		trends.OutputTokens[0].Value != 90 || trends.CacheReadTokens[0].Value != 300 ||
-		trends.CacheWriteTokens[0].Value != 50 || trends.TotalTokens[0].Value != 540 || trends.TotalTokens[1].Value != 600 {
+	if len(trends.UncachedInputTokens) != 2 || trends.UncachedInputTokens[0] != 100 ||
+		trends.OutputTokens[0] != 90 || trends.CacheReadTokens[0] != 300 ||
+		trends.CacheWriteTokens[0] != 50 || trends.TotalTokens[0] != 540 || trends.TotalTokens[1] != 600 {
 		t.Fatalf("token trends = %+v", trends)
 	}
 	for name, rows := range map[string][]billing.AnalysisComposition{
@@ -200,10 +168,10 @@ func TestAnalysisFullRetentionKeepsZeroUsageAndEmptyScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Summary.Requests != 2 || view.Summary.Failed != 1 || view.Summary.TotalTokens != 0 || len(view.Trends.Requests) != 366 {
+	if view.Summary.Requests != 2 || view.Summary.Failed != 1 || view.Summary.TotalTokens != 0 || len(view.Trends.Requests) != 365*24+1 {
 		t.Fatalf("summary=%+v, buckets=%d", view.Summary, len(view.Trends.Requests))
 	}
-	if view.Trends.Requests[0].Value != 1 || view.Trends.Requests[365].Value != 1 {
+	if view.Trends.Requests[0] != 1 || view.Trends.Requests[365*24] != 1 {
 		t.Fatal("range boundaries changed")
 	}
 	keys := view.UsageDistribution.APIKeys
@@ -272,5 +240,60 @@ func TestAnalysisSpeedMeasuresTPSOfOneModel(t *testing.T) {
 	}
 	if view.Summary.Samples != 4 || view.Summary.P50 != 50 {
 		t.Fatalf("summary = %+v", view.Summary)
+	}
+}
+
+func TestAnalysisSpeedDaysFollowTheBrowserTimeZone(t *testing.T) {
+	database := openTestDB(t)
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := func(at time.Time) billing.RequestEvent {
+		entry := requestEvent("scope-a", at)
+		entry.LatencyMS, entry.Cost.BilledOutputTokens = 1000, 100
+		return entry
+	}
+	mustSave(t, database, billing.NewState(), billing.Changes{NormalRequestEvents: []billing.RequestEvent{
+		event(time.Date(2026, 3, 8, 4, 59, 0, 0, time.UTC)),
+		event(time.Date(2026, 3, 8, 5, 1, 0, 0, time.UTC)),
+		event(time.Date(2026, 3, 9, 4, 1, 0, 0, time.UTC)),
+	}})
+	from := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
+	view, err := database.AnalysisSpeed(billing.RequestEventQuery{
+		From: from, To: from.Add(72 * time.Hour), Timezone: location,
+	}, from.Add(-365*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	trend := view.Trend
+	if len(trend) != 4 || !trend[0].Time.Equal(time.Date(2026, 3, 7, 0, 0, 0, 0, location)) ||
+		trend[0].Samples != 1 || trend[1].Samples != 1 || trend[2].Samples != 1 || trend[3].Samples != 0 {
+		t.Fatalf("daily speed trend = %+v", trend)
+	}
+}
+
+func TestAnalysisHoursFollowTheBrowserTimeZone(t *testing.T) {
+	location, err := time.LoadLocation("Asia/Kathmandu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := time.Date(2026, 11, 12, 23, 20, 0, 0, location)
+	to := from.Add(90 * time.Minute)
+	db := openTestDB(t)
+	mustSave(t, db, billing.NewState(), billing.Changes{NormalRequestEvents: []billing.RequestEvent{
+		requestEvent("scope-a", from.Add(-time.Minute)),
+		requestEvent("scope-a", from),
+		requestEvent("scope-a", from.Add(40*time.Minute)),
+		requestEvent("scope-a", to.Add(-time.Nanosecond)),
+		requestEvent("scope-a", to),
+	}})
+	view, err := db.Analysis(billing.RequestEventQuery{From: from, To: to, Timezone: location}, 7, from.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hours := view.Trends.Requests; !slices.Equal(hours, []float64{1, 2}) ||
+		!view.Trends.Start.Equal(time.Date(2026, 11, 12, 23, 0, 0, 0, location)) {
+		t.Fatalf("hours from %v = %v", view.Trends.Start, hours)
 	}
 }

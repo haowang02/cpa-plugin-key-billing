@@ -163,6 +163,9 @@ function restoreRolePreferences(role) {
   analysisDimensions[role] = allowedDimensions.includes(dimension) ? dimension : defaultDimension;
   const metric = viewPreference(role, "analysis-metric", "total_tokens");
   analysisMetrics[role] = Object.hasOwn(DISTRIBUTION_METRICS, metric) ? metric : "total_tokens";
+  const trendMetric = viewPreference(role, "trend-metric", "total_tokens");
+  analysisTrendMetrics[role] = Object.hasOwn(TREND_METRICS, trendMetric) ? trendMetric : "total_tokens";
+  analysisTrendBuckets[role] = viewPreference(role, "trend-bucket", "hour") === "day" ? "day" : "hour";
   updateSharedTimeControl();
 }
 

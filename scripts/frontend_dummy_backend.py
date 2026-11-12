@@ -1261,6 +1261,40 @@ def credential_filter_token(scope, credential):
 def credential_filter_options(scope, credentials):
     return [{"value": credential_filter_token(scope, credential), "label": credential} for credential in credentials]
 
+# Each filter's counts cover the rows matching every other selection.
+def count_event_filters(filter_options, rows, query, scope="", errors=False):
+    selected = {
+        "key": selected_scope(query, scope),
+        "model": query.get("model", [""])[0] or None,
+        "credential": query.get("credential", [""])[0] or None,
+        "provider": query.get("provider", [""])[0] or None,
+        "executor": query.get("executor", [""])[0] or None,
+    }
+    if errors:
+        selected["status_code"] = query.get("status_code", [""])[0] or None
+        selected["error_type"] = "" if query.get("error_type_empty", [""])[0] == "true" else query.get("error_type", [""])[0] or None
+    else:
+        selected["failed"] = query.get("failed", [""])[0] or None
+    counts = {field: {} for field in ("key", "model", "credential")}
+    for entry in rows:
+        values = {
+            "key": entry.get("scope", ""),
+            "model": entry.get("billing_model") or entry.get("upstream_model", ""),
+            "credential": credential_filter_token(scope, entry.get("credential", "")),
+            "provider": entry.get("provider", ""), "executor": entry.get("executor_type", ""),
+            "failed": str(bool(entry.get("failed"))).lower(),
+            "error_type": entry.get("error_type", ""), "status_code": str(entry.get("status_code", 0)),
+        }
+        for field in counts:
+            if all(value is None or other == field or values[other] == value for other, value in selected.items()):
+                counts[field][values[field]] = counts[field].get(values[field], 0) + 1
+    filter_options["model_counts"] = counts["model"]
+    if not scope:
+        filter_options["key_counts"] = counts["key"]
+    for option in filter_options["credential_options"]:
+        option["count"] = counts["credential"].get(option["value"], 0)
+
+
 # None selects every key; an empty scope selects unassigned events.
 def selected_scope(query, scope):
     if scope:
@@ -1321,6 +1355,7 @@ def request_event_view(query, scope=""):
                  if key not in {"scope", "auth_index", "preview", "label"}} for entry in page]
     result = {"entries": page, "total": len(matched), "snapshot_id": str(snapshot), "status_counts": counts}
     if offset == 0:
+        count_event_filters(filter_options, time_matched, query, scope)
         result["filter_options"] = filter_options
     return result
 
@@ -1589,6 +1624,7 @@ def error_view(query, scope=""):
             "status_codes": sorted({entry["status_code"] for entry in rows if entry["status_code"]}),
             "error_types": sorted({entry["error_type"] for entry in rows if entry["error_type"]}),
         }
+        count_event_filters(result["filter_options"], rows, query, scope, errors=True)
     return result
 
 
@@ -1598,24 +1634,35 @@ def analysis_rows(query, scope):
     return rows if selected is None else [entry for entry in rows if entry["scope"] == selected]
 
 
-# Hourly ranges start at "from"; longer ranges use browser-local days.
+def query_range(query):
+    return tuple(datetime.fromisoformat(query.get(name, [iso(fallback)])[0].replace("Z", "+00:00"))
+                 for name, fallback in (("from", NOW - timedelta(days=30)), ("to", NOW)))
+
+
+# Usage hours follow the browser's wall clock, starting on the local hour before "from".
 def trend_starts(query):
-    from_time = datetime.fromisoformat(
-        query.get("from", [iso(NOW - timedelta(days=30))])[0].replace("Z", "+00:00")
-    )
-    to_time = datetime.fromisoformat(
-        query.get("to", [iso(NOW)])[0].replace("Z", "+00:00")
-    )
-    bucket_size = timedelta(hours=1)
-    cursor = from_time
+    from_time, to_time = query_range(query)
+    local_from = from_time.astimezone(ZoneInfo(query.get("timezone", ["UTC"])[0]))
+    cursor = local_from.replace(minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    starts = []
+    while cursor < to_time:
+        starts.append(cursor)
+        cursor += timedelta(hours=1)
+    return starts
+
+
+# Speed ranges over a day use browser-local days; shorter ones use hours from "from".
+def speed_trend_starts(query):
+    from_time, to_time = query_range(query)
+    step, cursor = timedelta(hours=1), from_time
     if to_time - from_time > timedelta(days=1):
-        bucket_size = timedelta(days=1)
+        step = timedelta(days=1)
         local_from = from_time.astimezone(ZoneInfo(query.get("timezone", ["UTC"])[0]))
         cursor = local_from.replace(hour=0, minute=0, second=0, microsecond=0)
     starts = []
     while cursor < to_time:
         starts.append(cursor)
-        cursor += bucket_size
+        cursor += step
     return starts
 
 
@@ -1708,20 +1755,19 @@ def analysis_view(query, scope=""):
         item["total_cost"] += usd_amount(entry_cost.get("total", 0), entry_cost.get("currency"))
 
     def trend(value):
-        return [{"time": iso(item["time"]), "value": value(item)} for item in buckets]
+        return [value(item) for item in buckets]
 
     def total_input(item):
         return item["input_tokens"] + item["cache_read_tokens"] + item["cache_write_tokens"]
 
     trends = {
+        "start": iso(starts[0]) if starts else query.get("from", [iso(NOW)])[0],
         "requests": trend(lambda item: item["requests"]),
         "total_tokens": trend(lambda item: total_input(item) + item["output_tokens"]),
         "input_tokens": trend(lambda item: item["input_tokens"]),
         "output_tokens": trend(lambda item: item["output_tokens"]),
         "cache_read_tokens": trend(lambda item: item["cache_read_tokens"]),
         "cache_write_tokens": trend(lambda item: item["cache_write_tokens"]),
-        "cache_rate": trend(lambda item: item["cache_read_tokens"] * 100 / total_input(item)
-                            if total_input(item) else 0),
         "total_cost": trend(lambda item: item["total_cost"]),
     }
 
@@ -1769,7 +1815,7 @@ def analysis_speed_view(query, scope=""):
     rows = [entry for entry in analysis_rows(query, scope)
             if entry["billing_model"] == model and not entry["failed"] and entry["accounting_quality"] == "complete"
             and entry["cost"]["billed_output_tokens"] > 0 and entry["latency_ms"] > 0]
-    starts = trend_starts(query)
+    starts = speed_trend_starts(query)
     buckets = [[] for _ in starts]
     total = []
     for entry in rows:

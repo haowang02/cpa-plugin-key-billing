@@ -774,7 +774,6 @@
   "backend.this_subscription_plan_does_not_share_quota": "This subscription plan does not share quota",
   "backend.invalid_quota_cycle_data": "Invalid quota cycle data",
   "ui.more_actions": "More actions",
-  "ui.add_filter": "Add filter",
   "ui.remove_filter_value": "Remove filter: {v0}",
   "ui.keyword": "Keyword",
   "ui.category": "Category",
@@ -785,5 +784,10 @@
   "time.refresh_every_second": "Every {count} seconds",
   "time.refresh_every_minute": "Every {count} minutes",
   "time.refresh_every_minute_one": "Every {count} minute",
-  "ui.credential": "Credential"
+  "ui.credential": "Credential",
+  "ui.trend_metric": "Trend metric",
+  "ui.trend_bucket": "Time interval",
+  "ui.by_hour": "Hourly",
+  "ui.by_day": "Daily",
+  "ui.distribution_dimension": "Distribution dimension"
 }

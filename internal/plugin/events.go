@@ -78,7 +78,7 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 		}
 	}
 	if view.Filters != nil {
-		view.Filters.CredentialOptions = credentialFilterOptions(access.Scope, view.Filters.Credentials)
+		view.Filters.CredentialOptions = credentialFilterOptions(access.Scope, view.Filters.Credentials, view.Filters.CredentialCounts)
 	}
 	return viewJSON(access, http.StatusOK, view)
 }
@@ -139,7 +139,7 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 		}
 	}
 	if view.Filters != nil {
-		view.Filters.CredentialOptions = credentialFilterOptions(access.Scope, view.Filters.Credentials)
+		view.Filters.CredentialOptions = credentialFilterOptions(access.Scope, view.Filters.Credentials, view.Filters.CredentialCounts)
 	}
 	return viewJSON(access, http.StatusOK, view)
 }

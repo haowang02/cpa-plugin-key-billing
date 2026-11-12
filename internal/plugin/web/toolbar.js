@@ -171,40 +171,20 @@ function pageMenuItems() {
   return items;
 }
 
-// Its choices open in place of the page menu.
 function currencyMenuItem() {
-  const button = $("page-menu");
-  const label = m("ui.display_currency");
+  const rate = resources[currentRole].currency.value?.cny_per_usd;
   return {
     group: "display",
-    label,
+    label: m("ui.display_currency"),
     icon: "circle-dollar-sign",
-    detail: currencyChoices().find((choice) => choice.selected).label,
-    submenu: true,
-    run: () =>
-      toggleChoiceMenu(button, {
-        label,
-        align: "end",
-        choices: currencyChoices,
-        select: (value) => {
-          setDisplaySetting("currency", value);
-          renderPage();
-        },
-        onToggle: (open) => button.setAttribute("aria-expanded", String(open))
-      })
+    options: DISPLAY_SETTINGS.currency.map((value) => ({ value, label: value === "auto" ? m("ui.currency_auto") : value })),
+    current: displaySettings[currentRole].currency,
+    note: rate ? m("ui.exchange_rate_value", { v0: rate }) : null,
+    change: (value) => {
+      setDisplaySetting("currency", value);
+      renderPage();
+    }
   };
-}
-
-function currencyChoices() {
-  const rate = resources[currentRole].currency.value?.cny_per_usd;
-  return [
-    ...(rate ? [{ caption: true, label: m("ui.exchange_rate_value", { v0: rate }) }] : []),
-    ...DISPLAY_SETTINGS.currency.map((value) => ({
-      value,
-      label: value === "auto" ? m("ui.currency_auto") : value,
-      selected: value === displaySettings[currentRole].currency
-    }))
-  ];
 }
 
 function refreshChoices() {

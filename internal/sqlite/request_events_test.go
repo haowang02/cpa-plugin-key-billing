@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"maps"
 	"reflect"
 	"testing"
 	"time"
@@ -359,4 +360,66 @@ func TestEventKeysIncludeOrphanedZeroUsage(t *testing.T) {
 			t.Fatalf("unexpected preview: %+v", key)
 		}
 	}
+}
+
+func TestEventFilterCountsFollowTheOtherSelections(t *testing.T) {
+	db := openTestDB(t)
+	state := billing.NewState()
+	event := func(scope, model, account string, minute int) billing.RequestEvent {
+		row := requestEvent(scope, eventStart.Add(time.Duration(minute)*time.Minute))
+		row.BillingModel, row.Account = model, account
+		return row
+	}
+	mustSave(t, db, state, billing.Changes{
+		NormalRequestEvents: []billing.RequestEvent{
+			event("a", "m1", "one", 0), event("", "m2", "two", 3),
+			event("a", "outside", "one", -120),
+		},
+		RequestErrorEvents: []billing.RequestErrorEvent{
+			{Event: event("a", "m1", "two", 1), Error: billing.RequestError{ErrorType: "limited"}},
+			{Event: event("b", "m2", "one", 2), Error: billing.RequestError{ErrorType: "upstream"}},
+			{Event: event("b", "m1", "one", 4), Error: billing.RequestError{ErrorType: "limited"}},
+		},
+	})
+	snapshot := mustQueryRequestEvents(t, db, billing.RequestEventQuery{}).SnapshotID
+	mustSave(t, db, state, billing.Changes{RequestErrorEvents: []billing.RequestErrorEvent{
+		{Event: event("a", "late", "late", 1), Error: billing.RequestError{ErrorType: "limited"}},
+	}})
+	from, to, since := eventStart, eventStart.Add(time.Hour), eventStart.Add(-time.Hour)
+	check := func(name string, filters billing.RequestEventFilterValues, keys, models, credentials map[string]int) {
+		t.Helper()
+		if !maps.Equal(filters.KeyCounts, keys) || !maps.Equal(filters.ModelCounts, models) ||
+			!maps.Equal(filters.CredentialCounts, credentials) {
+			t.Fatalf("%s counts = %+v", name, filters)
+		}
+	}
+
+	failed := true
+	for _, test := range []struct {
+		name                      string
+		query                     billing.RequestEventQuery
+		keys, models, credentials map[string]int
+	}{
+		{"selected", billing.RequestEventQuery{KeyScope: "a", Model: "m1", Failed: &failed},
+			map[string]int{"a": 1, "b": 1}, map[string]int{"m1": 1}, map[string]int{"codex · two": 1}},
+		{"account", billing.RequestEventQuery{Scope: "a"}, nil,
+			map[string]int{"m1": 2}, map[string]int{"codex · one": 1, "codex · two": 1}},
+	} {
+		query := test.query
+		query.From, query.To, query.SnapshotID, query.IncludeFilters = from, to, &snapshot, true
+		view, err := db.RequestEvents(query, since)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(test.name, *view.Filters, test.keys, test.models, test.credentials)
+	}
+
+	errors, err := db.RequestErrors(billing.RequestErrorQuery{
+		KeyScope: "b", ErrorType: "limited", From: from, To: to, SnapshotID: &snapshot, IncludeFilters: true,
+	}, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("error", errors.Filters.RequestEventFilterValues,
+		map[string]int{"a": 1, "b": 1}, map[string]int{"m1": 1}, map[string]int{"codex · one": 1})
 }

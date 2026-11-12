@@ -30,7 +30,8 @@ func TestRequestEventQueryReachesTheStore(t *testing.T) {
 		"failed":     {"false"}, "from": {from}, "to": {to},
 	}, nil, http.StatusOK, &events)
 	if events.Total != 3 || events.Filters == nil || len(events.Filters.CredentialOptions) != 1 ||
-		events.Filters.CredentialOptions[0].Value != credentialToken {
+		events.Filters.CredentialOptions[0].Value != credentialToken || events.Filters.CredentialOptions[0].Count != 3 ||
+		events.Filters.ModelCounts["gpt-5.5"] != 3 || events.Filters.KeyCounts[billing.CallerScope(apiKey)] != 3 {
 		t.Fatalf("field and time filtered events = %+v", events)
 	}
 

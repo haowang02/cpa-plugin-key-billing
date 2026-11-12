@@ -37,12 +37,13 @@ func resolveCredentialFilter(scope, token string, credentials []string) (string,
 	return "", false
 }
 
-func credentialFilterOptions(scope string, credentials []string) []billing.CredentialFilterOption {
+func credentialFilterOptions(scope string, credentials []string, counts map[string]int) []billing.CredentialFilterOption {
 	options := make([]billing.CredentialFilterOption, 0, len(credentials))
 	for _, credential := range credentials {
 		options = append(options, billing.CredentialFilterOption{
 			Value: credentialFilterToken(scope, credential),
 			Label: credential,
+			Count: counts[credential],
 		})
 	}
 	return options

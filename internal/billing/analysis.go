@@ -2,20 +2,16 @@ package billing
 
 import "time"
 
-type AnalysisTrendPoint struct {
-	Time  time.Time `json:"time"`
-	Value float64   `json:"value"`
-}
-
+// Each series holds one value per hour, counted from Start.
 type AnalysisTrends struct {
-	Requests            []AnalysisTrendPoint `json:"requests"`
-	TotalTokens         []AnalysisTrendPoint `json:"total_tokens"`
-	UncachedInputTokens []AnalysisTrendPoint `json:"input_tokens"`
-	OutputTokens        []AnalysisTrendPoint `json:"output_tokens"`
-	CacheReadTokens     []AnalysisTrendPoint `json:"cache_read_tokens"`
-	CacheWriteTokens    []AnalysisTrendPoint `json:"cache_write_tokens"`
-	CacheRate           []AnalysisTrendPoint `json:"cache_rate"`
-	TotalCost           []AnalysisTrendPoint `json:"total_cost"`
+	Start               time.Time `json:"start"`
+	Requests            []float64 `json:"requests"`
+	TotalTokens         []float64 `json:"total_tokens"`
+	UncachedInputTokens []float64 `json:"input_tokens"`
+	OutputTokens        []float64 `json:"output_tokens"`
+	CacheReadTokens     []float64 `json:"cache_read_tokens"`
+	CacheWriteTokens    []float64 `json:"cache_write_tokens"`
+	TotalCost           []float64 `json:"total_cost"`
 }
 
 // Costs and ChargedIn are as in CredentialUsageStats.

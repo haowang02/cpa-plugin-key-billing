@@ -51,13 +51,9 @@ type RequestErrorView struct {
 }
 
 type RequestErrorFilterValues struct {
-	Models            []string                 `json:"models"`
-	Credentials       []string                 `json:"-"`
-	CredentialOptions []CredentialFilterOption `json:"credential_options"`
-	Executors         []string                 `json:"executors,omitempty"`
-	Providers         []string                 `json:"providers,omitempty"`
-	StatusCodes       []int                    `json:"status_codes,omitempty"`
-	ErrorTypes        []string                 `json:"error_types,omitempty"`
+	RequestEventFilterValues
+	StatusCodes []int    `json:"status_codes,omitempty"`
+	ErrorTypes  []string `json:"error_types,omitempty"`
 }
 
 func (s *Store) RequestErrors(query RequestErrorQuery) (RequestErrorView, error) {
