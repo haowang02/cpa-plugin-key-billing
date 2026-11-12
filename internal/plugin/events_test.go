@@ -23,14 +23,14 @@ func TestRequestEventQueryReachesTheStore(t *testing.T) {
 	}
 	from := events.Entries[0].At.Add(-time.Second).Format(time.RFC3339Nano)
 	to := app.store.Now().Add(time.Second).Format(time.RFC3339Nano)
-	sourceToken := sourceFilterToken("", events.Entries[0].Source)
+	credentialToken := credentialFilterToken("", events.Entries[0].Credential)
 	callOK(t, app, http.MethodGet, routeEvents, url.Values{
 		"api_key": {billing.CallerScope(apiKey)}, "model": {"gpt-5.5"},
-		"source": {sourceToken},
-		"failed": {"false"}, "from": {from}, "to": {to},
+		"credential": {credentialToken},
+		"failed":     {"false"}, "from": {from}, "to": {to},
 	}, nil, http.StatusOK, &events)
-	if events.Total != 3 || events.Filters == nil || len(events.Filters.SourceOptions) != 1 ||
-		events.Filters.SourceOptions[0].Value != sourceToken {
+	if events.Total != 3 || events.Filters == nil || len(events.Filters.CredentialOptions) != 1 ||
+		events.Filters.CredentialOptions[0].Value != credentialToken {
 		t.Fatalf("field and time filtered events = %+v", events)
 	}
 

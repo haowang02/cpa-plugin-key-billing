@@ -233,7 +233,7 @@ function restoreRolePreferences(role) {
   const prefix = account ? "account-" : "";
   // Dynamic choices must exist before the first filtered request, even
   // when the current result no longer contains the stored selection.
-  for (const id of ["request-event-model", "request-event-source", "error-model", "error-source", "error-type"])
+  for (const id of ["request-event-model", "request-event-credential", "error-model", "error-credential", "error-type"])
     restoreChoice(role, prefix + id, "", true);
   restoreChoice(role, prefix + "request-event-status", "");
   restoreChoice(role, prefix + "auth-enabled-only", true);
@@ -257,7 +257,7 @@ function restoreRolePreferences(role) {
   if (rolling) sharedTimeChoices[role][rolling.unit] = rolling.value;
   const defaultDimension = account ? "models" : "api_keys";
   const dimension = viewPreference(role, "analysis-dimension", defaultDimension);
-  const allowedDimensions = account ? ["models", "sources"] : ["api_keys", "models", "sources"];
+  const allowedDimensions = account ? ["models", "credentials"] : ["api_keys", "models", "credentials"];
   analysisDimensions[role] = allowedDimensions.includes(dimension) ? dimension : defaultDimension;
   const metric = viewPreference(role, "analysis-metric", "total_tokens");
   analysisMetrics[role] = Object.hasOwn(DISTRIBUTION_METRICS, metric) ? metric : "total_tokens";

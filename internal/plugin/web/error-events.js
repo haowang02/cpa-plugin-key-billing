@@ -1,7 +1,7 @@
 function errorEventFilters(account) {
   const prefix = account ? "account-" : "";
   const filters = apiKeyFilter(account);
-  for (const field of ["model", "source"]) {
+  for (const field of ["model", "credential"]) {
     const value = $(prefix + "error-" + field).value;
     if (value) filters[field] = value;
   }
@@ -29,7 +29,7 @@ function populateErrorFilters(view, account) {
     (value) => (value || m("ui.uncategorized")) + DISPLAY_SEPARATOR + int(counts[value])
   );
   populateEventFilterSelect($(prefix + "error-model"), m("ui.all_models"), filters.models);
-  populateSourceFilterSelect($(prefix + "error-source"), filters);
+  populateCredentialFilterSelect($(prefix + "error-credential"), filters);
 }
 
 function renderErrors(account) {
@@ -60,7 +60,7 @@ function renderErrors(account) {
             { class: "event-request-meta" },
             account ? null : errorEventField("API Key", maskedText(apiKeyIdentity(entry).text), false),
             errorEventField(m("ui.model"), entry.billing_model || entry.upstream_model),
-            entry.source ? errorEventField(m("ui.source"), maskedLabelText(entry.source)) : null
+            entry.credential ? errorEventField(m("ui.credential"), maskedLabelText(entry.credential)) : null
           ),
           el("div", { class: "event-entry-tags" }, tags)
         ),

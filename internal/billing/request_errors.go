@@ -22,7 +22,7 @@ type RequestErrorRow struct {
 	Preview       string    `json:"preview,omitempty"`
 	Label         string    `json:"label,omitempty"`
 	AuthIndex     string    `json:"auth_index,omitempty"`
-	Source        string    `json:"source,omitempty"`
+	Credential    string    `json:"credential,omitempty"`
 	Provider      string    `json:"provider,omitempty"`
 	ExecutorType  string    `json:"executor_type,omitempty"`
 	UpstreamModel string    `json:"upstream_model,omitempty"`
@@ -33,13 +33,13 @@ type RequestErrorRow struct {
 }
 
 type RequestErrorQuery struct {
-	Scope, KeyScope, Model, Source, Executor, Provider, ErrorType string
-	StatusCode                                                    int
-	ErrorTypeEmpty, KeyScopeEmpty                                 bool
-	From, To                                                      time.Time
-	IncludeFilters                                                bool
-	SnapshotID                                                    *int64
-	Offset, Limit                                                 int
+	Scope, KeyScope, Model, Credential, Executor, Provider, ErrorType string
+	StatusCode                                                        int
+	ErrorTypeEmpty, KeyScopeEmpty                                     bool
+	From, To                                                          time.Time
+	IncludeFilters                                                    bool
+	SnapshotID                                                        *int64
+	Offset, Limit                                                     int
 }
 
 type RequestErrorView struct {
@@ -51,13 +51,13 @@ type RequestErrorView struct {
 }
 
 type RequestErrorFilterValues struct {
-	Models        []string              `json:"models"`
-	Sources       []string              `json:"-"`
-	SourceOptions []RequestSourceOption `json:"source_options"`
-	Executors     []string              `json:"executors,omitempty"`
-	Providers     []string              `json:"providers,omitempty"`
-	StatusCodes   []int                 `json:"status_codes,omitempty"`
-	ErrorTypes    []string              `json:"error_types,omitempty"`
+	Models            []string                 `json:"models"`
+	Credentials       []string                 `json:"-"`
+	CredentialOptions []CredentialFilterOption `json:"credential_options"`
+	Executors         []string                 `json:"executors,omitempty"`
+	Providers         []string                 `json:"providers,omitempty"`
+	StatusCodes       []int                    `json:"status_codes,omitempty"`
+	ErrorTypes        []string                 `json:"error_types,omitempty"`
 }
 
 func (s *Store) RequestErrors(query RequestErrorQuery) (RequestErrorView, error) {

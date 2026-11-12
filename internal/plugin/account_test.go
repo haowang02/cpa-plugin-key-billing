@@ -153,8 +153,8 @@ func TestAccountRequestEventsUseSharedShapeWithoutCrossingScopes(t *testing.T) {
 		t.Fatalf("view = %+v", view)
 	}
 	if view.Filters == nil || len(view.Filters.Models) != 1 || view.Filters.Models[0] != "gpt-5.5" ||
-		len(view.Filters.SourceOptions) != 1 || view.Filters.SourceOptions[0].Label != "openai" ||
-		!validSourceFilterToken(view.Filters.SourceOptions[0].Value) {
+		len(view.Filters.CredentialOptions) != 1 || view.Filters.CredentialOptions[0].Label != "openai" ||
+		!validCredentialFilterToken(view.Filters.CredentialOptions[0].Value) {
 		t.Fatalf("account request event filter options = %+v", view.Filters)
 	}
 	from := view.Entries[0].At.Format(time.RFC3339Nano)
@@ -279,14 +279,14 @@ func TestAccountRequestEventsUseTheAdministratorSource(t *testing.T) {
 		t.Fatal(errDecode)
 	}
 	if len(view.Entries) != 1 || view.Entries[0].ExecutorType != "CodexExecutor" ||
-		view.Entries[0].Source != "codex · private@example.com" {
+		view.Entries[0].Credential != "codex · private@example.com" {
 		t.Fatalf("account request event = %+v", view)
 	}
-	if view.Filters == nil || len(view.Filters.SourceOptions) != 1 || view.Filters.SourceOptions[0].Label != "codex · private@example.com" {
-		t.Fatalf("account request event source filters = %+v", view.Filters)
+	if view.Filters == nil || len(view.Filters.CredentialOptions) != 1 || view.Filters.CredentialOptions[0].Label != "codex · private@example.com" {
+		t.Fatalf("account request event credential filters = %+v", view.Filters)
 	}
 	filtered := callAccount(t, app, routeEvents, accountTestKeyA,
-		url.Values{"source": {view.Filters.SourceOptions[0].Value}})
+		url.Values{"credential": {view.Filters.CredentialOptions[0].Value}})
 	if errDecode := json.Unmarshal(filtered.Body, &view); errDecode != nil || view.Total != 1 {
 		t.Fatalf("source-filtered account request events = %+v, err = %v", view, errDecode)
 	}
@@ -325,10 +325,10 @@ func TestAccountEmailMasking(t *testing.T) {
 	if errDecode := json.Unmarshal(response.Body, &view); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if len(view.Entries) != 1 || view.Entries[0].Source != "codex · pr****e@example.com" ||
+	if len(view.Entries) != 1 || view.Entries[0].Credential != "codex · pr****e@example.com" ||
 		view.Entries[0].Execution == nil || view.Entries[0].Execution.SessionID != "pr****e@example.com" || view.Entries[0].Execution.ParentSessionID != "pa***t@example.com" ||
-		view.Filters == nil || len(view.Filters.SourceOptions) != 1 ||
-		view.Filters.SourceOptions[0].Label != "codex · pr****e@example.com" {
+		view.Filters == nil || len(view.Filters.CredentialOptions) != 1 ||
+		view.Filters.CredentialOptions[0].Label != "codex · pr****e@example.com" {
 		t.Fatalf("masked event view = %+v", view)
 	}
 }

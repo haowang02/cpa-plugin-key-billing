@@ -35,7 +35,7 @@ func TestUsageByModelAppliesEveryFilter(t *testing.T) {
 		{"scope", "alice", billing.UsageQuery{}, "gpt-5.3-codex-spark×1 gpt-5.5×1"},
 		{"keys with the unassigned one", "", billing.UsageQuery{KeyScopes: []string{"", "alice"}}, "×1 gpt-5.3-codex-spark×1 gpt-5.5×1"},
 		{"unknown model", "", billing.UsageQuery{Models: []string{""}}, "×1"},
-		{"source", "", billing.UsageQuery{Sources: []string{"claude · ops@example.com"}}, "×1 claude-opus×1"},
+		{"credential", "", billing.UsageQuery{Credentials: []string{"claude · ops@example.com"}}, "×1 claude-opus×1"},
 	} {
 		test.query.From, test.query.To = eventStart, eventStart.Add(time.Hour)
 		usage, err := d.UsageByModel(test.scope, test.query, 7)

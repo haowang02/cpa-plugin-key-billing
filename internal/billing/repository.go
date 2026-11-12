@@ -25,7 +25,7 @@ type Repository interface {
 	QuotaQueries(authIndexes []string, since time.Time) (map[string]QuotaQuery, error)
 	UsageTotal(scope string, query UsageQuery, rate ExchangeRate) (UsageTotal, error)
 	UsageByModel(scope string, query UsageQuery, rate ExchangeRate) ([]ModelUsage, error)
-	UsageSources(scope string, query UsageQuery) ([]string, error)
+	UsageCredentials(scope string, query UsageQuery) ([]string, error)
 
 	AppendPluginLog(entry PluginLog, cutoff time.Time) error
 	PluginLogsPage(query PluginLogQuery) (PluginLogPage, error)

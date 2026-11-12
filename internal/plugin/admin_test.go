@@ -354,8 +354,8 @@ func TestManagementAnalysisOmitsTheSelectedKeyWindow(t *testing.T) {
 	}
 	// A row's breakdown stays within the selected key, whose window has no key rows.
 	var breakdown struct{ Models []billing.ModelUsage }
-	callOK(t, app, http.MethodGet, routeUsageModels, url.Values{"api_key": selected["api_key"], "dimension": {"sources"},
-		"value": {view.UsageDistribution.Sources[0].Filter}}, nil, http.StatusOK, &breakdown)
+	callOK(t, app, http.MethodGet, routeUsageModels, url.Values{"api_key": selected["api_key"], "dimension": {"credentials"},
+		"value": {view.UsageDistribution.Credentials[0].Filter}}, nil, http.StatusOK, &breakdown)
 	if len(breakdown.Models) != 1 || breakdown.Models[0].Requests != 1 {
 		t.Fatalf("source breakdown = %+v", breakdown)
 	}

@@ -107,7 +107,7 @@ func TestRepositoryRoundTrip(t *testing.T) {
 				t.Fatalf("state = %+v, want %+v", loaded.State, state)
 			}
 			errors, err := reopened.RequestErrors(billing.RequestErrorQuery{Limit: 10}, time.Time{})
-			if err != nil || len(errors.Entries) != 1 || errors.Entries[0].StatusCode != 429 || errors.Entries[0].Source != "codex · ops@example.com" {
+			if err != nil || len(errors.Entries) != 1 || errors.Entries[0].StatusCode != 429 || errors.Entries[0].Credential != "codex · ops@example.com" {
 				t.Fatalf("request errors = %+v, err = %v", errors.Entries, err)
 			}
 			mustSave(t, reopened, loaded.State, billing.Changes{AllKeys: true, Routes: true})

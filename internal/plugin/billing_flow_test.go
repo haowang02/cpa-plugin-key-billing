@@ -134,7 +134,7 @@ func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 		entry.ReasoningEffort != "high" || entry.ServiceTier != "auto" || *entry.EffectiveServiceTier != "priority" ||
 		entry.ResponseServiceTier != "default" || entry.ResponseModel != "gpt-5.6-luna" ||
 		entry.UpstreamModel != flowModel || entry.BillingModel != "route/gpt-5.5" || entry.Failed ||
-		entry.Source != "codex · codex-team" || entry.AccountingQuality != billing.TokenAccountingComplete ||
+		entry.Credential != "codex · codex-team" || entry.AccountingQuality != billing.TokenAccountingComplete ||
 		entry.LatencyMS != 1500 || entry.TTFTMS != 250 ||
 		entry.Endpoint != "/v1/responses" || entry.Transport != "http" || entry.Stream == nil || !*entry.Stream {
 		t.Fatalf("entry = %+v", entry)
@@ -166,7 +166,7 @@ func TestUsageHandleReportsZeroUsageFailureAndBillsReportedFailureUsage(t *testi
 	}
 	requestError := errors.Entries[0]
 	if requestError.Label != "Alice" || requestError.Provider != "codex" ||
-		requestError.Source != "codex · billing@example.com" || requestError.StatusCode != 502 ||
+		requestError.Credential != "codex · billing@example.com" || requestError.StatusCode != 502 ||
 		requestError.ErrorType != "service_unavailable_error" {
 		t.Fatalf("request error = %+v", requestError)
 	}
@@ -226,7 +226,7 @@ func TestUsageHandleBillsTheSuccessfulRetryAttemptOnce(t *testing.T) {
 		t.Fatalf("cost = %v, requests = %d", cost, requests)
 	}
 	if entries := requestEventEntries(t, app); len(entries) != 2 || entries[0].AuthIndex != "auth-success" ||
-		entries[0].Source != "codex · success@example.com" {
+		entries[0].Credential != "codex · success@example.com" {
 		t.Fatalf("entries = %+v", entries)
 	}
 	for _, entry := range requestEventEntries(t, app) {
@@ -270,7 +270,7 @@ func TestUsageHandleRecordsUnscopedUsageWithoutCreatingKey(t *testing.T) {
 	})
 
 	entries := requestEventEntries(t, app)
-	if len(entries) != 1 || entries[0].Scope != "" || entries[0].Source != "codex · upstream@example.com" {
+	if len(entries) != 1 || entries[0].Scope != "" || entries[0].Credential != "codex · upstream@example.com" {
 		t.Fatalf("entries = %+v", entries)
 	}
 	if keys := app.store.KeyViews(); len(keys) != 0 {
@@ -338,7 +338,7 @@ func TestUsageHandlePersistsBillWithoutPlaintextKeys(t *testing.T) {
 	if errRequests != nil || len(requests.Entries) != 1 || requests.Entries[0].Cost.Total <= 0 {
 		t.Fatalf("persisted request events = %+v, err = %v", requests.Entries, errRequests)
 	}
-	if entry := requests.Entries[0]; entry.Account != "sk-ups…0001" || entry.Source != "deepseek · sk-ups…0001" ||
+	if entry := requests.Entries[0]; entry.Account != "sk-ups…0001" || entry.Credential != "deepseek · sk-ups…0001" ||
 		entry.RequestOrigin != (billing.RequestOrigin{Endpoint: "/v1/messages", Transport: "http", UserAgent: "dummy-client/1.0", XForwardedFor: "192.0.2.10"}) ||
 		entry.Stream == nil || *entry.Stream {
 		t.Fatalf("persisted event identity = %+v", entry)

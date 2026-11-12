@@ -18,11 +18,11 @@ func TestAnalysisAggregatesOnlyDisplayedUsageDistributions(t *testing.T) {
 		t.Fatal(err)
 	}
 	usage := view.UsageDistribution
-	if len(usage.APIKeys) != 2 || len(usage.Models) != 1 || len(usage.Sources) != 1 {
+	if len(usage.APIKeys) != 2 || len(usage.Models) != 1 || len(usage.Credentials) != 1 {
 		t.Fatalf("usage distribution = %+v", usage)
 	}
 	if usage.APIKeys[0].Label != "Alice" || usage.APIKeys[0].Preview != "sk-aaa…0001" ||
-		usage.Models[0].Preview != "" || usage.Sources[0].Preview != "" {
+		usage.Models[0].Preview != "" || usage.Credentials[0].Preview != "" {
 		t.Fatalf("distribution identities = %+v", usage)
 	}
 	if usage.Models[0].Requests != 3 || usage.Models[0].TotalTokens != 3000 || usage.Models[0].CostUSD != 1.5 {
@@ -94,8 +94,8 @@ func TestAnalysisScopeSkipsTheRedundantKeyDimension(t *testing.T) {
 	if len(usage.Models) != 1 || usage.Models[0].Requests != 2 {
 		t.Fatalf("scoped model distribution = %+v", usage.Models)
 	}
-	if len(usage.Sources) != 1 || usage.Sources[0].Requests != 2 {
-		t.Fatalf("scoped source distribution = %+v", usage.Sources)
+	if len(usage.Credentials) != 1 || usage.Credentials[0].Requests != 2 {
+		t.Fatalf("scoped credential distribution = %+v", usage.Credentials)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestAnalysisIncludesTokenAndCostBreakdowns(t *testing.T) {
 		t.Fatalf("token trends = %+v", trends)
 	}
 	for name, rows := range map[string][]billing.AnalysisComposition{
-		"keys": view.UsageDistribution.APIKeys, "models": view.UsageDistribution.Models, "sources": view.UsageDistribution.Sources,
+		"keys": view.UsageDistribution.APIKeys, "models": view.UsageDistribution.Models, "credentials": view.UsageDistribution.Credentials,
 	} {
 		if len(rows) != 2 {
 			t.Fatalf("%s distribution = %+v", name, rows)
@@ -172,8 +172,8 @@ func TestAnalysisIncludesTokenAndCostBreakdowns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(scoped.UsageDistribution.APIKeys) != 0 || len(scoped.UsageDistribution.Models) != 1 || len(scoped.UsageDistribution.Sources) != 1 ||
-		scoped.UsageDistribution.Models[0].InputTokens != 950 || scoped.UsageDistribution.Sources[0].CacheReadTokens != 400 {
+	if len(scoped.UsageDistribution.APIKeys) != 0 || len(scoped.UsageDistribution.Models) != 1 || len(scoped.UsageDistribution.Credentials) != 1 ||
+		scoped.UsageDistribution.Models[0].InputTokens != 950 || scoped.UsageDistribution.Credentials[0].CacheReadTokens != 400 {
 		t.Fatalf("scoped distribution = %+v", scoped.UsageDistribution)
 	}
 }
@@ -210,7 +210,7 @@ func TestAnalysisFullRetentionKeepsZeroUsageAndEmptyScopes(t *testing.T) {
 	if len(keys) != 2 || keys[0].Percent != 50 || keys[1].Percent != 50 {
 		t.Fatalf("zero-usage key distribution=%+v", keys)
 	}
-	if view.UsageDistribution.Models[0].Label != "Unknown model" || view.UsageDistribution.Sources[0].Label != "Unknown source" {
+	if view.UsageDistribution.Models[0].Label != "Unknown model" || view.UsageDistribution.Credentials[0].Label != "Unknown credential" {
 		t.Fatalf("fallback labels=%+v", view.UsageDistribution)
 	}
 }

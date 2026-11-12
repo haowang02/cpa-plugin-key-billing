@@ -236,7 +236,7 @@ function compactDistribution(rows, metric) {
   return visible;
 }
 
-function namesIdentity(dimension, row) { return ["api_keys", "sources"].includes(dimension) && !!row?.key; }
+function namesIdentity(dimension, row) { return ["api_keys", "credentials"].includes(dimension) && !!row?.key; }
 
 function renderUsageDistributionChart(account, rows, dimension, dimensionLabel, metric, colors, animate) {
   const canvas = $(account ? "account-usage-chart" : "usage-chart");
@@ -565,14 +565,14 @@ function renderAnalysisSummary(summary, trends, daily) {
 function distributionUsageQuery(analysis, dimension, row) {
   if (!(row.requests > 0)) return null;
   const rows = row.grouped ? row.rows : [row];
-  return { ...analysis.usage_query, dimension, value: rows.map((item) => (dimension === "sources" ? item.filter : item.key)) };
+  return { ...analysis.usage_query, dimension, value: rows.map((item) => (dimension === "credentials" ? item.filter : item.key)) };
 }
 
 function renderAnalysisDistribution(account, { colors = analysisColors(), animate = false } = {}) {
   const role = account ? "account" : "admin";
   const analysis = analysisQueries[role].value;
   const target = $(account ? "account-usage-distribution" : "usage-distribution");
-  const labels = { api_keys: "API Key", models: m("ui.model"), sources: m("ui.source") };
+  const labels = { api_keys: "API Key", models: m("ui.model"), credentials: m("ui.credential") };
   if (account || $("analysis-key").value) delete labels.api_keys;
   const dimension = labels[analysisDimensions[role]] ? analysisDimensions[role] : "models";
   const metric = analysisMetrics[role];
@@ -580,8 +580,8 @@ function renderAnalysisDistribution(account, { colors = analysisColors(), animat
   for (const row of rows) {
     if (row.grouped) continue;
     if (!row.key)
-      row.label = m(dimension === "models" ? "ui.unknown_model" : dimension === "sources" ? "ui.unknown_source" : "ui.unassigned");
-    else if (dimension === "sources") row.label = displayLabel(row.label || row.key);
+      row.label = m(dimension === "models" ? "ui.unknown_model" : dimension === "credentials" ? "ui.unknown_credential" : "ui.unassigned");
+    else if (dimension === "credentials") row.label = displayLabel(row.label || row.key);
   }
   const metricSelect = el(
     "ui-select",

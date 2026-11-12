@@ -19,7 +19,7 @@ const EVENT_CSV_COLUMNS = {
     "endpoint",
     "transport",
     "stream",
-    "source",
+    "credential",
     "reasoning_effort",
     "service_tier",
     "effective_service_tier",
@@ -39,7 +39,7 @@ const EVENT_CSV_COLUMNS = {
     "user_agent",
     "x_forwarded_for"
   ],
-  errors: ["at", "preview", "label", "billing_model", "upstream_model", "source", "status_code", "error_type", "body"]
+  errors: ["at", "preview", "label", "billing_model", "upstream_model", "credential", "status_code", "error_type", "body"]
 };
 
 function apiKeyFilter(account) {
@@ -79,12 +79,12 @@ function populateEventFilterSelect(select, defaultLabel, values, valueOf = (item
   renderSelectOptions(select, options);
 }
 
-function populateSourceFilterSelect(select, filters) {
-  const values = disambiguateSourceFilterOptions(filters.source_options || []);
-  populateEventFilterSelect(select, m("ui.all_sources"), values, (option) => option.value, (option) => option.label);
+function populateCredentialFilterSelect(select, filters) {
+  const values = disambiguateCredentialFilterOptions(filters.credential_options || []);
+  populateEventFilterSelect(select, m("ui.all_credentials"), values, (option) => option.value, (option) => option.label);
 }
 
-function disambiguateSourceFilterOptions(options) {
+function disambiguateCredentialFilterOptions(options) {
   const prepared = options.map((option) => ({ option, label: String(displayLabel(option.label)), digest: String(option.value || "") }));
   const groups = new Map();
   for (const item of prepared) {
@@ -237,13 +237,13 @@ for (const account of [false, true]) {
   bindPagedListFilters(
     pagedList("events", account),
     role,
-    ["request-event-model", "request-event-source", "request-event-status"].map((id) => prefix + id),
+    ["request-event-model", "request-event-credential", "request-event-status"].map((id) => prefix + id),
     $(prefix + "request-events-filter-clear")
   );
   bindPagedListFilters(
     pagedList("errors", account),
     role,
-    ["error-model", "error-source", "error-type"].map((id) => prefix + id),
+    ["error-model", "error-credential", "error-type"].map((id) => prefix + id),
     $(prefix + "errors-filter-clear")
   );
   const exportButton = $(account ? "account-events-export" : "events-export");

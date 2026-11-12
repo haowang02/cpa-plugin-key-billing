@@ -12,15 +12,15 @@ const REQUEST_EVENT_COLUMNS = [
   { id: "api_key", label: "API Key", admin: true, cell: ({ entry }) => renderAPIKeyIdentity(entry, { stacked: true }) },
   { id: "model", label: m("ui.model"), class: "small", cell: requestEventModel },
   {
-    id: "executor_source",
-    label: m("ui.executor_source"),
+    id: "executor_credential",
+    label: m("ui.executor_credential"),
     class: "small",
     cell: ({ entry }) => [
       el("div", { class: "request-event-cell-line mono" }, entry.executor_type || m("ui.unknown_executor")),
       el(
         "div",
-        { class: "request-event-detail muted", "data-tip": displayLabel(entry.source) || null, "data-tip-overflow": "" },
-        entry.source ? maskedLabelText(entry.source) : m("ui.unknown_source")
+        { class: "request-event-detail muted", "data-tip": displayLabel(entry.credential) || null, "data-tip-overflow": "" },
+        entry.credential ? maskedLabelText(entry.credential) : m("ui.unknown_credential")
       )
     ]
   },
@@ -107,7 +107,7 @@ const REQUEST_EVENT_COLUMNS = [
 function requestEventFilters(account) {
   const prefix = account ? "account-request-event" : "request-event";
   const filters = apiKeyFilter(account);
-  for (const [field, control] of [["model", "model"], ["source", "source"], ["failed", "status"]]) {
+  for (const [field, control] of [["model", "model"], ["credential", "credential"], ["failed", "status"]]) {
     const value = $(prefix + "-" + control).value;
     if (value) filters[field] = value;
   }
@@ -128,7 +128,7 @@ function populateRequestEventFilters(filters, account) {
   if (!filters) return;
   const prefix = account ? "account-request-event" : "request-event";
   populateEventFilterSelect($(prefix + "-model"), m("ui.all_models"), filters.models);
-  populateSourceFilterSelect($(prefix + "-source"), filters);
+  populateCredentialFilterSelect($(prefix + "-credential"), filters);
 }
 
 // Keep the saved order, inserting new columns before their next default neighbor.

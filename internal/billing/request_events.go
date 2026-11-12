@@ -64,15 +64,15 @@ type RequestEvent struct {
 	Quota           *QuotaReport `json:"-"`
 }
 
-// Source uses the event's account snapshot; key labels use their current values.
+// Credential uses the event's account snapshot; key labels use their current values.
 type RequestEventRow struct {
 	RequestEvent
 	// Encode the database identity as a string to preserve all 64 bits in browsers.
-	ID        int64  `json:"id,string"`
-	Preview   string `json:"preview,omitempty"`
-	Label     string `json:"label,omitempty"`
-	Source    string `json:"source,omitempty"`
-	ErrorBody string `json:"error_body,omitempty"`
+	ID         int64  `json:"id,string"`
+	Preview    string `json:"preview,omitempty"`
+	Label      string `json:"label,omitempty"`
+	Credential string `json:"credential,omitempty"`
+	ErrorBody  string `json:"error_body,omitempty"`
 }
 
 // RequestEventQuery selects one filtered page of request events.
@@ -83,7 +83,7 @@ type RequestEventQuery struct {
 	KeyScope       string
 	KeyScopeEmpty  bool
 	Model          string
-	Source         string
+	Credential     string
 	Executor       string
 	Provider       string
 	Failed         *bool
@@ -107,14 +107,14 @@ type RequestEventView struct {
 }
 
 type RequestEventFilterValues struct {
-	Models        []string              `json:"models"`
-	Sources       []string              `json:"-"`
-	SourceOptions []RequestSourceOption `json:"source_options"`
-	Executors     []string              `json:"executors,omitempty"`
-	Providers     []string              `json:"providers,omitempty"`
+	Models            []string                 `json:"models"`
+	Credentials       []string                 `json:"-"`
+	CredentialOptions []CredentialFilterOption `json:"credential_options"`
+	Executors         []string                 `json:"executors,omitempty"`
+	Providers         []string                 `json:"providers,omitempty"`
 }
 
-type RequestSourceOption struct {
+type CredentialFilterOption struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
 }

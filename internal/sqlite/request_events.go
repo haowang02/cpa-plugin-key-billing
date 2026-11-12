@@ -103,11 +103,11 @@ const eventModelSQL = "coalesce(NULLIF(billing_model, ''), upstream_model)"
 
 // A configured credential is named as configured; any other credential, or one
 // since removed, by the provider that served it.
-var requestEventSourceName = `coalesce((SELECT ` + sourceNameSQL("c.name") + `
+var requestEventCredentialName = `coalesce((SELECT ` + credentialNameSQL("c.name") + `
 	FROM config_credentials c WHERE r.auth_index != '' AND c.auth_index = r.auth_index AND c.name != ''),
-	` + sourceNameSQL(`(CASE WHEN substr(r.provider, 1, 18) = 'openai-compatible-' THEN substr(r.provider, 19) ELSE r.provider END)`) + `)`
+	` + credentialNameSQL(`(CASE WHEN substr(r.provider, 1, 18) = 'openai-compatible-' THEN substr(r.provider, 19) ELSE r.provider END)`) + `)`
 
-func sourceNameSQL(providerName string) string {
+func credentialNameSQL(providerName string) string {
 	return `CASE WHEN ` + providerName + ` = '' THEN r.account
 		WHEN r.account = '' OR lower(r.account) = lower(` + providerName + `) THEN ` + providerName + `
 		ELSE ` + providerName + ` || ' · ' || r.account END`
@@ -171,7 +171,7 @@ func (d *DB) RequestEvents(query billing.RequestEventQuery, since time.Time) (bi
 			r.tiered, r.long_context, r.threshold_input_tokens,
 			r.applied_input_per_1m, r.applied_output_per_1m,
 			r.applied_cache_read_per_1m, r.applied_cache_write_per_1m,
-			coalesce(k.preview, ''), coalesce(k.label, ''), `+requestEventSourceName+`,
+			coalesce(k.preview, ''), coalesce(k.label, ''), `+requestEventCredentialName+`,
 			coalesce(e.body, ''), r.endpoint, r.transport, r.stream, r.execution_json, r.user_agent, r.x_forwarded_for
 		FROM page JOIN request_events r ON r.id = page.id
 		LEFT JOIN api_keys k ON k.scope = r.scope
@@ -204,7 +204,7 @@ func eventFilter(source string, query billing.RequestEventQuery, since time.Time
 		{"r.scope", query.Scope},
 		{"r.scope", query.KeyScope},
 		{eventModelSQL, query.Model},
-		{"(" + requestEventSourceName + ")", query.Source},
+		{"(" + requestEventCredentialName + ")", query.Credential},
 		{"r.executor_type", query.Executor},
 		{"r.provider", query.Provider},
 	} {
@@ -250,20 +250,20 @@ func (d *DB) requestEventFilterValues(query billing.RequestEventQuery, since tim
 		Scope: query.Scope, From: query.From, To: query.To, SnapshotID: query.SnapshotID,
 	}, since)
 	rows, errQuery := d.db.Query(`SELECT DISTINCT `+eventModelSQL+`,
-		`+requestEventSourceName+`, r.executor_type, r.provider`+where, args...)
+		`+requestEventCredentialName+`, r.executor_type, r.provider`+where, args...)
 	if errQuery != nil {
 		return nil, fmt.Errorf("Read request event filters: %w", errQuery)
 	}
 	defer rows.Close()
 
-	models, sources, executors, providers := filterValues{}, filterValues{}, filterValues{}, filterValues{}
+	models, credentials, executors, providers := filterValues{}, filterValues{}, filterValues{}, filterValues{}
 	for rows.Next() {
-		var model, source, executor, provider string
-		if errScan := rows.Scan(&model, &source, &executor, &provider); errScan != nil {
+		var model, credential, executor, provider string
+		if errScan := rows.Scan(&model, &credential, &executor, &provider); errScan != nil {
 			return nil, fmt.Errorf("Read request event filters: %w", errScan)
 		}
 		models.add(model)
-		sources.add(source)
+		credentials.add(credential)
 		executors.add(executor)
 		providers.add(provider)
 	}
@@ -271,7 +271,7 @@ func (d *DB) requestEventFilterValues(query billing.RequestEventQuery, since tim
 		return nil, fmt.Errorf("Read request event filters: %w", errRows)
 	}
 	return &billing.RequestEventFilterValues{
-		Models: models.sorted(), Sources: sources.sorted(),
+		Models: models.sorted(), Credentials: credentials.sorted(),
 		Executors: executors.sorted(), Providers: providers.sorted(),
 	}, nil
 }
@@ -295,7 +295,7 @@ func scanRequestEventRow(rows *sql.Rows) (billing.RequestEventRow, error) {
 		&row.Cost.Tiered, &row.Cost.LongContext, &row.Cost.ThresholdInputTokens,
 		&row.Cost.AppliedInputPer1M, &row.Cost.AppliedOutputPer1M,
 		&row.Cost.AppliedCacheReadPer1M, &row.Cost.AppliedCacheWritePer1M,
-		&row.Preview, &row.Label, &row.Source, &row.ErrorBody, &row.Endpoint, &row.Transport, &row.Stream, &execution,
+		&row.Preview, &row.Label, &row.Credential, &row.ErrorBody, &row.Endpoint, &row.Transport, &row.Stream, &execution,
 		&row.UserAgent, &row.XForwardedFor); errScan != nil {
 		return billing.RequestEventRow{}, fmt.Errorf("Read request events: %w", errScan)
 	}

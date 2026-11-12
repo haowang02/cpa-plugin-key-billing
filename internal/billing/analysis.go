@@ -32,14 +32,14 @@ type AnalysisComposition struct {
 	CostUSD          float64  `json:"cost_usd"`
 	ChargedIn        Currency `json:"charged_in,omitempty"`
 	Percent          float64  `json:"percent"`
-	// Filter names a source row in usage queries without revealing it.
+	// Filter names a credential row in usage queries without revealing it.
 	Filter string `json:"filter,omitempty"`
 }
 
 type UsageDistribution struct {
-	APIKeys []AnalysisComposition `json:"api_keys"`
-	Models  []AnalysisComposition `json:"models"`
-	Sources []AnalysisComposition `json:"sources"`
+	APIKeys     []AnalysisComposition `json:"api_keys"`
+	Models      []AnalysisComposition `json:"models"`
+	Credentials []AnalysisComposition `json:"credentials"`
 }
 
 // Costs and ChargedIn are as in CredentialUsageStats; the cost trend shares them.
@@ -104,8 +104,8 @@ func (s *Store) Analysis(query RequestEventQuery) (AnalysisView, error) {
 	if view.UsageDistribution.Models == nil {
 		view.UsageDistribution.Models = []AnalysisComposition{}
 	}
-	if view.UsageDistribution.Sources == nil {
-		view.UsageDistribution.Sources = []AnalysisComposition{}
+	if view.UsageDistribution.Credentials == nil {
+		view.UsageDistribution.Credentials = []AnalysisComposition{}
 	}
 	return view, err
 }

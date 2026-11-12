@@ -119,19 +119,19 @@ func TestRequestEventFieldAndTimeFilters(t *testing.T) {
 	mustSave(t, database, state, billing.Changes{ConfigCredentials: true, NormalRequestEvents: []billing.RequestEvent{entry}})
 
 	query := billing.RequestEventQuery{
-		KeyScope: "scope-b", Model: "team/gpt-5.6-sol", Source: "xAI Team · xai-du…0001",
+		KeyScope: "scope-b", Model: "team/gpt-5.6-sol", Credential: "xAI Team · xai-du…0001",
 		From: eventStart.Add(6 * time.Minute), To: eventStart.Add(7 * time.Minute), IncludeFilters: true,
 	}
 	view := mustQueryRequestEvents(t, database, query)
 	if view.Total != 1 || len(view.Entries) != 1 || !view.Entries[0].At.Equal(entry.At) {
 		t.Fatalf("view = %+v, want the one exact field and time match", view.Entries)
 	}
-	if view.Filters == nil || len(view.Filters.Models) != 1 || len(view.Filters.Sources) != 1 {
+	if view.Filters == nil || len(view.Filters.Models) != 1 || len(view.Filters.Credentials) != 1 {
 		t.Fatalf("filter options = %+v", view.Filters)
 	}
-	query.Source = "XAI TEAM · xai-du…0001"
+	query.Credential = "XAI TEAM · xai-du…0001"
 	if view := mustQueryRequestEvents(t, database, query); view.Total != 0 {
-		t.Fatal("source filter no longer uses exact matching")
+		t.Fatal("credential filter no longer uses exact matching")
 	}
 
 	if outside := mustQueryRequestEvents(t, database, billing.RequestEventQuery{
@@ -147,7 +147,7 @@ func TestRequestEventFieldAndTimeFilters(t *testing.T) {
 		Model: entry.UpstreamModel, From: entry.At, To: entry.At.Add(time.Minute), IncludeFilters: true,
 	})
 	if view.Total != 1 || len(view.Entries) != 1 || len(view.Filters.Models) != 1 || view.Filters.Models[0] != entry.UpstreamModel ||
-		view.Entries[0].Source != "xai · xai-du…0001" {
+		view.Entries[0].Credential != "xai · xai-du…0001" {
 		t.Fatalf("upstream model filter = %+v", view)
 	}
 }
@@ -170,9 +170,9 @@ func TestRequestEventAccountChangesPreserveHistory(t *testing.T) {
 	if view := mustQueryRequestEvents(t, database, billing.RequestEventQuery{SnapshotID: &original.SnapshotID}); !reflect.DeepEqual(view.Entries, original.Entries) {
 		t.Fatal("later usage changed historical events")
 	}
-	wantSources := make(map[string]int64)
+	wantCredentials := make(map[string]int64)
 	for _, test := range []struct {
-		source              string
+		credential          string
 		requests, failed    int
 		endpoint, transport string
 		stream              *bool
@@ -181,11 +181,11 @@ func TestRequestEventAccountChangesPreserveHistory(t *testing.T) {
 		{"codex · new@example.com", 1, 1, "/v1/messages", "http", &nonStreaming},
 		{"dummy · new@example.com", 1, 1, "/v1/responses", "websocket", &streaming},
 	} {
-		wantSources[test.source] = int64(test.requests)
-		query := billing.RequestEventQuery{Source: test.source,
+		wantCredentials[test.credential] = int64(test.requests)
+		query := billing.RequestEventQuery{Credential: test.credential,
 			IncludeFilters: true, From: eventStart, To: eventStart.Add(time.Hour)}
 		view := mustQueryRequestEvents(t, database, query)
-		if view.Total != test.requests || view.Statuses.Failed != test.failed || len(view.Filters.Sources) != 3 {
+		if view.Total != test.requests || view.Statuses.Failed != test.failed || len(view.Filters.Credentials) != 3 {
 			t.Fatalf("filtered events = %+v", view)
 		}
 		for _, row := range view.Entries {
@@ -193,13 +193,13 @@ func TestRequestEventAccountChangesPreserveHistory(t *testing.T) {
 				t.Fatalf("request metadata changed after reopen: %+v", row)
 			}
 		}
-		errors, err := database.RequestErrors(billing.RequestErrorQuery{Source: test.source}, eventStart)
-		if err != nil || errors.Total != test.failed || errors.Entries[0].Source != test.source {
+		errors, err := database.RequestErrors(billing.RequestErrorQuery{Credential: test.credential}, eventStart)
+		if err != nil || errors.Total != test.failed || errors.Entries[0].Credential != test.credential {
 			t.Fatalf("filtered errors = %+v, err = %v", errors, err)
 		}
 		analysis, err := database.Analysis(query, 7, eventStart)
 		if err != nil || analysis.Summary.Requests != int64(test.requests) ||
-			len(analysis.UsageDistribution.Sources) != 1 || analysis.UsageDistribution.Sources[0].Label != test.source {
+			len(analysis.UsageDistribution.Credentials) != 1 || analysis.UsageDistribution.Credentials[0].Label != test.credential {
 			t.Fatalf("filtered analysis = %+v, err = %v", analysis, err)
 		}
 	}
@@ -207,15 +207,15 @@ func TestRequestEventAccountChangesPreserveHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sources := make(map[string]int64)
-	for _, source := range analysis.UsageDistribution.Sources {
-		sources[source.Label] = source.Requests
-		if source.TotalTokens != source.Requests*1000 || source.CostUSD != float64(source.Requests)*0.5 {
-			t.Fatalf("source usage = %+v", source)
+	credentials := make(map[string]int64)
+	for _, credential := range analysis.UsageDistribution.Credentials {
+		credentials[credential.Label] = credential.Requests
+		if credential.TotalTokens != credential.Requests*1000 || credential.CostUSD != float64(credential.Requests)*0.5 {
+			t.Fatalf("credential usage = %+v", credential)
 		}
 	}
-	if !reflect.DeepEqual(sources, wantSources) {
-		t.Fatalf("source distribution = %+v, want %+v", sources, wantSources)
+	if !reflect.DeepEqual(credentials, wantCredentials) {
+		t.Fatalf("credential distribution = %+v, want %+v", credentials, wantCredentials)
 	}
 }
 
@@ -253,7 +253,7 @@ func TestRequestEventRowsFollowTheKeyTheyName(t *testing.T) {
 		entry.ExecutorType != "CodexExecutor" ||
 		entry.ReasoningEffort != "high" || entry.ServiceTier != "auto" || *entry.EffectiveServiceTier != "default" ||
 		entry.ResponseServiceTier != "priority" || entry.ResponseModel != "gpt-5.6-luna" ||
-		entry.Source != "codex · ops@example.com" || entry.Provider != "codex" ||
+		entry.Credential != "codex · ops@example.com" || entry.Provider != "codex" ||
 		entry.LatencyMS != 1500 || entry.TTFTMS != 250 {
 		t.Fatalf("entry = %+v", entry)
 	}

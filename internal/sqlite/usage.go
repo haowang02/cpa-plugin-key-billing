@@ -99,7 +99,7 @@ func usageFilter(scope string, query billing.UsageQuery) (string, []any) {
 	for _, filter := range []struct {
 		expression string
 		values     []string
-	}{{"r.scope", query.KeyScopes}, {eventModelSQL, query.Models}, {"(" + requestEventSourceName + ")", query.Sources}} {
+	}{{"r.scope", query.KeyScopes}, {eventModelSQL, query.Models}, {"(" + requestEventCredentialName + ")", query.Credentials}} {
 		if len(filter.values) > 0 {
 			where += " AND " + filter.expression + " IN (" + placeholders(len(filter.values)) + ")"
 			for _, value := range filter.values {
@@ -167,23 +167,23 @@ func (d *DB) UsageByModel(scope string, query billing.UsageQuery, rate billing.E
 	return models, nil
 }
 
-func (d *DB) UsageSources(scope string, query billing.UsageQuery) ([]string, error) {
+func (d *DB) UsageCredentials(scope string, query billing.UsageQuery) ([]string, error) {
 	where, args := usageFilter(scope, query)
-	rows, err := d.db.Query(`SELECT DISTINCT `+requestEventSourceName+` FROM request_events r WHERE `+where, args...)
+	rows, err := d.db.Query(`SELECT DISTINCT `+requestEventCredentialName+` FROM request_events r WHERE `+where, args...)
 	if err != nil {
-		return nil, fmt.Errorf("Read usage sources: %w", err)
+		return nil, fmt.Errorf("Read usage credentials: %w", err)
 	}
 	defer rows.Close()
-	var sources []string
+	var credentials []string
 	for rows.Next() {
-		var source string
-		if err := rows.Scan(&source); err != nil {
-			return nil, fmt.Errorf("Read usage sources: %w", err)
+		var credential string
+		if err := rows.Scan(&credential); err != nil {
+			return nil, fmt.Errorf("Read usage credentials: %w", err)
 		}
-		sources = append(sources, source)
+		credentials = append(credentials, credential)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("Read usage sources: %w", err)
+		return nil, fmt.Errorf("Read usage credentials: %w", err)
 	}
-	return sources, nil
+	return credentials, nil
 }

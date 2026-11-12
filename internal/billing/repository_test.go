@@ -44,7 +44,7 @@ func (r *memoryRepository) UsageByModel(string, UsageQuery, ExchangeRate) ([]Mod
 	return nil, r.fail
 }
 
-func (r *memoryRepository) UsageSources(string, UsageQuery) ([]string, error) {
+func (r *memoryRepository) UsageCredentials(string, UsageQuery) ([]string, error) {
 	return nil, r.fail
 }
 

@@ -37,7 +37,7 @@ func TestRequestErrorsAreIndependentFilteredViews(t *testing.T) {
 		t.Fatalf("view = %+v", view)
 	}
 	entry := view.Entries[0]
-	if entry.Label != "Alice" || entry.Provider != "codex" || entry.Source != "codex · ops@example.com" ||
+	if entry.Label != "Alice" || entry.Provider != "codex" || entry.Credential != "codex · ops@example.com" ||
 		entry.StatusCode != 429 || entry.ErrorType != "rate_limit" {
 		t.Fatalf("entry = %+v", entry)
 	}

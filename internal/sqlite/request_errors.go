@@ -34,7 +34,7 @@ func requestErrorFilter(query billing.RequestErrorQuery, since time.Time) (strin
 	source += " JOIN request_events r ON r.id = e.request_event_id WHERE r.at >= ?"
 	where, args := eventFilter(source, billing.RequestEventQuery{
 		Scope: query.Scope, KeyScope: query.KeyScope, KeyScopeEmpty: query.KeyScopeEmpty,
-		Model: query.Model, Source: query.Source, Executor: query.Executor, Provider: query.Provider,
+		Model: query.Model, Credential: query.Credential, Executor: query.Executor, Provider: query.Provider,
 		From: query.From, To: query.To, SnapshotID: query.SnapshotID,
 	}, since)
 	if query.StatusCode > 0 {
@@ -106,7 +106,7 @@ func (d *DB) RequestErrors(query billing.RequestErrorQuery, since time.Time) (bi
 	rows, err := d.db.Query(`WITH page AS MATERIALIZED (
 		SELECT r.id `+where+` ORDER BY r.at DESC, r.id DESC LIMIT ? OFFSET ?)
 		SELECT r.id, r.at, r.scope, coalesce(k.preview, ''), coalesce(k.label, ''),
-		r.auth_index, `+requestEventSourceName+`, r.provider,
+		r.auth_index, `+requestEventCredentialName+`, r.provider,
 		r.executor_type, r.upstream_model, r.billing_model, r.latency_ms, r.ttft_ms,
 		e.status_code, e.error_type, e.body
 		FROM page JOIN request_events r ON r.id = page.id
@@ -120,7 +120,7 @@ func (d *DB) RequestErrors(query billing.RequestErrorQuery, since time.Time) (bi
 	for rows.Next() {
 		var row billing.RequestErrorRow
 		var at int64
-		if err := rows.Scan(&row.ID, &at, &row.Scope, &row.Preview, &row.Label, &row.AuthIndex, &row.Source,
+		if err := rows.Scan(&row.ID, &at, &row.Scope, &row.Preview, &row.Label, &row.AuthIndex, &row.Credential,
 			&row.Provider, &row.ExecutorType, &row.UpstreamModel, &row.BillingModel, &row.LatencyMS,
 			&row.TTFTMS, &row.StatusCode, &row.ErrorType, &row.Body); err != nil {
 			return billing.RequestErrorView{}, fmt.Errorf("Read error events: %w", err)
@@ -138,24 +138,24 @@ func (d *DB) requestErrorFilterValues(query billing.RequestErrorQuery, since tim
 	where, args := requestErrorFilter(billing.RequestErrorQuery{
 		Scope: query.Scope, From: query.From, To: query.To, SnapshotID: query.SnapshotID,
 	}, since)
-	rows, err := d.db.Query(`SELECT DISTINCT `+eventModelSQL+`, `+requestEventSourceName+`,
+	rows, err := d.db.Query(`SELECT DISTINCT `+eventModelSQL+`, `+requestEventCredentialName+`,
 		r.executor_type, r.provider,
 		e.status_code, e.error_type`+where, args...)
 	if err != nil {
 		return nil, fmt.Errorf("Read error event filters: %w", err)
 	}
 	defer rows.Close()
-	models, sources, executors, providers := filterValues{}, filterValues{}, filterValues{}, filterValues{}
+	models, credentials, executors, providers := filterValues{}, filterValues{}, filterValues{}, filterValues{}
 	errorTypes := filterValues{}
 	codes := map[int]bool{}
 	for rows.Next() {
-		var model, source, executor, provider, errorType string
+		var model, credential, executor, provider, errorType string
 		var statusCode int
-		if err := rows.Scan(&model, &source, &executor, &provider, &statusCode, &errorType); err != nil {
+		if err := rows.Scan(&model, &credential, &executor, &provider, &statusCode, &errorType); err != nil {
 			return nil, fmt.Errorf("Read error event filters: %w", err)
 		}
 		models.add(model)
-		sources.add(source)
+		credentials.add(credential)
 		executors.add(executor)
 		providers.add(provider)
 		errorTypes.add(errorType)
@@ -167,7 +167,7 @@ func (d *DB) requestErrorFilterValues(query billing.RequestErrorQuery, since tim
 		return nil, fmt.Errorf("Read error event filters: %w", err)
 	}
 	result := &billing.RequestErrorFilterValues{
-		Models: models.sorted(), Sources: sources.sorted(),
+		Models: models.sorted(), Credentials: credentials.sorted(),
 		Executors: executors.sorted(), Providers: providers.sorted(),
 		ErrorTypes: errorTypes.sorted(), StatusCodes: make([]int, 0, len(codes)),
 	}

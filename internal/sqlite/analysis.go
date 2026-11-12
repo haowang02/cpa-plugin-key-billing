@@ -13,9 +13,9 @@ import (
 func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate, since time.Time) (billing.AnalysisView, error) {
 	view := billing.AnalysisView{
 		UsageDistribution: billing.UsageDistribution{
-			APIKeys: []billing.AnalysisComposition{},
-			Models:  []billing.AnalysisComposition{},
-			Sources: []billing.AnalysisComposition{},
+			APIKeys:     []billing.AnalysisComposition{},
+			Models:      []billing.AnalysisComposition{},
+			Credentials: []billing.AnalysisComposition{},
 		},
 	}
 	view.Trends = analysisTrendPoints(query)
@@ -29,16 +29,16 @@ func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate
 		return billing.AnalysisView{}, fmt.Errorf("Aggregate analysis data: %w", err)
 	}
 	defer rows.Close()
-	keys, models, sources := analysisGroups{}, analysisGroups{}, analysisGroups{}
+	keys, models, credentials := analysisGroups{}, analysisGroups{}, analysisGroups{}
 	includeKeys := strings.TrimSpace(query.Scope) == "" && strings.TrimSpace(query.KeyScope) == "" && !query.KeyScopeEmpty
 	summary, trends := &view.Summary, &view.Trends
 	var summaryCurrencies costCurrencies
 	for rows.Next() {
 		var index int
-		var scope, model, source string
+		var scope, model, credential string
 		var part billing.AnalysisSummary
 		var currencies costCurrencies
-		if err := rows.Scan(&index, &scope, &model, &source,
+		if err := rows.Scan(&index, &scope, &model, &credential,
 			&part.Requests, &part.Failed, &part.InputTokens, &part.OutputTokens,
 			&part.CacheReadTokens, &part.CacheWriteTokens, &part.Cost.TotalUSD,
 			&part.Cost.InputUSD, &part.Cost.CacheReadUSD, &part.Cost.CacheWriteUSD, &part.Cost.OutputUSD,
@@ -70,7 +70,7 @@ func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate
 			keys.add(scope, part, currencies)
 		}
 		models.add(model, part, currencies)
-		sources.add(source, part, currencies)
+		credentials.add(credential, part, currencies)
 	}
 	if err := rows.Err(); err != nil {
 		return billing.AnalysisView{}, fmt.Errorf("Read analysis data: %w", err)
@@ -97,15 +97,15 @@ func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate
 	}
 	view.UsageDistribution.APIKeys = keys.finish()
 	view.UsageDistribution.Models = models.finish()
-	view.UsageDistribution.Sources = sources.finish()
+	view.UsageDistribution.Credentials = credentials.finish()
 	for i := range view.UsageDistribution.Models {
 		if view.UsageDistribution.Models[i].Key == "" {
 			view.UsageDistribution.Models[i].Label = "Unknown model"
 		}
 	}
-	for i := range view.UsageDistribution.Sources {
-		if view.UsageDistribution.Sources[i].Key == "" {
-			view.UsageDistribution.Sources[i].Label = "Unknown source"
+	for i := range view.UsageDistribution.Credentials {
+		if view.UsageDistribution.Credentials[i].Key == "" {
+			view.UsageDistribution.Credentials[i].Label = "Unknown credential"
 		}
 	}
 	return view, nil
@@ -197,7 +197,7 @@ func (groups analysisGroups) finish() []billing.AnalysisComposition {
 func analysisSQL(query billing.RequestEventQuery, rate billing.ExchangeRate, since time.Time, boundaries []billing.AnalysisTrendPoint) (string, []any) {
 	where, args := eventFilter(requestEventSource, query, since)
 	modelSQL := "coalesce(NULLIF(" + eventModelSQL + ", ''), '')"
-	sourceSQL := "coalesce(NULLIF(" + requestEventSourceName + ", ''), '')"
+	credentialSQL := "coalesce(NULLIF(" + requestEventCredentialName + ", ''), '')"
 	costsSQL := strings.Join([]string{usdSumSQL("total_cost", rate), usdSumSQL("uncached_input_cost", rate),
 		usdSumSQL("cache_read_cost", rate), usdSumSQL("cache_write_cost", rate), usdSumSQL("output_cost", rate)}, ", ")
 	var statement strings.Builder
@@ -211,7 +211,7 @@ func analysisSQL(query billing.RequestEventQuery, rate billing.ExchangeRate, sin
 			statement.WriteString(" UNION ALL ")
 		}
 		// Indexed calendar ranges preserve DST without a CASE per event.
-		statement.WriteString(`SELECT ` + fmt.Sprint(index) + `, r.scope, ` + modelSQL + `, ` + sourceSQL + `,
+		statement.WriteString(`SELECT ` + fmt.Sprint(index) + `, r.scope, ` + modelSQL + `, ` + credentialSQL + `,
 			count(*), sum(r.failed != 0),
 			sum(r.uncached_input_tokens + r.cache_read_tokens + r.cache_write_tokens), sum(r.billed_output_tokens),
 			sum(r.cache_read_tokens), sum(r.cache_write_tokens), ` + costsSQL + `, ` + costCurrenciesSQL + where + `

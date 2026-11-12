@@ -896,7 +896,7 @@ def auth_file_history(query, scope=""):
     return {"from": iso(since), "to": iso(NOW), "usage": credential_usage(rows), "windows": windows}
 
 
-USAGE_DIMENSIONS = {"api_keys": ("scope", ""), "models": ("billing_model", "未知模型"), "sources": ("source", "未知来源")}
+USAGE_DIMENSIONS = {"api_keys": ("scope", ""), "models": ("billing_model", "未知模型"), "credentials": ("credential", "未知凭证")}
 
 
 def usage_models(query, scope=""):
@@ -920,8 +920,8 @@ def usage_models(query, scope=""):
     field, unknown = USAGE_DIMENSIONS[query.get("dimension", ["models"])[0]]
     values = set(query.get("value", []))
     rows = analysis_rows(query, scope)
-    if field == "source":
-        rows = [entry for entry in rows if source_filter_token(scope, entry.get(field, "") or unknown) in values]
+    if field == "credential":
+        rows = [entry for entry in rows if credential_filter_token(scope, entry.get(field, "") or unknown) in values]
     else:
         rows = [entry for entry in rows if (entry.get(field, "") or unknown) in values]
     return {"models": model_usage(rows)}
@@ -1112,7 +1112,7 @@ def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, lo
 
 def event_sample(
     key_index,
-    source,
+    credential,
     provider,
     model,
     executor,
@@ -1140,7 +1140,7 @@ def event_sample(
     return {
         "key_index": key_index,
         "auth_index": auth_index,
-        "source": source,
+        "credential": credential,
         "provider": provider,
         "executor_type": executor,
         "reasoning_effort": effort,
@@ -1254,12 +1254,12 @@ def make_request_events():
 
 REQUEST_EVENTS = make_request_events()
 
-def source_filter_token(scope, source):
-    payload = "filter:v1\0source\0" + scope + "\0" + source
+def credential_filter_token(scope, credential):
+    payload = "filter:v1\0credential\0" + scope + "\0" + credential
     return hashlib.sha256(payload.encode()).hexdigest()
 
-def source_filter_options(scope, sources):
-    return [{"value": source_filter_token(scope, source), "label": source} for source in sources]
+def credential_filter_options(scope, credentials):
+    return [{"value": credential_filter_token(scope, credential), "label": credential} for credential in credentials]
 
 # None selects every key; an empty scope selects unassigned events.
 def selected_scope(query, scope):
@@ -1276,7 +1276,7 @@ def request_event_view(query, scope=""):
     snapshot = event_snapshot(query)
     selected_key = selected_scope(query, scope)
     selected_model = query.get("model", [""])[0]
-    selected_source = query.get("source", [""])[0]
+    selected_credential = query.get("credential", [""])[0]
     selected_provider = query.get("provider", [""])[0]
     selected_executor = query.get("executor", [""])[0]
     selected_failed = query.get("failed", [""])[0]
@@ -1285,17 +1285,17 @@ def request_event_view(query, scope=""):
     time_matched = filter_event_time([entry for entry in REQUEST_EVENTS
                                      if int(entry["id"]) <= snapshot and (not scope or entry["scope"] == scope)], query)
     time_matched.sort(key=lambda entry: (entry["at"], int(entry["id"])), reverse=True)
-    source_values = sorted({entry.get("source", "") for entry in time_matched} - {""}, key=str.lower)
+    credential_values = sorted({entry.get("credential", "") for entry in time_matched} - {""}, key=str.lower)
     filter_options = {
         "models": sorted({entry.get("billing_model") or entry.get("upstream_model", "")
                           for entry in time_matched} - {""}, key=str.lower),
-        "source_options": source_filter_options(scope, source_values),
+        "credential_options": credential_filter_options(scope, credential_values),
         "providers": sorted({entry.get("provider", "") for entry in time_matched} - {""}, key=str.lower),
         "executors": sorted({entry.get("executor_type", "") for entry in time_matched} - {""}, key=str.lower),
     }
-    if selected_source:
-        selected_source = next((source for source in source_values
-                                if source_filter_token(scope, source) == selected_source), "\0")
+    if selected_credential:
+        selected_credential = next((credential for credential in credential_values
+                                if credential_filter_token(scope, credential) == selected_credential), "\0")
     counts = {"all": 0, "normal": 0, "failed": 0}
     matched = []
     for entry in time_matched:
@@ -1303,7 +1303,7 @@ def request_event_view(query, scope=""):
             continue
         if selected_model and (entry.get("billing_model") or entry.get("upstream_model")) != selected_model:
             continue
-        if selected_source and entry.get("source") != selected_source:
+        if selected_credential and entry.get("credential") != selected_credential:
             continue
         if selected_provider and entry.get("provider") != selected_provider:
             continue
@@ -1424,7 +1424,7 @@ def request_error(event_index, message, status=0, error_type="", code="", transp
         "scope": event["scope"],
         "preview": event["preview"],
         "label": event["label"],
-        "source": event["source"],
+        "credential": event["credential"],
         "provider": event["provider"],
         "executor_type": event["executor_type"],
         "upstream_model": event["upstream_model"],
@@ -1539,16 +1539,16 @@ def error_view(query, scope=""):
     selected = {
         "api_key": selected_scope(query, scope),
         "model": query.get("model", [""])[0],
-        "source": query.get("source", [""])[0],
+        "credential": query.get("credential", [""])[0],
         "provider": query.get("provider", [""])[0],
         "executor": query.get("executor", [""])[0],
         "status_code": query.get("status_code", [""])[0],
         "error_type": query.get("error_type", [""])[0],
     }
-    source_values = sorted({entry["source"] for entry in rows})
-    if selected["source"]:
-        selected["source"] = next((source for source in source_values
-                                   if source_filter_token(scope, source) == selected["source"]), "\0")
+    credential_values = sorted({entry["credential"] for entry in rows})
+    if selected["credential"]:
+        selected["credential"] = next((credential for credential in credential_values
+                                   if credential_filter_token(scope, credential) == selected["credential"]), "\0")
     filtered = []
     counts = {}
     empty_type = query.get("error_type_empty", [""])[0] == "true"
@@ -1557,7 +1557,7 @@ def error_view(query, scope=""):
             continue
         if selected["model"] and entry["billing_model"] != selected["model"]:
             continue
-        if selected["source"] and entry["source"] != selected["source"]:
+        if selected["credential"] and entry["credential"] != selected["credential"]:
             continue
         if selected["provider"] and entry["provider"] != selected["provider"]:
             continue
@@ -1583,7 +1583,7 @@ def error_view(query, scope=""):
     if offset == 0:
         result["filter_options"] = {
             "models": sorted({entry["billing_model"] for entry in rows}),
-            "source_options": source_filter_options(scope, source_values),
+            "credential_options": credential_filter_options(scope, credential_values),
             "providers": sorted({entry["provider"] for entry in rows}),
             "executors": sorted({entry["executor_type"] for entry in rows}),
             "status_codes": sorted({entry["status_code"] for entry in rows if entry["status_code"]}),
@@ -1641,8 +1641,8 @@ def analysis_view(query, scope=""):
                                             "cost_usd": 0})
             if field == "scope":
                 item["preview"] = entry.get("preview", "")
-            if field == "source":
-                item["filter"] = source_filter_token(scope, key)
+            if field == "credential":
+                item["filter"] = credential_filter_token(scope, key)
             cost = entry.get("cost", {})
             input_tokens = sum(cost.get(name, 0) for name in (
                 "uncached_input_tokens", "cache_read_tokens", "cache_write_tokens"))
@@ -1743,7 +1743,7 @@ def analysis_view(query, scope=""):
         "usage_distribution": {
             "api_keys": [] if scope or selected is not None else distribution("scope", "label", unknown=""),
             "models": distribution("billing_model", unknown="未知模型"),
-            "sources": distribution("source", unknown="未知来源"),
+            "credentials": distribution("credential", unknown="未知凭证"),
         },
     }
 

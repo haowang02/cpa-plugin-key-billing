@@ -44,10 +44,10 @@ type UsageQuery struct {
 	Provider  string    `json:"provider,omitempty"`
 	ModelMatch
 	// The usage distribution's rows: keys, the models usage is attributed to,
-	// and sources. The endpoint names them by dimension.
-	KeyScopes []string `json:"-"`
-	Models    []string `json:"-"`
-	Sources   []string `json:"-"`
+	// and credentials. The endpoint names them by dimension.
+	KeyScopes   []string `json:"-"`
+	Models      []string `json:"-"`
+	Credentials []string `json:"-"`
 }
 
 // ModelMatch selects upstream models containing one of Include and none of
@@ -96,13 +96,13 @@ func (s *Store) UsageByModel(scope string, query UsageQuery) ([]ModelUsage, erro
 	})
 }
 
-func (s *Store) UsageSources(scope string, query UsageQuery) ([]string, error) {
+func (s *Store) UsageCredentials(scope string, query UsageQuery) ([]string, error) {
 	return withRepository(s, func(repo Repository) ([]string, error) {
 		var err error
 		if query.From, query.To, err = s.cfg.usageTimeRange(query.From, query.To, s.Now()); err != nil {
 			return nil, err
 		}
-		return repo.UsageSources(scope, query)
+		return repo.UsageCredentials(scope, query)
 	})
 }
 

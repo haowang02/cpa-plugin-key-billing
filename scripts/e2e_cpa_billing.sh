@@ -421,7 +421,7 @@ request_body() {
     --argjson stream "$stream" --argjson budget "$max_output_tokens" "$program"
 }
 
-provider_source() {
+provider_credential() {
   local provider
   case "$1" in
     chat) provider="dummy-chat-e2e" ;;
@@ -467,9 +467,9 @@ assert_billing_entry() {
   local request_events_file="$7"
   local response_file="$8"
   local stream="$9"
-  local expected_source expected_executor expected_uncached expected_cache_write usage input output entry_file
+  local expected_credential expected_executor expected_uncached expected_cache_write usage input output entry_file
   local billed_uncached billed_cache_read billed_cache_write billed_input billed_output
-  expected_source="$(provider_source "$upstream")"
+  expected_credential="$(provider_credential "$upstream")"
   case "$upstream" in
     chat) expected_executor="OpenAICompatExecutor" ;;
     responses) expected_executor="CodexExecutor" ;;
@@ -486,17 +486,17 @@ assert_billing_entry() {
     --arg upstream_models "$upstream_models" \
     --arg billing_model "$billing_model" \
     --arg executor_type "$expected_executor" \
-    --arg source "$expected_source" '
+    --arg credential "$expected_credential" '
       (.upstream_model as $actual | ($upstream_models | split(",") | index($actual)) != null) and
       .billing_model == $billing_model and
       .executor_type == $executor_type and
       .failed == false and
-      .source == $source and
+      .credential == $credential and
       .accounting_quality == "complete" and
       .price_source == "custom" and
       .cost.currency == "USD" and .cost.total > 0
     ' "$entry_file" >/dev/null; then
-    echo "${client} → ${upstream} 的模型、来源、usage 或定价不正确。" >&2
+    echo "${client} → ${upstream} 的模型、凭证、usage 或定价不正确。" >&2
     return 1
   fi
 
@@ -1354,7 +1354,7 @@ run_target() {
   local api_key_json plugins_file prompt account_access_file account_prices_file account_events_file
   local client upstream stream endpoint body mode extension response_file request_events_file
   local client_label upstream_label mode_label request_number requested_model billing_model upstream_models model_id
-  local model_case case_name actual_upstream_model expected_source expected_uncached expected_cache_write
+  local model_case case_name actual_upstream_model expected_credential expected_uncached expected_cache_write
   local request_index expected_requests actual_requests matrix_index matrix_failed matrix_logs_ok matches usage input output
   local -a provider_cases model_cases matrix_pids matrix_labels matrix_clients matrix_upstreams matrix_streams
   local -a matrix_models matrix_upstream_models matrix_responses matrix_errors matrix_request_ok matrix_ok matrix_reasons
@@ -1516,7 +1516,7 @@ run_target() {
       continue
     fi
 
-    expected_source="$(provider_source "$upstream")"
+    expected_credential="$(provider_credential "$upstream")"
     expected_cache_write="$expected_cache_write_tokens"
     if [[ "$upstream" == "gemini" ]]; then
       expected_cache_write=0
@@ -1536,10 +1536,10 @@ run_target() {
       --arg user_agent "$e2e_user_agent" \
       --arg forwarded_for "$e2e_forwarded_for" \
       --argjson stream "${matrix_streams[$matrix_index]}" \
-      --arg source "$expected_source" '
+      --arg credential "$expected_credential" '
         first(.entries[] | select(.billing_model == $billing_model)) |
         .upstream_model == $upstream_model and
-        .source == $source and
+        .credential == $credential and
         (if (.execution.trace_id // "") == "" then
           (.endpoint // "") == "" and (.transport // "") == "" and
           (.user_agent // "") == "" and (.x_forwarded_for // "") == ""
@@ -1553,7 +1553,7 @@ run_target() {
         (.ttft_ms // 0) > 0 and
         .ttft_ms <= .latency_ms
       ' "$request_events_file" >/dev/null; then
-      matrix_reasons[$matrix_index]="模型、来源、请求类型或延迟不符"
+      matrix_reasons[$matrix_index]="模型、凭证、请求类型或延迟不符"
       matrix_failed=$((matrix_failed + 1))
       continue
     fi
@@ -1671,7 +1671,7 @@ run_target() {
     ! jq -e --argjson expected "$expected_requests" '
       .total == $expected and (.entries | length) == $expected and
       all(.entries[]; .scope == "" and (has("auth_index") | not) and has("cost")) and
-      any(.entries[]; has("executor_type")) and any(.entries[]; has("source"))
+      any(.entries[]; has("executor_type")) and any(.entries[]; has("credential"))
     ' "$account_events_file" >/dev/null; then
     echo "CLIProxyAPI ${host_label} 的 API Key 自助查询范围或响应字段不正确。" >&2
     return 1

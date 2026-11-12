@@ -15,12 +15,12 @@ import (
 	"cpa-key-billing/internal/messages"
 )
 
-func sourceFilterToken(scope, source string) string {
-	digest := sha256.Sum256([]byte("filter:v1\x00source\x00" + scope + "\x00" + source))
+func credentialFilterToken(scope, credential string) string {
+	digest := sha256.Sum256([]byte("filter:v1\x00credential\x00" + scope + "\x00" + credential))
 	return hex.EncodeToString(digest[:])
 }
 
-func validSourceFilterToken(value string) bool {
+func validCredentialFilterToken(value string) bool {
 	if len(value) != sha256.Size*2 {
 		return false
 	}
@@ -28,21 +28,21 @@ func validSourceFilterToken(value string) bool {
 	return err == nil
 }
 
-func resolveSourceFilter(scope, token string, sources []string) (string, bool) {
-	for _, source := range sources {
-		if sourceFilterToken(scope, source) == token {
-			return source, true
+func resolveCredentialFilter(scope, token string, credentials []string) (string, bool) {
+	for _, credential := range credentials {
+		if credentialFilterToken(scope, credential) == token {
+			return credential, true
 		}
 	}
 	return "", false
 }
 
-func sourceFilterOptions(scope string, sources []string) []billing.RequestSourceOption {
-	options := make([]billing.RequestSourceOption, 0, len(sources))
-	for _, source := range sources {
-		options = append(options, billing.RequestSourceOption{
-			Value: sourceFilterToken(scope, source),
-			Label: source,
+func credentialFilterOptions(scope string, credentials []string) []billing.CredentialFilterOption {
+	options := make([]billing.CredentialFilterOption, 0, len(credentials))
+	for _, credential := range credentials {
+		options = append(options, billing.CredentialFilterOption{
+			Value: credentialFilterToken(scope, credential),
+			Label: credential,
 		})
 	}
 	return options
@@ -98,7 +98,7 @@ func (a *App) analysis(req ManagementRequest, access viewAccess) ManagementRespo
 	if access.APIKey && !access.Tracked {
 		return viewJSON(access, http.StatusOK, billing.AnalysisView{
 			UsageDistribution: billing.UsageDistribution{
-				APIKeys: []billing.AnalysisComposition{}, Models: []billing.AnalysisComposition{}, Sources: []billing.AnalysisComposition{},
+				APIKeys: []billing.AnalysisComposition{}, Models: []billing.AnalysisComposition{}, Credentials: []billing.AnalysisComposition{},
 			},
 		})
 	}
@@ -113,8 +113,8 @@ func (a *App) analysis(req ManagementRequest, access viewAccess) ManagementRespo
 	if access.APIKey || query.KeyScope != "" || query.KeyScopeEmpty {
 		view.UsageDistribution.APIKeys = []billing.AnalysisComposition{}
 	}
-	for i := range view.UsageDistribution.Sources {
-		view.UsageDistribution.Sources[i].Filter = sourceFilterToken(access.Scope, view.UsageDistribution.Sources[i].Key)
+	for i := range view.UsageDistribution.Credentials {
+		view.UsageDistribution.Credentials[i].Filter = credentialFilterToken(access.Scope, view.UsageDistribution.Credentials[i].Key)
 	}
 	return viewJSON(access, http.StatusOK, view)
 }
@@ -139,7 +139,7 @@ func (a *App) analysisSpeed(req ManagementRequest, access viewAccess) Management
 
 // usageModels breaks down by model the usage of the requests a query selects:
 // a credential's, in a quota period when the query names one, or those of rows
-// of the usage distribution, which a dimension and its values name. Source rows
+// of the usage distribution, which a dimension and its values name. Credential rows
 // are named by their filters.
 func (a *App) usageModels(req ManagementRequest, access viewAccess) ManagementResponse {
 	if access.APIKey && !access.Tracked {
@@ -180,18 +180,18 @@ func (a *App) usageModels(req ManagementRequest, access viewAccess) ManagementRe
 		query.KeyScopes = values
 	case dimension == "models":
 		query.Models = values
-	case dimension == "sources":
-		sources, err := a.store.UsageSources(scope, query)
+	case dimension == "credentials":
+		credentials, err := a.store.UsageCredentials(scope, query)
 		if err != nil {
 			return viewErrorResponse(access, err)
 		}
-		for _, source := range sources {
-			if slices.Contains(values, sourceFilterToken(access.Scope, source)) {
-				query.Sources = append(query.Sources, source)
+		for _, credential := range credentials {
+			if slices.Contains(values, credentialFilterToken(access.Scope, credential)) {
+				query.Credentials = append(query.Credentials, credential)
 			}
 		}
-		if query.Sources == nil {
-			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Source filter expired; refresh the page")
+		if query.Credentials == nil {
+			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Credential filter expired; refresh the page")
 		}
 	default:
 		return viewJSONError(access, http.StatusBadRequest, "invalid", "Invalid usage distribution dimension")

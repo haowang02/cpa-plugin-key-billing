@@ -71,7 +71,7 @@ func maskAPIKeyPayload(payload any) (any, bool) {
 	case billing.RequestEventView:
 		for i := range value.Entries {
 			value.Entries[i].Account = maskEmails(value.Entries[i].Account)
-			value.Entries[i].Source = maskEmails(value.Entries[i].Source)
+			value.Entries[i].Credential = maskEmails(value.Entries[i].Credential)
 			value.Entries[i].ErrorBody = maskEmails(value.Entries[i].ErrorBody)
 			if execution := value.Entries[i].Execution; execution != nil {
 				masked := *execution
@@ -84,26 +84,26 @@ func maskAPIKeyPayload(payload any) (any, bool) {
 			}
 		}
 		if value.Filters != nil {
-			for i := range value.Filters.SourceOptions {
-				value.Filters.SourceOptions[i].Label = maskEmails(value.Filters.SourceOptions[i].Label)
+			for i := range value.Filters.CredentialOptions {
+				value.Filters.CredentialOptions[i].Label = maskEmails(value.Filters.CredentialOptions[i].Label)
 			}
 		}
 		return value, true
 	case billing.RequestErrorView:
 		for i := range value.Entries {
-			value.Entries[i].Source = maskEmails(value.Entries[i].Source)
+			value.Entries[i].Credential = maskEmails(value.Entries[i].Credential)
 			value.Entries[i].Body = maskEmails(value.Entries[i].Body)
 		}
 		if value.Filters != nil {
-			for i := range value.Filters.SourceOptions {
-				value.Filters.SourceOptions[i].Label = maskEmails(value.Filters.SourceOptions[i].Label)
+			for i := range value.Filters.CredentialOptions {
+				value.Filters.CredentialOptions[i].Label = maskEmails(value.Filters.CredentialOptions[i].Label)
 			}
 		}
 		return value, true
 	case billing.AnalysisView:
-		for i := range value.UsageDistribution.Sources {
-			value.UsageDistribution.Sources[i].Key = maskEmails(value.UsageDistribution.Sources[i].Key)
-			value.UsageDistribution.Sources[i].Label = maskEmails(value.UsageDistribution.Sources[i].Label)
+		for i := range value.UsageDistribution.Credentials {
+			value.UsageDistribution.Credentials[i].Key = maskEmails(value.UsageDistribution.Credentials[i].Key)
+			value.UsageDistribution.Credentials[i].Label = maskEmails(value.UsageDistribution.Credentials[i].Label)
 		}
 		return value, true
 	case authFileListResponse:

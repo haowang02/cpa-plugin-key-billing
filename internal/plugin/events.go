@@ -21,7 +21,7 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 	}
 	query := billing.RequestEventQuery{
 		Scope: access.Scope, Model: strings.TrimSpace(req.Query.Get("model")),
-		Source: strings.TrimSpace(req.Query.Get("source")), Executor: strings.TrimSpace(req.Query.Get("executor")),
+		Credential: strings.TrimSpace(req.Query.Get("credential")), Executor: strings.TrimSpace(req.Query.Get("executor")),
 		Provider: strings.TrimSpace(req.Query.Get("provider")),
 		Limit:    defaultEventPageSize,
 	}
@@ -39,9 +39,9 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 	if errQuery := requestPageParams(req.Query, &query.Offset, &query.Limit, &query.From, &query.To, &query.SnapshotID); errQuery != nil {
 		return viewErrorResponse(access, errQuery)
 	}
-	if query.Source != "" {
-		if !validSourceFilterToken(query.Source) {
-			return viewJSONError(access, http.StatusBadRequest, "invalid_filter", "Invalid source filter; refresh the page")
+	if query.Credential != "" {
+		if !validCredentialFilterToken(query.Credential) {
+			return viewJSONError(access, http.StatusBadRequest, "invalid_filter", "Invalid credential filter; refresh the page")
 		}
 		probe, err := a.store.RequestEvents(billing.RequestEventQuery{
 			Scope: access.Scope, From: query.From, To: query.To, SnapshotID: query.SnapshotID, IncludeFilters: true, Limit: 1,
@@ -51,12 +51,12 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 		}
 		query.SnapshotID = &probe.SnapshotID
 		if probe.Filters == nil {
-			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Source filter expired; refresh the page")
+			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Credential filter expired; refresh the page")
 		}
 		var found bool
-		query.Source, found = resolveSourceFilter(access.Scope, query.Source, probe.Filters.Sources)
+		query.Credential, found = resolveCredentialFilter(access.Scope, query.Credential, probe.Filters.Credentials)
 		if !found {
-			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Source filter expired; refresh the page")
+			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Credential filter expired; refresh the page")
 		}
 	}
 	query.IncludeFilters = query.Offset == 0
@@ -78,7 +78,7 @@ func (a *App) listRequestEvents(req ManagementRequest, access viewAccess) Manage
 		}
 	}
 	if view.Filters != nil {
-		view.Filters.SourceOptions = sourceFilterOptions(access.Scope, view.Filters.Sources)
+		view.Filters.CredentialOptions = credentialFilterOptions(access.Scope, view.Filters.Credentials)
 	}
 	return viewJSON(access, http.StatusOK, view)
 }
@@ -89,7 +89,7 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 	}
 	query := billing.RequestErrorQuery{
 		Scope: access.Scope, Model: strings.TrimSpace(req.Query.Get("model")),
-		Source: strings.TrimSpace(req.Query.Get("source")), Executor: strings.TrimSpace(req.Query.Get("executor")),
+		Credential: strings.TrimSpace(req.Query.Get("credential")), Executor: strings.TrimSpace(req.Query.Get("executor")),
 		Provider: strings.TrimSpace(req.Query.Get("provider")), ErrorType: strings.TrimSpace(req.Query.Get("error_type")),
 		ErrorTypeEmpty: req.Query.Get("error_type_empty") == "true",
 		Limit:          defaultEventPageSize,
@@ -107,9 +107,9 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 	if err := requestPageParams(req.Query, &query.Offset, &query.Limit, &query.From, &query.To, &query.SnapshotID); err != nil {
 		return viewErrorResponse(access, err)
 	}
-	if query.Source != "" {
-		if !validSourceFilterToken(query.Source) {
-			return viewJSONError(access, http.StatusBadRequest, "invalid_filter", "Invalid source filter; refresh the page")
+	if query.Credential != "" {
+		if !validCredentialFilterToken(query.Credential) {
+			return viewJSONError(access, http.StatusBadRequest, "invalid_filter", "Invalid credential filter; refresh the page")
 		}
 		probe, err := a.store.RequestErrors(billing.RequestErrorQuery{
 			Scope: access.Scope, From: query.From, To: query.To, SnapshotID: query.SnapshotID, IncludeFilters: true, Limit: 1,
@@ -119,12 +119,12 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 		}
 		query.SnapshotID = &probe.SnapshotID
 		if probe.Filters == nil {
-			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Source filter expired; refresh the page")
+			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Credential filter expired; refresh the page")
 		}
 		var found bool
-		query.Source, found = resolveSourceFilter(access.Scope, query.Source, probe.Filters.Sources)
+		query.Credential, found = resolveCredentialFilter(access.Scope, query.Credential, probe.Filters.Credentials)
 		if !found {
-			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Source filter expired; refresh the page")
+			return viewJSONError(access, http.StatusBadRequest, "expired_filter", "Credential filter expired; refresh the page")
 		}
 	}
 	query.IncludeFilters = query.Offset == 0
@@ -139,7 +139,7 @@ func (a *App) listRequestErrors(req ManagementRequest, access viewAccess) Manage
 		}
 	}
 	if view.Filters != nil {
-		view.Filters.SourceOptions = sourceFilterOptions(access.Scope, view.Filters.Sources)
+		view.Filters.CredentialOptions = credentialFilterOptions(access.Scope, view.Filters.Credentials)
 	}
 	return viewJSON(access, http.StatusOK, view)
 }
