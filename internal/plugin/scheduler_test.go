@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -528,7 +529,7 @@ func TestSchedulerFailsClosedWithoutAUsableRoutedCandidate(t *testing.T) {
 		want       routingShortfall
 	}{
 		{
-			name: "older host",
+			name: "credential models unavailable",
 			rule: billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("wanted")}},
 			candidates: []SchedulerAuthCandidate{
 				{ID: "other", Provider: "codex", Attributes: map[string]string{"path": "/other"}},
@@ -568,15 +569,15 @@ func TestSchedulerFailsClosedWithoutAUsableRoutedCandidate(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			app, scope := configuredRoutingApp(t, test.rule)
 			app.scheduler.configure(billing.RoutingConfig{Strategy: "weighted-round-robin", SessionAffinityTTL: "1h"}, true)
-			if test.models != "" {
-				app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
-					if method != hostAuthModels {
-						t.Fatalf("host method = %q", method)
-					}
-					return json.RawMessage(test.models), nil
-				})
-				app.authModelsSupported.Store(true)
-			}
+			app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+				if method != hostAuthModels {
+					t.Fatalf("host method = %q", method)
+				}
+				if test.models == "" {
+					return nil, errors.New("dummy host failure")
+				}
+				return json.RawMessage(test.models), nil
+			})
 			raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, test.candidates...)))
 			if err != nil {
 				t.Fatal(err)

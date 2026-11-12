@@ -20,13 +20,11 @@ const (
 	claudeCloakedModelPrefix = "claude-fable-5-dd-"
 )
 
-func (a *App) filtersModelCatalogs() bool { return a.store.Enabled() && a.authModelsSupported.Load() }
-
 // Every non-streaming execution response also passes through this hook, with
 // its full bodies. Only a model catalog names no model, so decode the rest of
 // the request only for one.
 func (a *App) interceptResponse(raw []byte) ([]byte, error) {
-	if !a.filtersModelCatalogs() {
+	if !a.store.Enabled() {
 		return OKEnvelope(ResponseInterceptResponse{})
 	}
 	var head struct {

@@ -7,11 +7,12 @@ import (
 	"maps"
 	"net/http"
 	"sync"
-	"sync/atomic"
 
 	"cpa-key-billing/internal/billing"
 	"cpa-key-billing/internal/sqlite"
 )
+
+type HostCaller func(method string, payload any) (json.RawMessage, error)
 
 type App struct {
 	store                 *billing.Store
@@ -26,7 +27,6 @@ type App struct {
 	scheduler             subsetScheduler
 	pending               map[string]pendingRouteLog
 	pendingSequence       uint64
-	authModelsSupported   atomic.Bool
 }
 
 func (a *App) SetHostCaller(caller HostCaller) {
@@ -131,7 +131,6 @@ func (a *App) configure(raw []byte) error {
 	}(); errConfigure != nil {
 		return errConfigure
 	}
-	a.authModelsSupported.Store(a.probeHostAuthModels())
 	// Refresh records its result; a download failure does not disable custom prices.
 	_, _ = a.store.EnsureReferencePrices()
 	return nil
@@ -164,7 +163,7 @@ func (a *App) registration() Registration {
 					Name:        "codex_fast_mode_billing",
 					Default:     defaults.CodexFastModeBilling,
 					Type:        "boolean",
-					Description: "Bill Codex priority requests at 2.5 times the standard cost",
+					Description: "Bill Codex requests sent upstream at the priority tier at 2.5 times the standard cost",
 				},
 				{
 					Name:        "allow_unpriced_models",
@@ -205,14 +204,16 @@ func (a *App) registration() Registration {
 			},
 		},
 		Capabilities: Capabilities{
-			RequestInterceptor:        true,
-			ResponseInterceptor:       a.filtersModelCatalogs(),
-			RequestLifecyclePlugin:    true,
-			UsagePlugin:               true,
-			ManagementAPI:             true,
-			Scheduler:                 true,
-			SchedulerAcrossPriorities: true,
-			QuotaProvider:             true,
+			RequestInterceptor:               true,
+			RequestInterceptorOmitBodyBefore: true,
+			RequestInterceptorOmitBodyAfter:  true,
+			ResponseInterceptor:              a.store.Enabled(),
+			RequestLifecyclePlugin:           true,
+			UsagePlugin:                      true,
+			ManagementAPI:                    true,
+			Scheduler:                        true,
+			SchedulerAcrossPriorities:        true,
+			QuotaProvider:                    true,
 		},
 	}
 }

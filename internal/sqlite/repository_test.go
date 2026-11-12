@@ -222,7 +222,8 @@ func TestQuotaConfigurationExtendsExistingJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := database.db.Exec(`ALTER TABLE plans DROP COLUMN shared_quota;
-        ALTER TABLE plans DROP COLUMN cycles_json; DROP TABLE quota_queries; PRAGMA user_version=24;`); err != nil {
+        ALTER TABLE plans DROP COLUMN cycles_json; DROP TABLE quota_queries;
+        ALTER TABLE request_events DROP COLUMN effective_service_tier; PRAGMA user_version=24;`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.Close(); err != nil {

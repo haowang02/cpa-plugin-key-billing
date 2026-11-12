@@ -14,7 +14,7 @@ Source paths are relative to this repository's root:
 - **Go changes:** Run `go vet ./...` and `go test -race ./...`.
 - **Frontend changes:** Start `python3 scripts/frontend_dummy_backend.py` on a port other than the default 8765, such as `--port 18765`, and verify affected desktop and narrow-screen layouts with Playwright, beyond static checks. Add `--host cpamc` or `--host cpamp` to check host-specific styles inside those shells.
 - **Frontend regression scripts:** Store JavaScript scripts used with `playwright-cli` for browser regression testing in a temporary directory, never in the project's `scripts/` directory.
-- **Billing changes:** Run `scripts/e2e_cpa_billing.sh v7.3.7` after modifying any billing behavior, including usage parsing, pricing, quota enforcement, or failure reporting. Keep this baseline aligned with the minimum supported CLIProxyAPI version in `README.md` and `README.en.md`.
+- **Billing changes:** Run `scripts/e2e_cpa_billing.sh v8.0.44` after modifying any billing behavior, including usage parsing, pricing, quota enforcement, or failure reporting. Keep this baseline aligned with the minimum supported CLIProxyAPI version in `README.md` and `README.en.md`.
 
 ## Frontend Layout
 
@@ -36,7 +36,7 @@ Source paths are relative to this repository's root:
 - Implement every plugin feature within CLIProxyAPI's existing capabilities. Do not propose or rely on CLIProxyAPI modifications as part of the plugin implementation.
 - `usage.handle` is the only source of provider usage, billing data, latency, and upstream failure details. Do not reconstruct usage from raw responses or request/response lifecycle hooks.
 - Use `request.intercept_before` only for admission controls such as model, quota, and concurrency enforcement. Use `request.complete` only for lifecycle bookkeeping such as releasing concurrency slots.
-- Use `response.intercept_after` only to filter model catalogs by routing rules, and declare it only on hosts that answer `host.auth.models`. Return every other response unchanged without decoding its bodies. Catalog filtering is a display convenience, not access control.
+- Use `response.intercept_after` only to filter model catalogs by routing rules. Return every other response unchanged without decoding its bodies. Catalog filtering is a display convenience, not access control.
 - If `UsageRecord` does not expose required information, degrade the feature honestly. Never correlate concurrent records heuristically by model, credential, timestamps, or route.
 - Failure events use `UsageRecord.Failed` and `UsageRecord.Failure`. Log only fields present in the record; do not invent a downstream request path or request ID.
 - Preserve the host's TTFT value as reported for both streaming and non-streaming requests. Do not infer streaming mode from TTFT, response headers, or approximate latency equality.

@@ -30,10 +30,11 @@ const REQUEST_EVENT_COLUMNS = [
     class: "small",
     cell: ({ entry }) => [
       el("div", { class: "request-event-cell-line mono" }, entry.reasoning_effort || "—"),
+      // An event without an outbound tier shows the one the client asked for.
       el(
         "div",
         { class: "request-event-cell-line muted" },
-        [entry.service_tier, entry.response_service_tier].filter(Boolean).join(DISPLAY_SLASH) || "—"
+        [entry.effective_service_tier ?? entry.service_tier, entry.response_service_tier].filter(Boolean).join(DISPLAY_SLASH) || "—"
       )
     ]
   },

@@ -10,7 +10,7 @@ import (
 
 const (
 	ABIVersion    uint32 = 1
-	SchemaVersion uint32 = 6
+	SchemaVersion uint32 = 7
 )
 
 // Plugin identity. PluginID doubles as the dynamic library file name, the
@@ -101,14 +101,16 @@ type ConfigField struct {
 }
 
 type Capabilities struct {
-	RequestInterceptor        bool `json:"request_interceptor"`
-	ResponseInterceptor       bool `json:"response_interceptor"`
-	RequestLifecyclePlugin    bool `json:"request_lifecycle_plugin"`
-	UsagePlugin               bool `json:"usage_plugin"`
-	ManagementAPI             bool `json:"management_api"`
-	Scheduler                 bool `json:"scheduler"`
-	SchedulerAcrossPriorities bool `json:"scheduler_across_priorities"`
-	QuotaProvider             bool `json:"quota_provider"`
+	RequestInterceptor               bool `json:"request_interceptor"`
+	RequestInterceptorOmitBodyBefore bool `json:"request_interceptor_omit_body_before"`
+	RequestInterceptorOmitBodyAfter  bool `json:"request_interceptor_omit_body_after"`
+	ResponseInterceptor              bool `json:"response_interceptor"`
+	RequestLifecyclePlugin           bool `json:"request_lifecycle_plugin"`
+	UsagePlugin                      bool `json:"usage_plugin"`
+	ManagementAPI                    bool `json:"management_api"`
+	Scheduler                        bool `json:"scheduler"`
+	SchedulerAcrossPriorities        bool `json:"scheduler_across_priorities"`
+	QuotaProvider                    bool `json:"quota_provider"`
 }
 
 type SchedulerPickRequest struct {
@@ -171,35 +173,36 @@ type ResponseInterceptResponse struct {
 }
 
 type UsageRecord struct {
-	RequestID           string        `json:"RequestID"`
-	TraceID             string        `json:"TraceID"`
-	Provider            string        `json:"Provider"`
-	BaseURL             string        `json:"BaseURL"`
-	ExecutorType        string        `json:"ExecutorType"`
-	Model               string        `json:"Model"`
-	Alias               string        `json:"Alias"`
-	APIKey              string        `json:"APIKey"`
-	IsNativeKey         *bool         `json:"IsNativeKey"`
-	AccessProvider      string        `json:"AccessProvider"`
-	SessionID           string        `json:"SessionID"`
-	ParentSessionID     string        `json:"ParentSessionID"`
-	AuthID              string        `json:"AuthID"`
-	AuthIndex           string        `json:"AuthIndex"`
-	AuthType            string        `json:"AuthType"`
-	Source              string        `json:"Source"`
-	ReasoningEffort     string        `json:"ReasoningEffort"`
-	ServiceTier         string        `json:"ServiceTier"`
-	ResponseServiceTier string        `json:"ResponseServiceTier"`
-	ResponseModel       string        `json:"ResponseModel"`
-	ResponseHeaders     http.Header   `json:"ResponseHeaders"`
-	Generate            bool          `json:"Generate"`
-	Stream              *bool         `json:"Stream"`
-	RequestedAt         time.Time     `json:"RequestedAt"`
-	Latency             time.Duration `json:"Latency"`
-	TTFT                time.Duration `json:"TTFT"`
-	Failed              bool          `json:"Failed"`
-	Failure             UsageFailure  `json:"Failure"`
-	Detail              UsageDetail   `json:"Detail"`
+	RequestID            string        `json:"RequestID"`
+	TraceID              string        `json:"TraceID"`
+	Provider             string        `json:"Provider"`
+	BaseURL              string        `json:"BaseURL"`
+	ExecutorType         string        `json:"ExecutorType"`
+	Model                string        `json:"Model"`
+	Alias                string        `json:"Alias"`
+	APIKey               string        `json:"APIKey"`
+	IsNativeKey          bool          `json:"IsNativeKey"`
+	AccessProvider       string        `json:"AccessProvider"`
+	SessionID            string        `json:"SessionID"`
+	ParentSessionID      string        `json:"ParentSessionID"`
+	AuthID               string        `json:"AuthID"`
+	AuthIndex            string        `json:"AuthIndex"`
+	AuthType             string        `json:"AuthType"`
+	Source               string        `json:"Source"`
+	ReasoningEffort      string        `json:"ReasoningEffort"`
+	ServiceTier          string        `json:"ServiceTier"`
+	EffectiveServiceTier string        `json:"EffectiveServiceTier"`
+	ResponseServiceTier  string        `json:"ResponseServiceTier"`
+	ResponseModel        string        `json:"ResponseModel"`
+	ResponseHeaders      http.Header   `json:"ResponseHeaders"`
+	Generate             bool          `json:"Generate"`
+	Stream               bool          `json:"Stream"`
+	RequestedAt          time.Time     `json:"RequestedAt"`
+	Latency              time.Duration `json:"Latency"`
+	TTFT                 time.Duration `json:"TTFT"`
+	Failed               bool          `json:"Failed"`
+	Failure              UsageFailure  `json:"Failure"`
+	Detail               UsageDetail   `json:"Detail"`
 }
 
 type UsageFailure struct {

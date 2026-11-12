@@ -59,11 +59,22 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 24 {
 		steps = append(steps, migrateSharedQuotas)
 	}
-	steps = append(steps, migrateQuotaQueries)
+	if version <= 25 {
+		steps = append(steps, migrateQuotaQueries)
+	}
+	steps = append(steps, migrateEffectiveServiceTier)
 	for _, step := range steps {
 		if err := step(tx); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// Rows recorded before schema 27 carry no outbound service tier.
+func migrateEffectiveServiceTier(tx *sql.Tx) error {
+	if _, err := tx.Exec("ALTER TABLE request_events ADD COLUMN effective_service_tier TEXT"); err != nil {
+		return fmt.Errorf("Add request event outbound service tier: %w", err)
 	}
 	return nil
 }

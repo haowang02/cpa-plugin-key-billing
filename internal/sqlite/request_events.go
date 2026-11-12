@@ -23,7 +23,7 @@ func appendRequestEvent(tx *sql.Tx, entry billing.RequestEvent) (int64, error) {
 	}
 	result, errInsert := tx.Exec(`
 		INSERT INTO request_events (
-			at, scope, auth_index, provider, account, executor_type, reasoning_effort, service_tier,
+			at, scope, auth_index, provider, account, executor_type, reasoning_effort, service_tier, effective_service_tier,
 			response_service_tier, upstream_model, response_model, billing_model, failed, latency_ms, ttft_ms,
 			accounting_quality, price_source, reasoning_tokens,
 			currency, total_cost, uncached_input_cost, cache_read_cost, cache_write_cost, output_cost,
@@ -32,9 +32,9 @@ func appendRequestEvent(tx *sql.Tx, entry billing.RequestEvent) (int64, error) {
 			applied_input_per_1m, applied_output_per_1m,
 			applied_cache_read_per_1m, applied_cache_write_per_1m,
 			endpoint, transport, stream, execution_json, user_agent, x_forwarded_for
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		nanos(entry.At), entry.Scope, entry.AuthIndex, entry.Provider, entry.Account, entry.ExecutorType, entry.ReasoningEffort, entry.ServiceTier,
-		entry.ResponseServiceTier, entry.UpstreamModel, entry.ResponseModel, entry.BillingModel, entry.Failed,
+		entry.EffectiveServiceTier, entry.ResponseServiceTier, entry.UpstreamModel, entry.ResponseModel, entry.BillingModel, entry.Failed,
 		entry.LatencyMS, entry.TTFTMS,
 		string(entry.AccountingQuality), priceSource, entry.ReasoningTokens,
 		string(entry.Cost.Currency), entry.Cost.Total, entry.Cost.UncachedInput, entry.Cost.CacheRead,
@@ -163,7 +163,7 @@ func (d *DB) RequestEvents(query billing.RequestEventQuery, since time.Time) (bi
 	// Apply pagination before loading metadata and usage details.
 	rows, errQuery := d.db.Query(`WITH page AS MATERIALIZED (SELECT r.id `+page+`)
 		SELECT r.id, r.at, r.scope, r.auth_index, r.provider, r.account,
-			r.executor_type, r.reasoning_effort, r.service_tier, r.response_service_tier,
+			r.executor_type, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_service_tier,
 			r.upstream_model, r.response_model, r.billing_model, r.failed, r.latency_ms, r.ttft_ms,
 			r.accounting_quality, r.price_source, r.reasoning_tokens,
 			r.currency, r.total_cost, r.uncached_input_cost, r.cache_read_cost, r.cache_write_cost, r.output_cost,
@@ -284,7 +284,7 @@ func scanRequestEventRow(rows *sql.Rows) (billing.RequestEventRow, error) {
 		execution            string
 	)
 	if errScan := rows.Scan(&row.ID, &at, &row.Scope, &row.AuthIndex, &row.Provider, &row.Account,
-		&row.ExecutorType, &row.ReasoningEffort, &row.ServiceTier, &row.ResponseServiceTier,
+		&row.ExecutorType, &row.ReasoningEffort, &row.ServiceTier, &row.EffectiveServiceTier, &row.ResponseServiceTier,
 		&row.UpstreamModel, &row.ResponseModel, &row.BillingModel, &failed,
 		&row.LatencyMS, &row.TTFTMS,
 		&quality, &priceSource, &row.ReasoningTokens,

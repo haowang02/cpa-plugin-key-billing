@@ -2,11 +2,13 @@ package plugin
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"cpa-key-billing/internal/billing"
+	"cpa-key-billing/internal/messages"
 )
 
 type aiProviderView struct {
@@ -107,12 +109,13 @@ func (a *App) setAIProviderNote(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, struct{}{})
 }
 
+// syncConfiguredCredentials stores the AI provider entries the UI read from
+// the host configuration. A loaded entry is the host credential behind its auth
+// index, so its ref fingerprints the runtime ID the host assigned; an entry the
+// host has not loaded is known only by its configuration identity.
 func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementResponse {
 	var body struct {
-		Credentials []struct {
-			Ref string `json:"ref"`
-			billing.ConfigCredentialDetails
-		} `json:"credentials"`
+		Credentials []billing.ConfigCredentialDetails `json:"credentials"`
 	}
 	if errDecode := decodeStrict(req.Body, &body); errDecode != nil {
 		return errorResponse(errDecode)
@@ -121,20 +124,29 @@ func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementRespons
 		return JSONError(http.StatusBadRequest, "invalid", "Too many configured credentials")
 	}
 
+	runtimeIDs := map[string]string{}
+	if slices.ContainsFunc(body.Credentials, func(item billing.ConfigCredentialDetails) bool { return item.AuthIndex != "" }) {
+		credentials, err := a.hostCredentials()
+		if err != nil {
+			return jsonMessageError(http.StatusBadGateway, "host_unavailable", messages.New("Failed to load upstream credentials: %s", err.Error()))
+		}
+		for _, credential := range credentials {
+			runtimeIDs[credential.AuthIndex] = credential.ID
+		}
+	}
 	next := make(map[string]billing.ConfigCredentialDetails, len(body.Credentials))
-	for _, item := range body.Credentials {
-		ref := strings.ToLower(strings.TrimSpace(item.Ref))
-		provider := strings.ToLower(strings.TrimSpace(item.Provider))
-		if !billing.ValidCredentialFingerprint(ref) || provider == "" || len(provider) > 160 || cleanText(provider) != provider {
-			return JSONError(http.StatusBadRequest, "invalid", "Invalid configured credential identifier")
-		}
-		credential := item.ConfigCredentialDetails
-		credential.Provider = provider
+	for _, credential := range body.Credentials {
+		credential.Provider = strings.ToLower(strings.TrimSpace(credential.Provider))
 		credential.ConfigRef = strings.ToLower(strings.TrimSpace(credential.ConfigRef))
-		if credential.ConfigRef != "" && !billing.ValidCredentialFingerprint(credential.ConfigRef) {
+		if !billing.ValidCredentialFingerprint(credential.ConfigRef) || credential.Provider == "" || len(credential.Provider) > 160 ||
+			cleanText(credential.Provider) != credential.Provider {
 			return JSONError(http.StatusBadRequest, "invalid", "Invalid configured credential identifier")
 		}
-		credential.KeyPreview = billing.PreviewKey(cleanText(item.KeyPreview))
+		credential.KeyPreview = billing.PreviewKey(cleanText(credential.KeyPreview))
+		ref := credential.ConfigRef
+		if id, loaded := runtimeIDs[credential.AuthIndex]; loaded {
+			ref = billing.CredentialFingerprint(id)
+		}
 		next[ref] = credential
 	}
 

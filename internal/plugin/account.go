@@ -41,7 +41,6 @@ type accountRoutingResponse struct {
 	Credentials       []accountRouteCredential `json:"credentials"`
 	DeniedModels      []string                 `json:"denied_models"`
 	DeniedCredentials []accountRouteCredential `json:"denied_credentials"`
-	CatalogFiltered   bool                     `json:"catalog_filtered"`
 	Warnings          []string                 `json:"warnings"`
 	WarningMessages   []messages.Message       `json:"warning_messages,omitempty"`
 }
@@ -87,7 +86,7 @@ func (a *App) accountRouting(access viewAccess) ManagementResponse {
 	response := accountRoutingResponse{
 		Models: decision.Models, DeniedModels: decision.DeniedModels,
 		Credentials: []accountRouteCredential{}, DeniedCredentials: []accountRouteCredential{},
-		CatalogFiltered: a.filtersModelCatalogs(), Warnings: []string{},
+		Warnings: []string{},
 	}
 	if !decision.RestrictsCredentials() {
 		return viewJSON(access, http.StatusOK, response)

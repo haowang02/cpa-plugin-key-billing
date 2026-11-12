@@ -315,9 +315,10 @@ func (a *App) pickCredential(raw []byte) ([]byte, error) {
 
 // The host offers only credentials it can use now, so a routed request left
 // without a candidate either has its allowed credentials unavailable or has no
-// allowed credential serving the model; hosts without host.auth.models cannot
-// tell which. A refusal reaches request.complete only as its message, which the
-// route log maps back to the result.
+// allowed credential serving the model. The refusal stays generic when the host
+// cannot report the models its credentials serve. A refusal reaches
+// request.complete only as its message, which the route log maps back to the
+// result.
 type routingShortfall struct{ result, message string }
 
 var (
@@ -329,12 +330,10 @@ var (
 
 func (a *App) refuseRoute(model string, decision billing.RoutingDecision) []byte {
 	shortfall := routeNoMatch
-	if a.authModelsSupported.Load() {
-		if provided, err := a.credentialModels(decision); err == nil {
-			shortfall = routeNoCredential
-			if provided[billing.ModelWithoutThinkingSuffix(model)] {
-				shortfall = routeUnavailable
-			}
+	if provided, err := a.credentialModels(decision); err == nil {
+		shortfall = routeNoCredential
+		if provided[billing.ModelWithoutThinkingSuffix(model)] {
+			shortfall = routeUnavailable
 		}
 	}
 	return ErrorEnvelope("no_routed_credential", shortfall.message, http.StatusServiceUnavailable)

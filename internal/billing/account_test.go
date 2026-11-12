@@ -68,6 +68,25 @@ func TestRecordUsageSeparatesNormalAndErrorEvents(t *testing.T) {
 	}
 }
 
+// Payload rules decide whether a Codex request runs in fast mode, so the
+// outbound tier sets the multiplier rather than the tier the client asked for.
+func TestCodexFastModeFollowsOutboundTier(t *testing.T) {
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	store := newAccountStore(t, now)
+	store.cfg.CodexFastModeBilling = true
+	for i, tiers := range []struct{ client, outbound string }{{"priority", ""}, {"auto", "priority"}} {
+		event := subsetEvent("scope-a", now.Add(time.Duration(i)*time.Minute))
+		event.Provider, event.AuthType = "codex", "oauth"
+		event.ServiceTier, event.EffectiveServiceTier = tiers.client, tiers.outbound
+		store.RecordUsage(event)
+	}
+	entries := mustRequestEvents(t, store, RequestEventQuery{}).Entries
+	if len(entries) != 2 || entries[0].Cost.Multiplier != CodexFastModeMultiplier || entries[1].Cost.Multiplier != 0 ||
+		*entries[0].EffectiveServiceTier != "priority" || *entries[1].EffectiveServiceTier != "" {
+		t.Fatalf("request events = %+v", entries)
+	}
+}
+
 func TestRecordUsageGroupsAndPricesByBillingModel(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, now)

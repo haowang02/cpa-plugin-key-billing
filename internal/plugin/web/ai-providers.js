@@ -37,7 +37,7 @@ async function fetchAIProviders(account) {
   const path = "/ai-providers?" + new URLSearchParams(range);
   const result = account ? await accountAPI(path) : await plugin("GET", path);
   return result.providers.map((provider) => {
-    const target = targets?.get(provider.ref);
+    const target = targets?.get(provider.config_ref);
     return {
       ...provider,
       editor: target?.editor || { weightEditable: false, sharedPriority: false },
@@ -202,8 +202,8 @@ async function setAIProvidersEnabled(providers, enabled, selection = null) {
     const targets = await readConfiguredProviderTargets(providers);
     if (generation !== sessionGeneration || (selection && (activeTableSelection !== selection || selection.context !== context)))
       throw new StaleRequestError();
-    const group = (provider) => targets.get(provider.ref).group;
-    const save = (provider) => setConfiguredProviderEnabled(targets.get(provider.ref), enabled);
+    const group = (provider) => targets.get(provider.config_ref).group;
+    const save = (provider) => setConfiguredProviderEnabled(targets.get(provider.config_ref), enabled);
     if (selection)
       await selection.run(providers, save, {
         groupBy: group,

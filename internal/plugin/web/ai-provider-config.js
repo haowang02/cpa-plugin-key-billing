@@ -14,9 +14,9 @@ function sortedConfiguredHeaders(headers) {
   return Object.keys(headers).sort().map((key) => key + "\0" + headers[key] + "\0").join("");
 }
 
-async function configuredCredentialRef(kind, parts, counters) {
-  // These hashes must stay byte-identical to CPA's StableIDGenerator and
-  // the plugin's CredentialFingerprint so exact bindings match candidates.
+// An entry's identity hashes the fields that tell entries of one kind apart, so
+// unlike the host's runtime credential it survives disabling the entry.
+async function configuredEntryRef(kind, parts, counters) {
   const digest = await sha256Hex(kind + parts.map((part) => "\0" + String(part || "").trim()).join(""));
   const base = kind + ":" + digest.slice(0, 12);
   const collision = counters.get(base) || 0;
@@ -35,8 +35,9 @@ function configuredProviderDetails(entry, type, name) {
   };
 }
 
-// The v0 lists name only OpenAI-compatible providers, while CLIProxyAPI v8 names
-// every group of keys. Hosts before v8, or without providers, answer 404.
+// The v0 lists name only OpenAI-compatible providers, while the v8 API names
+// every group of keys. A host without providers, or a panel that forwards only
+// v0 routes, answers 404.
 async function readProviderGroupNames() {
   let groups;
   try { groups = await api("GET", "/v8/management/config/api-keys", null); } catch (error) {
@@ -66,14 +67,11 @@ async function syncConfiguredProviders() {
 async function parseConfiguredProviders(config, groupNames) {
   const generation = sessionGeneration;
   const counters = new Map();
-  const disabledCounters = new Map();
-  // Config identities stay stable when disabled providers lose their runtime identity.
-  const configCounters = new Map();
   const credentials = [];
   const targets = new Map();
-  const add = (credential, list, index, configRef = credential.ref, keyIndex = null) => {
-    credentials.push({ ...credential, config_ref: configRef });
-    targets.set(credential.ref, {
+  const add = (credential, list, index, keyIndex = null) => {
+    credentials.push(credential);
+    targets.set(credential.config_ref, {
       list,
       index,
       keyIndex,
@@ -96,7 +94,7 @@ async function parseConfiguredProviders(config, groupNames) {
       if (type !== "vertex") parts.push(entry.prefix, sortedConfiguredHeaders(entry.headers));
       add(
         {
-          ref: await configuredCredentialRef(provider + ":apikey", parts, counters),
+          config_ref: await configuredEntryRef(provider + ":apikey", parts, counters),
           ...configuredProviderDetails(entry, type, groupNames.get(entry["auth-index"])),
           provider,
           key_preview: previewCredential(apiKey),
@@ -110,29 +108,23 @@ async function parseConfiguredProviders(config, groupNames) {
   }
 
   for (const [index, entry] of (config["openai-compatibility"] || []).entries()) {
-    // Disabled providers have no runtime identity and must not consume the live ID counters.
-    const disabled = entry.disabled === true;
-    const kindPrefix = disabled ? "disabled:" : "";
-    const providerCounters = disabled ? disabledCounters : counters;
     const providerName = (entry.name || "").trim().toLowerCase() || "openai-compatibility";
     const provider =
       providerName === "openai-compatibility" || providerName.startsWith("openai-compatible-")
         ? providerName
         : "openai-compatible-" + providerName;
+    const kind = "selection:openai-compatibility:" + providerName;
+    const details = {
+      ...configuredProviderDetails(entry, "openai-compatibility", entry.name),
+      provider,
+      disabled: entry.disabled === true
+    };
     const apiKeys = entry["api-key-entries"] || [];
     if (!apiKeys.length) {
       add(
-        {
-          ref: await configuredCredentialRef(kindPrefix + "openai-compatibility:" + providerName, [entry["base-url"]], providerCounters),
-          ...configuredProviderDetails(entry, "openai-compatibility", entry.name),
-          provider,
-          key_preview: "",
-          weight: 1,
-          disabled
-        },
+        { config_ref: await configuredEntryRef(kind, [entry["base-url"]], counters), ...details, key_preview: "", weight: 1 },
         "openai-compatibility",
-        index,
-        await configuredCredentialRef("selection:openai-compatibility:" + providerName, [entry["base-url"]], configCounters)
+        index
       );
       continue;
     }
@@ -140,25 +132,14 @@ async function parseConfiguredProviders(config, groupNames) {
       const apiKey = (apiKeyEntry["api-key"] || "").trim();
       add(
         {
-          ref: await configuredCredentialRef(
-            kindPrefix + "openai-compatibility:" + providerName,
-            [apiKey, entry["base-url"], apiKeyEntry["proxy-url"]],
-            providerCounters
-          ),
-          ...configuredProviderDetails(entry, "openai-compatibility", entry.name),
+          config_ref: await configuredEntryRef(kind, [apiKey, entry["base-url"], apiKeyEntry["proxy-url"]], counters),
+          ...details,
           auth_index: apiKeyEntry["auth-index"] || "",
-          provider,
           key_preview: previewCredential(apiKey),
-          weight: Math.max(0, apiKeyEntry.weight ?? 1),
-          disabled
+          weight: Math.max(0, apiKeyEntry.weight ?? 1)
         },
         "openai-compatibility",
         index,
-        await configuredCredentialRef(
-          "selection:openai-compatibility:" + providerName,
-          [apiKey, entry["base-url"], apiKeyEntry["proxy-url"]],
-          configCounters
-        ),
         keyIndex
       );
     }
@@ -169,7 +150,7 @@ async function parseConfiguredProviders(config, groupNames) {
 }
 
 function configuredProviderTarget(provider, targets) {
-  const target = targets.get(provider.ref);
+  const target = targets.get(provider.config_ref);
   if (!target) throw new UIError(m("ui.provider_config_changed"));
   return target;
 }

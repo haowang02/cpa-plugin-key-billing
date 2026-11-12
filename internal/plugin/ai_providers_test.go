@@ -3,6 +3,7 @@ package plugin
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -26,9 +27,10 @@ func TestAIProviderViewsScopeUsageAndRouting(t *testing.T) {
 	if _, err := app.store.SyncKeys([]string{accountTestKeyA, accountTestKeyB}, false); err != nil {
 		t.Fatal(err)
 	}
+	app.SetHostCaller(hostCredentialsCaller(`[{"id":"config-a","auth_index":"config-a"},{"id":"config-b","auth_index":"config-b"}]`))
 	callOK(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []map[string]any{
-		{"ref": refA, "provider": "codex", "auth_index": "config-a", "type": "codex", "key_preview": "sk-dum…1234", "weight": 2},
-		{"ref": refB, "provider": "claude", "auth_index": "config-b", "type": "claude", "weight": 1},
+		{"config_ref": billing.CredentialFingerprint("entry-a"), "provider": "codex", "auth_index": "config-a", "type": "codex", "key_preview": "sk-dum…1234", "weight": 2},
+		{"config_ref": billing.CredentialFingerprint("entry-b"), "provider": "claude", "auth_index": "config-b", "type": "claude", "weight": 1},
 	}}, http.StatusOK, nil)
 	for _, sample := range []struct {
 		index, key string
@@ -107,18 +109,21 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	app, path := newAppWithPriceAndState(t, true)
 	configuration := mustMarshal(t, LifecycleRequest{ConfigYAML: []byte(fmt.Sprintf("state_file: %q\n", path))})
 	const rawKey = "sk-dummy-upstream-secret-1234"
+	// The host loads one entry; the other is known only by its configuration identity.
 	ref := billing.CredentialFingerprint("dummy-config")
 	configRef := billing.CredentialFingerprint("dummy-config-identity")
-	removed := billing.CredentialFingerprint("dummy-removed")
+	unloaded := billing.CredentialFingerprint("dummy-unloaded")
+	const loaded = `[{"id":"dummy-config","auth_index":"dummy-index"}]`
 	if _, err := app.store.SyncKeys([]string{accountTestKeyA}, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := app.store.SetKeyRoutes(billing.CallerScope(accountTestKeyA), billing.RouteBindings{RouteRule: billing.RouteRule{CredentialIDs: []string{ref}}}); err != nil {
 		t.Fatal(err)
 	}
+	app.SetHostCaller(hostCredentialsCaller(loaded))
 	response := callManagement(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []map[string]any{
-		{"ref": ref, "config_ref": configRef, "provider": "codex", "key_preview": rawKey, "auth_index": "dummy-index", "type": "codex", "name": "Codex Relay", "base_url": "https://example.com/v1", "priority": 2, "weight": 3},
-		{"ref": removed, "provider": "codex", "key_preview": "", "auth_index": "dummy-index", "disabled": true},
+		{"config_ref": configRef, "provider": "codex", "key_preview": rawKey, "auth_index": "dummy-index", "type": "codex", "name": "Codex Relay", "base_url": "https://example.com/v1", "priority": 2, "weight": 3},
+		{"config_ref": unloaded, "provider": "codex", "key_preview": "", "disabled": true},
 	}})
 	if response.StatusCode != http.StatusOK || strings.Contains(string(response.Body), rawKey) {
 		t.Fatalf("sync response = %+v", response)
@@ -134,11 +139,12 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 		if err := app.configure(configuration); err != nil {
 			t.Fatal(err)
 		}
-		app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
-			if method != hostAuthList && method != hostAuthModels {
-				t.Fatalf("host method = %q", method)
+		models := hostCredentialsCaller(loaded)
+		app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
+			if method == hostAuthList {
+				return json.RawMessage(`{"files":[{"id":"dummy-auth-file","provider":"codex","source":"file","email":"live@example.com"}]}`), nil
 			}
-			return json.RawMessage(`{"files":[{"id":"dummy-auth-file","provider":"codex","source":"file","email":"live@example.com"}]}`), nil
+			return models(method, payload)
 		})
 	}
 	restart()
@@ -149,7 +155,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 		routing.Credentials[0].Status != "active" || len(routing.Warnings) != 0 {
 		t.Fatalf("routing after restart = %+v, response = %+v, err = %v", routing, response, err)
 	}
-	if snapshot := app.store.ConfigCredentials(); len(snapshot) != 2 || snapshot[removed].KeyPreview != "" || !snapshot[removed].Disabled || !reflect.DeepEqual(snapshot[removed].Balance, &balance) {
+	if snapshot := app.store.ConfigCredentials(); len(snapshot) != 2 || snapshot[unloaded].KeyPreview != "" || !snapshot[unloaded].Disabled || snapshot[unloaded].Balance != nil {
 		t.Fatalf("persisted config snapshot = %+v", snapshot)
 	}
 	if saved := app.store.ConfigCredentials()[ref]; saved.BaseURL != "https://example.com/v1" || saved.Priority != 2 || saved.Weight != 3 || saved.Note != "Team provider" || saved.ConfigRef != configRef || saved.AuthIndex != "dummy-index" || !reflect.DeepEqual(saved.Balance, &balance) {
@@ -176,7 +182,7 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	update := map[string]any{"credentials": []map[string]any{
-		{"ref": ref, "provider": "codex", "key_preview": "sk-new…5678", "auth_index": "dummy-index", "disabled": true},
+		{"config_ref": configRef, "provider": "codex", "key_preview": "sk-new…5678", "auth_index": "dummy-index", "disabled": true},
 	}}
 	if response := callManagement(t, app, http.MethodPost, routeCredentialsSync, nil, update); response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("failed sync response = %+v", response)
@@ -221,20 +227,20 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 		t.Fatalf("config snapshot was not restored after switching back: %+v", inventory)
 	}
 
-	changedRef := billing.CredentialFingerprint("disabled-config")
+	// Unloading the entry drops its runtime identity but keeps its note.
 	callOK(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []map[string]any{
-		{"ref": changedRef, "config_ref": configRef, "provider": "codex", "disabled": true},
+		{"config_ref": configRef, "provider": "codex", "disabled": true},
 	}}, http.StatusOK, nil)
-	if app.store.ConfigCredentials()[changedRef].Note != "Team provider" {
+	if app.store.ConfigCredentials()[configRef].Note != "Team provider" {
 		t.Fatal("credential identity change erased its note")
 	}
 	restart()
-	if app.store.ConfigCredentials()[changedRef].Note != "Team provider" {
+	if app.store.ConfigCredentials()[configRef].Note != "Team provider" {
 		t.Fatal("provider note did not survive restart")
 	}
-	callOK(t, app, http.MethodPost, routeAIProviderNote, nil, map[string]any{"ref": changedRef, "note": " "}, http.StatusOK, nil)
+	callOK(t, app, http.MethodPost, routeAIProviderNote, nil, map[string]any{"ref": configRef, "note": " "}, http.StatusOK, nil)
 	restart()
-	if app.store.ConfigCredentials()[changedRef].Note != "" {
+	if app.store.ConfigCredentials()[configRef].Note != "" {
 		t.Fatal("empty note did not clear persisted note")
 	}
 	if err := app.refreshCredentialInventory(); err != nil {
@@ -247,5 +253,15 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	restart()
 	if inventory := app.credentialInventory(); len(inventory) != 0 || len(app.store.ConfigCredentials()) != 0 {
 		t.Fatalf("cleared credentials reappeared after restart: %+v", inventory)
+	}
+}
+
+// hostCredentialsCaller is a host that reports only its loaded credentials.
+func hostCredentialsCaller(credentials string) HostCaller {
+	return func(method string, _ any) (json.RawMessage, error) {
+		if method != hostAuthModels {
+			return nil, errors.New("unsupported host callback " + method)
+		}
+		return json.RawMessage(`{"credentials":` + credentials + `}`), nil
 	}
 }

@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"encoding/json"
 	"math"
 	"net/url"
 	"strings"
@@ -305,11 +304,11 @@ func unclassifiedLowerBound(input, output, reasoning, cacheRead, cacheWrite, cac
 	return checkedTokenSum(input, output)
 }
 
-func (record UsageRecord) executionMetadata() *billing.ExecutionMetadata {
-	metadata := &billing.ExecutionMetadata{
+func (record UsageRecord) executionMetadata() billing.ExecutionMetadata {
+	metadata := billing.ExecutionMetadata{
 		RequestID: strings.TrimSpace(record.RequestID), TraceID: strings.TrimSpace(record.TraceID),
 		SessionID: strings.TrimSpace(record.SessionID), ParentSessionID: strings.TrimSpace(record.ParentSessionID),
-		AccessProvider: strings.TrimSpace(record.AccessProvider), IsNativeKey: record.IsNativeKey,
+		AccessProvider: strings.TrimSpace(record.AccessProvider), IsNativeKey: &record.IsNativeKey,
 	}
 	if id := strings.TrimSpace(record.AuthID); id != "" {
 		metadata.CredentialRef = billing.CredentialFingerprint(id)
@@ -319,9 +318,6 @@ func (record UsageRecord) executionMetadata() *billing.ExecutionMetadata {
 	if parsed, err := url.Parse(strings.TrimSpace(record.BaseURL)); err == nil &&
 		(parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" {
 		metadata.BaseURL = parsed.Scheme + "://" + parsed.Host
-	}
-	if *metadata == (billing.ExecutionMetadata{}) {
-		return nil
 	}
 	return metadata
 }
@@ -342,15 +338,9 @@ func (a *App) usageAccount(record UsageRecord) string {
 	if index == "" || a.hostCaller == nil {
 		return ""
 	}
-	raw, err := a.hostCaller(hostAuthGetRuntime, map[string]string{"auth_index": index})
-	if err != nil {
+	file, err := a.hostAuthRuntime(index)
+	if err != nil || credentialSourceFromHost(file) != billing.CredentialSourceAuthFiles {
 		return ""
 	}
-	var response struct {
-		Auth hostAuthFile `json:"auth"`
-	}
-	if json.Unmarshal(raw, &response) != nil || credentialSourceFromHost(response.Auth) != billing.CredentialSourceAuthFiles {
-		return ""
-	}
-	return authFileTitle(response.Auth)
+	return authFileTitle(file)
 }

@@ -32,24 +32,16 @@ function renderAccountSubscription() {
   target.replaceChildren(renderQuotaWindows(subscription, true));
 }
 
+// The key's model catalog already lists only the models its routing rules allow.
 function renderAccountModels() {
   const data = resources.account;
   const target = $("account-models");
-  if (renderDataPending(target, [data.models, data.catalog, data.routing], m("ui.loading_model_prices"))) return;
-  const access = data.routing.value;
-  const directory = data.models.value;
-  const modelScope = new Set(access.models.map((model) => model.toLowerCase()));
-  const deniedModels = new Set((access.denied_models || []).map((model) => model.toLowerCase()));
-  // A host that filters model catalogs has already applied every rule to the key's directory.
-  const models = (
-    access.catalog_filtered
-      ? directory
-      : !modelScope.size ? directory : directory.length ? directory.filter((model) => modelScope.has(model.toLowerCase())) : access.models
-  )
-    .filter((model) => !deniedModels.has(model.toLowerCase()))
-    .slice()
-    .sort(compareModelId);
-  renderCollection(target, models, { attrs: { class: "display-contents" }, empty: m("ui.no_model_prices"), render: renderAccountModel });
+  if (renderDataPending(target, [data.models, data.catalog], m("ui.loading_model_prices"))) return;
+  renderCollection(target, data.models.value, {
+    attrs: { class: "display-contents" },
+    empty: m("ui.no_model_prices"),
+    render: renderAccountModel
+  });
 }
 
 function renderAccountRouting() {

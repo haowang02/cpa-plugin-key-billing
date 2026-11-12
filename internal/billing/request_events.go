@@ -33,23 +33,26 @@ type RequestOrigin struct {
 // or an auth file title.
 type RequestEvent struct {
 	RequestOrigin
-	Execution           *ExecutionMetadata `json:"execution,omitempty"`
-	Stream              *bool              `json:"stream,omitempty"`
-	At                  time.Time          `json:"at"`
-	Scope               string             `json:"scope"`
-	AuthIndex           string             `json:"auth_index,omitempty"`
-	Provider            string             `json:"provider,omitempty"`
-	Account             string             `json:"account,omitempty"`
-	ExecutorType        string             `json:"executor_type,omitempty"`
-	ReasoningEffort     string             `json:"reasoning_effort,omitempty"`
-	ServiceTier         string             `json:"service_tier,omitempty"`
-	ResponseServiceTier string             `json:"response_service_tier,omitempty"`
-	UpstreamModel       string             `json:"upstream_model,omitempty"`
-	ResponseModel       string             `json:"response_model,omitempty"`
-	BillingModel        string             `json:"billing_model,omitempty"`
-	Failed              bool               `json:"failed"`
-	LatencyMS           int64              `json:"latency_ms,omitempty"`
-	TTFTMS              int64              `json:"ttft_ms,omitempty"`
+	Execution       *ExecutionMetadata `json:"execution,omitempty"`
+	Stream          *bool              `json:"stream,omitempty"`
+	At              time.Time          `json:"at"`
+	Scope           string             `json:"scope"`
+	AuthIndex       string             `json:"auth_index,omitempty"`
+	Provider        string             `json:"provider,omitempty"`
+	Account         string             `json:"account,omitempty"`
+	ExecutorType    string             `json:"executor_type,omitempty"`
+	ReasoningEffort string             `json:"reasoning_effort,omitempty"`
+	ServiceTier     string             `json:"service_tier,omitempty"`
+	// EffectiveServiceTier is the tier of the final outbound request, which
+	// payload rules may change. Events recorded before schema 27 have none.
+	EffectiveServiceTier *string `json:"effective_service_tier,omitempty"`
+	ResponseServiceTier  string  `json:"response_service_tier,omitempty"`
+	UpstreamModel        string  `json:"upstream_model,omitempty"`
+	ResponseModel        string  `json:"response_model,omitempty"`
+	BillingModel         string  `json:"billing_model,omitempty"`
+	Failed               bool    `json:"failed"`
+	LatencyMS            int64   `json:"latency_ms,omitempty"`
+	TTFTMS               int64   `json:"ttft_ms,omitempty"`
 	// AccountingQuality is empty when the host reported no token detail.
 	AccountingQuality TokenAccountingQuality `json:"accounting_quality,omitempty"`
 	// PriceSource says where the numbers came from. "none" means no rule

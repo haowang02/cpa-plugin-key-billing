@@ -20,7 +20,7 @@
 
 ## Installation
 
-Requires **CLIProxyAPI 7.3.7 or later** with plugin support. Builds labeled `no-plugin` are not supported.
+Requires **CLIProxyAPI 8.0.44 or later** with plugin support.
 
 Search for `cpa-key-billing` in the CPAMC or CPAMP plugin store, or run the installer from your CLIProxyAPI directory.
 
@@ -52,7 +52,7 @@ plugins:
       priority: 100 # Scheduling priority; higher values take precedence
       state_file: "plugins/cpa-key-billing-state-v1.db"
       debug: false # Debug logging
-      codex_fast_mode_billing: false # Charge 2.5× for Codex priority requests
+      codex_fast_mode_billing: false # Charge 2.5× for Codex requests sent upstream at the priority tier
       allow_unpriced_models: false # Admit unpriced models and record usage at zero cost
       cny_per_usd: 7 # CNY per USD
       request_event_retention_days: 365 # History retention in days; shortening deletes older records
@@ -101,8 +101,6 @@ Clearing history does not reset quotas. Unbinding or deleting a member key does 
 
 - Bound rules and direct settings are combined: allowlists are merged, and denials take precedence. An empty allowlist permits everything except explicit denials.
 - Credential category rules automatically cover future additions.
-
-On **CLIProxyAPI 8.0.37 or later**, client model lists are filtered by routing permissions. Older versions show the full list, but access checks still apply to requests.
 
 ## Rejected requests
 

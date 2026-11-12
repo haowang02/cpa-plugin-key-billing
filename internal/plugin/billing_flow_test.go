@@ -99,8 +99,8 @@ func TestUsageHandleBillsWithoutResponseOrCompletionHooks(t *testing.T) {
 	if requests != 1 {
 		t.Fatalf("Requests = %d, want 1", requests)
 	}
-	if entry := requestEventEntries(t, app)[0]; entry.RequestOrigin != (billing.RequestOrigin{}) || entry.Stream != nil {
-		t.Fatalf("missing host metadata was reconstructed: %+v", entry)
+	if entry := requestEventEntries(t, app)[0]; entry.RequestOrigin != (billing.RequestOrigin{}) {
+		t.Fatalf("missing request origin was reconstructed: %+v", entry)
 	}
 }
 
@@ -115,13 +115,12 @@ func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 		}
 		return json.RawMessage(`{"auth":{"name":"codex-team.json","path":"/auths/codex-team.json"}}`), nil
 	})
-	stream := true
 	// The host reports the caller's own key for an auth file without an email.
 	publishUsageRecord(t, app, UsageRecord{
-		TraceID: "metadata-trace", Stream: &stream,
+		TraceID: "metadata-trace", Stream: true,
 		Provider: "codex", ExecutorType: "CodexExecutor", Model: flowModel, Alias: "route/gpt-5.5",
 		ResponseModel: "gpt-5.6-luna", APIKey: testAPIKey, AuthIndex: "auth-7", AuthType: "oauth",
-		Source: testAPIKey, ReasoningEffort: "high", ServiceTier: "priority", ResponseServiceTier: "default",
+		Source: testAPIKey, ReasoningEffort: "high", ServiceTier: "auto", EffectiveServiceTier: "priority", ResponseServiceTier: "default",
 		Generate: true, RequestedAt: app.store.Now(), Latency: 1500 * time.Millisecond, TTFT: 250 * time.Millisecond,
 		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
@@ -132,7 +131,7 @@ func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 	}
 	entry := entries[0]
 	if entry.AuthIndex != "auth-7" || entry.ExecutorType != "CodexExecutor" ||
-		entry.ReasoningEffort != "high" || entry.ServiceTier != "priority" ||
+		entry.ReasoningEffort != "high" || entry.ServiceTier != "auto" || *entry.EffectiveServiceTier != "priority" ||
 		entry.ResponseServiceTier != "default" || entry.ResponseModel != "gpt-5.6-luna" ||
 		entry.UpstreamModel != flowModel || entry.BillingModel != "route/gpt-5.5" || entry.Failed ||
 		entry.Source != "codex · codex-team" || entry.AccountingQuality != billing.TokenAccountingComplete ||
@@ -209,15 +208,14 @@ func TestUsageHandleBillsTheSuccessfulRetryAttemptOnce(t *testing.T) {
 	if _, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, req)); err != nil {
 		t.Fatal(err)
 	}
-	stream := true
 	publishUsageRecord(t, app, UsageRecord{
-		TraceID: req.TraceID, Stream: &stream,
+		TraceID: req.TraceID, Stream: true,
 		Provider: "codex", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		AuthIndex: "auth-failed", AuthType: "oauth", Source: "failed@example.com",
 		Generate: true, Failed: true,
 	})
 	publishUsageRecord(t, app, UsageRecord{
-		TraceID: req.TraceID, Stream: &stream,
+		TraceID: req.TraceID, Stream: true,
 		Provider: "codex", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		AuthIndex: "auth-success", AuthType: "oauth", Source: "success@example.com",
 		Generate: true, RequestedAt: app.store.Now(),
@@ -243,7 +241,7 @@ func TestUsageHandleBillsNonGeneratingRequest(t *testing.T) {
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "codex", ExecutorType: "CodexWebsocketsExecutor",
 		Model: flowModel, Alias: flowModel, APIKey: testAPIKey, Generate: false,
-		Stream: new(bool), TTFT: 12 * time.Millisecond, Latency: 12 * time.Millisecond,
+		TTFT: 12 * time.Millisecond, Latency: 12 * time.Millisecond,
 		Detail: UsageDetail{InputTokens: 1000, CacheReadTokens: 400, TotalTokens: 1000},
 	})
 	cost, requests := requestEventCost(t, app)
@@ -310,8 +308,8 @@ func TestUsageHandlePersistsBillWithoutPlaintextKeys(t *testing.T) {
 	}, flowScope(), "/v1/messages?key=dummy-secret")
 	publishUsageRecord(t, app, UsageRecord{
 		RequestID: "privacy-execution", TraceID: "privacy-trace",
-		SessionID: "session-1", ParentSessionID: "session-parent", AccessProvider: "config-inline", IsNativeKey: new(bool),
-		AuthID: "dummy-auth-secret", BaseURL: "https://dummy:secret@upstream.invalid/dummy-token?key=dummy-query#dummy-fragment", Stream: new(bool),
+		SessionID: "session-1", ParentSessionID: "session-parent", AccessProvider: "config-inline",
+		AuthID: "dummy-auth-secret", BaseURL: "https://dummy:secret@upstream.invalid/dummy-token?key=dummy-query#dummy-fragment",
 		Provider: "openai-compatible-deepseek", ExecutorType: "OpenAICompatExecutor",
 		Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		AuthIndex: "auth-3", AuthType: "apikey", Source: "sk-upstream-key-0001",

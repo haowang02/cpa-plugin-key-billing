@@ -2,9 +2,7 @@ package plugin
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -150,19 +148,16 @@ func (a *App) selectedCredentialAllowed(req RequestInterceptRequest, decision bi
 		if index == "" || a.hostCaller == nil {
 			return false, errors.New("The host did not provide enough information to verify the selected upstream credential")
 		}
-		raw, err := a.hostCaller(hostAuthGetRuntime, map[string]string{"auth_index": index})
+		file, err := a.hostAuthRuntime(index)
 		if err != nil {
 			return false, errors.New("The host could not provide runtime information for the selected upstream credential")
 		}
-		var response struct {
-			Auth hostAuthFile `json:"auth"`
-		}
-		if err := json.Unmarshal(raw, &response); err != nil || response.Auth.ID != id || response.Auth.AuthIndex != index {
+		if file.ID != id || file.AuthIndex != index {
 			return false, errors.New("The host returned inconsistent identity information for the selected upstream credential")
 		}
 		identity = billing.CredentialProviderSelector{
-			Source:   credentialSourceFromHost(response.Auth),
-			Provider: strings.ToLower(strings.TrimSpace(firstNonEmptyString(response.Auth.Provider, response.Auth.Type))),
+			Source:   credentialSourceFromHost(file),
+			Provider: strings.ToLower(strings.TrimSpace(firstNonEmptyString(file.Provider, file.Type))),
 		}
 	}
 	if identity.Source == "" || identity.Provider == "" {
@@ -174,37 +169,14 @@ func (a *App) selectedCredentialAllowed(req RequestInterceptRequest, decision bi
 	return routingAllowsCredential(id, identity.Source, identity.Provider, decision), nil
 }
 
-// host.auth.models backs model catalog filtering and explains routed requests
-// left without a credential. Older hosts fail this probe.
-func (a *App) probeHostAuthModels() bool {
-	if a.hostCaller == nil {
-		return false
-	}
-	if _, err := a.hostCaller(hostAuthModels, map[string]any{}); err != nil {
-		a.store.AddPluginLog(billing.PluginLogDebug, "Upstream credential models are unavailable: %v", err)
-		return false
-	}
-	return true
-}
-
 // credentialModels collects the models served by credentials the rules allow.
 // Sources matter only to provider selectors. host.auth.list omits exactly the
 // config-backed credentials, so a credential it does not list is an AI
 // provider key.
 func (a *App) credentialModels(decision billing.RoutingDecision) (map[string]bool, error) {
-	raw, err := a.hostCaller(hostAuthModels, map[string]any{})
+	credentials, err := a.hostCredentials()
 	if err != nil {
 		return nil, err
-	}
-	var response struct {
-		Credentials []struct {
-			ID       string   `json:"id"`
-			Provider string   `json:"provider"`
-			Models   []string `json:"models"`
-		} `json:"credentials"`
-	}
-	if err := json.Unmarshal(raw, &response); err != nil {
-		return nil, fmt.Errorf("Parse credential models: %w", err)
 	}
 	sources := map[string]string{}
 	if len(decision.CredentialProviders) > 0 || len(decision.DeniedCredentialProviders) > 0 {
@@ -217,7 +189,7 @@ func (a *App) credentialModels(decision billing.RoutingDecision) (map[string]boo
 		}
 	}
 	provided := map[string]bool{}
-	for _, credential := range response.Credentials {
+	for _, credential := range credentials {
 		source, listed := sources[credential.ID]
 		if !listed {
 			source = billing.CredentialSourceAIProviders

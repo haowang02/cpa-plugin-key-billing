@@ -11,10 +11,11 @@ import (
 var eventStart = time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 
 func requestEvent(scope string, at time.Time) billing.RequestEvent {
+	outboundTier := "default"
 	return billing.RequestEvent{
 		At: at, Scope: scope, AuthIndex: "auth-codex", ExecutorType: "CodexExecutor",
 		Provider: "codex", Account: "ops@example.com",
-		ReasoningEffort: "high", ServiceTier: "auto", ResponseServiceTier: "priority",
+		ReasoningEffort: "high", ServiceTier: "auto", EffectiveServiceTier: &outboundTier, ResponseServiceTier: "priority",
 		UpstreamModel: "gpt-5.5", ResponseModel: "gpt-5.6-luna", BillingModel: "gpt-5.5",
 		LatencyMS: 1500, TTFTMS: 250,
 		AccountingQuality: billing.TokenAccountingComplete, PriceSource: billing.PriceSourceCustom,
@@ -250,7 +251,7 @@ func TestRequestEventRowsFollowTheKeyTheyName(t *testing.T) {
 	}
 	if entry := view.Entries[0]; entry.Label != "Alice Cooper" || entry.Preview != "sk-tes…0001" ||
 		entry.ExecutorType != "CodexExecutor" ||
-		entry.ReasoningEffort != "high" || entry.ServiceTier != "auto" ||
+		entry.ReasoningEffort != "high" || entry.ServiceTier != "auto" || *entry.EffectiveServiceTier != "default" ||
 		entry.ResponseServiceTier != "priority" || entry.ResponseModel != "gpt-5.6-luna" ||
 		entry.Source != "codex · ops@example.com" || entry.Provider != "codex" ||
 		entry.LatencyMS != 1500 || entry.TTFTMS != 250 {

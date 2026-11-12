@@ -20,7 +20,7 @@
 
 ## 安装
 
-需要支持插件的 CLIProxyAPI **7.3.7 或更高版本**，不支持 `no-plugin` 构建。
+需要支持插件的 CLIProxyAPI **8.0.44 或更高版本**。
 
 在 CPAMC 或 CPAMP 的插件商店搜索 `cpa-key-billing` 安装，也可在 CLIProxyAPI 根目录运行安装脚本。
 
@@ -52,7 +52,7 @@ plugins:
       priority: 100 # 调度优先级，数值越大越优先
       state_file: "plugins/cpa-key-billing-state-v1.db"
       debug: false # 调试日志
-      codex_fast_mode_billing: false # Codex priority 请求按 2.5 倍计费
+      codex_fast_mode_billing: false # 以 priority 档位发往上游的 Codex 请求按 2.5 倍计费
       allow_unpriced_models: false # 允许未定价模型，以零费用记录用量
       cny_per_usd: 7 # 1 美元兑换的人民币数
       request_event_retention_days: 365 # 历史保留天数；缩短会删除超期数据
@@ -101,8 +101,6 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui
 
 - 绑定规则与 Key 的直接设置合并生效：白名单取并集，黑名单优先；白名单为空时仅排除黑名单。
 - 整类凭证的规则自动覆盖后续新增的凭证。
-
-CLIProxyAPI **8.0.37 起**，客户端模型列表会按路由权限过滤；旧版本显示完整列表，调用时仍执行权限检查。
 
 ## 请求被拒绝时
 

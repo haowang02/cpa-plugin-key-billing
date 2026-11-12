@@ -49,34 +49,21 @@ func (s *Store) ConfigCredentials() map[string]ConfigCredential {
 	return credentials
 }
 
+// SyncConfigCredentials replaces the configured entries. A note belongs to its
+// entry, and a balance to the upstream account behind the host credential.
 func (s *Store) SyncConfigCredentials(details map[string]ConfigCredentialDetails) error {
 	_, err := editConfiguration(s, func(state *State) (struct{}, Changes, error) {
-		balances := make(map[string]*CredentialBalance)
 		notes := make(map[string]string)
-		for ref, credential := range state.ConfigCredentials {
-			identity := credential.ConfigRef
-			if identity == "" {
-				identity = ref
-			}
-			notes[identity] = credential.Note
+		balances := make(map[string]*CredentialBalance)
+		for _, credential := range state.ConfigCredentials {
+			notes[credential.ConfigRef] = credential.Note
 			if credential.AuthIndex != "" && credential.Balance != nil {
 				balances[credential.AuthIndex] = credential.Balance
 			}
 		}
 		next := make(map[string]ConfigCredential, len(details))
 		for ref, item := range details {
-			previous := state.ConfigCredentials[ref]
-			if item.ConfigRef == "" {
-				item.ConfigRef = previous.ConfigRef
-			}
-			if item.ConfigRef == "" {
-				item.ConfigRef = ref
-			}
-			note, known := notes[item.ConfigRef]
-			if !known {
-				note = previous.Note
-			}
-			next[ref] = ConfigCredential{ConfigCredentialDetails: item, Balance: balances[item.AuthIndex], Note: note}
+			next[ref] = ConfigCredential{ConfigCredentialDetails: item, Balance: balances[item.AuthIndex], Note: notes[item.ConfigRef]}
 		}
 		if maps.Equal(state.ConfigCredentials, next) {
 			return struct{}{}, Changes{}, nil

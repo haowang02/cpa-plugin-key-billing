@@ -794,6 +794,7 @@ func downgradeToV19(t *testing.T, d *DB) {
 		DROP TABLE quota_report_windows; DROP TABLE quota_reports; DROP TABLE quota_queries;
 		ALTER TABLE request_events DROP COLUMN user_agent;
 		ALTER TABLE request_events DROP COLUMN x_forwarded_for;
+		ALTER TABLE request_events DROP COLUMN effective_service_tier;
 		ALTER TABLE request_events ADD COLUMN response_headers_json TEXT NOT NULL DEFAULT '{}';
 		PRAGMA user_version = 19;`); err != nil {
 		t.Fatal(err)
@@ -821,7 +822,7 @@ func TestV18ExecutionMetadataMigrationPreservesAllEvents(t *testing.T) {
 		t.Fatalf("history changed: %+v", view)
 	}
 	for _, entry := range view.Entries {
-		if entry.Execution != nil {
+		if entry.Execution != nil || entry.EffectiveServiceTier != nil {
 			t.Fatal("invented historical metadata")
 		}
 	}

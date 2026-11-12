@@ -16,6 +16,8 @@ import (
 	"cpa-key-billing/internal/messages"
 )
 
+const hostRoutingResetCooldown = "host.routing.reset_cooldown"
+
 func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile) (authFileQuota, error) {
 	client, errClient := a.openAuthQuotaClient(callbackID, file)
 	if errClient != nil {

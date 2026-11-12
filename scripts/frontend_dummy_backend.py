@@ -539,6 +539,10 @@ AI_BALANCE_RESPONSES = {
 }
 
 
+def runtime_credential_ref(auth_index):
+    return "sha256:" + hashlib.sha256(("cpa-key-billing:credential:v1\0config:" + auth_index).encode()).hexdigest()
+
+
 def ai_provider_credentials():
     for field, entries in AI_PROVIDER_LISTS.items():
         for entry in entries:
@@ -1122,6 +1126,7 @@ def event_sample(
     *,
     billing_model="",
     response_model="",
+    effective_tier=None,
     response_tier="",
     long_context=False,
     failed=False,
@@ -1140,6 +1145,7 @@ def event_sample(
         "executor_type": executor,
         "reasoning_effort": effort,
         "service_tier": tier,
+        **({} if effective_tier is None else {"effective_service_tier": effective_tier}),
         "response_service_tier": response_tier,
         "upstream_model": model,
         "response_model": response_model,
@@ -1167,10 +1173,10 @@ def event_sample(
 # Numeric usage and timing values are sampled from a real export. All identities
 # below are synthetic and intentionally unrelated to the source records.
 SUCCESS_EVENT_SAMPLES = [
-    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "priority", 11513, 8209, 266, (712, 91648, 4096, 425), (4, 0.4, 5, 20), multiplier=2.5, response_tier="priority", auth_index="auth-demo-codex-plus"),
+    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "priority", 11513, 8209, 266, (712, 91648, 4096, 425), (4, 0.4, 5, 20), multiplier=2.5, effective_tier="priority", response_tier="priority", auth_index="auth-demo-codex-plus"),
     event_sample(5, "codex · dev-team@example.com", "codex", "codex-auto-review", "CodexWebsocketsExecutor", "low", "auto", 2516, 1431, 10, (1030, 49920, 0, 75), (0.2, 0.02, 0.25, 1.2), response_model="gpt-5.6-luna", response_tier="default", auth_index="auth-demo-codex-plus"),
     event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "medium", "auto", 2417, 1103, 0, (1194, 95616, 0, 73), (5, 0.5, 5, 30), auth_index="auth-demo-codex-plus"),
-    event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 5306, 2121, 21, (798, 169984, 0, 201), (4, 0.4, 5, 20), auth_index="auth-demo-codex-plus"),
+    event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexWebsocketsExecutor", "high", "auto", 5306, 2121, 21, (798, 169984, 0, 201), (4, 0.4, 5, 20), multiplier=2.5, effective_tier="priority", response_tier="default", auth_index="auth-demo-codex-plus"),
     event_sample(2, "claude · platform@example.com", "claude", "deepseek-v4-pro", "ClaudeExecutor", "high", "auto", 10061, 637, 0, (38049, 0, 0, 474), (3, 0.025, 3, 6), billing_model="claude/deepseek-v4-pro", response_model="deepseek-v4-pro", auth_index="auth-demo-claude", currency="CNY"),
     event_sample(7, "Codex Relay · sk-proxy…7f3a", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "high", "auto", 7288, 4130, 188, (8502, 45440, 0, 309), (5, 0.5, 5, 30), auth_index="ai-demo-codex-relay"),
     event_sample(6, "codex · dev-team@example.com", "codex", "gpt-5.6-terra", "CodexWebsocketsExecutor", "medium", "auto", 10120, 3379, 81, (1300, 69376, 0, 477), (2, 0.2, 2.5, 12), auth_index="auth-demo-codex-plus"),
@@ -1354,7 +1360,7 @@ def account_routing_view(index):
         "credentials": [credential_view(item) for item in CREDENTIALS if item["ref"] in refs or (item["source"], item["provider"]) in providers],
         "denied_credentials": [credential_view(item) for item in CREDENTIALS if item["ref"] in denied_refs] +
             [{"source": source, "provider": provider, "provider_wide": True, "denied": True} for source, provider in sorted(denied_providers)],
-        "catalog_filtered": True, "warnings": [],
+        "warnings": [],
     }
 
 
@@ -2268,12 +2274,13 @@ class Handler(BaseHTTPRequestHandler):
             ]
             SYNCED_CREDENTIAL_REFS.clear()
             balances = {item["auth_index"]: item["balance"] for item in CONFIG_CREDENTIALS.values() if item["balance"] is not None}
-            notes = {item.get("config_ref", ref): item.get("note", "") for ref, item in CONFIG_CREDENTIALS.items()}
+            notes = {item["config_ref"]: item["note"] for item in CONFIG_CREDENTIALS.values()}
             CONFIG_CREDENTIALS.clear()
             for item in body.get("credentials", []):
-                ref = item["ref"]
+                # A loaded entry is named by the runtime ID the host assigned to its auth index.
+                ref = runtime_credential_ref(item["auth_index"]) if item["auth_index"] else item["config_ref"]
                 SYNCED_CREDENTIAL_REFS.add(ref)
-                CONFIG_CREDENTIALS[ref] = {**item, "balance": balances.get(item["auth_index"]), "note": notes.get(item.get("config_ref", ref), "")}
+                CONFIG_CREDENTIALS[ref] = {**item, "ref": ref, "balance": balances.get(item["auth_index"]), "note": notes.get(item["config_ref"], "")}
                 name = {"display_name": item["key_preview"]} if item["key_preview"] else {
                     "display_name": "No API key configured", "display_name_message": {"message_key": "backend.no_api_key_configured"}}
                 CREDENTIALS.append({

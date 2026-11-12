@@ -174,6 +174,7 @@ CREATE TABLE request_events (
 	executor_type               TEXT    NOT NULL DEFAULT '',
 	reasoning_effort            TEXT    NOT NULL DEFAULT '',
 	service_tier                TEXT    NOT NULL DEFAULT '',
+	effective_service_tier      TEXT,
 	response_service_tier       TEXT    NOT NULL DEFAULT '',
 	upstream_model              TEXT    NOT NULL DEFAULT '',
 	response_model              TEXT    NOT NULL DEFAULT '',

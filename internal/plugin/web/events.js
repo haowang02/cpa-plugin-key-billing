@@ -22,6 +22,7 @@ const EVENT_CSV_COLUMNS = {
     "source",
     "reasoning_effort",
     "service_tier",
+    "effective_service_tier",
     "response_service_tier",
     "failed",
     "ttft_ms",

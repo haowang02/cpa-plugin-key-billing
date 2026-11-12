@@ -17,41 +17,9 @@ import (
 	"cpa-key-billing/internal/messages"
 )
 
-const (
-	hostAuthList             = "host.auth.list"
-	hostAuthGet              = "host.auth.get"
-	hostAuthGetRuntime       = "host.auth.get_runtime"
-	hostAuthModels           = "host.auth.models"
-	hostRoutingResetCooldown = "host.routing.reset_cooldown"
-)
-
 var authQuotaProviders = []string{"claude", "antigravity", "codex", "xai", "kimi"}
 
 var quotaResetIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-
-type HostCaller func(method string, payload any) (json.RawMessage, error)
-
-type hostAuthFile struct {
-	ID          string    `json:"id"`
-	AuthIndex   string    `json:"auth_index"`
-	Name        string    `json:"name"`
-	Type        string    `json:"type"`
-	Provider    string    `json:"provider"`
-	Label       string    `json:"label"`
-	Note        string    `json:"note"`
-	Status      string    `json:"status"`
-	Source      string    `json:"source"`
-	Path        string    `json:"path"`
-	Account     string    `json:"account"`
-	Disabled    bool      `json:"disabled"`
-	Unavailable bool      `json:"unavailable"`
-	Priority    int       `json:"priority"`
-	Email       string    `json:"email"`
-	ProjectID   string    `json:"project_id"`
-	AccountType string    `json:"account_type"`
-	RuntimeOnly bool      `json:"runtime_only"`
-	ModTime     time.Time `json:"modtime"`
-}
 
 type authFileView struct {
 	AuthIndex          string                       `json:"auth_index"`
@@ -74,10 +42,6 @@ type authFileView struct {
 
 type authFileListResponse struct {
 	Files []authFileView `json:"files"`
-}
-
-type hostAuthListResponse struct {
-	Files []hostAuthFile `json:"files"`
 }
 
 func (a *App) authFiles(req ManagementRequest, access viewAccess) ManagementResponse {
@@ -292,39 +256,6 @@ func authFileRevision(file hostAuthFile) string {
 		return ""
 	}
 	return file.ModTime.UTC().Format(time.RFC3339Nano)
-}
-
-func (a *App) listHostAuthFiles() ([]hostAuthFile, error) {
-	if a.hostCaller == nil {
-		return nil, messages.Errorf("This CLIProxyAPI version does not support reading auth files")
-	}
-	raw, errCall := a.hostCaller(hostAuthList, map[string]any{})
-	if errCall != nil {
-		return nil, messages.Errorf("Read auth file list: %w", errCall)
-	}
-	var response hostAuthListResponse
-	if errDecode := json.Unmarshal(raw, &response); errDecode != nil {
-		return nil, messages.Errorf("Parse auth file list: %w", errDecode)
-	}
-	return response.Files, nil
-}
-
-func (a *App) readHostAuthFile(authIndex string) (map[string]any, error) {
-	raw, err := a.hostCaller(hostAuthGet, map[string]string{"auth_index": authIndex})
-	if err != nil {
-		return nil, messages.Errorf("Read auth file: %w", err)
-	}
-	var response struct {
-		JSON json.RawMessage `json:"json"`
-	}
-	if err := json.Unmarshal(raw, &response); err != nil {
-		return nil, messages.Errorf("Parse auth file: %w", err)
-	}
-	var metadata map[string]any
-	if json.Unmarshal(response.JSON, &metadata) != nil {
-		return nil, messages.Errorf("Invalid auth file contents")
-	}
-	return metadata, nil
 }
 
 func (a *App) authFileWeight(file hostAuthFile) *int64 {
