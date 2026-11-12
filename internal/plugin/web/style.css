@@ -1227,8 +1227,6 @@ body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked)):
 }
 .auth-quota-list > :only-child { grid-column: 1 / -1; }
 .auth-quota-row { display: grid; align-content: start; gap: 5px; min-width: 0; }
-.auth-quota-row.elapsed .quota-fill { opacity: 0.45; }
-.auth-quota-row.elapsed .auth-quota-value { color: var(--text-tertiary); }
 .auth-quota-head { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .auth-quota-label {
   flex: 1;

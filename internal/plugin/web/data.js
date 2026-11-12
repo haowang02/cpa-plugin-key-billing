@@ -598,7 +598,6 @@ function loadDataGroup(account, name, reload = false) {
       authFilesQueries.account.clear();
       for (const list of Object.values(pagedLists.account)) list.reset();
       resetAuthQuotaMemory(true);
-      persistAuthQuotaCache(true);
     }
   };
   const task = !account && ["configuration", "pricing"].includes(name) ? queueAdminData(name, load) : Promise.resolve().then(load);

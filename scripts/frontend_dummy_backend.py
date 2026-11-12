@@ -2,6 +2,7 @@
 
 import argparse
 import bisect
+import copy
 import hashlib
 import json
 import math
@@ -569,7 +570,7 @@ AUTH_FILE_CREDENTIAL_REFS = {
 }
 
 for auth_file in AUTH_FILES:
-    auth_file["cache_revision"] = iso(NOW - timedelta(minutes=5))
+    auth_file["revision"] = iso(NOW - timedelta(minutes=5))
 
 AUTH_CATEGORY_ORDER = {"claude": 0, "antigravity": 1, "codex": 2, "xai": 3, "kimi": 4}
 AUTH_FILES.sort(
@@ -592,19 +593,9 @@ def auth_file_views(files, query, scope=""):
         view["title"] = item.get("email") or item["name"].removesuffix(".json")
         view["usage"] = credential_usage(rows)
         view["in_flight"] = 0 if item["disabled"] else (1 if scope else 3)
-        if item["category"] in ("codex", "claude"):
-            quota = auth_file_quota({"auth_index": [item["auth_index"]]})
-            observed_at = iso(NOW - timedelta(minutes=6 + index))
-            view["quota"] = {
-                "fetched_at": observed_at,
-                "plan": quota.get("plan", ""), "plan_observed_at": observed_at,
-                "quota": [{**row, "observed_at": observed_at} for row in quota["quota"] if "reset_at" in row],
-            }
-            if item["category"] == "codex":
-                view["quota"].update(
-                    credit_balance=quota.get("credit_balance", ""), credit_balance_observed_at=observed_at,
-                    credits_unlimited=quota.get("credits_unlimited", False), credits_unlimited_observed_at=observed_at,
-                )
+        quota = QUERIED_QUOTAS.get(item["auth_index"]) or reported_quota(item, iso(NOW - timedelta(minutes=6 + index)))
+        if quota:
+            view["quota"] = quota
         if item["disabled"]:
             view.update(quota_supported=False, quota_unavailable_reason="Auth file is disabled",
                         quota_unavailable_message={"message_key": "backend.auth_file_is_disabled"})
@@ -668,13 +659,12 @@ QUOTA_WINDOW_LENGTHS = {"5 小时限额": timedelta(hours=5), "周限额": timed
 
 
 def quota_row(label, remaining_percent, reset_seconds, *, include=(), exclude=(), **extra):
-    reset_at = NOW + timedelta(seconds=reset_seconds)
-    row = {"label": label, "remaining_percent": remaining_percent, "reset_at": iso(reset_at), **extra}
+    reset_at, length = NOW + timedelta(seconds=reset_seconds), QUOTA_WINDOW_LENGTHS[label]
+    models = {key: list(values) for key, values in (("include", include), ("exclude", exclude)) if values}
+    row = {"label": label, "remaining_percent": remaining_percent, "reset_at": iso(reset_at),
+           "window_seconds": int(length.total_seconds()), "meter": {"models": models} if models else {}, **extra}
     if "usage" in row:
-        row["usage_query"] = {"from": iso(reset_at - QUOTA_WINDOW_LENGTHS[label]), "to": iso(NOW)}
-        for key, values in (("include", include), ("exclude", exclude)):
-            if values:
-                row["usage_query"][key] = list(values)
+        row["usage_query"] = {"from": iso(reset_at - length), "to": iso(NOW), **models}
     return row
 
 
@@ -757,19 +747,30 @@ AUTH_FILE_QUOTAS = {
 }
 
 
+def auth_quota_view(auth_file, quota, observed_at):
+    rows = [{**public_fields(row, auth_file), "observed_at": observed_at} for row in localized_quota_labels(quota["quota"])]
+    return {**quota, "quota": rows}
+
+
+def reported_quota(auth_file, observed_at):
+    """What Codex and Claude responses reported: their windows, plan and credits, but no manual resets."""
+    if auth_file["category"] not in ("codex", "claude"):
+        return None
+    quota = AUTH_FILE_QUOTAS[auth_file["auth_index"]]
+    rows = [REPORTED_WINDOWS.get((auth_file["auth_index"], row["label"]), row) for row in quota["quota"] if "limit_key" in row]
+    fields = {key: quota[key] for key in ("plan", "credit_balance") if key in quota}
+    return auth_quota_view(auth_file, {**fields, "quota": rows}, observed_at)
+
+
 def auth_file_quota(query):
+    """Queries the upstream quota, which the plugin keeps in place of the auth file's previous query."""
     auth_index = query.get("auth_index", [""])[0]
     quota = AUTH_FILE_QUOTAS.get(auth_index)
     if quota is None:
         return None
     auth_file = next(item for item in AUTH_FILES if item["auth_index"] == auth_index)
-    result = {
-        "auth_revision": auth_file["cache_revision"],
-        "fetched_at": iso(NOW),
-        **quota,
-    }
-    result["quota"] = [public_fields(row, auth_file) for row in localized_quota_labels(result["quota"])]
-    return result
+    QUERIED_QUOTAS[auth_index] = auth_quota_view(auth_file, {"fetched_at": iso(NOW), **copy.deepcopy(quota)}, iso(NOW))
+    return QUERIED_QUOTAS[auth_index]
 
 
 def localized_quota_labels(rows):
@@ -783,6 +784,26 @@ def localized_quota_labels(rows):
             row["label"] = english[key]
             row["label_message"] = {"message_key": key}
     return rows
+
+
+# Claude's 5-hour window ran out and has reset since a request last reported it.
+REPORTED_WINDOWS = {("auth-demo-claude", "5 小时限额"): quota_row("5 小时限额", 0, -3 * 3600, limit_key="unified")}
+
+# The plugin keeps each auth file's latest quota query. This Plus account was queried yesterday, before either window
+# was used; its 5-hour window has reset since, and one of its manual resets has expired.
+QUERIED_QUOTAS = {
+    "auth-demo-codex-plus": auth_quota_view(next(item for item in AUTH_FILES if item["auth_index"] == "auth-demo-codex-plus"), {
+        "fetched_at": iso(NOW - timedelta(hours=20)),
+        "plan": "Plus",
+        "credit_balance": "0",
+        "rate_limit_reset_credits_available_count": 2,
+        "rate_limit_reset_credits": [{"expires_at": iso(NOW - timedelta(hours=2))}, {"expires_at": iso(NOW + timedelta(days=7))}],
+        "quota": [
+            quota_row("5 小时限额", 100, -15 * 3600, limit_key="codex"),
+            quota_row("周限额", 100, (7 * 24 - 20) * 3600, limit_key="codex", **quota_usage(0, 0)),
+        ],
+    }, iso(NOW - timedelta(hours=20))),
+}
 
 
 def quota_period(start, length, used, tokens, cost_usd, plans=(), end=None, reason="", models=CODEX_MODELS):
@@ -2084,7 +2105,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": {"message": "Auth file does not exist"}})
         elif auth_file["category"] not in {"codex", "claude"} or auth_file.get("disabled"):
             self.send_json(422, {"error": {"message": "This auth file cannot reset quotas"}})
-        elif query.get("auth_revision") != [auth_file["cache_revision"]] or query.get("auth_name") != [auth_file["name"]]:
+        elif query.get("auth_revision") != [auth_file["revision"]] or query.get("auth_name") != [auth_file["name"]]:
             self.send_json(409, {"error": {"message": "Auth file changed; refresh the auth file list and try again"}})
         elif quota.get("rate_limit_reset_credits_available_count", 0) <= 0:
             self.send_json(502, {"error": {"message": "No reset credits available"}})

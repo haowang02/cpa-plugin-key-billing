@@ -13,7 +13,7 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-func quotaUsageByLabel(t *testing.T, quota *authQuotaResponse) map[string]*billing.UsageTotal {
+func quotaUsageByLabel(t *testing.T, quota *authFileQuota) map[string]*billing.UsageTotal {
 	t.Helper()
 	if quota == nil {
 		t.Fatal("no quota")
@@ -101,9 +101,14 @@ func TestFetchedQuotaKeysUnifiedWindowsAndCoversModelFamilies(t *testing.T) {
 		publishUsageRecord(t, app, UsageRecord{Provider: "claude", AuthType: "oauth", AuthIndex: "claude-1", APIKey: "sk-dummy",
 			Model: event.model, RequestedAt: now.Add(event.offset), Detail: UsageDetail{InputTokens: event.tokens, TotalTokens: event.tokens}})
 	}
+	publishUsageRecord(t, app, UsageRecord{Provider: "claude", AuthType: "oauth", AuthIndex: "claude-1", APIKey: "sk-dummy",
+		Model: "claude-sonnet-4-5", RequestedAt: now, Detail: UsageDetail{InputTokens: 50, TotalTokens: 50},
+		ResponseHeaders: http.Header{"Anthropic-Ratelimit-Unified-5h-Utilization": {"0.9"},
+			"Anthropic-Ratelimit-Unified-5h-Reset": {strconv.FormatInt(now.Add(time.Hour).Unix(), 10)}}})
 	resetAt := func(after time.Duration) string { return now.Add(after).UTC().Format(time.RFC3339) }
 	usage := `{"five_hour":{"utilization":30,"resets_at":"` + resetAt(time.Hour) + `"},` +
 		`"seven_day_opus":{"utilization":10,"resets_at":"` + resetAt(24*time.Hour) + `"},` +
+		`"seven_day_sonnet":{"utilization":40,"resets_at":"` + resetAt(-time.Minute) + `"},` +
 		`"seven_day_oauth_apps":{"utilization":5,"resets_at":"` + resetAt(24*time.Hour) + `"}}`
 	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
 		switch method {
@@ -121,32 +126,39 @@ func TestFetchedQuotaKeysUnifiedWindowsAndCoversModelFamilies(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.StatusCode, response.Body)
 	}
-	var result struct {
-		Quota []struct {
-			Label    string              `json:"label"`
-			LimitKey string              `json:"limit_key"`
-			Usage    *billing.UsageTotal `json:"usage"`
-		} `json:"quota"`
-	}
-	if err := json.Unmarshal(response.Body, &result); err != nil {
-		t.Fatal(err)
-	}
 	// Only the unified windows are reported together; observed reports replace them and nothing else.
+	// A window whose reset time has passed has no current period to meter.
 	want := map[string]struct {
 		limitKey string
 		tokens   int64
-	}{"5-hour limit": {claudeUnifiedLimit, 300}, "Opus weekly limit": {"", 500}, "OAuth Apps weekly limit": {"", -1}}
-	for _, row := range result.Quota {
-		expected, ok := want[row.Label]
-		if !ok || row.LimitKey != expected.limitKey || expected.tokens < 0 && row.Usage != nil ||
-			expected.tokens >= 0 && (row.Usage == nil || row.Usage.Tokens != expected.tokens) {
-			t.Fatalf("%s: limit %q, usage %+v", row.Label, row.LimitKey, row.Usage)
+	}{"5-hour limit": {claudeUnifiedLimit, 350}, "Opus weekly limit": {"", 500}, "Sonnet weekly limit": {"", -1}, "OAuth Apps weekly limit": {"", -1}}
+	check := func(rows []quotaRow) {
+		t.Helper()
+		if len(rows) != len(want) {
+			t.Fatalf("rows: %+v", rows)
 		}
-		delete(want, row.Label)
+		for _, row := range rows {
+			expected, ok := want[row.Label]
+			if !ok || row.LimitKey != expected.limitKey || expected.tokens < 0 && row.Usage != nil ||
+				expected.tokens >= 0 && (row.Usage == nil || row.Usage.Tokens != expected.tokens) {
+				t.Fatalf("%s: limit %q, usage %+v", row.Label, row.LimitKey, row.Usage)
+			}
+		}
 	}
-	if len(want) != 0 {
-		t.Fatalf("missing rows: %v", want)
+	var result authFileQuota
+	if err := json.Unmarshal(response.Body, &result); err != nil {
+		t.Fatal(err)
 	}
+	check(result.Quota)
+	// The auth file list reuses the query, which is newer than the request's report of the 5-hour window.
+	files, err := app.listAuthFiles(viewAccess{}, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quota := files[0].Quota; quota == nil || *quota.Quota[0].RemainingPercent != 70 || !quota.FetchedAt.Equal(result.FetchedAt) {
+		t.Fatalf("listed quota: %+v", quota)
+	}
+	check(files[0].Quota.Quota)
 }
 
 func TestQuotaUsageSeparatesAntigravityGroups(t *testing.T) {
@@ -185,8 +197,8 @@ func TestQuotaUsageSeparatesAntigravityGroups(t *testing.T) {
 		{"", []int64{4900, 11300, 600, 600, 0, 800, -1, -1}},
 		{billing.CallerScope("sk-dummy-one"), []int64{3300, 9700, 600, 600, 0, 800, -1, -1}},
 	} {
-		quota := authQuotaResponse{Quota: antigravityQuotaRows(map[string]any{"groups": groups})}
-		if err := app.attachQuotaUsage(tc.scope, map[quotaCredential]*authQuotaResponse{{"ag-1", "antigravity"}: &quota}); err != nil {
+		quota := authFileQuota{Quota: antigravityQuotaRows(map[string]any{"groups": groups})}
+		if err := app.attachQuotaUsage(tc.scope, map[quotaCredential]*authFileQuota{{"ag-1", "antigravity"}: &quota}); err != nil {
 			t.Fatal(err)
 		}
 		if len(quota.Quota) != len(tc.tokens) {

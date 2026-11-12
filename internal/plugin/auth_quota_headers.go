@@ -4,7 +4,6 @@ import (
 	"math"
 	"net/http"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,26 +114,16 @@ func addQuotaWindow(report *billing.QuotaReport, window billing.QuotaReportWindo
 	report.Windows = append(report.Windows, window)
 }
 
-// reportQuota presents a report made at at.
-func reportQuota(report billing.QuotaReport, at time.Time) authQuotaResponse {
-	result := authQuotaResponse{FetchedAt: at, Plan: codexPlanLabel(report.Plan), Quota: []quotaRow{}}
-	if report.CreditBalance != "" {
-		result.CreditBalance, result.CreditBalanceObservedAt = report.CreditBalance, at
+// reportedRow presents a window that a response reported at at.
+func reportedRow(provider string, window billing.QuotaReportWindow, at time.Time) quotaRow {
+	labelPrefix, meter := reportedLimit(provider, window.LimitKey)
+	value := quotaWindow{Seconds: window.Seconds, RemainingPercent: remainingPercent(100 - window.UsedPercent), Meter: meter}
+	if !window.ResetAt.IsZero() {
+		value.ResetAt = window.ResetAt.UTC().Format(time.RFC3339)
 	}
-	if report.CreditsUnlimited != nil {
-		result.CreditsUnlimited, result.CreditsUnlimitedObservedAt = *report.CreditsUnlimited, at
-	}
-	for _, window := range report.Windows {
-		labelPrefix, meter := reportedLimit(report.Provider, window.LimitKey)
-		value := quotaWindow{Seconds: window.Seconds, RemainingPercent: remainingPercent(100 - window.UsedPercent), meter: meter}
-		if !window.ResetAt.IsZero() {
-			value.ResetAt = window.ResetAt.UTC().Format(time.RFC3339)
-		}
-		row := value.row(window.LimitKey, labelPrefix)
-		row.ObservedAt = at
-		result.Quota = append(result.Quota, row)
-	}
-	return result
+	row := value.row(window.LimitKey, labelPrefix)
+	row.ObservedAt = at
+	return row
 }
 
 func quotaHeaderReset(headers http.Header, prefix, resetKey string, at time.Time) time.Time {
@@ -157,50 +146,4 @@ func finiteQuotaHeader(headers http.Header, key string) (float64, bool) {
 func quotaLimitAlias(value string) string {
 	value = strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(value))
 	return strings.TrimPrefix(value, "codex")
-}
-
-// observedAuthQuota rebuilds a credential's quota from its recorded reports,
-// oldest first. A response reports only the windows of the limit it used, so
-// each report updates just the windows it lists. A window drops out once its
-// limit is reported after the window's reset time without it, as the 5-hour
-// window is after an upgrade to a plan that has none.
-func observedAuthQuota(category, revision string, observations []billing.QuotaObservation) *authQuotaResponse {
-	var result *authQuotaResponse
-	reportedAt := make(map[string]time.Time)
-	for _, observation := range observations {
-		if !strings.EqualFold(observation.Provider, category) {
-			continue
-		}
-		if result == nil {
-			result = &authQuotaResponse{AuthRevision: revision, Quota: []quotaRow{}}
-		}
-		decoded := reportQuota(observation.QuotaReport, observation.At)
-		result.FetchedAt = observation.At
-		if decoded.Plan != "" {
-			result.Plan, result.PlanObservedAt = decoded.Plan, observation.At
-		}
-		if !decoded.CreditBalanceObservedAt.IsZero() {
-			result.CreditBalance, result.CreditBalanceObservedAt = decoded.CreditBalance, observation.At
-		}
-		if !decoded.CreditsUnlimitedObservedAt.IsZero() {
-			result.CreditsUnlimited, result.CreditsUnlimitedObservedAt = decoded.CreditsUnlimited, observation.At
-		}
-		for _, row := range decoded.Quota {
-			reportedAt[row.LimitKey] = observation.At
-			if index := slices.IndexFunc(result.Quota, row.sameWindow); index >= 0 {
-				result.Quota[index] = row
-			} else {
-				result.Quota = append(result.Quota, row)
-			}
-		}
-	}
-	if result == nil {
-		return nil
-	}
-	result.Quota = slices.DeleteFunc(result.Quota, func(row quotaRow) bool {
-		resetAt, err := time.Parse(time.RFC3339, row.ResetAt)
-		return err == nil && reportedAt[row.LimitKey].After(row.ObservedAt) && !reportedAt[row.LimitKey].Before(resetAt)
-	})
-	slices.SortStableFunc(result.Quota, compareQuotaWindows)
-	return result
 }

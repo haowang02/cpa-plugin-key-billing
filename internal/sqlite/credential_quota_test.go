@@ -75,6 +75,21 @@ func TestQuotaReportsReadNewestValuesAndWindowHistories(t *testing.T) {
 	if strings.Join(got, " ") != "18000@0:plus:10 18000@2:pro:20 604800@0:plus:30" {
 		t.Fatalf("window histories: %v", got)
 	}
+
+	// A credential keeps only its latest query, and saving drops every query made before since.
+	for i, save := range []struct {
+		authIndex, quota string
+		since            time.Time
+	}{{"auth-codex", "first", eventStart}, {"auth-claude", "old", eventStart}, {"auth-codex", "second", eventStart.Add(2 * time.Minute)}} {
+		query := billing.QuotaQuery{Provider: "codex", At: eventStart.Add(time.Duration(i) * time.Minute), Quota: []byte(save.quota)}
+		if err := d.SaveQuotaQuery(save.authIndex, query, save.since); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queries, err := d.QuotaQueries([]string{"auth-codex", "auth-claude"}, eventStart)
+	if err != nil || len(queries) != 1 || string(queries["auth-codex"].Quota) != "second" || !queries["auth-codex"].At.Equal(eventStart.Add(2*time.Minute)) {
+		t.Fatalf("quota queries: %+v, err: %v", queries, err)
+	}
 }
 
 func TestV19QuotaHeadersMigrateToReports(t *testing.T) {

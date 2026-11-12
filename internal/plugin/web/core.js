@@ -51,9 +51,7 @@ let sessionGeneration = 0;
 const activeRequests = new Set();
 let loginMode = initialRoute.role;
 let loginModeRequest = 0;
-function emptyAuthQuotaState() {
-  return { authQuotas: new Map(), authQuotaLoading: new Set(), authQuotaErrors: new Map(), authFileRevisions: new Map() };
-}
+function emptyAuthQuotaState() { return { authQuotaLoading: new Set(), authQuotaErrors: new Map() }; }
 function emptyAdminUIState() {
   return {
     ...emptyAuthQuotaState(),

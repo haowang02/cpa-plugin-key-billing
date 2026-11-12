@@ -16,13 +16,13 @@ import (
 	"cpa-key-billing/internal/messages"
 )
 
-func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile) (authQuotaResponse, error) {
+func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile) (authFileQuota, error) {
 	client, errClient := a.openAuthQuotaClient(callbackID, file)
 	if errClient != nil {
-		return authQuotaResponse{}, errClient
+		return authFileQuota{}, errClient
 	}
 	defer client.close()
-	result := authQuotaResponse{AuthRevision: authFileRevision(file), FetchedAt: time.Now().UTC(), Quota: []quotaRow{}}
+	result := authFileQuota{FetchedAt: a.store.Now().UTC(), Quota: []quotaRow{}}
 	var err error
 	switch authCategory(file.Type) {
 	case "codex":
@@ -101,7 +101,7 @@ func codexCreditBalance(value any) string {
 	return balance
 }
 
-func (c *authQuotaClient) fetchCodexQuota(result *authQuotaResponse) error {
+func (c *authQuotaClient) fetchCodexQuota(result *authFileQuota) error {
 	result.Plan = codexPlanLabel(credentialString(c.credential, "plan_type", "planType"))
 	headers := http.Header{"User-Agent": {"codex_cli_rs/0.76.0"}, "Content-Type": {"application/json"}}
 	if accountID := credentialString(c.credential, "account_id", "accountId", "chatgpt_account_id", "chatgptAccountId"); accountID != "" {
@@ -179,7 +179,7 @@ func normalizeCodexResetCredits(object map[string]any) codexResetCreditsSummary 
 	return result
 }
 
-func appendCodexRateLimit(result *authQuotaResponse, limit codexLimit, info map[string]any) {
+func appendCodexRateLimit(result *authFileQuota, limit codexLimit, info map[string]any) {
 	allowed, hasAllowed := boolValue(info, "allowed")
 	reached, hasReached := boolValue(info, "limit_reached", "limitReached")
 	windows := []quotaWindow{}
@@ -190,7 +190,7 @@ func appendCodexRateLimit(result *authQuotaResponse, limit codexLimit, info map[
 			continue
 		}
 		seconds, _ := intValue(value, "limit_window_seconds", "limitWindowSeconds")
-		window := quotaWindow{Role: role, Seconds: seconds, meter: limit.meter()}
+		window := quotaWindow{Role: role, Seconds: seconds, Meter: limit.meter()}
 		if used, ok := floatValue(value, "used_percent", "usedPercent"); ok {
 			window.RemainingPercent = remainingPercent(100 - used)
 		} else if hasReached && reached || hasAllowed && !allowed {
@@ -223,10 +223,10 @@ type quotaWindow struct {
 	Seconds          int64
 	RemainingPercent *float64
 	ResetAt          string
-	meter            *quotaMeter
+	Meter            *quotaMeter
 }
 
-func appendQuotaWindows(result *authQuotaResponse, limitKey, labelPrefix string, windows []quotaWindow) {
+func appendQuotaWindows(result *authFileQuota, limitKey, labelPrefix string, windows []quotaWindow) {
 	sort.SliceStable(windows, func(i, j int) bool {
 		return windows[i].order() < windows[j].order()
 	})
@@ -251,7 +251,7 @@ func (window quotaWindow) row(limitKey, labelPrefix string) quotaRow {
 		label = strconv.FormatInt(seconds/60, 10) + " min"
 	}
 	return quotaRow{Label: labelPrefix + label, LabelMessage: messages.Literal(label), LabelPrefix: labelPrefix, LimitKey: limitKey,
-		RemainingPercent: window.RemainingPercent, ResetAt: window.ResetAt, windowSeconds: window.Seconds, meter: window.meter}
+		RemainingPercent: window.RemainingPercent, ResetAt: window.ResetAt, WindowSeconds: window.Seconds, Meter: window.Meter}
 }
 
 func (window quotaWindow) order() int {
@@ -293,7 +293,7 @@ func claudeFableLimit(usage map[string]any) map[string]any {
 	return fallback
 }
 
-func (c *authQuotaClient) fetchClaudeQuota(result *authQuotaResponse) error {
+func (c *authQuotaClient) fetchClaudeQuota(result *authFileQuota) error {
 	headers := http.Header{"Anthropic-Beta": {"oauth-2025-04-20"}, "Content-Type": {"application/json"}}
 	usage, errCall := c.upstream(http.MethodGet, "https://api.anthropic.com/api/oauth/usage", headers, nil)
 	if errCall != nil {
@@ -322,7 +322,7 @@ func (c *authQuotaClient) fetchClaudeQuota(result *authQuotaResponse) error {
 			continue
 		}
 		row := quotaRow{Label: window.label, LabelMessage: messages.Literal(window.label), ResetAt: quotaResetAt(firstString(value, "resets_at", "resetsAt")),
-			LimitKey: window.limit, windowSeconds: window.seconds, meter: window.meter}
+			LimitKey: window.limit, WindowSeconds: window.seconds, Meter: window.meter}
 		if percent, ok := floatValue(value, "utilization"); ok {
 			row.RemainingPercent = remainingPercent(100 - percent)
 		}
@@ -331,7 +331,7 @@ func (c *authQuotaClient) fetchClaudeQuota(result *authQuotaResponse) error {
 	if fable != nil {
 		percent, _ := floatValue(fable, "percent")
 		result.Quota = append(result.Quota, quotaRow{Label: "Fable weekly limit", LabelMessage: messages.New("Fable weekly limit"),
-			RemainingPercent: remainingPercent(100 - percent), ResetAt: quotaResetAt(firstString(fable, "resets_at", "resetsAt")), windowSeconds: week, meter: claudeModelMeter("fable")})
+			RemainingPercent: remainingPercent(100 - percent), ResetAt: quotaResetAt(firstString(fable, "resets_at", "resetsAt")), WindowSeconds: week, Meter: claudeModelMeter("fable")})
 	}
 	if extra := objectMap(usage, "extra_usage", "extraUsage"); extra != nil {
 		enabled, hasEnabled := boolValue(extra, "is_enabled", "isEnabled")
@@ -545,7 +545,7 @@ func strictTime(object map[string]any, key string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func (c *authQuotaClient) fetchKimiQuota(result *authQuotaResponse) error {
+func (c *authQuotaClient) fetchKimiQuota(result *authFileQuota) error {
 	usage, errCall := c.upstream(http.MethodGet, "https://api.kimi.com/coding/v1/usages", nil, nil)
 	if errCall != nil {
 		return errCall
@@ -562,7 +562,7 @@ func (c *authQuotaClient) fetchKimiQuota(result *authQuotaResponse) error {
 		}
 		windowSeconds := kimiWindowSeconds(limit)
 		label := firstNonEmptyString(firstString(limit, "name", "title"), firstString(detail, "name", "title"), windowLabel(windowSeconds), "Quota")
-		row := quotaRow{Label: label, windowSeconds: windowSeconds, meter: &quotaMeter{},
+		row := quotaRow{Label: label, WindowSeconds: windowSeconds, Meter: &quotaMeter{},
 			ResetAt: quotaResetAt(firstString(limit, "reset_at", "resetAt", "resetTime"), firstString(detail, "reset_at", "resetAt", "resetTime"))}
 		if firstNonEmptyString(firstString(limit, "name", "title"), firstString(detail, "name", "title")) == "" {
 			row.LabelMessage = messages.Literal(label)
@@ -670,7 +670,7 @@ func fillQuotaValues(row *quotaRow, object map[string]any) {
 
 const xaiGrokClientVersion = "1.0.44"
 
-func (c *authQuotaClient) fetchXAIQuota(result *authQuotaResponse) error {
+func (c *authQuotaClient) fetchXAIQuota(result *authFileQuota) error {
 	result.Plan = xaiPlan(c.token)
 	headers := http.Header{
 		"X-Xai-Token-Auth":      {"xai-grok-cli"},
@@ -696,7 +696,7 @@ func (c *authQuotaClient) fetchXAIQuota(result *authQuotaResponse) error {
 	if percent, ok := floatValue(weeklyConfig, "creditUsagePercent", "credit_usage_percent"); ok {
 		resetAt, start := xaiResetAt(weeklyConfig), firstString(objectMap(weeklyConfig, "currentPeriod", "current_period"), "start")
 		result.Quota = append(result.Quota, quotaRow{Label: "Weekly limit", LabelMessage: messages.New("Weekly limit"), RemainingPercent: remainingPercent(100 - percent),
-			ResetAt: resetAt, windowSeconds: periodSeconds(start, resetAt), meter: &quotaMeter{}})
+			ResetAt: resetAt, WindowSeconds: periodSeconds(start, resetAt), Meter: &quotaMeter{}})
 	}
 	prepaid, hasPrepaid := usdValue(weeklyConfig, "prepaidBalance", "prepaid_balance")
 	if !hasPrepaid {
@@ -716,7 +716,7 @@ func (c *authQuotaClient) fetchXAIQuota(result *authQuotaResponse) error {
 	if hasLimit || hasUsed {
 		resetAt := quotaResetAt(firstString(monthlyConfig, "billingPeriodEnd", "billing_period_end"))
 		row := quotaRow{Label: "Monthly allowance", LabelMessage: messages.New("Monthly allowance"), Currency: "USD", ResetAt: resetAt,
-			windowSeconds: periodSeconds(firstString(monthlyConfig, "billingPeriodStart", "billing_period_start"), resetAt), meter: &quotaMeter{}}
+			WindowSeconds: periodSeconds(firstString(monthlyConfig, "billingPeriodStart", "billing_period_start"), resetAt), Meter: &quotaMeter{}}
 		if hasLimit {
 			row.Limit = floatPointer(monthlyLimit)
 		}

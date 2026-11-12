@@ -127,3 +127,41 @@ func (d *DB) QuotaWindowHistories(authIndex, provider string, from, to time.Time
 	}
 	return histories, nil
 }
+
+func (d *DB) SaveQuotaQuery(authIndex string, query billing.QuotaQuery, since time.Time) error {
+	return d.transact(func(tx *sql.Tx) error {
+		if _, err := tx.Exec("INSERT OR REPLACE INTO quota_queries (auth_index, provider, at, quota_json) VALUES (?, ?, ?, ?)",
+			authIndex, query.Provider, nanos(query.At), string(query.Quota)); err != nil {
+			return fmt.Errorf("Save quota query: %w", err)
+		}
+		if _, err := tx.Exec("DELETE FROM quota_queries WHERE at < ?", nanos(since)); err != nil {
+			return fmt.Errorf("Clean up quota queries: %w", err)
+		}
+		return nil
+	})
+}
+
+func (d *DB) QuotaQueries(authIndexes []string, since time.Time) (map[string]billing.QuotaQuery, error) {
+	filter, args := authIndexFilter(authIndexes)
+	rows, err := d.db.Query("SELECT auth_index, provider, at, quota_json FROM quota_queries WHERE "+filter+" AND at >= ?",
+		append(args, nanos(since))...)
+	if err != nil {
+		return nil, fmt.Errorf("Read quota queries: %w", err)
+	}
+	defer rows.Close()
+	queries := make(map[string]billing.QuotaQuery)
+	for rows.Next() {
+		var authIndex, quota string
+		var at int64
+		var query billing.QuotaQuery
+		if err := rows.Scan(&authIndex, &query.Provider, &at, &quota); err != nil {
+			return nil, fmt.Errorf("Read quota queries: %w", err)
+		}
+		query.At, query.Quota = timeAt(at), []byte(quota)
+		queries[authIndex] = query
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("Read quota queries: %w", err)
+	}
+	return queries, nil
+}

@@ -30,6 +30,12 @@ func (r *memoryRepository) QuotaWindowHistories(string, string, time.Time, time.
 	return nil, r.fail
 }
 
+func (r *memoryRepository) SaveQuotaQuery(string, QuotaQuery, time.Time) error { return r.fail }
+
+func (r *memoryRepository) QuotaQueries([]string, time.Time) (map[string]QuotaQuery, error) {
+	return map[string]QuotaQuery{}, r.fail
+}
+
 func (r *memoryRepository) UsageTotal(string, UsageQuery, ExchangeRate) (UsageTotal, error) {
 	return UsageTotal{}, r.fail
 }

@@ -112,21 +112,29 @@ func maskAPIKeyPayload(payload any) (any, bool) {
 			value.Files[i].Title = maskEmails(value.Files[i].Title)
 			value.Files[i].QuotaReason = maskEmails(value.Files[i].QuotaReason)
 			value.Files[i].QuotaReasonMessage = maskMessage(value.Files[i].QuotaReasonMessage)
+			maskQuota(value.Files[i].Quota)
 		}
 		return value, true
-	case authQuotaResponse:
-		value.Plan = maskEmails(value.Plan)
-		for i := range value.Quota {
-			value.Quota[i].Label = maskEmails(value.Quota[i].Label)
-			value.Quota[i].GroupLabel = maskEmails(value.Quota[i].GroupLabel)
-			value.Quota[i].LabelPrefix = maskEmails(value.Quota[i].LabelPrefix)
-			value.Quota[i].LabelMessage = maskMessage(value.Quota[i].LabelMessage)
-			value.Quota[i].GroupMessage = maskMessage(value.Quota[i].GroupMessage)
-		}
+	case *authFileQuota:
+		maskQuota(value)
 		return value, true
 	case []billing.PriceRow, billing.AnalysisSpeedView:
 		return value, true
 	default:
 		return payload, false
+	}
+}
+
+func maskQuota(quota *authFileQuota) {
+	if quota == nil {
+		return
+	}
+	quota.Plan = maskEmails(quota.Plan)
+	for i := range quota.Quota {
+		quota.Quota[i].Label = maskEmails(quota.Quota[i].Label)
+		quota.Quota[i].GroupLabel = maskEmails(quota.Quota[i].GroupLabel)
+		quota.Quota[i].LabelPrefix = maskEmails(quota.Quota[i].LabelPrefix)
+		quota.Quota[i].LabelMessage = maskMessage(quota.Quota[i].LabelMessage)
+		quota.Quota[i].GroupMessage = maskMessage(quota.Quota[i].GroupMessage)
 	}
 }

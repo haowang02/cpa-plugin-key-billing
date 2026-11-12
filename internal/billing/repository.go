@@ -21,6 +21,8 @@ type Repository interface {
 	CredentialUsageStats(authIndexes []string, scope string, from, to time.Time, rate ExchangeRate) (map[string]CredentialUsageStats, error)
 	LatestQuotaReports(authIndexes []string, since time.Time) (map[string][]QuotaObservation, error)
 	QuotaWindowHistories(authIndex, provider string, from, to time.Time) ([]QuotaWindowHistory, error)
+	SaveQuotaQuery(authIndex string, query QuotaQuery, since time.Time) error
+	QuotaQueries(authIndexes []string, since time.Time) (map[string]QuotaQuery, error)
 	UsageTotal(scope string, query UsageQuery, rate ExchangeRate) (UsageTotal, error)
 	UsageByModel(scope string, query UsageQuery, rate ExchangeRate) ([]ModelUsage, error)
 	UsageSources(scope string, query UsageQuery) ([]string, error)

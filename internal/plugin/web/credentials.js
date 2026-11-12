@@ -81,10 +81,7 @@ function compareCredentials(a, b) {
 function sameCredentialProvider(a, b) { return a.source === b.source && a.provider === b.provider; }
 
 function clearCredentialScope(account) {
-  const role = account ? "account" : "admin";
-  const key = authQuotaStorageKey(role);
-  if (key) { try { sessionStorage.removeItem(key); } catch (_) {} }
-  credentialScope[role] = "";
+  credentialScope[account ? "account" : "admin"] = "";
   resetAuthQuotaMemory(account);
 }
 
@@ -98,11 +95,7 @@ async function activateCredentialScope(account, credential) {
     const scope = (await sha256Hex(role + "|" + credential)).slice(0, 32);
     if (generation !== sessionGeneration) throw new StaleRequestError();
     credentialScope[role] = scope;
-  } catch (_) {
-    if (generation !== sessionGeneration) throw new StaleRequestError();
-    return;
-  }
-  restoreAuthQuotaCache(account);
+  } catch (_) { if (generation !== sessionGeneration) throw new StaleRequestError(); }
 }
 
 const PROVIDER_LABELS = {

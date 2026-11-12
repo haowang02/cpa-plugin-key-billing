@@ -15,7 +15,7 @@ import (
 // Cloud Code limits the model inventory reported to older clients.
 const antigravityUserAgent = "antigravity/hub/2.23.0 darwin/arm64"
 
-func (c *authQuotaClient) fetchAntigravityQuota(projectID string, result *authQuotaResponse) error {
+func (c *authQuotaClient) fetchAntigravityQuota(projectID string, result *authFileQuota) error {
 	headers := http.Header{"User-Agent": {antigravityUserAgent}}
 	var lastErr error
 	fetched := false
@@ -106,12 +106,12 @@ func antigravityQuotaRows(quota map[string]any) []quotaRow {
 			}
 			groupRows = append(groupRows, quotaRow{
 				Label: label, GroupLabel: groupLabel, LabelMessage: labelMessage, GroupMessage: groupMessage,
-				RemainingPercent: remaining, windowSeconds: windowSeconds, meter: meter,
+				RemainingPercent: remaining, WindowSeconds: windowSeconds, Meter: meter,
 				ResetAt: quotaResetAt(firstString(bucket, "resetTime", "reset_time")),
 			})
 		}
 		sort.SliceStable(groupRows, func(i, j int) bool {
-			return antigravityWindowOrder(groupRows[i].windowSeconds) < antigravityWindowOrder(groupRows[j].windowSeconds)
+			return antigravityWindowOrder(groupRows[i].WindowSeconds) < antigravityWindowOrder(groupRows[j].WindowSeconds)
 		})
 		rows = append(rows, groupRows...)
 	}

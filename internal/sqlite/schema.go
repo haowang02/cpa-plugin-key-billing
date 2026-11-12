@@ -68,6 +68,17 @@ CREATE TABLE quota_report_windows (
 ) WITHOUT ROWID;
 `
 
+// quotaQueriesTable keeps what each credential's provider answered when its
+// quota was last queried.
+const quotaQueriesTable = `
+CREATE TABLE quota_queries (
+	auth_index TEXT    PRIMARY KEY,
+	provider   TEXT    NOT NULL,
+	at         INTEGER NOT NULL,
+	quota_json TEXT    NOT NULL
+);
+`
+
 // Time columns use Unix nanoseconds; JSON cycles use UTC RFC3339Nano. Amounts
 // are in the currency of their row.
 const schema = `
@@ -205,7 +216,7 @@ CREATE TABLE request_errors (
 	body             TEXT    NOT NULL DEFAULT ''
 );
 
-` + quotaReportTables + `
+` + quotaReportTables + quotaQueriesTable + `
 CREATE TABLE plugin_logs (
 	id      INTEGER PRIMARY KEY AUTOINCREMENT,
 	at      INTEGER NOT NULL,

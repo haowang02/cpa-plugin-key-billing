@@ -67,9 +67,9 @@ type authFileView struct {
 	QuotaSupported     bool                         `json:"quota_supported"`
 	QuotaReason        string                       `json:"quota_unavailable_reason,omitempty"`
 	QuotaReasonMessage messages.Message             `json:"quota_unavailable_message,omitzero"`
-	CacheRevision      string                       `json:"cache_revision,omitempty"`
+	Revision           string                       `json:"revision,omitempty"`
 	Usage              billing.CredentialUsageStats `json:"usage"`
-	Quota              *authQuotaResponse           `json:"quota,omitempty"`
+	Quota              *authFileQuota               `json:"quota,omitempty"`
 }
 
 type authFileListResponse struct {
@@ -78,49 +78,6 @@ type authFileListResponse struct {
 
 type hostAuthListResponse struct {
 	Files []hostAuthFile `json:"files"`
-}
-
-type quotaRow struct {
-	Label            string           `json:"label,omitempty"`
-	GroupLabel       string           `json:"group_label,omitempty"`
-	LabelMessage     messages.Message `json:"label_message,omitzero"`
-	GroupMessage     messages.Message `json:"group_message,omitzero"`
-	LabelPrefix      string           `json:"label_prefix,omitempty"`
-	RemainingPercent *float64         `json:"remaining_percent,omitempty"`
-	Used             *float64         `json:"used,omitempty"`
-	Limit            *float64         `json:"limit,omitempty"`
-	Currency         string           `json:"currency,omitempty"`
-	ResetAt          string           `json:"reset_at,omitempty"`
-	ObservedAt       time.Time        `json:"observed_at,omitzero"`
-	// LimitKey names the limit of a window that requests report; with the
-	// window's length it identifies the window from one report to the next.
-	LimitKey string `json:"limit_key,omitempty"`
-	// Usage is what CLIProxyAPI requests consumed in the window's current
-	// period, which UsageQuery selects.
-	Usage         *billing.UsageTotal `json:"usage,omitempty"`
-	UsageQuery    *billing.UsageQuery `json:"usage_query,omitempty"`
-	windowSeconds int64
-	meter         *quotaMeter
-}
-
-type authQuotaResponse struct {
-	PlanObservedAt                      time.Time           `json:"plan_observed_at,omitzero"`
-	CreditBalanceObservedAt             time.Time           `json:"credit_balance_observed_at,omitzero"`
-	CreditsUnlimitedObservedAt          time.Time           `json:"credits_unlimited_observed_at,omitzero"`
-	AuthRevision                        string              `json:"auth_revision,omitempty"`
-	FetchedAt                           time.Time           `json:"fetched_at"`
-	Plan                                string              `json:"plan,omitempty"`
-	CreditBalance                       string              `json:"credit_balance,omitempty"`
-	CreditCurrency                      string              `json:"credit_currency,omitempty"`
-	CreditsUnlimited                    bool                `json:"credits_unlimited,omitempty"`
-	RateLimitResetCreditsAvailableCount *int                `json:"rate_limit_reset_credits_available_count,omitempty"`
-	RateLimitResetCredits               []resetCreditExpiry `json:"rate_limit_reset_credits,omitempty"`
-	RateLimitResetCreditsUnavailable    bool                `json:"rate_limit_reset_credits_unavailable,omitempty"`
-	Quota                               []quotaRow          `json:"quota"`
-}
-
-type resetCreditExpiry struct {
-	ExpiresAt string `json:"expires_at"`
 }
 
 func (a *App) authFiles(req ManagementRequest, access viewAccess) ManagementResponse {
@@ -149,15 +106,19 @@ func (a *App) authQuota(req ManagementRequest, access viewAccess) ManagementResp
 	if selected == nil {
 		return failure
 	}
-	result, errQuota := a.fetchAuthQuota(req.HostCallbackID, *selected)
+	quota, errQuota := a.fetchAuthQuota(req.HostCallbackID, *selected)
 	if errQuota != nil {
 		return viewDetailedError(access, http.StatusBadGateway, "quota_failed", errQuota)
 	}
-	credential := quotaCredential{selected.AuthIndex, authCategory(selected.Type)}
-	if errUsage := a.attachQuotaUsage(access.usageScope(), map[quotaCredential]*authQuotaResponse{credential: &result}); errUsage != nil {
-		return viewErrorResponse(access, errUsage)
+	if errSave := a.saveQuotaQuery(*selected, quota); errSave != nil {
+		return viewErrorResponse(access, errSave)
 	}
-	return viewJSON(access, http.StatusOK, result)
+	credential := quotaCredential{selected.AuthIndex, authCategory(selected.Type)}
+	quotas, errCurrent := a.currentQuotas(access.usageScope(), []quotaCredential{credential})
+	if errCurrent != nil {
+		return viewErrorResponse(access, errCurrent)
+	}
+	return viewJSON(access, http.StatusOK, quotas[credential])
 }
 
 func (a *App) authFileHistory(req ManagementRequest, access viewAccess) ManagementResponse {
@@ -274,33 +235,27 @@ func (a *App) listAuthFiles(access viewAccess, from, to time.Time) ([]authFileVi
 			AuthIndex: file.AuthIndex, Name: file.Name, Title: authFileTitle(file), Note: cleanText(file.Note), Category: category,
 			Disabled: file.Disabled, Unavailable: file.Unavailable, Priority: file.Priority, Weight: a.authFileWeight(file),
 			InFlight:       concurrency[billing.CredentialFingerprint(file.ID)],
-			QuotaSupported: quotaSupported, QuotaReason: quotaReason, CacheRevision: authFileRevision(file),
+			QuotaSupported: quotaSupported, QuotaReason: quotaReason, Revision: authFileRevision(file),
 			QuotaReasonMessage: messages.Literal(quotaReason),
 		})
 	}
 	indexes := make([]string, len(views))
-	for i := range views {
-		indexes[i] = views[i].AuthIndex
+	credentials := make([]quotaCredential, len(views))
+	for i, view := range views {
+		indexes[i] = view.AuthIndex
+		credentials[i] = quotaCredential{view.AuthIndex, view.Category}
 	}
 	usage, errUsage := a.store.CredentialUsageStats(indexes, access.usageScope(), from, to)
 	if errUsage != nil {
 		return nil, errUsage
 	}
-	// Older reports describe no window that is still current.
-	reports, errReports := a.store.LatestQuotaReports(indexes, a.store.Now().Add(-quotaHistoryRange-quotaHistoryLookback))
-	if errReports != nil {
-		return nil, errReports
+	quotas, errQuotas := a.currentQuotas(access.usageScope(), credentials)
+	if errQuotas != nil {
+		return nil, errQuotas
 	}
-	quotas := make(map[quotaCredential]*authQuotaResponse)
 	for i := range views {
 		views[i].Usage = usage[views[i].AuthIndex]
-		views[i].Quota = observedAuthQuota(views[i].Category, views[i].CacheRevision, reports[views[i].AuthIndex])
-		if views[i].Quota != nil {
-			quotas[quotaCredential{views[i].AuthIndex, views[i].Category}] = views[i].Quota
-		}
-	}
-	if errUsage := a.attachQuotaUsage(access.usageScope(), quotas); errUsage != nil {
-		return nil, errUsage
+		views[i].Quota = quotas[credentials[i]]
 	}
 	sort.SliceStable(views, func(i, j int) bool {
 		left, right := authCategoryOrder(views[i].Category), authCategoryOrder(views[j].Category)
@@ -459,6 +414,9 @@ func (a *App) handleQuota(method string, raw []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := a.saveQuotaQuery(*file, quota); err != nil {
+			return nil, err
+		}
 		return OKEnvelope(quota.normalized())
 	}
 	cleared, err := a.resetAuthQuota(req.HostCallbackID, *file, newQuotaResetID())
@@ -472,7 +430,7 @@ func (a *App) handleQuota(method string, raw []byte) ([]byte, error) {
 	return OKEnvelope(response)
 }
 
-func (input authQuotaResponse) normalized() QuotaResponse {
+func (input authFileQuota) normalized() QuotaResponse {
 	result := QuotaResponse{}
 	if input.Plan != "" {
 		result.Subscription = &QuotaSubscription{Plan: input.Plan}

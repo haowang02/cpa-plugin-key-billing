@@ -725,6 +725,8 @@
   "ui.quota_reset_elapsed": "已到重置时间",
   "ui.quota_estimate": "额度预估",
   "ui.quota_estimate_unavailable": "当前用量为 0，无法预估",
+  "ui.quota_usage_not_collected": "本周期用量尚未采集",
+  "ui.quota_observed_at_value": "更新于 {v0}",
   "ui.view_quota_history": "查看额度详情",
   "ui.close": "关闭",
   "ui.notifications": "通知",

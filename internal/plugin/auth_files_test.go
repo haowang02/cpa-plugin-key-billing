@@ -59,8 +59,8 @@ func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
 		t.Fatalf("files = %v, want %v", got, want)
 	}
 	encoded := string(response.Body)
-	if payload.Files[2].CacheRevision != "2026-09-02T01:02:03Z" {
-		t.Fatalf("cache revision = %q", payload.Files[2].CacheRevision)
+	if payload.Files[2].Revision != "2026-09-02T01:02:03Z" {
+		t.Fatalf("revision = %q", payload.Files[2].Revision)
 	}
 	if payload.Files[2].Title != "user@example.com" || payload.Files[3].Title != "zeta" {
 		t.Fatalf("titles = %q, %q, want the CPA email and the file name", payload.Files[2].Title, payload.Files[3].Title)
@@ -566,7 +566,7 @@ func TestAuthQuotaReset(t *testing.T) {
 }
 
 func TestStandardQuotaFetchAndReset(t *testing.T) {
-	quota := (authQuotaResponse{CreditBalance: "9.5", CreditCurrency: "USD", Quota: []quotaRow{
+	quota := (authFileQuota{CreditBalance: "9.5", CreditCurrency: "USD", Quota: []quotaRow{
 		{Label: "Unknown"},
 		{Label: "Known usage", Used: floatPointer(25), Limit: floatPointer(100)},
 		{Label: "Invalid", RemainingPercent: floatPointer(math.Inf(1))},
@@ -574,7 +574,7 @@ func TestStandardQuotaFetchAndReset(t *testing.T) {
 	if len(quota.Summary) != 1 || quota.Summary[0].Value != 9.5 || quota.Summary[0].Format != "currency" || len(quota.Groups) != 1 || len(quota.Groups[0].Buckets) != 1 || quota.Groups[0].Buckets[0].RemainingFraction != 0.75 {
 		t.Fatalf("unknown quota was fabricated or known values were lost: %+v", quota)
 	}
-	quota = (authQuotaResponse{CreditBalance: "0", CreditsUnlimited: true}).normalized()
+	quota = (authFileQuota{CreditBalance: "0", CreditsUnlimited: true}).normalized()
 	if len(quota.Summary) != 0 || len(quota.Groups) != 1 || quota.Groups[0].Buckets[0].Window != "Unlimited credits" {
 		t.Fatalf("unlimited credits presented as exhausted: %+v", quota)
 	}

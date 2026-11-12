@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -103,8 +104,8 @@ func TestQuotaHeadersAcceptOnlyProviderQuotaFields(t *testing.T) {
 	if report == nil || len(report.Windows) != 1 || report.Windows[0].ResetAt.Unix() != 1800000000 {
 		t.Fatalf("Claude report: %+v", report)
 	}
-	if decoded := reportQuota(*report, at); len(decoded.Quota) != 1 || *decoded.Quota[0].RemainingPercent != 77 {
-		t.Fatalf("Claude quota: %+v", decoded)
+	if row := reportedRow("claude", report.Windows[0], at); *row.RemainingPercent != 77 {
+		t.Fatalf("Claude quota: %+v", row)
 	}
 	claude.AuthType = "apikey"
 	if usageQuotaReport(claude, at) != nil {
@@ -116,35 +117,39 @@ func TestQuotaHeadersAcceptOnlyProviderQuotaFields(t *testing.T) {
 		"X-Codex-Spark-Limit-Name":           {"Spark"},
 		"X-Codex-Spark-Primary-Used-Percent": {"20"}, "X-Codex-Spark-Primary-Window-Minutes": {"300"},
 	}, at)
-	if decoded := reportQuota(*report, at); len(report.Windows) != 1 || len(decoded.Quota) != 1 || decoded.Quota[0].LabelPrefix != "Spark " {
-		t.Fatalf("additional quota presented as main quota: %+v", decoded)
+	if len(report.Windows) != 1 || reportedRow("codex", report.Windows[0], at).LabelPrefix != "Spark " {
+		t.Fatalf("additional quota presented as main quota: %+v", report)
 	}
 }
 
-func TestCodexQuotaPreservesAdditionalWindowsAndPartialCredits(t *testing.T) {
+func TestCurrentQuotaCombinesQueryWithLaterReports(t *testing.T) {
 	at := time.Now().UTC().Truncate(time.Second)
-	record := UsageRecord{Provider: "codex", AuthType: "oauth", AuthIndex: "dummy", RequestedAt: at,
-		ResponseHeaders: http.Header{
-			"X-Codex-Additional-GPT-5.3-Codex-Spark-Limit-Name":             {"GPT-5.3-Codex-Spark"},
-			"X-Codex-Additional-GPT-5.3-Codex-Spark-Primary-Used-Percent":   {"20"},
-			"X-Codex-Additional-GPT-5.3-Codex-Spark-Primary-Window-Minutes": {"300"},
-			"X-Codex-Code-Review-Primary-Used-Percent":                      {"10"},
-			"X-Codex-Code-Review-Primary-Window-Minutes":                    {"10080"},
-			"X-Codex-Credits-Balance":                                       {"126.4"}, "X-Codex-Credits-Unlimited": {"true"},
-		}}
-	first := usageQuotaReport(record, at)
-	record.RequestedAt = at.Add(time.Minute)
-	record.ResponseHeaders = http.Header{"X-Codex-Credits-Unlimited": {"false"}}
-	quota := observedAuthQuota("codex", "dummy", []billing.QuotaObservation{
-		{At: at, QuotaReport: *first},
-		{At: record.RequestedAt, QuotaReport: *usageQuotaReport(record, at)},
-	})
-	if quota == nil || len(quota.Quota) != 2 || quota.CreditBalance != "126.4" || quota.CreditsUnlimited ||
-		!quota.CreditBalanceObservedAt.Equal(at) || !quota.CreditsUnlimitedObservedAt.Equal(record.RequestedAt) {
-		t.Fatalf("quota windows or partial credit reports lost: %+v", quota)
+	resetAt := func(after time.Duration) string { return at.Add(after).Format(time.RFC3339) }
+	early := quotaHeaderReport("codex", http.Header{
+		"X-Codex-Additional-GPT-5.3-Codex-Spark-Limit-Name":             {"GPT-5.3-Codex-Spark"},
+		"X-Codex-Additional-GPT-5.3-Codex-Spark-Primary-Used-Percent":   {"20"},
+		"X-Codex-Additional-GPT-5.3-Codex-Spark-Primary-Window-Minutes": {"300"},
+		"X-Codex-Credits-Balance":                                       {"126.4"}, "X-Codex-Credits-Unlimited": {"true"},
+	}, at)
+	late := quotaHeaderReport("codex", http.Header{
+		"X-Codex-Plan-Type": {"pro"}, "X-Codex-Primary-Used-Percent": {"50"}, "X-Codex-Primary-Window-Minutes": {"300"},
+		"X-Codex-Primary-Reset-After-Seconds": {"14400"},
+	}, at)
+	resets := 2
+	query := authFileQuota{FetchedAt: at.Add(time.Minute), Plan: "Plus", RateLimitResetCreditsAvailableCount: &resets, Quota: []quotaRow{
+		quotaWindow{Seconds: 18000, RemainingPercent: remainingPercent(70), ResetAt: resetAt(4 * time.Hour), Meter: codexMainLimit.meter()}.row("codex", ""),
+		quotaWindow{Seconds: 604800, RemainingPercent: remainingPercent(90), ResetAt: resetAt(72 * time.Hour), Meter: codexMainLimit.meter()}.row("codex", ""),
+	}}
+	quota := currentQuota("codex", &query, []billing.QuotaObservation{{At: at, QuotaReport: *early}, {At: at.Add(2 * time.Minute), QuotaReport: *late}})
+	// The query replaces the windows reported before it and keeps the values it could not read;
+	// a later report updates its own window in place.
+	var rows []string
+	for _, row := range quota.Quota {
+		rows = append(rows, fmt.Sprint(row.Label, " ", *row.RemainingPercent, "@", row.ObservedAt.Sub(at)))
 	}
-	if quota.Quota[0].Label != "GPT-5.3-Codex-Spark 5-hour limit" || quota.Quota[1].Label != "Code Review Weekly limit" {
-		t.Fatalf("quota window labels: %+v", quota.Quota)
+	if strings.Join(rows, ", ") != "5-hour limit 50@2m0s, Weekly limit 90@1m0s" || quota.Plan != "Pro 200" ||
+		quota.CreditBalance != "126.4" || quota.CreditsUnlimited || *quota.RateLimitResetCreditsAvailableCount != 2 {
+		t.Fatalf("quota: %+v, windows: %v", quota, rows)
 	}
 }
 
@@ -180,8 +185,9 @@ func TestCodexQuotaHeadersAttributeWindowsByTheirLimit(t *testing.T) {
 	} {
 		var labels []string
 		if report := quotaHeaderReport("codex", test.headers, at); report != nil {
-			for _, row := range reportQuota(*report, at).Quota {
-				if row.meter != nil {
+			for _, window := range report.Windows {
+				row := reportedRow("codex", window, at)
+				if row.Meter != nil {
 					row.Label += "*"
 				}
 				labels = append(labels, row.Label)

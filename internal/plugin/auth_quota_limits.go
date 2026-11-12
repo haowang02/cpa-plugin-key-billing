@@ -13,10 +13,10 @@ import (
 // quotaMeter selects a credential's requests for a quota window.
 // A nil meter leaves usage unknown; a zero meter counts every model.
 type quotaMeter struct {
-	models billing.ModelMatch
+	Models billing.ModelMatch `json:"models,omitzero"`
 	// Exclusive windows alone meter their models, so windows over every
 	// model leave those models out.
-	exclusive bool
+	Exclusive bool `json:"exclusive,omitempty"`
 }
 
 // codexLimit is one Codex rate limit. The main limit meters every model but
@@ -73,7 +73,7 @@ func (limit codexLimit) meter() *quotaMeter {
 	case limit == codexMainLimit:
 		return &quotaMeter{}
 	case limit.model != "":
-		return &quotaMeter{models: billing.ModelMatch{Include: []string{limit.model}}, exclusive: true}
+		return &quotaMeter{Models: billing.ModelMatch{Include: []string{limit.model}}, Exclusive: true}
 	}
 	return nil
 }
@@ -84,7 +84,7 @@ const claudeUnifiedLimit = "unified"
 
 // claudeModelMeter meters a weekly limit Claude keeps for one model family.
 func claudeModelMeter(family string) *quotaMeter {
-	return &quotaMeter{models: billing.ModelMatch{Include: []string{family}}}
+	return &quotaMeter{Models: billing.ModelMatch{Include: []string{family}}}
 }
 
 func antigravityGroupMeter(label string) *quotaMeter {
@@ -103,7 +103,7 @@ func antigravityGroupMeter(label string) *quotaMeter {
 	default:
 		return nil
 	}
-	return &quotaMeter{models: models}
+	return &quotaMeter{Models: models}
 }
 
 // periodSeconds is the length of a period reported by its start and reset.
@@ -158,7 +158,7 @@ func (a *App) quotaWindowHistories(credential quotaCredential, from, now time.Ti
 			report.Plan = codexPlanLabel(report.Plan)
 			reports[i] = report
 		}
-		row := quotaWindow{Seconds: window.Seconds, meter: meter}.row(window.LimitKey, labelPrefix)
+		row := quotaWindow{Seconds: window.Seconds, Meter: meter}.row(window.LimitKey, labelPrefix)
 		length := time.Duration(window.Seconds) * time.Second
 		histories = append(histories, quotaWindowHistory{row: row, periods: billing.QuotaWindowPeriods(length, reports, now)})
 	}
@@ -176,7 +176,7 @@ func compareQuotaWindows(left, right quotaRow) int {
 		return 1
 	}
 	return cmp.Or(cmp.Compare(rank(left), rank(right)), strings.Compare(left.LimitKey, right.LimitKey),
-		cmp.Compare(left.windowSeconds, right.windowSeconds))
+		cmp.Compare(left.WindowSeconds, right.WindowSeconds))
 }
 
 // completeQuotaHistories reconstructs the windows' periods that run after
@@ -204,15 +204,23 @@ func (a *App) completeQuotaHistories(credential quotaCredential, from, now time.
 }
 
 func (row quotaRow) sameWindow(other quotaRow) bool {
-	return row.LimitKey == other.LimitKey && row.windowSeconds == other.windowSeconds
+	return row.LimitKey == other.LimitKey && row.WindowSeconds == other.WindowSeconds
+}
+
+// periodReset is when the period that a metered window of known length
+// reports on resets. Once that time has passed, the window has reported no
+// period since.
+func (row quotaRow) periodReset(now time.Time) (time.Time, bool) {
+	resetAt, err := time.Parse(time.RFC3339, row.ResetAt)
+	return resetAt, row.Meter != nil && row.WindowSeconds > 0 && err == nil && resetAt.After(now)
 }
 
 // currentPeriod is the period a metered row reports on: the period of the
 // window's history that ends at the row's reset time, or else the one the
 // reset time declares.
-func (row quotaRow) currentPeriod(histories []quotaWindowHistory) (billing.QuotaWindowPeriod, bool) {
-	resetAt, err := time.Parse(time.RFC3339, row.ResetAt)
-	if row.meter == nil || row.windowSeconds <= 0 || err != nil {
+func (row quotaRow) currentPeriod(histories []quotaWindowHistory, now time.Time) (billing.QuotaWindowPeriod, bool) {
+	resetAt, ok := row.periodReset(now)
+	if !ok {
 		return billing.QuotaWindowPeriod{}, false
 	}
 	for _, history := range histories {
@@ -222,7 +230,7 @@ func (row quotaRow) currentPeriod(histories []quotaWindowHistory) (billing.Quota
 			}
 		}
 	}
-	return billing.QuotaWindowPeriod{Start: resetAt.Add(-time.Duration(row.windowSeconds) * time.Second), ResetAt: resetAt}, true
+	return billing.QuotaWindowPeriod{Start: resetAt.Add(-time.Duration(row.WindowSeconds) * time.Second), ResetAt: resetAt}, true
 }
 
 // usageQuery selects the requests a period of the row's window covers,
@@ -231,11 +239,8 @@ func (row quotaRow) usageQuery(credential quotaCredential, period billing.QuotaW
 	end := period.End
 	if end.IsZero() {
 		end = now
-		if !period.ResetAt.IsZero() && period.ResetAt.Before(now) {
-			end = period.ResetAt
-		}
 	}
-	models := row.meter.models
+	models := row.Meter.Models
 	if len(models.Include) == 0 {
 		models.Exclude = exclusive
 	}
@@ -245,8 +250,8 @@ func (row quotaRow) usageQuery(credential quotaCredential, period billing.QuotaW
 func exclusiveModels(rows []quotaRow) []string {
 	var models []string
 	for _, row := range rows {
-		if row.meter != nil && row.meter.exclusive {
-			models = append(models, row.meter.models.Include...)
+		if row.Meter != nil && row.Meter.Exclusive {
+			models = append(models, row.Meter.Models.Include...)
 		}
 	}
 	return models
@@ -254,7 +259,7 @@ func exclusiveModels(rows []quotaRow) []string {
 
 // attachQuotaUsage reports what each metered window of quotas consumed in its
 // current period. A scope limits usage to one API key.
-func (a *App) attachQuotaUsage(scope string, quotas map[quotaCredential]*authQuotaResponse) error {
+func (a *App) attachQuotaUsage(scope string, quotas map[quotaCredential]*authFileQuota) error {
 	now := a.store.Now()
 	var queries []billing.UsageQuery
 	var rows []*quotaRow
@@ -262,8 +267,8 @@ func (a *App) attachQuotaUsage(scope string, quotas map[quotaCredential]*authQuo
 		// The windows that requests report take their current periods from history.
 		from := now
 		for _, row := range quota.Quota {
-			if resetAt, err := time.Parse(time.RFC3339, row.ResetAt); err == nil && row.LimitKey != "" && row.meter != nil {
-				if start := resetAt.Add(-time.Duration(row.windowSeconds) * time.Second); start.Before(from) {
+			if resetAt, ok := row.periodReset(now); ok && row.LimitKey != "" {
+				if start := resetAt.Add(-time.Duration(row.WindowSeconds) * time.Second); start.Before(from) {
 					from = start
 				}
 			}
@@ -277,7 +282,7 @@ func (a *App) attachQuotaUsage(scope string, quotas map[quotaCredential]*authQuo
 		}
 		exclusive := exclusiveModels(quota.Quota)
 		for i := range quota.Quota {
-			if period, ok := quota.Quota[i].currentPeriod(histories); ok {
+			if period, ok := quota.Quota[i].currentPeriod(histories, now); ok {
 				queries = append(queries, quota.Quota[i].usageQuery(credential, period, now, exclusive))
 				rows = append(rows, &quota.Quota[i])
 			}

@@ -10,10 +10,9 @@ function openAuthDrawer(file, account) {
   $("auth-drawer").showModal();
   guard(loadAuthDrawerHistory);
   // Manual resets come only from a quota query.
-  const ui = authUI(account);
   if (
-    AUTH_RESET_PROVIDERS.includes(file.category) && canRefreshAuthQuota(file) && !ui.owner.authQuotas.has(file.auth_index) &&
-    ui.bulk.dataset.loading !== "true"
+    AUTH_RESET_PROVIDERS.includes(file.category) && canRefreshAuthQuota(file) && !file.quota?.fetched_at &&
+    authUI(account).bulk.dataset.loading !== "true"
   )
     guard(() => refreshAuthQuota(file, account));
 }
@@ -56,9 +55,9 @@ function renderAuthDrawerFile() {
 function renderAuthDrawerResets(file, account) {
   $("auth-drawer-reset-section").classList.toggle("hidden", !AUTH_RESET_PROVIDERS.includes(file.category));
   const owner = authUI(account).owner;
-  const result = owner.authQuotas.get(file.auth_index);
+  const queried = file.quota?.fetched_at ? file.quota : null;
   const error = owner.authQuotaErrors.get(file.auth_index);
-  const count = result?.rate_limit_reset_credits_available_count;
+  const count = authQuotaResets(queried).count;
   setText($("auth-drawer-reset-count"), count != null ? int(count) : "");
   const reset = $("auth-drawer-reset");
   reset.classList.toggle("hidden", account && resources.account.profile.value?.can_reset_auth_quota !== true);
@@ -67,11 +66,11 @@ function renderAuthDrawerResets(file, account) {
   const status = (text) => el("div", { class: "muted small", text });
   const content = owner.authQuotaLoading.has(file.auth_index)
     ? status(m("ui.updating_quotas"))
-    : error && !result
+    : error && !queried
       ? el("div", { class: "credential-error", text: error })
-      : !result
+      : !queried
         ? status(authQuotaRefreshTitle(file) || m("ui.refresh_to_query_quota"))
-        : (renderAuthResetCredits(file, result) ?? (count === 0 ? status(m("ui.no_manual_resets_available")) : null));
+        : (renderAuthResetCredits(file, queried) ?? (count === 0 ? status(m("ui.no_manual_resets_available")) : null));
   $("auth-drawer-resets").replaceChildren(...(content ? [content] : []));
 }
 

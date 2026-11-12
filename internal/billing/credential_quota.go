@@ -37,6 +37,30 @@ func (s *Store) LatestQuotaReports(authIndexes []string, since time.Time) (map[s
 	})
 }
 
+// QuotaQuery is what a credential's provider answered when its quota was last
+// queried, encoded by the querier.
+type QuotaQuery struct {
+	Provider string
+	At       time.Time
+	Quota    []byte
+}
+
+// SaveQuotaQuery keeps a credential's quota query in place of its previous
+// one and drops every query made before since.
+func (s *Store) SaveQuotaQuery(authIndex string, query QuotaQuery, since time.Time) error {
+	_, err := withRepository(s, func(repo Repository) (struct{}, error) {
+		return struct{}{}, repo.SaveQuotaQuery(authIndex, query, since)
+	})
+	return err
+}
+
+// QuotaQueries returns the quota query of each credential made since since.
+func (s *Store) QuotaQueries(authIndexes []string, since time.Time) (map[string]QuotaQuery, error) {
+	return withRepository(s, func(repo Repository) (map[string]QuotaQuery, error) {
+		return repo.QuotaQueries(authIndexes, since)
+	})
+}
+
 // QuotaWindowHistory is what a credential's requests reported about one quota
 // window, oldest first.
 type QuotaWindowHistory struct {

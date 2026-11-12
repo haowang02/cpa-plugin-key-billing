@@ -725,6 +725,8 @@
   "ui.quota_reset_elapsed": "Reset time reached",
   "ui.quota_estimate": "Quota estimate",
   "ui.quota_estimate_unavailable": "Nothing used yet to estimate from",
+  "ui.quota_usage_not_collected": "Usage in this period has not been collected yet",
+  "ui.quota_observed_at_value": "Updated {v0}",
   "ui.view_quota_history": "View quota history",
   "ui.close": "Close",
   "ui.notifications": "Notifications",

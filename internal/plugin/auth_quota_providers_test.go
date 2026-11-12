@@ -38,7 +38,7 @@ func TestCodexQuotaPreservesAdditionalDynamicWindows(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.StatusCode, response.Body)
 	}
-	var result authQuotaResponse
+	var result authFileQuota
 	if errDecode := json.Unmarshal(response.Body, &result); errDecode != nil {
 		t.Fatal(errDecode)
 	}
@@ -101,7 +101,7 @@ func TestCodexResetCreditExpiry(t *testing.T) {
 				}
 				return mustJSONRaw(t, hostHTTPResponse{StatusCode: tc.status, Body: []byte(tc.credits)}), nil
 			})
-			result := authQuotaResponse{}
+			result := authFileQuota{}
 			client := &authQuotaClient{
 				hostCaller: app.hostCaller, callbackID: "dummy-callback", token: "dummy-token",
 				credential: map[string]any{"account_id": "dummy-account"},
@@ -138,7 +138,7 @@ func TestCodexResetCreditPreservesUnknownDateFormat(t *testing.T) {
 }
 
 func TestCodexQuotaOrdersAndLabelsWindows(t *testing.T) {
-	result := authQuotaResponse{Quota: []quotaRow{}}
+	result := authFileQuota{Quota: []quotaRow{}}
 	appendCodexRateLimit(&result, codexMainLimit, map[string]any{
 		"allowed": false,
 		"primary_window": map[string]any{
@@ -166,7 +166,7 @@ func TestClaudeQuotaUsesFableLimitAndCanonicalTeamPlan(t *testing.T) {
 		request := payload.(hostHTTPRequest)
 		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(responses[request.URL])}), nil
 	})
-	result := authQuotaResponse{Quota: []quotaRow{}}
+	result := authFileQuota{Quota: []quotaRow{}}
 	client := &authQuotaClient{hostCaller: app.hostCaller, token: "token"}
 	if errFetch := client.fetchClaudeQuota(&result); errFetch != nil {
 		t.Fatal(errFetch)
@@ -238,7 +238,7 @@ func TestClaudeQuotaOmitsDisabledExtraUsage(t *testing.T) {
 		profileCalled = true
 		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"account":{"has_claude_pro":true}}`)}), nil
 	})
-	result := authQuotaResponse{Quota: []quotaRow{}}
+	result := authFileQuota{Quota: []quotaRow{}}
 	client := &authQuotaClient{hostCaller: app.hostCaller, token: "token"}
 	if errFetch := client.fetchClaudeQuota(&result); errFetch != nil {
 		t.Fatal(errFetch)
@@ -341,7 +341,7 @@ func TestKimiQuotaReadsNestedLimitShape(t *testing.T) {
 		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"limits":[{"detail":{"title":"Coding 5 小时限额","used":20,"limit":100,"duration":5,"timeUnit":"H","reset_at":"invalid","ttl":3600}}]}`)}), nil
 	})
 	fetchedAt := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
-	result := authQuotaResponse{FetchedAt: fetchedAt, Quota: []quotaRow{}}
+	result := authFileQuota{FetchedAt: fetchedAt, Quota: []quotaRow{}}
 	client := &authQuotaClient{hostCaller: app.hostCaller, token: "token"}
 	if errFetch := client.fetchKimiQuota(&result); errFetch != nil {
 		t.Fatal(errFetch)
@@ -368,7 +368,7 @@ func TestXAIQuotaDeduplicatesProductLimits(t *testing.T) {
 		}
 		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"config":{}}`)}), nil
 	})
-	result := authQuotaResponse{Quota: []quotaRow{}}
+	result := authFileQuota{Quota: []quotaRow{}}
 	client := &authQuotaClient{hostCaller: app.hostCaller, token: "token", credential: map[string]any{"user_id": "user"}}
 	if errFetch := client.fetchXAIQuota(&result); errFetch != nil {
 		t.Fatal(errFetch)

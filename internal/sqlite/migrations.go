@@ -56,11 +56,21 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 23 {
 		steps = append(steps, migrateCurrencies)
 	}
-	steps = append(steps, migrateSharedQuotas)
+	if version <= 24 {
+		steps = append(steps, migrateSharedQuotas)
+	}
+	steps = append(steps, migrateQuotaQueries)
 	for _, step := range steps {
 		if err := step(tx); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateQuotaQueries(tx *sql.Tx) error {
+	if _, err := tx.Exec(quotaQueriesTable); err != nil {
+		return fmt.Errorf("Add quota queries: %w", err)
 	}
 	return nil
 }
