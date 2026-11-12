@@ -1,8 +1,20 @@
+const AUTH_FILE_CATEGORIES = { claude: "Claude", antigravity: "Antigravity", codex: "Codex", xai: "xAI", kimi: "Kimi" };
+const AUTH_FILE_FILTERS = {
+  status: statusFilter("auth-status"),
+  category: {
+    id: "auth-category",
+    label: m("ui.category"),
+    icon: "shapes",
+    options: () => Object.entries(AUTH_FILE_CATEGORIES).map(([value, label]) => ({ value, label }))
+  },
+  search: searchFilter("auth-search")
+};
+
 const authSelection = createTableSelection({
   id: (file) => file.auth_index,
   label: (file) => file.note || file.title,
   eligible: (file) => !!file.auth_index,
-  context: () => [$("auth-provider").value, $("auth-search").value, $("auth-enabled-only").checked],
+  context: () => filterSnapshot(false, Object.values(AUTH_FILE_FILTERS)),
   render: () => renderAuthFiles(false),
   actions: renderAuthSelectionActions
 });
@@ -12,9 +24,7 @@ function renderAuthSelectionActions(files) {
   return [
     authSelection.action(
       m("ui.update_quotas"),
-      files.filter(
-        (file) => canRefreshAuthQuota(file) && !owner.authQuotaLoading.has(file.auth_index) && authUI(false).bulk.dataset.loading !== "true"
-      ),
+      files.filter((file) => canRefreshAuthQuota(file) && !owner.authQuotaLoading.has(file.auth_index) && !owner.authQuotaBatch),
       refreshSelectedAuthQuotas
     ),
     authSelection.action(
@@ -87,18 +97,7 @@ function authProviderIcon(category) {
 }
 
 function authUI(account) {
-  const prefix = account ? "account-auth" : "auth";
-  return {
-    owner: account ? accountUIState : adminUIState,
-    files: authFilesQueries[account ? "account" : "admin"],
-    body: $(prefix + "-files-body"),
-    enabledOnly: $(prefix + "-enabled-only"),
-    // Account usage covers only the presenting key, so it cannot be projected to the whole window.
-    estimate: account ? null : $("auth-quota-estimate"),
-    provider: $(prefix + "-provider"),
-    search: $(prefix + "-search"),
-    bulk: $(prefix + "-refresh-filtered")
-  };
+  return { owner: account ? accountUIState : adminUIState, files: authFilesQueries[account ? "account" : "admin"] };
 }
 
 function resetAuthQuotaMemory(account) {
@@ -106,13 +105,33 @@ function resetAuthQuotaMemory(account) {
   authQuotaGeneration[account ? "account" : "admin"]++;
   owner.authQuotaLoading.clear();
   owner.authQuotaErrors.clear();
-  resetAuthQuotaBatch(account);
+  owner.authQuotaBatch = null;
 }
 
-function resetAuthQuotaBatch(account) {
-  const bulk = authUI(account).bulk;
-  bulk.dataset.loading = "false";
-  setLabeledActionIcon(bulk, "refresh", m("ui.update_quotas"));
+// Account usage covers only the presenting key, so only administrators can project it to the whole window.
+function authFileActions(account) {
+  const { authQuotaBatch: batch } = authUI(account).owner;
+  return [
+    {
+      label: batch ? m("ui.updating_value_value", { v0: batch.done, v1: batch.total }) : m("ui.update_quotas"),
+      icon: "refresh",
+      disabled: !!batch || (!account && authSelection.running) || !filteredAuthFiles(account).some(canRefreshAuthQuota),
+      run: () => guard(() => refreshFilteredAuthQuotas(account))
+    },
+    ...(account
+      ? []
+      : [
+          {
+            label: m("ui.quota_estimate"),
+            icon: "gauge",
+            checked: displaySettings.admin.quotaEstimate,
+            run: () => {
+              setDisplaySetting("quotaEstimate", !displaySettings.admin.quotaEstimate);
+              renderAuthFiles(false);
+            }
+          }
+        ])
+  ];
 }
 
 async function readCPAAuthSubscriptions() {
@@ -167,15 +186,15 @@ function receiveAuthQuota(account, index, quota) {
 }
 
 function filteredAuthFiles(account) {
-  const ui = authUI(account);
-  const provider = ui.provider.value;
-  const search = ui.search.value.trim().toLocaleLowerCase();
-  return (ui.files.value || []).filter((file) => {
-    if (ui.enabledOnly.checked && file.disabled) return false;
-    if (provider && file.category !== provider) return false;
-    if (!search) return true;
+  const status = filterValue(account, AUTH_FILE_FILTERS.status);
+  const category = filterValue(account, AUTH_FILE_FILTERS.category);
+  const term = filterValue(account, AUTH_FILE_FILTERS.search).trim().toLocaleLowerCase();
+  return (authUI(account).files.value || []).filter((file) => {
+    if (!matchesStatus(status, file.disabled)) return false;
+    if (category && file.category !== category) return false;
+    if (!term) return true;
     return [file.note, file.name, file.title, file.quota?.plan, file.category].some((value) =>
-      String(value || "").toLocaleLowerCase().includes(search)
+      String(value || "").toLocaleLowerCase().includes(term)
     );
   });
 }
@@ -388,22 +407,16 @@ function renderAuthFileQuota(file, account) {
     summary.length ? el("div", { class: "auth-quota-summary" }, summary) : null,
     error && el("div", { class: "credential-error", text: error }),
     rows.length
-      ? renderAuthQuotaRows(rows, account, ui.estimate?.checked === true)
+      ? renderAuthQuotaRows(rows, account, !account && displaySettings.admin.quotaEstimate)
       : el("div", { class: "muted small", text: m("ui.the_upstream_returned_no_displayable_quota") })
   );
 }
 
 function renderAuthFiles(account) {
-  const ui = authUI(account);
   if ($("auth-drawer").open && authDrawer.account === account) renderAuthDrawerFile();
-  if (renderDataPending(ui.body, [ui.files])) {
-    ui.bulk.disabled = true;
-    return;
-  }
-  const files = filteredAuthFiles(account);
-  const refreshable = files.filter(canRefreshAuthQuota).length;
-  ui.bulk.disabled = refreshable === 0 || ui.bulk.dataset.loading === "true" || (!account && authSelection.running);
-  renderCollection(ui.body, files, {
+  const body = $("auth-files-body");
+  if (renderDataPending(body, [authUI(account).files])) return;
+  renderCollection(body, filteredAuthFiles(account), {
     selection: account ? null : authSelection,
     headers: [
       m("ui.auth_files"),
@@ -444,7 +457,7 @@ function renderAuthFileRow(file, account) {
       {
         type: "button",
         class: "icon-action" + (loading ? " loading" : ""),
-        disabled: !canRefreshAuthQuota(file) || loading || ui.bulk.dataset.loading === "true" || (!account && authSelection.running),
+        disabled: !canRefreshAuthQuota(file) || loading || !!ui.owner.authQuotaBatch || (!account && authSelection.running),
         "aria-label": m("ui.update_quotas"),
         "data-tip": authQuotaRefreshTitle(file) || m("ui.update_quotas"),
         onclick: () => guard(() => refreshAuthQuota(file, account))
@@ -679,43 +692,26 @@ async function refreshAuthQuota(file, account) {
 }
 
 async function refreshFilteredAuthQuotas(account) {
-  const ui = authUI(account);
+  const owner = authUI(account).owner;
   const role = account ? "account" : "admin";
   const generation = authQuotaGeneration[role];
-  const files = filteredAuthFiles(account).filter((file) => canRefreshAuthQuota(file) && !ui.owner.authQuotaLoading.has(file.auth_index));
-  if (!files.length || ui.bulk.dataset.loading === "true") return;
-  ui.bulk.dataset.loading = "true";
-  const progress = el("span", { text: m("ui.updating_0_value", { v0: files.length }) });
-  ui.bulk.removeAttribute("aria-label");
-  ui.bulk.replaceChildren(actionIcon("refresh"), progress);
+  const files = filteredAuthFiles(account).filter((file) => canRefreshAuthQuota(file) && !owner.authQuotaLoading.has(file.auth_index));
+  if (!files.length || owner.authQuotaBatch) return;
+  const batch = (owner.authQuotaBatch = { done: 0, total: files.length });
   renderAuthFiles(account);
-  let next = 0, completed = 0;
+  let next = 0;
   try {
     const worker = async () => {
       while (next < files.length && generation === authQuotaGeneration[role]) {
         await loadAuthQuota(files[next++], account);
-        setText(progress, m("ui.updating_value_value", { v0: ++completed, v1: files.length }));
+        batch.done++;
       }
     };
     await settleLoads(Array.from({ length: Math.min(AUTH_QUOTA_BATCH_CONCURRENCY, files.length) }, worker));
   } finally {
-    if (generation === authQuotaGeneration[role]) {
-      resetAuthQuotaBatch(account);
-      renderAuthFiles(account);
-    }
+    if (owner.authQuotaBatch === batch) owner.authQuotaBatch = null;
+    if (generation === authQuotaGeneration[role]) renderAuthFiles(account);
   }
-}
-
-for (const account of [false, true]) {
-  const ui = authUI(account);
-  const role = account ? "account" : "admin";
-  setLabeledActionIcon(ui.bulk, "refresh", m("ui.update_quotas"));
-  for (const filter of [ui.enabledOnly, ui.estimate, ui.provider].filter(Boolean)) {
-    filter.addEventListener("change", () => {
-      saveChoice(role, filter.id);
-      renderAuthFiles(account);
-    });
-  }
-  ui.search.addEventListener("input", () => renderAuthFiles(account));
-  ui.bulk.onclick = () => guard(() => refreshFilteredAuthQuotas(account));
+  if (generation === authQuotaGeneration[role] && !files.some((file) => owner.authQuotaErrors.has(file.auth_index)))
+    notify(m("ui.quotas_refreshed"));
 }

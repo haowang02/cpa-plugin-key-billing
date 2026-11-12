@@ -1,9 +1,11 @@
+const PRICE_SEARCH_FILTER = searchFilter("price-search");
+
 const priceSelection = createTableSelection({
   id: (price) => price.custom_price_model_id || price.model_id,
   label: (price) => price.model_id,
   eligible: (price) => price.source === "custom",
   disabledTip: m("ui.batch_custom_prices_only"),
-  context: () => $("price-filter").value.trim().toLowerCase(),
+  context: () => filterValue(false, PRICE_SEARCH_FILTER).trim().toLowerCase(),
   render: renderPriceTable,
   actions: (prices) => [priceSelection.action(m("ui.delete_custom_prices"), prices, deleteSelectedPrices, true)]
 });
@@ -86,8 +88,9 @@ function longContextPrices(row) {
 }
 
 function renderPriceTable() {
+  renderFilterBar($("price-filters"), false, [PRICE_SEARCH_FILTER], renderPriceTable);
   if (renderDataPending($("prices-body"), [resources.admin.catalog], m("ui.loading_model_prices"))) return;
-  const filter = $("price-filter").value.trim().toLowerCase();
+  const filter = filterValue(false, PRICE_SEARCH_FILTER).trim().toLowerCase();
   const rows = resources.admin.catalog.value.prices.filter((row) => !filter || row.model_id.toLowerCase().includes(filter))
     .sort((a, b) => compareModelId(a.model_id, b.model_id));
   const renderRow = (row) => {
@@ -269,7 +272,6 @@ function editPrice(row) {
 }
 
 $("price-currency").replaceChildren(...currencyOptions());
-$("price-filter").addEventListener("input", renderPriceTable);
 $("price-reference-search").addEventListener("input", () => {
   priceReferenceRequest++;
   $("price-reference-results").replaceChildren();

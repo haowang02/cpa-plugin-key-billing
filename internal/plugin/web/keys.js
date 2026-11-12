@@ -2,11 +2,16 @@ const CONCURRENCY_OPTIONS = [0, 1, 2, 3, 5, 10, 20, 50];
 const CUSTOM_CONCURRENCY = "__custom__";
 const CALLER_SCOPE_SALT = "cli-proxy-api:caller-scope:v1\u0000";
 
+const KEY_FILTERS = {
+  search: searchFilter("key-search"),
+  deleted: { id: "key-deleted", label: m("ui.deleted"), icon: "trash-2", toggle: true }
+};
+
 const keySelection = createTableSelection({
   id: (key) => key.scope,
   label: (key) => apiKeyIdentity(key).primary,
   eligible: (key) => !key.deleted_at,
-  context: () => [$("key-filter").value.trim(), $("keys-include-deleted").checked],
+  context: () => filterSnapshot(false, Object.values(KEY_FILTERS)),
   render: renderKeys,
   actions: renderKeySelectionActions,
   busy: () => adminUIState.keySubmissions.size > 0
@@ -14,8 +19,29 @@ const keySelection = createTableSelection({
 
 function callerScope(key) { return sha256Hex(CALLER_SCOPE_SALT + key.trim()); }
 
-// A complete API key finds its row through its scope.
+// A complete API key finds its row through its scope, which hashing yields a moment after the term changes.
 const keySearch = { term: "", scope: "" };
+
+function filteredKeys() {
+  const term = filterValue(false, KEY_FILTERS.search).trim();
+  if (keySearch.term !== term) {
+    Object.assign(keySearch, { term, scope: "" });
+    if (term)
+      callerScope(term).then((scope) => {
+        if (keySearch.term !== term) return;
+        keySearch.scope = scope;
+        renderKeys();
+        renderToolbar();
+      });
+  }
+  const deleted = filterValue(false, KEY_FILTERS.deleted);
+  return resources.admin.keys.value.filter(
+    (view) =>
+      !!view.deleted_at === deleted &&
+      (view.scope === keySearch.scope ||
+        matchesTerm([apiKeyIdentity(view).text, view.plan_name, view.scope].filter(Boolean).join(" "), term))
+  );
+}
 
 async function configuredAPIKey(view) {
   for (const value of await fetchConfiguredAPIKeys()) { if ((await callerScope(value)) === view.scope) return value.trim(); }
@@ -113,18 +139,11 @@ async function submitKeyChange(scope, save) {
 }
 
 function renderKeys() {
-  if (currentRole !== "admin" || activeTab(false) !== "keys") return false;
+  if (currentRole !== "admin" || currentTab !== "keys") return false;
   closeHoverTooltip();
   if (renderDataPending($("keys-body"), [resources.admin.keys], m("ui.loading"), "empty section-loading")) return;
   const plans = resources.admin.plans.value;
-  const term = $("key-filter").value.trim();
-  const scope = keySearch.term === term ? keySearch.scope : "";
-  const keys = resources.admin.keys.value.filter(
-    (view) =>
-      (!view.deleted_at || $("keys-include-deleted").checked) &&
-      (view.scope === scope || matchesTerm([apiKeyIdentity(view).text, view.plan_name, view.scope].filter(Boolean).join(" "), term))
-  );
-  renderCollection($("keys-body"), keys, {
+  renderCollection($("keys-body"), filteredKeys(), {
     selection: keySelection,
     headers: [
       "",
@@ -395,19 +414,14 @@ function cpamcLabels() {
   return { labels, fingerprint: (key) => sha256Hex(JSON.stringify(["api-key-name", apiBase, key])) };
 }
 
-$("key-filter").addEventListener("input", async () => {
-  const term = $("key-filter").value.trim();
-  const scope = await callerScope(term);
-  if ($("key-filter").value.trim() !== term) return;
-  Object.assign(keySearch, { term, scope });
-  renderKeys();
-});
-$("keys-include-deleted").addEventListener("change", () => {
-  saveChoice("admin", "keys-include-deleted");
-  renderKeys();
-});
+function keyActions() {
+  return [
+    ...(embedded ? [{ label: m("ui.import_labels"), icon: "import", run: openLabelImport }] : []),
+    { label: m("ui.reset_all_quotas"), icon: "rotate-cw-clock", danger: true, run: confirmQuotaReset }
+  ];
+}
 
-$("keys-import-labels").onclick = () => {
+function openLabelImport() {
   const [panel, load] =
     document.documentElement.getAttribute("data-cpamp-plugin-host") === "true" ? ["CPAMP", cpampLabels] : ["CPAMC", cpamcLabels];
   openActionDialog(
@@ -416,8 +430,9 @@ $("keys-import-labels").onclick = () => {
     undefined,
     () => importPanelLabels(load)
   );
-};
-$("keys-reset-all").onclick = () =>
+}
+
+function confirmQuotaReset() {
   openActionDialog(
     m("ui.reset_all_subscription_quotas"),
     m("ui.clear_usage_for_all_non_deleted_api_keys_bound_to_a_plan_shared_cycles_keep_their_res"),
@@ -427,3 +442,4 @@ $("keys-reset-all").onclick = () =>
       if (result.keys || result.pools) notify(m("ui.subscription_quota_reset")); else notify(m("ui.no_quotas_to_reset"), "info");
     }
   );
+}

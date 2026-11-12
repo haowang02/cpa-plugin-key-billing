@@ -156,7 +156,7 @@ function routingSection(selection, kind, title, options, rerender) {
 function compactEnabledToggle(checked, onChange) {
   return el(
     "label",
-    { class: "toggle-filter compact-toggle" },
+    { class: "compact-toggle" },
     switchControl({
       input: el("input", {
         type: "checkbox",

@@ -89,7 +89,6 @@ async function activateCredentialScope(account, credential) {
   const generation = sessionGeneration;
   const role = account ? "account" : "admin";
   resetAuthQuotaMemory(account);
-  if (!account) resetAIBalanceBatch();
   credentialScope[role] = "";
   try {
     const scope = (await sha256Hex(role + "|" + credential)).slice(0, 32);

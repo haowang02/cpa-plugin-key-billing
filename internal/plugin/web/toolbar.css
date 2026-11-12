@@ -1,0 +1,185 @@
+.toolbar { display: flex; align-items: flex-start; gap: 8px 12px; margin-bottom: var(--page-gap); }
+.toolbar-main { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.toolbar-tools { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
+.toolbar-actions { display: flex; align-items: center; gap: 8px; }
+/* The switcher clips its tab bar while the bar is too wide, so its controls show focus inside their own box. */
+.page-tab-switcher { position: relative; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.tabs {
+  display: flex;
+  gap: 2px;
+  width: max-content;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: calc(var(--radius-md) + 2px);
+  background: var(--bg-primary);
+}
+.tabs > button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 29px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.tabs > button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.tabs > button.active { background: var(--bg-tertiary); color: var(--text-primary); box-shadow: var(--shadow); }
+:root .page-tab-switcher button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; box-shadow: none; }
+.page-tab-menu {
+  --button-padding-inline: 10px;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  min-width: 160px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.page-tab-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-tab-menu-chevron { width: 18px; height: 18px; margin-left: auto; color: var(--text-secondary); transition: transform 0.15s; }
+.page-tab-menu[aria-expanded="true"] .page-tab-menu-chevron { transform: rotate(180deg); }
+/* Hidden tabs stay measurable, so the menu button gives way to them once they fit again. */
+.toolbar.compact .tabs { position: absolute; visibility: hidden; pointer-events: none; }
+.toolbar.compact .page-tab-menu { display: inline-flex; }
+@media (prefers-reduced-motion: no-preference) {
+  .tabs > button { transition: background-color 0.15s, color 0.15s, box-shadow 0.2s, scale 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .tabs > button:active { scale: 0.96; transition-duration: 0.08s; }
+}
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--count-badge-border);
+  border-radius: 6px;
+  background: var(--count-badge-bg);
+  color: var(--count-badge-text);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.count-badge:empty { display: none; }
+
+.toolbar-button {
+  --button-padding-inline: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 35px;
+}
+.toolbar-button .lucide-icon { width: 16px; height: 16px; color: var(--text-secondary); }
+.toolbar-button[aria-expanded="true"] { border-color: var(--border-hover); background: var(--bg-hover); }
+.toolbar-button[aria-pressed="true"] .lucide-icon { color: var(--primary-active); }
+/* Refresh and its auto refresh interval form one split control. */
+.refresh-control { display: inline-flex; }
+.refresh-control:has(> #auto-refresh:not(.hidden)) > #page-refresh { border-start-end-radius: 0; border-end-end-radius: 0; }
+#auto-refresh { margin-left: -1px; border-start-start-radius: 0; border-end-start-radius: 0; font-variant-numeric: tabular-nums; }
+#auto-refresh:is(:hover, :focus-visible, [aria-expanded="true"]), #page-refresh:is(:hover, :focus-visible) {
+  position: relative;
+  z-index: 1;
+}
+#auto-refresh .lucide-chevron-down { width: 14px; height: 14px; transition: transform 0.15s; }
+#auto-refresh[aria-expanded="true"] .lucide-chevron-down { transform: rotate(180deg); }
+.refresh-interval:empty { display: none; }
+
+.filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+:root button.filter-add {
+  --button-padding-inline: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.filter-add .lucide-icon { width: 14px; height: 14px; }
+/* A chip is one control: its parts stay transparent, and it shows hover and focus as a whole. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 35px;
+  padding-right: 4px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  background: var(--control-bg);
+  font-size: 13px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.filter-chip:hover { border-color: var(--border-hover); background: var(--bg-hover); }
+.filter-chip:focus-within { border-color: var(--primary-color); }
+.filter-chip-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 4px 0 10px;
+  color: var(--text-primary);
+  font-size: inherit;
+  white-space: nowrap;
+}
+.filter-chip > button.filter-chip-body { min-height: 0; border: 0; border-radius: inherit; background: transparent; }
+.filter-chip > button.filter-chip-body:focus-visible { outline: none; box-shadow: none; }
+.filter-chip-label { flex: none; color: var(--text-tertiary); }
+.filter-chip-value { min-width: 0; max-width: 240px; overflow: hidden; font-weight: 500; text-overflow: ellipsis; }
+:root .filter-chip input.filter-chip-input[type="search"] {
+  width: 160px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: inherit;
+}
+.filter-chip-input::-webkit-search-cancel-button { display: none; }
+:root .filter-chip > .filter-chip-remove { --icon-action-size: 24px; border-radius: 50%; color: var(--text-tertiary); }
+.filter-chip-remove .lucide-icon { width: 13px; height: 13px; }
+
+.section-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.section-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.section-header > button:first-of-type { margin-left: auto; }
+.section-note { color: var(--text-tertiary); font-size: 12px; font-weight: 400; }
+#app.untracked :is(.toolbar-main, .time-range-control, .page-view) { display: none; }
+
+:root[data-cpamp-plugin-host="true"] .tabs {
+  border-color: var(--glass-border, var(--border-color));
+  border-radius: var(--radius-md);
+  background: var(--glass-bg, var(--bg-primary));
+  box-shadow: var(--glass-shadow, none);
+  backdrop-filter: var(--glass-backdrop-filter, none);
+}
+/* The bar takes the host's control radius; its tabs follow the curve inside its padding and border. */
+:root[data-cpamp-plugin-host="true"] .tabs > button { min-height: 28px; padding: 0 14px; border-radius: calc(var(--radius-md) - 3px); }
+:root[data-cpamp-plugin-host="true"] .tabs > button.active {
+  background: color-mix(in srgb, var(--bg-primary) 88%, var(--primary-color));
+  color: var(--primary-active);
+  box-shadow: 0 1px 3px #0f17211a, inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 16%, transparent);
+}
+:root[data-cpamp-plugin-host="true"] .toolbar-button { min-width: 34px; }
+:root[data-cpamp-plugin-host="true"] .filter-chip { min-height: 34px; }
+
+/* Phones keep the view and actions on the first line. An empty full-width item ends it,
+   so the time range and filters flow below from the left edge and wrap together. */
+@media (max-width: 640px) {
+  .toolbar { flex-wrap: wrap; align-items: center; gap: 0 8px; }
+  .toolbar::after { content: ""; order: 1; flex-basis: 100%; }
+  .toolbar-main, .toolbar-tools, #page-filters { display: contents; }
+  .page-tab-switcher { flex: 1 1 0; }
+  .page-tab-menu { width: 100%; }
+  .time-range-control { order: 2; margin-top: 8px; }
+  #page-filters > * { order: 3; margin-top: 8px; }
+  .filter-chip-value { max-width: 140px; }
+}

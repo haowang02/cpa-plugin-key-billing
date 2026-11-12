@@ -195,15 +195,18 @@ function querySelectedAIBalances(providers) {
   );
 }
 
-function resetAIBalanceBatch() {
-  const bulk = $("ai-provider-query-balances");
-  bulk.dataset.loading = "false";
-  setLabeledActionIcon(bulk, "refresh", m("ui.query_balance"));
+function aiBalanceAction() {
+  const batch = adminUIState.aiBalanceBatch;
+  return {
+    label: batch ? m("ui.querying_value_value", { v0: batch.done, v1: batch.total }) : m("ui.query_balance"),
+    icon: "wallet",
+    disabled: !!batch || aiSelection.running || aiProviderStatusSaving || !filteredAIProviders(false).some(aiBalanceUpstream),
+    run: () => guard(queryFilteredAIBalances)
+  };
 }
 
 async function queryFilteredAIBalances() {
   const owner = adminUIState;
-  const bulk = $("ai-provider-query-balances");
   // A key listed twice shares one auth index, and so one query.
   const providers = [
     ...new Map(
@@ -211,27 +214,24 @@ async function queryFilteredAIBalances() {
         .map((provider) => [provider.auth_index, provider])
     ).values()
   ];
-  if (!providers.length || bulk.dataset.loading === "true") return;
-  bulk.dataset.loading = "true";
-  const progress = el("span", { text: m("ui.querying_0_value", { v0: providers.length }) });
-  bulk.removeAttribute("aria-label");
-  bulk.replaceChildren(actionIcon("refresh"), progress);
+  if (!providers.length || owner.aiBalanceBatch) return;
+  const batch = (owner.aiBalanceBatch = { done: 0, total: providers.length });
   renderAIProviders(false);
-  let next = 0, completed = 0;
+  let next = 0;
   try {
     const worker = async () => {
       while (next < providers.length && owner === adminUIState) {
         await loadAIBalance(providers[next++]);
-        setText(progress, m("ui.querying_value_value", { v0: ++completed, v1: providers.length }));
+        batch.done++;
       }
     };
     await settleLoads(Array.from({ length: Math.min(AI_BALANCE_BATCH_CONCURRENCY, providers.length) }, worker));
   } finally {
-    if (owner === adminUIState) {
-      resetAIBalanceBatch();
-      renderAIProviders(false);
-    }
+    owner.aiBalanceBatch = null;
+    if (owner === adminUIState) renderAIProviders(false);
   }
+  if (owner === adminUIState && !providers.some((provider) => owner.aiBalanceErrors.has(provider.auth_index)))
+    notify(m("ui.balances_updated"));
 }
 
 function renderAIBalanceRow(balance, fetchedAt) {

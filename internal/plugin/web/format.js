@@ -17,11 +17,8 @@ function money(value, currency, fixedDigits) {
 }
 
 function moneyChoice() {
-  const account = currentRole === "account";
-  return {
-    selected: $((account ? "account-" : "") + "display-currency").value,
-    rate: resources[account ? "account" : "admin"].currency.value?.cny_per_usd
-  };
+  const role = currentRole === "account" ? "account" : "admin";
+  return { selected: displaySettings[role].currency, rate: resources[role].currency.value?.cny_per_usd };
 }
 
 // Renders compare this key to know when displayed amounts change.
@@ -49,12 +46,6 @@ function costMoney(amount, currency, fixedDigits) { return displayMoney(amount, 
 function commonChargedIn(totals) {
   const currencies = new Set(totals.filter((total) => total.cost_usd > 0).map((total) => total.charged_in || ""));
   return currencies.size === 1 ? [...currencies][0] : "";
-}
-
-function loadedCountText(loaded, total, complete) {
-  return loaded > total || (complete && loaded !== total)
-    ? m("ui.loaded_value_records_value_currently_match", { v0: int(loaded), v1: int(total) })
-    : m("ui.loaded_value_value_records", { v0: int(loaded), v1: int(total) });
 }
 
 function int(value) { return Number(value || 0).toLocaleString(locale()); }

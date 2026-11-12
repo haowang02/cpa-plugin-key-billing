@@ -1,9 +1,22 @@
 const REQUEST_EVENT_COLUMN_LAYOUT = "request-event-columns";
 
-const REQUEST_EVENT_STATUS_OPTIONS = {
-  "": { label: m("ui.all_results"), count: "all" },
-  false: { label: m("ui.succeeded"), count: "normal" },
-  true: { label: m("ui.failed"), count: "failed" }
+// Keyed by query field. Result counts cover the other filters and ignore the result choice,
+// so each option shows how many entries selecting it would reveal.
+const REQUEST_EVENT_FILTERS = {
+  model: modelFilter("event-model", "events"),
+  credential: credentialFilter("event-credential", "events"),
+  failed: {
+    id: "event-result",
+    label: m("ui.result"),
+    icon: "circle-check",
+    options: (account) => {
+      const counts = pagedList("events", account).data?.status_counts || {};
+      return [
+        { value: "false", label: m("ui.succeeded"), detail: int(counts.normal) },
+        { value: "true", label: m("ui.failed"), detail: int(counts.failed) }
+      ];
+    }
+  }
 };
 
 // Table columns in their default order. Time anchors each row, so it cannot be hidden.
@@ -104,31 +117,14 @@ const REQUEST_EVENT_COLUMNS = [
   }
 ];
 
-function requestEventFilters(account) {
-  const prefix = account ? "account-request-event" : "request-event";
-  const filters = apiKeyFilter(account);
-  for (const [field, control] of [["model", "model"], ["credential", "credential"], ["failed", "status"]]) {
-    const value = $(prefix + "-" + control).value;
-    if (value) filters[field] = value;
-  }
-  return filters;
-}
+function requestEventQuery(account) { return { ...apiKeyQuery(account), ...filterQuery(account, REQUEST_EVENT_FILTERS) }; }
 
-// Counts cover the whole field/time selection and ignore the status choice,
-// so each status option can show how many entries selecting it would reveal.
-function labelRequestEventStatuses(select, counts) {
-  for (const option of select.options) {
-    const status = REQUEST_EVENT_STATUS_OPTIONS[option.value];
-    const label = status.label + DISPLAY_SEPARATOR + int((counts || {})[status.count]);
-    if (option.textContent !== label) setText(option, label);
-  }
-}
-
-function populateRequestEventFilters(filters, account) {
-  if (!filters) return;
-  const prefix = account ? "account-request-event" : "request-event";
-  populateEventFilterSelect($(prefix + "-model"), m("ui.all_models"), filters.models);
-  populateCredentialFilterSelect($(prefix + "-credential"), filters);
+function requestEventActions(account) {
+  return [
+    { label: m("ui.columns"), icon: "columns-3-cog", run: () => openRequestEventColumns(account) },
+    eventExportAction("events", account),
+    ...(account ? [] : [eventCleanupAction()])
+  ];
 }
 
 // Keep the saved order, inserting new columns before their next default neighbor.
@@ -147,22 +143,12 @@ function requestEventColumnLayout(account, preference = viewPreference(account ?
 function renderRequestEvents(account = false) {
   closeHoverTooltip();
   const list = pagedList("events", account);
-  const note = $(account ? "account-request-event-note" : "request-event-note");
-  if (list.renderEmpty()) {
-    setText(note, "");
-    return;
-  }
-  const view = list.data;
-  const prefix = account ? "account-request-event" : "request-event";
-  populateRequestEventFilters(view.filter_options, account);
-  labelRequestEventStatuses($(prefix + "-status"), view.status_counts);
-  updateFilterClearButton($(account ? "account-request-events-filter-clear" : "request-events-filter-clear"));
-  const entries = view.entries;
+  if (list.renderEmpty()) return;
+  const entries = list.data.entries;
   const hasCacheWrite = entries.some((entry) => entry.cost.cache_write_tokens !== 0);
   const columns = requestEventColumnLayout(account)
     .filter(({ column, visible }) => visible && (column.id !== "cache_write" || hasCacheWrite))
     .map(({ column }) => column);
-  setText(note, loadedCountText(entries.length, view.total, list.complete));
   list.renderItems(entries, {
     render: (entry) => {
       // Missing usage details mean unknown counts, not zero usage.
@@ -370,8 +356,3 @@ makeSortable($("request-event-columns-list"), ".column-setting-handle", (row) =>
     m("ui.column_position_value", { v0: row.querySelector("label > span").textContent, v1: rows.indexOf(row) + 1, v2: rows.length })
   );
 });
-for (const account of [false, true]) {
-  const button = $(account ? "account-request-event-columns" : "request-event-columns");
-  setLabeledActionIcon(button, "columns-3-cog", m("ui.columns"));
-  button.onclick = () => openRequestEventColumns(account);
-}

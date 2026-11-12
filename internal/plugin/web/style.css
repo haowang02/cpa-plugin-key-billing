@@ -60,8 +60,6 @@
   --shadow: 0 1px 2px 0 #00000014;
   --radius-md: 8px;
   --page-gap: 16px;
-  --filter-search-width: 280px;
-  --filter-select-max-width: 200px;
   --event-entry-bg: transparent;
   --event-entry-border: var(--border-color);
   --event-code-bg: var(--bg-secondary);
@@ -397,7 +395,7 @@ ui-select {
 }
 ui-select > option { display: none; }
 ui-select[disabled] { opacity: 0.6; cursor: not-allowed; }
-ui-select::part(icon), .time-range-icon { flex: none; width: 15px; height: 15px; color: var(--text-tertiary); }
+.time-range-icon { flex: none; width: 15px; height: 15px; color: var(--text-tertiary); }
 ui-select::part(value) { display: grid; flex: 1; min-width: 0; }
 /* Every option label shares one cell, so the control keeps the width of its longest option. */
 ui-select::part(label) { grid-area: 1 / 1; overflow: hidden; text-overflow: ellipsis; visibility: hidden; }
@@ -425,63 +423,6 @@ th { font-size: 12px; color: var(--text-secondary); font-weight: 600; white-spac
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr:hover { background: var(--bg-hover); }
 .table-scroll .muted { color: var(--text-secondary); }
-.head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 52px; margin-bottom: 16px; }
-@media (max-width: 768px) {
-  .head { min-height: 0; margin-bottom: 12px; }
-}
-.page-tabs-row { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
-.page-navigation {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  padding: 2px 4px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-primary);
-  box-shadow: var(--shadow);
-}
-.page-tab-switcher { position: relative; flex: 1; min-width: 0; overflow: hidden; padding-block: 2px; }
-.tabs { display: flex; gap: 2px; width: max-content; }
-.tabs > button {
-  flex: none;
-  min-height: 34px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-.tabs > button:hover { background: var(--bg-hover); color: var(--text-primary); }
-.tabs > button.active {
-  color: var(--primary-active);
-  background: color-mix(in srgb, var(--primary-color) 12%, var(--bg-primary));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 15%, transparent);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .tabs > button {
-    transition: background-color 0.15s, color 0.15s, box-shadow 0.2s, scale 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), translate 0.2s;
-  }
-  .tabs > button.active:hover:not(:active) { translate: 0 -1px; }
-  .tabs > button:active { scale: 0.96; transition-duration: 0.08s; }
-}
-.page-tab-select { display: none; width: 160px; font-size: 13px; font-weight: 600; }
-/* Keep the hidden tabs measurable so the dropdown follows their translated width. */
-.page-navigation.compact .tabs { position: absolute; visibility: hidden; pointer-events: none; }
-.page-navigation.compact .page-tab-select { display: inline-flex; }
-.page-tab-tools { display: flex; flex: none; align-items: center; gap: 4px; }
-/* The switcher clips its tab bar, so the tabs and the dropdown that replaces them show focus inside their own box. */
-:root .page-navigation button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; box-shadow: none; }
-:root .page-tab-select:is(:focus-visible, :state(open)) { box-shadow: inset 0 0 0 1px var(--primary-color); }
-.page-tab-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
-.page-tab-actions > button, .page-tab-actions > .time-range-control, .display-currency-control, .auto-refresh-control { flex: none; }
-.page-tab-actions > .time-range-control { max-width: 35%; }
-.event-actions { display: flex; align-items: center; gap: 8px; }
-.page-key-filter { flex: 0 1 var(--filter-select-max-width); }
 .tag {
   display: inline-flex;
   align-items: center;
@@ -567,8 +508,8 @@ tbody tr:hover { background: var(--bg-hover); }
 @media (prefers-reduced-motion: reduce), (prefers-reduced-transparency: reduce) {
   :root[data-cpamp-plugin-host="true"] body::before, :root[data-cpamp-plugin-host="true"] body::after { content: none; }
 }
-/* CPAMP's top bar already shows the page title. */
-:root[data-cpamp-plugin-host="true"]:not([data-cpamp-standalone]) #app > .app-header { display: none; }
+/* CPAMP's top bar already shows the management page title. */
+:root[data-cpamp-plugin-host="true"]:not([data-cpamp-standalone]) #app[data-role="admin"] > .app-header { display: none; }
 /* CPAMC frames plugin pages edge to edge under its floating header, without the band that fades its other pages there. */
 :root:not([data-cpamp-plugin-host="true"]) { --host-header-inset: 70px; }
 :root:not([data-cpamp-plugin-host="true"]) .wrap { padding: var(--host-header-inset) clamp(20px, 3vw, 48px) 0; }
@@ -623,13 +564,14 @@ tbody tr:hover { background: var(--bg-hover); }
   border-color: var(--border-subtle, var(--app-border));
   background: var(--surface-subtle, var(--app-surface-muted));
 }
-:root[data-cpamp-plugin-host="true"] button:not(.link, .icon-action, .routing-section-toggle, .routing-option) {
+:root[data-cpamp-plugin-host="true"] button:not(.link, .icon-action, .routing-section-toggle, .routing-option, .filter-chip-body) {
   min-height: 34px;
   padding: 0 var(--button-padding-inline, 12px);
   border-radius: var(--button-radius, var(--app-radius-md, 12px));
   line-height: 1.2;
 }
-:root[data-cpamp-plugin-host="true"] button:not(.link):not(.routing-section-toggle):not(.routing-option):hover:not(:disabled),
+:root[data-cpamp-plugin-host="true"]
+  button:not(.link):not(.routing-section-toggle):not(.routing-option):hover:not(:disabled, .filter-chip-body),
 :root[data-cpamp-plugin-host="true"] ui-select:hover:not([disabled]) {
   border-color: var(--border-hover);
   background: var(--app-accent-soft, var(--bg-hover));
@@ -658,27 +600,6 @@ tbody tr:hover { background: var(--bg-hover); }
   background: none;
   box-shadow: none;
   line-height: 1.5;
-}
-:root[data-cpamp-plugin-host="true"] .page-navigation {
-  border-color: var(--glass-border, var(--border-color));
-  border-radius: 999px;
-  background: var(--glass-bg, var(--bg-primary));
-  box-shadow: var(--glass-shadow, none);
-  backdrop-filter: var(--glass-backdrop-filter, none);
-}
-:root[data-cpamp-plugin-host="true"] .tabs > button {
-  padding: 0 15px;
-  border-radius: 999px;
-  background: transparent;
-  color: color-mix(in srgb, var(--text-secondary) 84%, var(--text-primary));
-}
-:root[data-cpamp-plugin-host="true"] .page-tab-tools > .icon-action, :root[data-cpamp-plugin-host="true"] .page-tab-select {
-  border-radius: 999px;
-}
-:root[data-cpamp-plugin-host="true"] .tabs > button.active {
-  background: color-mix(in srgb, var(--bg-primary) 88%, var(--primary-color));
-  color: var(--primary-active);
-  box-shadow: 0 1px 3px #0f17211a, inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 16%, transparent);
 }
 :root[data-cpamp-plugin-host="true"] thead, :root[data-cpamp-plugin-host="true"] thead th { background: var(--table-header-bg); }
 .bar {
@@ -725,6 +646,7 @@ button.inline-icon-button.copied, button.inline-icon-button.copied:hover { color
 .inline-icon-button .lucide-icon { width: 12px; height: 12px; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
 .hidden { display: none !important; }
+#app[data-role="admin"] .account-only, #app[data-role="account"] .admin-only { display: none; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .gate { max-width: 520px; margin: 9vh auto; padding: 20px; }
 .gate-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -782,7 +704,15 @@ button.inline-icon-button.copied, button.inline-icon-button.copied:hover { color
 .gate .field input { width: 100%; min-height: 42px; padding: 8px 11px; font-size: 14px; }
 .remember-row { display: flex; align-items: center; gap: 8px; margin: 12px 0; color: var(--text-secondary); cursor: pointer; }
 .gate-submit { width: 100%; min-height: 42px; margin-top: 4px; font-size: 14px; font-weight: 600; }
-.app-header { justify-content: space-between; padding-right: 0; }
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 52px;
+  margin-bottom: 16px;
+}
 .app-title { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .app-title h1 {
   display: flex;
@@ -831,6 +761,7 @@ button.inline-icon-button.copied, button.inline-icon-button.copied:hover { color
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
 }
+body.embedded .standalone-actions { display: none; }
 /* Icon-only controls carry no frame; buttons with a label keep the bordered button look. */
 button.icon-action {
   display: grid;
@@ -848,7 +779,6 @@ button.icon-action {
 }
 button.icon-action:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
 .icon-action .lucide-icon { width: 16px; height: 16px; }
-body.embedded .standalone-actions { display: none; }
 .account-subscription-stats { margin-bottom: 16px; }
 .account-plan { display: grid; align-content: start; gap: 10px; margin: 0; }
 .account-plan-value { font-size: 24px; }
@@ -1001,23 +931,6 @@ details[open] > .details-summary .lucide-chevron-icon, .routing-section-toggle[a
 .account-empty { padding: 40px 20px; text-align: center; }
 .empty { padding: 26px; text-align: center; color: var(--text-tertiary); }
 .section-loading { min-height: 400px; }
-.credential-filter-bar { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
-.credential-filter-switches { display: contents; }
-.credential-filter-bar ui-select { min-width: 150px; }
-.credential-filter-bar input[type="search"] { flex: 0 1 var(--filter-search-width); min-width: 140px; }
-.toggle-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 35px;
-  padding: 0 10px;
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-md);
-  background: var(--control-bg);
-  color: var(--text-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-}
 .switch-control { position: relative; display: inline-flex; flex: none; width: 28px; height: 16px; }
 .switch-control > input[type="checkbox"] {
   position: absolute;
@@ -1058,29 +971,21 @@ details[open] > .details-summary .lucide-chevron-icon, .routing-section-toggle[a
 .switch-control > input:focus-visible + .switch-track { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 .switch-control > input:disabled { cursor: not-allowed; }
 .switch-control > input:disabled + .switch-track { opacity: 0.5; }
-.compact-toggle .switch-control { width: 24px; height: 14px; }
-.compact-toggle .switch-track::after { width: 10px; height: 10px; }
-.compact-toggle .switch-control > input:checked + .switch-track::after { transform: translateX(10px); }
-.toggle-filter:focus-within {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
-}
-.toggle-filter.compact-toggle {
+.compact-toggle {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
   color: var(--text-tertiary);
   font-size: 12px;
   line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
 }
-.toggle-filter.compact-toggle:focus-within { border-color: transparent; box-shadow: none; }
+.compact-toggle .switch-control { width: 24px; height: 14px; }
+.compact-toggle .switch-track::after { width: 10px; height: 10px; }
+.compact-toggle .switch-control > input:checked + .switch-track::after { transform: translateX(10px); }
 /* Keep the blur below a third of the font size so dense scripts retain separate glyphs. */
 body.privacy-masked .mask-blur { filter: blur(0.28em); }
-/* The empty value is the unfiltered choice; any other selected identity is blurred. */
-body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked))::part(current) { filter: blur(0.28em); }
 .credential-list { container: credential-table / inline-size; }
 .credential-table { width: 100%; min-width: 0; table-layout: auto; }
 .credential-table th:not(.credential-quota-column) { width: 1%; }
@@ -1154,20 +1059,12 @@ body.privacy-masked ui-select.mask-select:not(:has(> option[value=""]:checked)):
 }
 .credential-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; width: max-content; margin-left: auto; }
 .auth-quota-actions { display: flex; flex-direction: column; gap: 6px; }
-.credential-actions .loading .lucide-icon,
-[data-page-action="refresh"]:disabled .lucide-icon,
-.credential-filter-bar [data-loading="true"] .lucide-icon {
-  animation: credential-refresh-spin 0.8s linear infinite;
-}
+.credential-actions .loading .lucide-icon, #page-refresh:disabled .lucide-icon { animation: credential-refresh-spin 0.8s linear infinite; }
 @keyframes credential-refresh-spin {
   to { transform: rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .credential-actions .loading .lucide-icon,
-  [data-page-action="refresh"]:disabled .lucide-icon,
-  .credential-filter-bar [data-loading="true"] .lucide-icon {
-    animation: none;
-  }
+  .credential-actions .loading .lucide-icon, #page-refresh:disabled .lucide-icon { animation: none; }
 }
 /* A clickable area rather than a button, so it keeps the cell's look in hosts that theme every button role. */
 .auth-quota-open {
@@ -1466,7 +1363,6 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
 .switch-field input { width: auto; }
 .tier-fields { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-color); }
 .table-footnote { margin: 12px 0 0; }
-.price-unit { margin-left: 8px; color: var(--text-tertiary); font-size: 12px; font-weight: 400; }
 .selection-list, .routing-list {
   width: 100%;
   overflow: auto;
@@ -1703,15 +1599,8 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
   .route-form-toolbar > .row { grid-column: 1 / -1; justify-content: flex-start; padding-bottom: 0; }
   .route-picker { width: calc(100vw - 32px); }
 }
-/* Filters share one search width and one select cap so no single control dominates a wrapped toolbar. */
-.wide-search, #price-filter, .credential-filter-bar input[type="search"] { width: var(--filter-search-width); max-width: 100%; }
-.section-actions ui-select, .page-key-filter { max-width: var(--filter-select-max-width); }
-.section-toolbar, .settings-section-header { margin-bottom: 12px; }
-.section-toolbar h2, .settings-section-header h2, .account-plan h2 { margin: 0; }
-.section-actions { min-width: 0; }
-.section-actions > button, .usage-distribution-tabs button { white-space: nowrap; }
-.key-toolbar-buttons { gap: 8px; }
-body:not(.embedded) #keys-import-labels { display: none; }
+.account-plan h2 { margin: 0; }
+.usage-distribution-tabs button { white-space: nowrap; }
 .event-list-card {
   height: calc(100svh - var(--event-list-top, var(--page-gap)) - var(--page-gap));
   min-height: 0;
@@ -1783,9 +1672,16 @@ body:not(.embedded) #keys-import-labels { display: none; }
   color: var(--primary-active);
   font-weight: 600;
 }
+:root .choice-menu button.choice-option.danger { color: var(--error-color); }
 .choice-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.choice-icon { flex: none; width: 15px; height: 15px; color: var(--text-tertiary); }
+.choice-option.danger > .choice-icon { color: inherit; }
+.choice-detail { flex: none; color: var(--text-tertiary); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
 .choice-check { flex: none; width: 15px; height: 15px; visibility: hidden; }
-.choice-option[aria-selected="true"] > .choice-check { visibility: visible; }
+.choice-option:is([aria-selected="true"], [aria-checked="true"]) > .choice-check { visibility: visible; }
+.choice-submenu { color: var(--text-tertiary); }
+.choice-separator { flex: none; height: 1px; margin: 4px 6px; background: var(--border-color); }
+.choice-caption { padding: 6px 12px 2px; color: var(--text-tertiary); font-size: 12px; overflow-wrap: anywhere; }
 .choice-empty { padding: 14px 12px; color: var(--text-tertiary); font-size: 13px; text-align: center; }
 @media (max-width: 640px) {
   .date-time-popover { inset: auto 12px 12px; margin-inline: auto; max-height: calc(100dvh - 24px); }
@@ -1914,16 +1810,6 @@ body:not(.embedded) #keys-import-labels { display: none; }
   overflow-wrap: anywhere;
 }
 .event-list-region { flex: 1; min-height: 0; overflow: auto; overscroll-behavior-x: contain; }
-.event-list-footer {
-  display: flex;
-  flex: none;
-  justify-content: flex-end;
-  align-items: center;
-  min-height: 29px;
-  padding: 7px 2px 0;
-  border-top: 1px solid var(--border-color);
-  font-variant-numeric: tabular-nums;
-}
 .event-list-region .table-scroll { overflow: visible; }
 .event-list-region thead th {
   position: sticky;
@@ -2008,51 +1894,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .account-subscription-stats { grid-template-columns: 1fr; }
   :root:not([data-cpamp-plugin-host="true"]) .wrap { padding: calc(90px + env(safe-area-inset-top)) 16px 0; }
   :root:not([data-cpamp-plugin-host="true"]) body::before { height: 114px; }
-  .section-toolbar { align-items: center; }
-  .section-toolbar > .section-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    flex: 1 1 100%;
-    width: 100%;
-  }
-  /* Cells size the controls here, so the shared search width and select cap step aside. */
-  .section-toolbar > .section-actions > *, .section-actions ui-select { max-width: none; }
-  .section-actions .wide-search, #price-filter { width: 100%; min-width: 0; }
-  /* Flattening the button group lets the four controls share the two-column grid. */
-  #tab-keys .section-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #tab-keys .key-toolbar-buttons { display: contents; }
-  #tab-keys .key-toolbar-buttons > * { align-self: stretch; width: 100%; min-width: 0; white-space: normal; }
-  /* Standalone pages have no import button, so search takes the whole line and the rest pair up below. */
-  body:not(.embedded) #tab-keys .section-actions > .wide-search { grid-column: 1 / -1; }
-  /* Search takes the whole line; the remaining controls split the next one and wrap labels too long for half of it. */
-  #tab-prices .section-actions, #tab-plugin-logs .section-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #price-filter, #plugin-log-filter { grid-column: 1 / -1; }
-  #tab-prices .section-actions > *, #tab-plugin-logs .section-actions > *, #tab-plugin-logs .section-actions ui-select {
-    align-self: stretch;
-    width: 100%;
-    min-width: 0;
-    white-space: normal;
-  }
-  /* The switches take the first line; category, search and the refresh icon share the second.
-     A lone switch leaves the rest of its line to the category filter, so search widens below. */
-  .section-actions.credential-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
-  .credential-filter-switches { display: flex; flex-wrap: wrap; grid-column: 1 / -1; gap: 8px; }
-  .credential-filter-switches:has(> :only-child) { grid-column: auto; }
-  .credential-filter-switches:has(> :only-child) ~ :is(ui-select, input[type="search"]) { grid-column: span 2; }
-  .credential-filter-switches > .toggle-filter { flex: 1 1 auto; }
-  .credential-filter-bar input[type="search"], .credential-filter-bar ui-select { width: 100%; min-width: 0; }
-  .credential-filter-bar > .labeled-icon-button > span { display: none; }
-  .section-actions.event-card-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .section-actions.event-card-actions ui-select { width: 100%; min-width: 0; }
-  .event-card-actions > .link { justify-self: start; }
-  .page-tab-actions .time-range-popover {
-    position: fixed;
-    z-index: 1301;
-    inset: auto;
-    width: min(400px, calc(100vw - 24px));
-    animation: none;
-  }
+  .toolbar .time-range-popover { position: fixed; z-index: 1301; inset: auto; width: min(400px, calc(100vw - 24px)); animation: none; }
   html:has(.time-range-popover:not(.hidden)), body:has(.time-range-popover:not(.hidden)) { overflow: hidden; }
   .time-range-backdrop:not(.hidden) { display: block; position: fixed; z-index: 1300; inset: 0; background: #0006; }
   .request-failure .event-entry-head { grid-template-columns: minmax(0, 1fr); grid-template-areas: "time" "tags" "meta"; gap: 5px 10px; }
@@ -2064,7 +1906,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .request-failure .event-entry-tags { justify-content: flex-start; min-width: 0; }
   .request-failure .event-entry-tags .tag { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
   .gate { margin: 3vh auto; padding: 16px; }
-  .app-header { align-items: center; }
+  .app-header { min-height: 0; margin-bottom: 12px; }
   body:not(.embedded) .app-header { flex-wrap: nowrap; }
   body:not(.embedded) .app-header .app-title { flex: 1 1 auto; flex-wrap: nowrap; overflow: hidden; }
   body:not(.embedded) #account-identity { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2085,7 +1927,6 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
 }
 .labeled-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
 .labeled-icon-button .lucide-icon { width: 15px; height: 15px; color: var(--text-tertiary); }
-.privacy-mask-button[aria-pressed="true"], .privacy-mask-button[aria-pressed="true"] .lucide-icon { color: var(--primary-active); }
 .usage-distribution-card { min-height: 360px; }
 .analysis-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 :root .card.analysis-summary-card {
@@ -2205,7 +2046,6 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
 }
 .usage-distribution-metrics > [data-tip] { cursor: help; }
 .usage-distribution-metrics > [tabindex]:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-.event-card-actions ui-select { min-width: 132px; }
 @media (max-width: 1100px) {
   .analysis-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -2216,30 +2056,11 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .usage-distribution-chart { width: min(240px, 75vw); height: min(240px, 75vw); }
 }
 @media (max-width: 640px) {
-  .page-tab-actions > ui-select, .credential-filter-bar > ui-select { gap: 6px; padding-inline: 8px; }
-  .page-tab-actions > ui-select::part(chevron), .credential-filter-bar > ui-select::part(chevron), .time-range-chevron {
-    width: 16px;
-    height: 16px;
-  }
-  .credential-filter-switches > .toggle-filter { padding-inline: 8px; }
-  .time-range-trigger { --button-padding-inline: 8px; gap: 6px; }
-  .page-tab-actions .labeled-icon-button { --button-padding-inline: 9px; }
   /* Wrapping chips need the full width; a short value still fits beside its label. */
   .settings-entry-field:has(.settings-chip-list) { display: grid; gap: 4px; }
   .settings-entry-field:has(.settings-chip-list) > .settings-entry-label { max-width: none; }
 }
-/* The page actions share one line until they move to the grid below, so their buttons keep only icons. */
-@media (min-width: 521px) and (max-width: 640px) {
-  .page-tab-actions .labeled-icon-button > .labeled-icon-text { display: none; }
-}
 @media (max-width: 520px) {
-  .page-tab-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .page-tab-actions > :is(ui-select, .time-range-control, button) { width: 100%; max-width: none; }
-  .event-actions > button { flex: 1; min-width: 0; }
-  /* The controls pair up; several event actions, or the time range without a key filter, take a line of their own. */
-  .page-tab-actions > .event-actions:has(> :not(.hidden) ~ :not(.hidden)) { grid-column: 1 / -1; }
-  .page-tab-actions:not(.has-key-filter) > .time-range-control { grid-column: 1 / -1; }
-  .time-range-trigger { width: 100%; }
   .analysis-card-controls { gap: 6px; width: 100%; }
   .usage-distribution-tabs { gap: 4px; --button-padding-inline: 4px; }
   .usage-distribution-tabs button { font-size: 12px; }

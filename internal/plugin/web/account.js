@@ -1,10 +1,11 @@
+// Views stay hidden until the profile shows the key has usage.
 function renderAccountProfile() {
   const profile = resources.account.profile.value;
   const tracked = profile?.tracked === true;
   $("account-untracked").classList.toggle("hidden", !profile || tracked);
-  $("account-content").classList.toggle("hidden", !tracked);
+  $("app").classList.toggle("untracked", !tracked);
   if (tracked) $("account-identity").replaceChildren(displayText(apiKeyIdentity(profile.identity || {}).text));
-  else closeSharedTimePopover(true);
+  else closeSharedTimePopover();
   return tracked;
 }
 

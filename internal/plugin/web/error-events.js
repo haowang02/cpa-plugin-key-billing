@@ -1,48 +1,27 @@
-function errorEventFilters(account) {
-  const prefix = account ? "account-" : "";
-  const filters = apiKeyFilter(account);
-  for (const field of ["model", "credential"]) {
-    const value = $(prefix + "error-" + field).value;
-    if (value) filters[field] = value;
+// Keyed by query field; each error type shows how many entries it has under the other filters.
+const ERROR_EVENT_FILTERS = {
+  model: modelFilter("error-model", "errors"),
+  credential: credentialFilter("error-credential", "errors"),
+  error_type: {
+    id: "error-type",
+    label: m("ui.error_type"),
+    icon: "triangle-alert",
+    searchable: true,
+    options: (account) => {
+      const counts = pagedList("errors", account).data?.error_type_counts || {};
+      return Object.keys(counts).sort()
+        .map((type) => ({ value: type || EMPTY_FIELD, label: type || m("ui.uncategorized"), detail: int(counts[type]) }));
+    },
+    describe: (value) => (value === EMPTY_FIELD ? m("ui.uncategorized") : value)
   }
-  const typeChoice = $(prefix + "error-type").value;
-  if (typeChoice) {
-    const errorType = typeChoice.slice(5);
-    if (errorType) filters.error_type = errorType; else filters.error_type_empty = "true";
-  }
-  return filters;
-}
+};
 
-function populateErrorFilters(view, account) {
-  const prefix = account ? "account-" : "";
-  const filters = view.filter_options || {};
-  const counts = view.error_type_counts || {};
-  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-  const typeSelect = $(prefix + "error-type");
-  const types = Object.keys(counts);
-  if (typeSelect.value) types.push(typeSelect.value.slice(5));
-  populateEventFilterSelect(
-    typeSelect,
-    m("ui.all_error_typesvaluevalue", { v0: DISPLAY_SEPARATOR, v1: int(total) }),
-    [...new Set(types)].sort(),
-    (value) => "type:" + value,
-    (value) => (value || m("ui.uncategorized")) + DISPLAY_SEPARATOR + int(counts[value])
-  );
-  populateEventFilterSelect($(prefix + "error-model"), m("ui.all_models"), filters.models);
-  populateCredentialFilterSelect($(prefix + "error-credential"), filters);
-}
+function errorEventQuery(account) { return { ...apiKeyQuery(account), ...filterQuery(account, ERROR_EVENT_FILTERS) }; }
 
 function renderErrors(account) {
-  const note = $(account ? "account-error-note" : "error-note");
   const list = pagedList("errors", account);
-  if (list.renderEmpty()) {
-    setText(note, "");
-    return;
-  }
-  const view = list.data;
-  populateErrorFilters(view, account);
-  updateFilterClearButton($(account ? "account-errors-filter-clear" : "errors-filter-clear"));
-  list.renderItems(view.entries, {
+  if (list.renderEmpty()) return;
+  list.renderItems(list.data.entries, {
     attrs: { class: "event-list", role: "list", "aria-label": m("ui.error_event_list") },
     empty: m("ui.no_error_events"),
     render: (entry) => {
@@ -68,7 +47,6 @@ function renderErrors(account) {
       );
     }
   });
-  setText(note, loadedCountText(view.entries.length, view.total, list.complete));
 }
 
 function errorEventField(label, value, mono = true) {

@@ -52,8 +52,6 @@ function storedTimeRange(role) {
   return { mode: "custom", unit: range.unit, from: from.toISOString(), to: to.toISOString() };
 }
 
-function sharedTimeID(account, suffix) { return (account ? "account-shared" : "shared") + "-time-" + suffix; }
-
 function rollingTimeMode(mode) {
   const match = /^(\d+)([hd])$/.exec(mode || "");
   if (!match) return null;
@@ -74,32 +72,33 @@ function timeRangeLabel(range) {
   return format(range.from) + " – " + format(end);
 }
 
-function updateSharedTimeControl(account, range = sharedTimeRanges[account ? "account" : "admin"]) {
+// Shows the current role's range or, while the popover is open, the range being chosen.
+function updateSharedTimeControl(range = sharedTimeRanges[currentRole]) {
   const label = timeRangeLabel(range);
-  setText($(sharedTimeID(account, "label")), label);
-  const current = $(sharedTimeID(account, "popover")).querySelector(".time-range-current");
+  setText($("time-range-label"), label);
+  const current = $("time-range-popover").querySelector(".time-range-current");
   if (current) setText(current, label);
 }
 
-function closeSharedTimePopover(account, restoreFocus = false) {
-  const popover = $(sharedTimeID(account, "popover"));
+function closeSharedTimePopover(restoreFocus = false) {
+  const popover = $("time-range-popover");
   if (popover.classList.contains("hidden")) return;
   popover.classList.add("hidden");
-  $(sharedTimeID(account, "backdrop")).classList.add("hidden");
-  $(sharedTimeID(account, "trigger")).setAttribute("aria-expanded", "false");
-  sharedTimeDrafts[account ? "account" : "admin"] = null;
-  updateSharedTimeControl(account);
-  if (restoreFocus) $(sharedTimeID(account, "trigger")).focus();
+  $("time-range-backdrop").classList.add("hidden");
+  $("time-range-trigger").setAttribute("aria-expanded", "false");
+  sharedTimeDrafts[currentRole] = null;
+  updateSharedTimeControl();
+  if (restoreFocus) $("time-range-trigger").focus();
 }
 
-function positionSharedTimePopover(account) {
-  const popover = $(sharedTimeID(account, "popover"));
+function positionSharedTimePopover() {
+  const popover = $("time-range-popover");
   if (popover.classList.contains("hidden")) return;
   if (!matchMedia("(max-width: 768px)").matches) {
     popover.style.cssText = "";
     return;
   }
-  positionAnchoredPopover(popover, $(sharedTimeID(account, "trigger")), { align: "end" });
+  positionAnchoredPopover(popover, $("time-range-trigger"), { align: "end" });
 }
 
 function defaultCustomTimeRange(draft, unit) {
@@ -108,11 +107,11 @@ function defaultCustomTimeRange(draft, unit) {
     : { unit, start: shiftLocalDay(draft.today, -6), end: draft.today };
 }
 
-function renderCustomTimeRange(account, draft) {
+function renderCustomTimeRange(draft) {
   const custom = draft.custom;
   const content = el("div", { class: "time-range-custom" });
   const redraw = () => {
-    const popover = $(sharedTimeID(account, "popover"));
+    const popover = $("time-range-popover");
     const focused = document.activeElement;
     const label = focused.getAttribute("aria-label") || focused.textContent;
     const matchingButtons = () =>
@@ -120,7 +119,7 @@ function renderCustomTimeRange(account, draft) {
         (button) => (button.getAttribute("aria-label") || button.textContent) === label
       );
     const index = matchingButtons().indexOf(focused);
-    renderSharedTimePopover(account);
+    renderSharedTimePopover();
     const next = matchingButtons()[index];
     (next || popover.querySelector(".time-range-modes .active")).focus({ preventScroll: true });
   };
@@ -139,12 +138,7 @@ function renderCustomTimeRange(account, draft) {
   const apply = () => {
     const to = Math.min(Date.now(), custom.unit === "day" ? shiftLocalDay(custom.end, 1) : custom.end + 3600000);
     guard(() =>
-      applyTimeRange(account, {
-        mode: "custom",
-        unit: custom.unit,
-        from: new Date(custom.start).toISOString(),
-        to: new Date(to).toISOString()
-      })
+      applyTimeRange({ mode: "custom", unit: custom.unit, from: new Date(custom.start).toISOString(), to: new Date(to).toISOString() })
     );
   };
   if (draft.view === "summary") {
@@ -303,7 +297,7 @@ function renderCustomTimeRange(account, draft) {
         el("button", {
           type: "button",
           text: m("ui.cancel"),
-          onclick: draft.view === "summary" ? () => closeSharedTimePopover(account, true) : pickerCancel
+          onclick: draft.view === "summary" ? () => closeSharedTimePopover(true) : pickerCancel
         }),
         el("button", { type: "button", class: "primary", text: m("ui.apply"), onclick: apply })
       )
@@ -312,10 +306,10 @@ function renderCustomTimeRange(account, draft) {
   return content;
 }
 
-function renderSharedTimePopover(account) {
-  const role = account ? "account" : "admin";
+function renderSharedTimePopover() {
+  const role = currentRole;
   const draft = sharedTimeDrafts[role];
-  const popover = $(sharedTimeID(account, "popover"));
+  const popover = $("time-range-popover");
   popover.replaceChildren(
     el(
       "div",
@@ -333,18 +327,14 @@ function renderSharedTimePopover(account) {
           "aria-pressed": String(mode === draft.mode),
           class: mode === draft.mode ? "active" : "",
           onclick: () => {
-            if (mode === "custom") resetCustomTimeDraft(account, draft);
+            if (mode === "custom") resetCustomTimeDraft(draft);
             draft.mode = mode;
             draft.view = "summary";
-            renderSharedTimePopover(account);
+            renderSharedTimePopover();
             popover.querySelector(".time-range-modes .active").focus();
             if (mode !== "custom")
               guard(() =>
-                applyTimeRange(
-                  account,
-                  { mode: mode === "hour" || mode === "day" ? draft[mode] + (mode === "hour" ? "h" : "d") : mode },
-                  false
-                )
+                applyTimeRange({ mode: mode === "hour" || mode === "day" ? draft[mode] + (mode === "hour" ? "h" : "d") : mode }, false)
               );
           }
         })
@@ -352,7 +342,7 @@ function renderSharedTimePopover(account) {
     )
   );
   if (draft.mode === "custom") {
-    popover.append(renderCustomTimeRange(account, draft));
+    popover.append(renderCustomTimeRange(draft));
     for (const list of popover.querySelectorAll(".time-range-hour-list")) {
       const selected = list.querySelector(".active");
       if (selected) list.scrollTop = Math.max(0, selected.offsetTop - (list.clientHeight - selected.clientHeight) / 2);
@@ -366,7 +356,7 @@ function renderSharedTimePopover(account) {
     const commit = () => {
       activePointer = null;
       if (sharedTimeDrafts[role] === draft && draft.mode === unit)
-        guard(() => applyTimeRange(account, { mode: draft[unit] + (unit === "hour" ? "h" : "d") }, false));
+        guard(() => applyTimeRange({ mode: draft[unit] + (unit === "hour" ? "h" : "d") }, false));
     };
     const finishPointer = (event) => { if (activePointer === event.pointerId) commit(); };
     const slider = el("input", {
@@ -381,7 +371,7 @@ function renderSharedTimePopover(account) {
       oninput: (event) => {
         draft[unit] = Number(event.target.value);
         setText(value, duration());
-        updateSharedTimeControl(account, { mode: draft[unit] + (unit === "hour" ? "h" : "d") });
+        updateSharedTimeControl({ mode: draft[unit] + (unit === "hour" ? "h" : "d") });
         event.currentTarget.style.setProperty("--range-progress", ((draft[unit] - min) / (max - min)) * 100 + "%");
       },
       onpointerdown: (event) => {
@@ -422,11 +412,11 @@ function renderSharedTimePopover(account) {
       )
     );
   }
-  positionSharedTimePopover(account);
+  positionSharedTimePopover();
 }
 
-function resetCustomTimeDraft(account, draft) {
-  const range = sharedTimeChoices[account ? "account" : "admin"].custom;
+function resetCustomTimeDraft(draft) {
+  const range = sharedTimeChoices[currentRole].custom;
   const now = new Date();
   const hour = new Date(now);
   hour.setMinutes(0, 0, 0);
@@ -449,75 +439,60 @@ function resetCustomTimeDraft(account, draft) {
   } else { draft.custom = { unit: "day", start: draft.today, end: draft.today }; }
 }
 
-function openSharedTimePopover(account) {
-  const popover = $(sharedTimeID(account, "popover"));
-  if (!popover.classList.contains("hidden")) return closeSharedTimePopover(account, true);
-  closeSharedTimePopover(!account);
-  const role = account ? "account" : "admin";
+function openSharedTimePopover() {
+  const popover = $("time-range-popover");
+  if (!popover.classList.contains("hidden")) return closeSharedTimePopover(true);
+  const role = currentRole;
   const range = sharedTimeRanges[role];
   const rolling = rollingTimeMode(range.mode);
   const draft = { ...sharedTimeChoices[role], mode: rolling?.unit || range.mode, view: "summary", endpoint: "start" };
   if (rolling) draft[rolling.unit] = rolling.value;
-  resetCustomTimeDraft(account, draft);
+  resetCustomTimeDraft(draft);
   sharedTimeDrafts[role] = draft;
-  renderSharedTimePopover(account);
+  renderSharedTimePopover();
   popover.classList.remove("hidden");
-  $(sharedTimeID(account, "backdrop")).classList.remove("hidden");
-  $(sharedTimeID(account, "trigger")).setAttribute("aria-expanded", "true");
-  positionSharedTimePopover(account);
+  $("time-range-backdrop").classList.remove("hidden");
+  $("time-range-trigger").setAttribute("aria-expanded", "true");
+  positionSharedTimePopover();
   popover.querySelector(".time-range-modes .active").focus();
 }
 
-function applyTimeRange(account, range, close = true) {
-  const role = account ? "account" : "admin";
+function applyTimeRange(range, close = true) {
+  const role = currentRole;
   const previous = sharedTimeRanges[role];
   sharedTimeRanges[role] = range;
   const rolling = rollingTimeMode(range.mode);
   if (rolling) sharedTimeChoices[role][rolling.unit] = rolling.value;
   if (range.mode === "custom") sharedTimeChoices[role].custom = range;
   saveViewPreference(role, "time-range", range);
-  updateSharedTimeControl(account);
-  if (close) closeSharedTimePopover(account, true);
-  if (JSON.stringify(previous) !== JSON.stringify(range)) { return loadPage(account); }
+  updateSharedTimeControl();
+  if (close) closeSharedTimePopover(true);
+  if (JSON.stringify(previous) !== JSON.stringify(range)) return loadPage(role === "account");
 }
 
-function bindSharedTimeControls(account) {
-  $(sharedTimeID(account, "trigger")).onclick = () => openSharedTimePopover(account);
-  $(sharedTimeID(account, "backdrop")).onclick = () => closeSharedTimePopover(account, true);
-  $(sharedTimeID(account, "popover")).onkeydown = (event) => {
-    if (event.key !== "Tab") return;
-    const controls = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled), input:not(:disabled)"));
-    const target = event.shiftKey ? controls.at(-1) : controls[0];
-    if (
-      !event.currentTarget.contains(document.activeElement) || document.activeElement === (event.shiftKey ? controls[0] : controls.at(-1))
-    ) {
-      event.preventDefault();
-      target.focus();
-    }
-  };
-}
+$("time-range-trigger").onclick = openSharedTimePopover;
+$("time-range-backdrop").onclick = () => closeSharedTimePopover(true);
+$("time-range-popover").onkeydown = (event) => {
+  if (event.key !== "Tab") return;
+  const controls = Array.from(event.currentTarget.querySelectorAll("button:not(:disabled), input:not(:disabled)"));
+  const target = event.shiftKey ? controls.at(-1) : controls[0];
+  if (
+    !event.currentTarget.contains(document.activeElement) || document.activeElement === (event.shiftKey ? controls[0] : controls.at(-1))
+  ) {
+    event.preventDefault();
+    target.focus();
+  }
+};
 
 // The narrow-screen backdrop closes on its own click. Closing on its press would hide it before the click,
 // which touch browsers then deliver to the trigger underneath, reopening the popover.
 addEventListener(
   "pointerdown",
   (event) => {
-    for (const account of [false, true]) {
-      const popover = $(sharedTimeID(account, "popover"));
-      if (
-        !popover.classList.contains("hidden") &&
-        !["popover", "trigger", "backdrop"].some((part) => $(sharedTimeID(account, part)).contains(event.target))
-      ) { closeSharedTimePopover(account); }
-    }
+    if (!["time-range-popover", "time-range-trigger", "time-range-backdrop"].some((id) => $(id).contains(event.target)))
+      closeSharedTimePopover();
   },
   true
 );
-addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  closeSharedTimePopover(false, true);
-  closeSharedTimePopover(true, true);
-});
-matchMedia("(max-width: 768px)").addEventListener("change", () => {
-  closeSharedTimePopover(false);
-  closeSharedTimePopover(true);
-});
+addEventListener("keydown", (event) => { if (event.key === "Escape") closeSharedTimePopover(true); });
+matchMedia("(max-width: 768px)").addEventListener("change", () => closeSharedTimePopover());

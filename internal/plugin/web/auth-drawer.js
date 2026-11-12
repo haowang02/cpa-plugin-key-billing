@@ -12,7 +12,7 @@ function openAuthDrawer(file, account) {
   // Manual resets come only from a quota query.
   if (
     AUTH_RESET_PROVIDERS.includes(file.category) && canRefreshAuthQuota(file) && !file.quota?.fetched_at &&
-    authUI(account).bulk.dataset.loading !== "true"
+    !authUI(account).owner.authQuotaBatch
   )
     guard(() => refreshAuthQuota(file, account));
 }

@@ -42,50 +42,57 @@ const EVENT_CSV_COLUMNS = {
   errors: ["at", "preview", "label", "billing_model", "upstream_model", "credential", "status_code", "error_type", "body"]
 };
 
-function apiKeyFilter(account) {
-  const key = account ? "" : $("analysis-key").value;
-  if (!key) return {};
-  return key === UNASSIGNED_KEY ? { api_key_empty: "true" } : { api_key: key };
+// Analysis and event lists share one API key choice, offered from the keys with events in the time range.
+const API_KEY_FILTER = {
+  id: "api-key",
+  label: "API Key",
+  icon: "key",
+  searchable: true,
+  masked: true,
+  source: eventKeysQuery,
+  load: readEventKeys,
+  options: () => {
+    const keys = eventKeysQuery.value || [];
+    return [
+      ...keys.filter((key) => key.scope)
+        .map((key) => ({ value: key.scope, label: apiKeyIdentity(key).text + (key.deleted_at ? m("ui.deleted_2") : "") })),
+      ...(keys.some((key) => !key.scope) ? [{ value: EMPTY_FIELD, label: m("ui.unassigned") }] : [])
+    ];
+  },
+  describe: (value) => (value === EMPTY_FIELD ? m("ui.unassigned") : apiKeyIdentity({ scope: value }).text)
+};
+
+function apiKeyQuery(account) { return account ? {} : filterQuery(false, { api_key: API_KEY_FILTER }); }
+
+// Event lists offer the models and upstream credentials found in the whole time range.
+function modelFilter(id, kind) {
+  return {
+    id,
+    label: m("ui.model"),
+    icon: "astroid",
+    searchable: true,
+    options: (account) => (pagedList(kind, account).data?.filter_options?.models || []).map((model) => ({ value: model, label: model }))
+  };
 }
 
-function renderSelectOptions(select, options) {
-  const selected = select.value;
-  const previous = new Map([...select.options].map((option) => [option.value, option]));
-  let position = select.firstChild;
-  for (const { value, text } of options) {
-    const option = previous.get(value) || el("option", { value });
-    const label = displayLabel(text);
-    if (option.textContent !== label) setText(option, label);
-    if (option !== position) select.insertBefore(option, position);
-    position = option.nextSibling;
-    previous.delete(value);
-  }
-  for (const option of previous.values()) option.remove();
-  select.value = selected;
+function credentialFilter(id, kind) {
+  return {
+    id,
+    label: m("ui.credential"),
+    icon: "file-key",
+    searchable: true,
+    masked: true,
+    options: (account) => disambiguateCredentialOptions(pagedList(kind, account).data?.filter_options?.credential_options || [])
+  };
 }
 
-function populateEventFilterSelect(select, defaultLabel, values, valueOf = (item) => item, labelOf = valueOf) {
-  const selected = select.value;
-  const selectedLabel = select.selectedOptions[0]?.textContent || selected;
-  const options = [{ value: "", text: defaultLabel }];
-  let found = !selected;
-  for (const item of values || []) {
-    const value = String(valueOf(item) || "");
-    if (!value) continue;
-    if (value === selected) found = true;
-    options.push({ value, text: String(labelOf(item)) });
-  }
-  if (selected && !found) options.push({ value: selected, text: selectedLabel });
-  renderSelectOptions(select, options);
-}
-
-function populateCredentialFilterSelect(select, filters) {
-  const values = disambiguateCredentialFilterOptions(filters.credential_options || []);
-  populateEventFilterSelect(select, m("ui.all_credentials"), values, (option) => option.value, (option) => option.label);
-}
-
-function disambiguateCredentialFilterOptions(options) {
-  const prepared = options.map((option) => ({ option, label: String(displayLabel(option.label)), digest: String(option.value || "") }));
+// Credentials sharing a display name gain the shortest digest prefix that tells them apart.
+function disambiguateCredentialOptions(options) {
+  const prepared = options.map((option) => ({
+    value: option.value,
+    label: String(displayLabel(option.label)),
+    digest: String(option.value || "")
+  }));
   const groups = new Map();
   for (const item of prepared) {
     if (!groups.has(item.label)) groups.set(item.label, []);
@@ -93,11 +100,11 @@ function disambiguateCredentialFilterOptions(options) {
   }
   return prepared.map((item) => {
     const group = groups.get(item.label);
-    if (group.length < 2) return item.option;
+    if (group.length < 2) return { value: item.value, label: item.label };
     let length = Math.min(6, item.digest.length);
     while (length < item.digest.length && group.some((other) => other !== item && other.digest.startsWith(item.digest.slice(0, length))))
       length++;
-    return { ...item.option, label: item.label + DISPLAY_SEPARATOR + "#" + item.digest.slice(0, length).toUpperCase() };
+    return { value: item.value, label: item.label + DISPLAY_SEPARATOR + "#" + item.digest.slice(0, length).toUpperCase() };
   });
 }
 
@@ -112,54 +119,6 @@ function readEventKeys(reload) {
     },
     reload
   );
-}
-
-function renderEventKeys() {
-  const keys = eventKeysQuery.value;
-  if (!keys) return;
-  const select = $("analysis-key");
-  const selected = select.value;
-  renderSelectOptions(select, [
-    { value: "", text: m("ui.all_api_keys") },
-    ...keys.filter((key) => key.scope)
-      .map((key) => ({ value: key.scope, text: apiKeyIdentity(key).text + (key.deleted_at ? m("ui.deleted_2") : "") })),
-    ...(selected && selected !== UNASSIGNED_KEY && !keys.some((key) => key.scope === selected)
-      ? [
-          {
-            value: selected,
-            text: keyDirectory.value.has(selected)
-              ? apiKeyIdentity({ scope: selected }).text
-              : select.selectedOptions[0]?.textContent || selected
-          }
-        ]
-      : []),
-    ...(selected === UNASSIGNED_KEY || keys.some((key) => !key.scope) ? [{ value: UNASSIGNED_KEY, text: m("ui.unassigned") }] : [])
-  ]);
-}
-
-function updateFilterClearButton(button) {
-  const selects = button.parentElement.querySelectorAll("ui-select");
-  button.disabled = !Array.from(selects).some((select) => select.value);
-}
-
-function bindPagedListFilters(list, role, ids, clear) {
-  const reload = () => {
-    updateFilterClearButton(clear);
-    guard(() => list.load(true));
-  };
-  for (const id of ids) {
-    $(id).addEventListener("change", () => {
-      saveChoice(role, id);
-      reload();
-    });
-  }
-  clear.onclick = () => {
-    for (const id of ids) {
-      $(id).value = "";
-      saveChoice(role, id);
-    }
-    reload();
-  };
 }
 
 function csvCell(value) {
@@ -203,11 +162,20 @@ function downloadCSV(filename, content) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+let eventsExporting = false;
+
+function eventExportAction(kind, account) {
+  return {
+    label: eventsExporting ? m("ui.exporting") : m("ui.export"),
+    icon: "download",
+    disabled: eventsExporting,
+    run: () => guard(() => exportEvents(kind, account))
+  };
+}
+
 async function exportEvents(kind, account) {
-  const button = $(account ? "account-events-export" : "events-export");
-  if (button.disabled) return;
-  button.disabled = true;
-  setLabeledActionIcon(button, "download", m("ui.exporting"));
+  if (eventsExporting) return;
+  eventsExporting = true;
   const view = PAGED_LIST_VIEWS[kind];
   try {
     const selection = pagedListSelection(kind, account);
@@ -225,32 +193,9 @@ async function exportEvents(kind, account) {
     downloadCSV(name + stamp + ".csv", eventCSV(entries, kind, account));
     notify(m("ui.exported_records", { count: int(entries.length) }));
   } finally {
-    button.disabled = false;
-    setLabeledActionIcon(button, "download", m("ui.export"));
+    eventsExporting = false;
     renderPage();
   }
-}
-
-for (const account of [false, true]) {
-  const role = account ? "account" : "admin";
-  const prefix = account ? "account-" : "";
-  bindPagedListFilters(
-    pagedList("events", account),
-    role,
-    ["request-event-model", "request-event-credential", "request-event-status"].map((id) => prefix + id),
-    $(prefix + "request-events-filter-clear")
-  );
-  bindPagedListFilters(
-    pagedList("errors", account),
-    role,
-    ["error-model", "error-credential", "error-type"].map((id) => prefix + id),
-    $(prefix + "errors-filter-clear")
-  );
-  const exportButton = $(account ? "account-events-export" : "events-export");
-  setLabeledActionIcon(exportButton, "download", m("ui.export"));
-  exportButton.onclick = () => guard(() => exportEvents(activeTab(account) === "errors" ? "errors" : "events", account));
-  bindSharedTimeControls(account);
-  updateSharedTimeControl(account);
 }
 
 function updateEventCleanupRange() {
@@ -260,19 +205,26 @@ function updateEventCleanupRange() {
   if (custom) $("events-clear-days").focus();
 }
 
+function eventCleanupAction() {
+  return {
+    label: m("ui.data_cleanup"),
+    icon: "trash-2",
+    danger: true,
+    run: () =>
+      openEditor("events-clear-dialog", null, () => {
+        $("events-clear-range").value = "all";
+        $("events-clear-days").value = "30";
+        updateEventCleanupRange();
+      })
+  };
+}
+
 $("events-clear-range").replaceChildren(
   el("option", { value: "all" }, m("ui.all_request_events")),
   ...[1, 7, 30, 90, 180, 365].map((days) => el("option", { value: days }, m("ui.events_older_than_days", { count: days }))),
   el("option", { value: "custom" }, m("ui.custom"))
 );
-setLabeledActionIcon($("events-clear"), "trash-2", m("ui.data_cleanup"));
 $("events-clear-range").onchange = updateEventCleanupRange;
-$("events-clear").onclick = () =>
-  openEditor("events-clear-dialog", null, () => {
-    $("events-clear-range").value = "all";
-    $("events-clear-days").value = "30";
-    updateEventCleanupRange();
-  });
 $("events-clear-confirm").onclick = () => {
   const range = $("events-clear-range").value;
   const input = $("events-clear-days");

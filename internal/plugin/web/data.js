@@ -139,7 +139,6 @@ const authFilesQueries = Object.fromEntries(
 );
 const aiProvidersQueries = Object.fromEntries(["admin", "account"].map((role) => [role, createQuery(m("ui.ai_providers"))]));
 const eventKeysQuery = createQuery(m("ui.event_api_key_filter"));
-const UNASSIGNED_KEY = "__unassigned__";
 
 const LIST_PAGE_SIZE = 50;
 
@@ -149,29 +148,29 @@ const PAGED_LIST_VIEWS = {
   events: {
     tab: "request-events",
     label: m("ui.request_events"),
-    scrollers: ["request-events-body", "account-request-events-body"],
+    scroller: "request-events-body",
     timed: true,
     keyed: true,
     endpoint: "/events",
-    filters: requestEventFilters,
+    query: requestEventQuery,
     render: renderRequestEvents
   },
   errors: {
     tab: "errors",
     label: m("ui.error_events"),
-    scrollers: ["errors-body", "account-errors-body"],
+    scroller: "errors-body",
     timed: true,
     keyed: true,
     endpoint: "/errors",
-    filters: errorEventFilters,
+    query: errorEventQuery,
     render: renderErrors
   },
   logs: {
     tab: "settings",
     label: m("ui.plugin_logs"),
-    scrollers: ["plugin-logs-body"],
+    scroller: "plugin-logs-body",
     endpoint: "/plugin-logs",
-    filters: () => ({ level: $("plugin-log-level").value }),
+    query: pluginLogQuery,
     render: renderPluginLogs
   }
 };
@@ -180,12 +179,12 @@ const PAGED_LIST_VIEWS = {
 // Rolling ranges advance only when starting a fresh traversal.
 function pagedListSelection(kind, account) {
   const view = PAGED_LIST_VIEWS[kind];
-  const filters = view.filters(account);
+  const query = view.query(account);
   const range = view.timed ? selectedRange(account) : {};
   if (view.timed) range.to = new Date(Math.min(Date.now(), Date.parse(range.to))).toISOString();
   return {
-    key: JSON.stringify([view.timed ? sharedTimeRanges[account ? "account" : "admin"] : null, filters]),
-    params: { ...filters, ...range, limit: LIST_PAGE_SIZE }
+    key: JSON.stringify([view.timed ? sharedTimeRanges[account ? "account" : "admin"] : null, query]),
+    params: { ...query, ...range, limit: LIST_PAGE_SIZE }
   };
 }
 
@@ -228,9 +227,8 @@ function createPagedList(kind, account) {
     append: false,
     rendered: null,
     get data() { return query.value?.page || null; },
-    get complete() { return !!query.value && !query.value.cursor; },
-    get scroller() { return $(view.scrollers[account ? 1 : 0]); },
-    active() { return currentRole === (account ? "account" : "admin") && activeTab(account) === view.tab; },
+    get scroller() { return $(view.scroller); },
+    active() { return currentRole === (account ? "account" : "admin") && currentTab === view.tab; },
     replace(page) {
       list.reset();
       query.key = pagedListSelection(kind, account).key;
@@ -370,24 +368,6 @@ function saveViewPreference(role, name, value) {
   const key = viewPreferenceKey(role, name);
   if (!key) return;
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
-}
-
-function restoreChoice(role, id, fallback, allowMissing = false) {
-  const control = $(id);
-  let value = viewPreference(role, id, fallback);
-  if (control.type === "checkbox") {
-    control.checked = value;
-    return;
-  }
-  if (!Array.from(control.options).some((option) => option.value === value)) {
-    if (allowMissing && value) control.append(el("option", { value, text: value })); else value = fallback;
-  }
-  control.value = value;
-}
-
-function saveChoice(role, id) {
-  const control = $(id);
-  saveViewPreference(role, id, control.type === "checkbox" ? control.checked : control.value);
 }
 
 async function fetchAdminCollection(name) {
@@ -610,113 +590,6 @@ function loadDataGroup(account, name, reload = false) {
   return group.task;
 }
 
-// A page owns both its displays and its editors. Loading and refresh use
-// their union; rendering uses only each display's own dependencies.
-function createPages(role) {
-  const account = role === "account";
-  const data = {
-    ...resources[role],
-    analysis: analysisQueries[role],
-    speed: speedQueries[role],
-    authFiles: authFilesQueries[role],
-    aiProviders: aiProvidersQueries[role],
-    eventKeys: eventKeysQuery,
-    keyDirectory,
-    ...Object.fromEntries(Object.entries(pagedLists[role]).map(([name, list]) => [name, list.query]))
-  };
-  const section = (names, render) => ({ sources: names.map((name) => data[name]), render, displayed: null });
-  const keyedSection = (names, render) => section(account ? names : [...names, "keyDirectory"], render);
-  const result = {
-    analysis: {
-      timeRange: true,
-      currency: true,
-      autoRefresh: true,
-      queries: [data.analysis, data.speed],
-      load: (reload) => loadAnalysis(account, reload),
-      renderStatus: () => renderAnalysis(account),
-      sections: []
-    },
-    "request-events": {
-      timeRange: true,
-      currency: true,
-      autoRefresh: true,
-      eventColumns: true,
-      cleanupEvents: !account,
-      exportEvents: true,
-      list: pagedLists[role].events,
-      sections: [keyedSection(["events"], () => renderRequestEvents(account))]
-    },
-    errors: {
-      timeRange: true,
-      autoRefresh: true,
-      exportEvents: true,
-      list: pagedLists[role].errors,
-      sections: [keyedSection(["errors"], () => renderErrors(account))]
-    },
-    "ai-providers": {
-      timeRange: true,
-      currency: true,
-      autoRefresh: true,
-      queries: [data.aiProviders],
-      load: (reload) => readAIProviders(account, reload),
-      sections: [section(["aiProviders"], () => renderAIProviders(account))]
-    },
-    "auth-files": {
-      timeRange: true,
-      currency: true,
-      autoRefresh: true,
-      queries: [data.authFiles],
-      load: (reload) => readAuthFiles(account, reload),
-      sections: [section(["authFiles"], () => renderAuthFiles(account))]
-    }
-  };
-  if (account) {
-    result.subscription = {
-      sections: [
-        section(["subscription"], renderAccountSubscription),
-        section(["models", "catalog", "profile"], renderAccountModels),
-        section(["routing"], renderAccountRouting)
-      ]
-    };
-  } else {
-    const keyFilter = keyedSection(["eventKeys"], renderEventKeys);
-    for (const tab of ["analysis", "request-events", "errors"]) result[tab].sections.unshift(keyFilter);
-    result.keys = { editors: ["route"], sections: [keyedSection(["keys", "plans", "routes", "credentials"], renderKeys)] };
-    result.settings = {
-      editors: ["plan", "route"],
-      list: pagedLists[role].logs,
-      sections: [
-        keyedSection(["plans", "keys"], renderPlans),
-        keyedSection(["routes", "keys", "credentials"], renderRoutes),
-        section(["catalog"], renderPriceTable),
-        section(["priceStatus", "catalog"], renderReferencePriceStatus),
-        section(["logs"], renderPluginLogs)
-      ]
-    };
-  }
-  for (const page of Object.values(result)) {
-    if (page.list) {
-      page.queries = [page.list.query];
-      page.load = page.list.load;
-      page.renderStatus = () => { if (page.list.data) page.list.renderStatus(); };
-    }
-    // Pages that show amounts load the exchange rate to convert them.
-    const rate = page.currency ? [data.currency] : [];
-    page.sources = [...new Set([...page.sections.flatMap((section) => section.sources), ...(page.queries || []), ...rate])];
-    for (const editor of page.editors || []) {
-      for (const name of EDITOR_RESOURCES[editor]) if (!page.sources.includes(data[name])) page.sources.push(data[name]);
-    }
-    if (page.sources.includes(data.catalog) && !page.sources.includes(data.models)) page.sources.push(data.models);
-    page.groups = Object.entries(resourceGroups[role]).filter(([, group]) => group.names.some((name) => page.sources.includes(data[name])))
-      .map(([name]) => name);
-    if (account) page.sources.unshift(data.profile);
-    page.task = null;
-  }
-  if (account) result["auth-files"].sections[0].sources.push(data.profile);
-  return result;
-}
-const pages = { admin: createPages("admin"), account: createPages("account") };
-
 function resetEventHistory() {
   eventKeysQuery.clear();
   for (const role of ["admin", "account"]) {
@@ -724,78 +597,4 @@ function resetEventHistory() {
     for (const query of [analysisQueries[role], speedQueries[role], authFilesQueries[role], aiProvidersQueries[role]]) query.clear();
     modelUsages[role].clear();
   }
-}
-
-function currentPage() { return currentRole ? pages[currentRole][activeTab(currentRole === "account")] : null; }
-
-// Cached navigation only paints changed sections. A refresh retains the
-// existing DOM until new data arrives; hidden pages are painted on entry.
-function renderPage() {
-  const page = currentPage();
-  if (!page) return;
-  const account = currentRole === "account";
-  updateRefreshControls();
-  renderDisplayCurrency();
-  renderDataNotice();
-  if (account && !renderAccountProfile()) return;
-  for (const section of page.sections) {
-    const values = [
-      locale(),
-      moneyDisplayKey(),
-      ...section.sources.flatMap((source) => [source.value, source.value === null ? source.error : ""])
-    ];
-    if (section.displayed?.every((value, index) => value === values[index])) continue;
-    if (section.render() !== false) section.displayed = values;
-  }
-  page.renderStatus?.();
-}
-
-function loadPage(account, { reload = false } = {}) {
-  const role = account ? "account" : "admin";
-  const page = pages[role][activeTab(account)];
-  const generation = sessionGeneration;
-  const task = (async () => {
-    if (account) await loadDataGroup(true, "profile", reload);
-    if (generation !== sessionGeneration || currentPage() !== page) return;
-    const tasks = [];
-    if (!account || resources.account.profile.value?.tracked) {
-      tasks.push(...page.groups.map((name) => loadDataGroup(account, name, reload)));
-      if (page.sources.includes(eventKeysQuery)) tasks.push(readEventKeys(reload));
-      if (page.load) tasks.push(page.load(reload));
-    }
-    renderPage();
-    try { await settleLoads(tasks); } catch (error) {
-      // Hidden pages keep their errors for the next visit. Only an
-      // authentication failure concerns the whole session.
-      if (currentPage() === page || error instanceof AuthError) throw error;
-    }
-  })().finally(() => {
-    if (generation !== sessionGeneration) return;
-    if (page.task === task) page.task = null;
-    renderPage();
-  });
-  page.task = task;
-  renderPage();
-  return task;
-}
-
-function renderDataNotice() {
-  const page = currentPage();
-  if (!page) return;
-  const account = currentRole === "account";
-  // Paged lists display their own loading and error states.
-  const listQuery = page.list?.query;
-  const visible = page.sources.filter((source) => source !== listQuery);
-  const errors = visible.filter((source) => source.error).map((source) =>
-    m("ui.resource_error", {
-      v0: source.label,
-      v1: source.error,
-      v2: source.value !== null ? m("ui.showing_the_last_successful_data") : ""
-    })
-  );
-  if (!account && page.groups.includes("configuration")) errors.push(...resourceGroups.admin.configuration.syncErrors);
-  const status = $(account ? "account-data-status" : "admin-data-status");
-  if (!errors.length) return status.replaceChildren();
-  const retry = el("button", { type: "button", disabled: !!page.task, onclick: refreshPage }, page.task ? m("ui.retrying") : m("ui.retry"));
-  status.replaceChildren(notice(errors.join("\n"), "error", retry));
 }

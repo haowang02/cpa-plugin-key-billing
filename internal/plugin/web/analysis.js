@@ -30,7 +30,7 @@ function loadCharts() {
 
 function renderLoadedCharts() {
   const account = currentRole === "account";
-  if (currentRole && activeTab(account) === "analysis" && analysisQueries[currentRole].value) renderAnalysis(account);
+  if (currentRole && currentTab === "analysis" && analysisQueries[currentRole].value) renderAnalysis(account);
 }
 
 function loadAnalysis(account, reload) {
@@ -41,7 +41,7 @@ function loadAnalysis(account, reload) {
 
 function analysisRequest(account) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const filters = apiKeyFilter(account);
+  const filters = apiKeyQuery(account);
   const usage = { ...selectedRange(account), ...filters };
   return {
     params: new URLSearchParams({ ...usage, timezone }),
@@ -125,7 +125,7 @@ function destroyAnalysisCharts(account) {
   const role = account ? "account" : "admin";
   for (const kind of ["trend", "distribution", "speed"]) analysisCharts[role][kind]?.destroy();
   analysisCharts[role] = emptyAnalysisCharts();
-  $(account ? "account-analysis-body" : "analysis-body").replaceChildren();
+  $("analysis-body").replaceChildren();
 }
 
 function analysisLegendItem(color, label) {
@@ -239,7 +239,7 @@ function compactDistribution(rows, metric) {
 function namesIdentity(dimension, row) { return ["api_keys", "credentials"].includes(dimension) && !!row?.key; }
 
 function renderUsageDistributionChart(account, rows, dimension, dimensionLabel, metric, colors, animate) {
-  const canvas = $(account ? "account-usage-chart" : "usage-chart");
+  const canvas = $("usage-chart");
   canvas.setAttribute("aria-label", m("ui.value_value_doughnut_chart", { v0: dimensionLabel, v1: DISTRIBUTION_METRICS[metric].option }));
   const empty = rows.some((row) => row.percent > 0)
     ? ""
@@ -300,7 +300,7 @@ function renderUsageDistributionChart(account, rows, dimension, dimensionLabel, 
 }
 
 function renderUsageTrendChart(account, trends, chargedIn, colors) {
-  const canvas = $(account ? "account-usage-trend-chart" : "usage-trend-chart");
+  const canvas = $("usage-trend-chart");
   const points = trends.total_tokens;
   if (!points.length) {
     canvas.closest(".usage-trend-card").querySelector(".analysis-legend").replaceChildren();
@@ -571,9 +571,9 @@ function distributionUsageQuery(analysis, dimension, row) {
 function renderAnalysisDistribution(account, { colors = analysisColors(), animate = false } = {}) {
   const role = account ? "account" : "admin";
   const analysis = analysisQueries[role].value;
-  const target = $(account ? "account-usage-distribution" : "usage-distribution");
+  const target = $("usage-distribution");
   const labels = { api_keys: "API Key", models: m("ui.model"), credentials: m("ui.credential") };
-  if (account || $("analysis-key").value) delete labels.api_keys;
+  if (account || filterValue(false, API_KEY_FILTER)) delete labels.api_keys;
   const dimension = labels[analysisDimensions[role]] ? analysisDimensions[role] : "models";
   const metric = analysisMetrics[role];
   const rows = compactDistribution(analysis.usage_distribution[dimension], metric);
@@ -643,7 +643,6 @@ function renderAnalysisDistribution(account, { colors = analysisColors(), animat
 
 function renderSpeedTrend(account, view) {
   const role = account ? "account" : "admin";
-  const prefix = account ? "account-" : "";
   const charts = analysisCharts[role];
   const analysis = analysisQueries[role].value;
   const query = speedQueries[role];
@@ -652,7 +651,7 @@ function renderSpeedTrend(account, view) {
   const current = !!model && query.key === speedKey(role, model);
   const state = { ...view, analysis, model, speed: current ? query.value : null, error: current && !query.value ? query.error : "" };
   if (sameRender(charts.speedRendered, state)) return;
-  const card = $(prefix + "speed-trend");
+  const card = $("speed-trend");
   const rows = speedModelRows(analysis);
   const select = el(
     "ui-select",
@@ -685,7 +684,7 @@ function renderSpeedTrend(account, view) {
   if (!model) empty = m("ui.no_request_events_in_this_time_range");
   else if (!speed) empty = state.error ? m("ui.failed_to_load_speed_trend") : m("ui.loading");
   else if (!stats.samples) empty = m("ui.no_successful_requests_for_this_model");
-  renderSpeedChart(account, $(prefix + "speed-trend-chart"), speed, palette, empty);
+  renderSpeedChart(account, $("speed-trend-chart"), speed, palette, empty);
   charts.speedRendered = state;
 }
 
@@ -800,11 +799,10 @@ function renderAnalysisUsage(account, content, analysis, view) {
 }
 
 function renderAnalysis(account) {
-  const target = $(account ? "account-analysis-body" : "analysis-body");
+  const target = $("analysis-body");
   const load = account ? analysisQueries.account : analysisQueries.admin;
   let content = target.querySelector(".analysis-content");
   if (!content) {
-    const prefix = account ? "account-" : "";
     content = el(
       "div",
       { class: "analysis-content" },
@@ -814,23 +812,23 @@ function renderAnalysis(account) {
         { class: "card usage-trend-card" },
         el("div", { class: "row spread analysis-card-header" }, el("h2", {}, m("ui.usage_trend"))),
         el("div", { class: "analysis-legend" }),
-        analysisChartPanel("analysis-trend-chart", prefix + "usage-trend-chart", m("ui.usage_trend_chart"))
+        analysisChartPanel("analysis-trend-chart", "usage-trend-chart", m("ui.usage_trend_chart"))
       ),
       el(
         "section",
-        { id: prefix + "usage-distribution", class: "card usage-distribution-card" },
+        { id: "usage-distribution", class: "card usage-distribution-card" },
         el("div", { class: "row spread analysis-card-header" }),
         el(
           "div",
           { class: "usage-distribution-layout" },
-          analysisChartPanel("usage-distribution-chart", prefix + "usage-chart", m("ui.usage_distribution_chart")),
+          analysisChartPanel("usage-distribution-chart", "usage-chart", m("ui.usage_distribution_chart")),
           el("div", { class: "usage-distribution-list" })
         ),
         el("div", { class: "empty usage-distribution-empty", text: m("ui.no_request_events_in_this_time_range") })
       ),
       el(
         "section",
-        { id: prefix + "speed-trend", class: "card" },
+        { id: "speed-trend", class: "card" },
         el(
           "div",
           { class: "row spread analysis-card-header" },
@@ -838,7 +836,7 @@ function renderAnalysis(account) {
           el("div", { class: "row analysis-card-controls" })
         ),
         el("div", { class: "analysis-legend" }),
-        analysisChartPanel("analysis-trend-chart", prefix + "speed-trend-chart", m("ui.speed_trend_chart"))
+        analysisChartPanel("analysis-trend-chart", "speed-trend-chart", m("ui.speed_trend_chart"))
       )
     );
     target.replaceChildren(el("div", { class: "card empty analysis-state" }), content);

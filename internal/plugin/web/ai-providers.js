@@ -1,7 +1,18 @@
+const AI_PROVIDER_FILTERS = {
+  status: statusFilter("ai-status"),
+  type: {
+    id: "ai-type",
+    label: m("ui.type"),
+    icon: "shapes",
+    options: () => AI_PROVIDER_TYPES.map(({ type }) => ({ value: type, label: type }))
+  },
+  search: searchFilter("ai-search")
+};
+
 const aiSelection = createTableSelection({
   id: (provider) => provider.config_ref,
   label: (provider) => [provider.note || provider.name || provider.type, provider.key_preview || provider.base_url].join(" "),
-  context: () => [$("ai-provider-type").value, $("ai-provider-search").value, $("ai-provider-enabled-only").checked],
+  context: () => filterSnapshot(false, Object.values(AI_PROVIDER_FILTERS)),
   render: () => renderAIProviders(false),
   actions: renderAISelectionActions,
   busy: () => aiProviderStatusSaving
@@ -12,9 +23,7 @@ function renderAISelectionActions(providers) {
     aiSelection.action(
       m("ui.query_balance"),
       providers.filter(
-        (provider) =>
-          aiBalanceUpstream(provider) && !adminUIState.aiBalanceLoading.has(provider.auth_index) &&
-          $("ai-provider-query-balances").dataset.loading !== "true"
+        (provider) => aiBalanceUpstream(provider) && !adminUIState.aiBalanceLoading.has(provider.auth_index) && !adminUIState.aiBalanceBatch
       ),
       querySelectedAIBalances
     ),
@@ -52,30 +61,23 @@ function readAIProviders(account, reload = false) {
 }
 
 function filteredAIProviders(account) {
-  const prefix = account ? "account-" : "";
-  const type = $(prefix + "ai-provider-type").value;
-  const search = $(prefix + "ai-provider-search").value.trim().toLocaleLowerCase();
+  const status = filterValue(account, AI_PROVIDER_FILTERS.status);
+  const type = filterValue(account, AI_PROVIDER_FILTERS.type);
+  const term = filterValue(account, AI_PROVIDER_FILTERS.search).trim().toLocaleLowerCase();
   return (aiProvidersQueries[account ? "account" : "admin"].value || []).filter((provider) => {
-    if ($(prefix + "ai-provider-enabled-only").checked && provider.disabled) return false;
+    if (!matchesStatus(status, provider.disabled)) return false;
     if (type && provider.type !== type) return false;
-    if (!search) return true;
+    if (!term) return true;
     return [provider.note, provider.base_url, provider.type, provider.name, provider.key_preview].some((value) =>
-      value.toLocaleLowerCase().includes(search)
+      value.toLocaleLowerCase().includes(term)
     );
   });
 }
 
 function renderAIProviders(account) {
-  const body = $((account ? "account-" : "") + "ai-providers-body");
-  const bulk = account ? null : $("ai-provider-query-balances");
-  if (renderDataPending(body, [aiProvidersQueries[account ? "account" : "admin"]])) {
-    if (bulk) bulk.disabled = true;
-    return;
-  }
-  const providers = filteredAIProviders(account);
-  if (bulk)
-    bulk.disabled = bulk.dataset.loading === "true" || aiSelection.running || aiProviderStatusSaving || !providers.some(aiBalanceUpstream);
-  renderCollection(body, providers, {
+  const body = $("ai-providers-body");
+  if (renderDataPending(body, [aiProvidersQueries[account ? "account" : "admin"]])) return;
+  renderCollection(body, filteredAIProviders(account), {
     selection: account ? null : aiSelection,
     headers: [
       m("ui.ai_providers"),
@@ -152,9 +154,7 @@ function renderAIProviderRow(provider, account) {
             {
               type: "button",
               class: "icon-action" + (loading ? " loading" : ""),
-              disabled:
-                !upstream || loading || aiSelection.running || aiProviderStatusSaving ||
-                $("ai-provider-query-balances").dataset.loading === "true",
+              disabled: !upstream || loading || aiSelection.running || aiProviderStatusSaving || !!adminUIState.aiBalanceBatch,
               "aria-label": m("ui.query_balance"),
               "data-tip": upstream ? m("ui.query_balance") : m("ui.balance_queries_are_not_supported_for_this_provider"),
               onclick: () => guard(() => queryAIBalance(provider))
@@ -220,17 +220,3 @@ async function setAIProvidersEnabled(providers, enabled, selection = null) {
     if (generation === sessionGeneration) renderAIProviders(false);
   }
 }
-
-for (const account of [false, true]) {
-  const prefix = account ? "account-" : "";
-  $(prefix + "ai-provider-type").append(...AI_PROVIDER_TYPES.map((kind) => el("option", { value: kind.type, text: kind.type })));
-  for (const filter of [$(prefix + "ai-provider-enabled-only"), $(prefix + "ai-provider-type")]) {
-    filter.addEventListener("change", () => {
-      saveChoice(account ? "account" : "admin", filter.id);
-      renderAIProviders(account);
-    });
-  }
-  $(prefix + "ai-provider-search").addEventListener("input", () => renderAIProviders(account));
-}
-resetAIBalanceBatch();
-$("ai-provider-query-balances").onclick = () => guard(queryFilteredAIBalances);

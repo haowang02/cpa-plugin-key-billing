@@ -2,34 +2,48 @@ const expandedPluginLogIDs = new Set();
 
 const pluginLogLevels = {
   debug: { label: m("ui.debug"), class: "tag plain" },
-  error: { label: m("ui.error"), class: "tag bad" },
-  info: { label: m("ui.info"), class: "tag info" }
+  info: { label: m("ui.info"), class: "tag info" },
+  error: { label: m("ui.error"), class: "tag bad" }
 };
+
+// The server selects a level; the keyword searches the logs already loaded.
+const PLUGIN_LOG_FILTERS = {
+  level: {
+    id: "log-level",
+    label: m("ui.level"),
+    icon: "signal",
+    options: () => {
+      const counts = pagedList("logs").data?.level_counts || {};
+      return Object.entries(pluginLogLevels).map(([level, { label }]) => ({ value: level, label, detail: int(counts[level]) }));
+    }
+  },
+  search: searchFilter("log-search")
+};
+
+function pluginLogQuery() { return filterQuery(false, { level: PLUGIN_LOG_FILTERS.level }); }
 
 function renderPluginLogs() {
   const list = pagedList("logs");
-  const note = $("plugin-log-note");
+  renderFilterBar($("plugin-log-filters"), false, Object.values(PLUGIN_LOG_FILTERS), (filter) => {
+    if (filter === PLUGIN_LOG_FILTERS.level) guard(() => list.load(true));
+    else {
+      renderPluginLogs();
+      if (list.data) list.renderStatus();
+    }
+  });
+  const count = $("plugin-log-count");
   if (list.renderEmpty()) {
-    setText(note, "");
+    setText(count, "");
     return;
   }
   const pluginLogs = list.data.entries;
-  const filter = $("plugin-log-filter").value.trim().toLowerCase();
+  const filter = filterValue(false, PLUGIN_LOG_FILTERS.search).trim().toLowerCase();
   const currentIDs = new Set(pluginLogs.map((entry) => String(entry.id)));
   for (const id of expandedPluginLogIDs) if (!currentIDs.has(id)) expandedPluginLogIDs.delete(id);
-  const searched = pluginLogs.filter((pluginLog) => {
-    if (!filter) return true;
-    return matchesTerm(pluginLog.message || "", filter);
-  });
-  const counts = { ...list.data.level_counts, all: Object.values(list.data.level_counts || {}).reduce((sum, count) => sum + count, 0) };
-  const levelSelect = $("plugin-log-level");
-  for (const option of levelSelect.options) {
-    const label = option.value === "all" ? m("ui.all_levels") : pluginLogLevels[option.value].label;
-    const text = label + DISPLAY_SEPARATOR + int(counts[option.value]);
-    if (option.textContent !== text) setText(option, text);
-  }
-  const total = counts[levelSelect.value] || 0;
-  setText(note, loadedCountText(pluginLogs.length, total, list.complete));
+  const searched = pluginLogs.filter((pluginLog) => matchesTerm(pluginLog.message || "", filter));
+  const counts = list.data.level_counts || {};
+  const selected = filterValue(false, PLUGIN_LOG_FILTERS.level);
+  setText(count, int(selected ? counts[selected] : Object.values(counts).reduce((sum, value) => sum + value, 0)));
   list.renderItems(searched, {
     attrs: { class: "event-list", role: "list", "aria-label": m("ui.plugin_log_list") },
     empty: pluginLogs.length ? m("ui.no_matching_entries_in_loaded_logs") : m("ui.no_plugin_logs"),
@@ -129,15 +143,6 @@ function renderPluginLogMessage(pluginLog) {
   } catch (_) { return el("div", { class: "plugin-log-message" }, message); }
 }
 
-$("plugin-log-filter").addEventListener("input", () => {
-  renderPluginLogs();
-  const list = pagedList("logs");
-  if (list.data) list.renderStatus();
-});
-$("plugin-log-level").addEventListener("change", () => {
-  saveChoice("admin", "plugin-log-level");
-  guard(() => pagedList("logs").load(true));
-});
 $("plugin-logs-clear").onclick = () =>
   openActionDialog(
     m("ui.clear_all_plugin_logs"),

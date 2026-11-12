@@ -1,4 +1,4 @@
-// One popover lists the choices of whichever control opened it.
+// One popover lists the choices of whichever control opened it: values to pick, or, as a menu, actions to run.
 const choiceSearch = el("input", {
   type: "search",
   class: "choice-search",
@@ -14,7 +14,9 @@ let choiceSource = null;
 let choiceTyped = "", choiceTypedAt = 0;
 document.body.append(choiceMenu);
 
-// source: { label, choices() -> [{ value, label, selected, disabled, masked }], select(value), onToggle(open), searchable, align }
+// source: { label, choices(), select(value), onToggle(open), searchable, align, menu }
+// A choice is { value, label, icon, detail, selected, disabled, masked }. Menu choices may instead be checked,
+// open a submenu, be dangerous, or be a caption; a change of group starts a new section.
 function toggleChoiceMenu(anchor, source) {
   const open = choiceMenu.matches(":popover-open");
   if (open) choiceMenu.hidePopover();
@@ -24,6 +26,7 @@ function toggleChoiceMenu(anchor, source) {
   (anchor.closest("dialog") || document.body).append(choiceMenu);
   choiceSearch.value = "";
   choiceSearch.classList.toggle("hidden", !source.searchable);
+  choiceList.setAttribute("role", source.menu ? "menu" : "listbox");
   setTextAttribute(choiceList, "aria-label", source.label);
   renderChoiceMenu();
   choiceMenu.style.minWidth = anchor.offsetWidth + "px";
@@ -38,48 +41,54 @@ function toggleChoiceMenu(anchor, source) {
   });
 }
 
-function attachChoiceMenu(button, label, choices, select) {
-  button.setAttribute("aria-haspopup", "listbox");
+// The button's menu opens from its end edge; it lists values, or actions when source.menu is set.
+function attachChoiceMenu(button, source) {
+  button.setAttribute("aria-haspopup", source.menu ? "menu" : "listbox");
   button.setAttribute("aria-expanded", "false");
   button.onclick = () =>
-    toggleChoiceMenu(button, {
-      label,
-      align: "end",
-      choices,
-      select,
-      onToggle: (open) => button.setAttribute("aria-expanded", String(open))
-    });
+    toggleChoiceMenu(button, { align: "end", ...source, onToggle: (open) => button.setAttribute("aria-expanded", String(open)) });
+}
+
+function choiceRow(choice, menu) {
+  const checkable = menu && choice.checked !== undefined;
+  const row = el(
+    "button",
+    {
+      type: "button",
+      class: "choice-option" + (choice.danger ? " danger" : ""),
+      role: menu ? (checkable ? "menuitemcheckbox" : "menuitem") : "option",
+      tabindex: "-1",
+      "aria-selected": menu ? null : String(!!choice.selected),
+      "aria-checked": checkable ? String(choice.checked) : null,
+      "aria-haspopup": choice.submenu ? "listbox" : null,
+      disabled: choice.disabled,
+      onclick: () => pickChoice(choice.value)
+    },
+    choice.icon && actionIcon(choice.icon, "choice-icon"),
+    el("span", {
+      class: "choice-label" + (choice.masked ? " mask-blur" : ""),
+      "data-tip": choice.label,
+      "data-tip-overflow": "",
+      text: choice.label
+    }),
+    choice.detail != null && el("span", { class: "choice-detail", text: choice.detail }),
+    choice.submenu ? actionIcon("chevron", "choice-submenu") : (!menu || checkable) && actionIcon("check", "choice-check")
+  );
+  row.choice = choice.value;
+  return row;
 }
 
 function renderChoiceMenu() {
   const focused = choiceList.contains(document.activeElement) ? document.activeElement.choice : undefined;
   const query = choiceSearch.value.trim().toLocaleLowerCase();
+  const menu = !!choiceSource.menu;
   const choices = choiceSource.choices().filter((choice) => !query || String(choice.label).toLocaleLowerCase().includes(query));
-  choiceList.replaceChildren(
-    ...choices.map((choice) => {
-      const row = el(
-        "button",
-        {
-          type: "button",
-          class: "choice-option",
-          role: "option",
-          tabindex: "-1",
-          "aria-selected": String(!!choice.selected),
-          disabled: choice.disabled,
-          onclick: () => pickChoice(choice.value)
-        },
-        el("span", {
-          class: "choice-label" + (choice.masked ? " mask-blur" : ""),
-          "data-tip": choice.label,
-          "data-tip-overflow": "",
-          text: choice.label
-        }),
-        actionIcon("check", "choice-check")
-      );
-      row.choice = choice.value;
-      return row;
-    })
-  );
+  const rows = [];
+  choices.forEach((choice, index) => {
+    if (index > 0 && choice.group !== choices[index - 1].group) rows.push(el("div", { class: "choice-separator", role: "separator" }));
+    rows.push(choice.caption ? el("div", { class: "choice-caption", role: "presentation", text: choice.label }) : choiceRow(choice, menu));
+  });
+  choiceList.replaceChildren(...rows);
   if (!choices.length) choiceList.append(el("div", { class: "choice-empty", text: m("ui.no_matches") }));
   if (focused !== undefined) [...choiceList.children].find((row) => row.choice === focused)?.focus({ preventScroll: true });
 }
@@ -160,10 +169,9 @@ addEventListener("resize", followChoiceAnchor);
 // selectedIndex, selectedOptions, disabled and change events. It sizes to its widest option.
 class UISelect extends HTMLElement {
   static formAssociated = true;
-  static observedAttributes = ["disabled", "icon", "placeholder"];
+  static observedAttributes = ["disabled", "placeholder"];
   #internals = this.attachInternals();
   #labels = el("span", { part: "value" });
-  #icon = null;
 
   constructor() {
     super();
@@ -198,13 +206,6 @@ class UISelect extends HTMLElement {
   disconnectedCallback() { if (this.#menuOpen) choiceMenu.hidePopover(); }
 
   attributeChangedCallback(name) {
-    if (name === "icon") {
-      this.#icon?.remove();
-      this.#icon = this.hasAttribute("icon") ? actionIcon(this.getAttribute("icon")) : null;
-      this.#icon?.setAttribute("part", "icon");
-      if (this.#icon) this.shadowRoot.prepend(this.#icon);
-      return;
-    }
     if (name === "disabled" && this.disabled && this.#menuOpen) choiceMenu.hidePopover();
     this.#render();
   }
@@ -256,13 +257,7 @@ class UISelect extends HTMLElement {
       label: this.getAttribute("aria-label") || "",
       searchable: this.hasAttribute("searchable"),
       choices: () =>
-        this.options.map((option) => ({
-          value: option,
-          label: option.label,
-          selected: option.selected,
-          disabled: option.disabled,
-          masked: this.classList.contains("mask-select") && option.value !== ""
-        })),
+        this.options.map((option) => ({ value: option, label: option.label, selected: option.selected, disabled: option.disabled })),
       select: (option) => this.#pick(option),
       onToggle: (open) => {
         this.#internals.ariaExpanded = String(open);

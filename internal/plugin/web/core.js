@@ -16,15 +16,18 @@ const VIEW_PREFERENCE_PREFIX = "cpa-key-billing.view.v1.";
 
 const embedded = window.parent !== window;
 document.body.classList.toggle("embedded", embedded);
-const ADMIN_TAB_IDS = ["keys", "analysis", "request-events", "errors", "auth-files", "ai-providers", "settings"];
-const ACCOUNT_TAB_IDS = ["subscription", "analysis", "request-events", "errors", "auth-files", "ai-providers"];
+// Each role's views, starting with the one it opens on.
+const ROLE_TABS = {
+  admin: ["keys", "analysis", "request-events", "errors", "auth-files", "ai-providers", "settings"],
+  account: ["subscription", "analysis", "request-events", "errors", "auth-files", "ai-providers"]
+};
 const PAGE_ROUTE_KEY = "cpa-key-billing.route.v1." + (embedded ? "embedded" : "standalone");
+
+function roleTab(role, tab) { return ROLE_TABS[role].includes(tab) ? tab : ROLE_TABS[role][0]; }
 
 function parsePageRoute(value) {
   const [role, tab] = value.split("/");
-  if (role === "account") return { role, tab: ACCOUNT_TAB_IDS.includes(tab) ? tab : "subscription" };
-  if (role === "admin") return { role, tab: ADMIN_TAB_IDS.includes(tab) ? tab : "keys" };
-  return null;
+  return Object.hasOwn(ROLE_TABS, role) ? { role, tab: roleTab(role, tab) } : null;
 }
 
 function pageRoute() {
@@ -51,21 +54,22 @@ let sessionGeneration = 0;
 const activeRequests = new Set();
 let loginMode = initialRoute.role;
 let loginModeRequest = 0;
-function emptyAuthQuotaState() { return { authQuotaLoading: new Set(), authQuotaErrors: new Map() }; }
+function emptyAuthQuotaState() { return { authQuotaLoading: new Set(), authQuotaErrors: new Map(), authQuotaBatch: null }; }
 function emptyAdminUIState() {
   return {
     ...emptyAuthQuotaState(),
     keySubmissions: new Set(),
     authStatusSubmissions: new Map(),
     aiBalanceLoading: new Set(),
-    aiBalanceErrors: new Map()
+    aiBalanceErrors: new Map(),
+    aiBalanceBatch: null
   };
 }
 let adminUIState = emptyAdminUIState();
 let accountUIState = emptyAuthQuotaState();
 const authQuotaGeneration = { admin: 0, account: 0 };
 const credentialScope = { admin: "", account: "" };
-let accountTab = initialRoute.role === "account" ? initialRoute.tab : "subscription";
+let currentTab = "";
 
 function openCredentialDB() {
   return new Promise((resolve, reject) => {
