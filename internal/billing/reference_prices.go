@@ -131,8 +131,8 @@ func (s *Store) ReferencePriceMetadata() ReferencePriceMetadata {
 	return metadata
 }
 
-// Keys run upstream, requested, then their -high/-low effort-tier bases, which
-// share per-token rates. Use a later key only when earlier keys have no entries.
+// Keys run upstream, requested, then their bases without an -xhigh, -high, -low or -tiered
+// suffix, which share per-token rates. Use a later key only when earlier keys have no entries.
 func referencePriceKeys(upstream, requested string) []string {
 	keys := make([]string, 0, 4)
 	for index, model := range []string{upstream, requested} {
@@ -146,7 +146,7 @@ func referencePriceKeys(upstream, requested string) []string {
 		}
 	}
 	for _, key := range slices.Clone(keys) {
-		for _, suffix := range []string{"-high", "-low"} {
+		for _, suffix := range []string{"-xhigh", "-high", "-low", "-tiered"} {
 			if base, found := strings.CutSuffix(key, suffix); found && base != "" && !slices.Contains(keys, base) {
 				keys = append(keys, base)
 			}

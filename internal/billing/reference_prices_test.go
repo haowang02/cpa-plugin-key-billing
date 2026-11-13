@@ -442,13 +442,16 @@ func TestMatchReferencePriceNormalizesOnlyPrefixSuffixAndCase(t *testing.T) {
 		{ProviderID: "openai", ModelID: "gpt-5.6-sol", IsCanonical: true, PriceRates: &PriceRates{InputPer1M: 2}},
 		{ProviderID: "reseller", ModelID: "gpt-5.6-sol", PriceRates: &PriceRates{InputPer1M: 9}},
 	}
-	for _, model := range []string{"gpt-5.6-sol", " CODEX/GPT-5.6-SOL(xhigh) ", "route/openai/gpt-5.6-sol(32768)"} {
+	for _, model := range []string{
+		"gpt-5.6-sol", " CODEX/GPT-5.6-SOL(xhigh) ", "route/openai/gpt-5.6-sol(32768)",
+		"gpt-5.6-sol-xhigh", "codex/gpt-5.6-sol-high", "gpt-5.6-sol-low", "gpt-5.6-sol-tiered(high)",
+	} {
 		price, found := MatchReferencePrice(model, prices)
 		if !found || price.ProviderID != "openai" || price.InputPer1M != 2 {
 			t.Fatalf("%q: price=%+v found=%t", model, price, found)
 		}
 	}
-	for _, model := range []string{"", "codex/", "gpt-56-sol", "gpt5.6sol", "gpt-5.6-sol-vision-exp", "gpt-5.6-*", "codex:gpt-5.6-sol"} {
+	for _, model := range []string{"", "codex/", "gpt-56-sol", "gpt5.6sol", "gpt-5.6-sol-vision-exp", "gpt-5.6-sol-medium", "gpt-5.6-*", "codex:gpt-5.6-sol"} {
 		if price, found := MatchReferencePrice(model, prices); found {
 			t.Fatalf("unrelated model %q matched %+v", model, price)
 		}
