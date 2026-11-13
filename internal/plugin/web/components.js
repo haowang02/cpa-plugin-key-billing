@@ -333,15 +333,14 @@ function positionAnchoredPopover(node, anchor, { align = "start", side = "bottom
   node.style.left = Math.max(margin, Math.min(left, viewportWidth - node.offsetWidth - margin)) + "px";
 }
 
-// A few values side by side, one of them current; select(value) runs when another is chosen.
-function segmentedControl(label, options, value, select) {
+function segmentedControl(label, options, value, select, { fill = false } = {}) {
   const mark = (button, current) => {
     button.classList.toggle("active", current);
     button.setAttribute("aria-pressed", String(current));
   };
   const group = el(
     "div",
-    { class: "tabs", role: "group", "aria-label": label },
+    { class: fill ? "tabs fill" : "tabs", role: "group", "aria-label": label },
     options.map((option) => {
       const button = el("button", {
         type: "button",

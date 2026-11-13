@@ -62,9 +62,14 @@ function leaveChoiceCategory() {
 
 function activeChoiceSource() { return choiceSource.category || choiceSource; }
 
+const SHORT_CHOICE_LIST_LENGTH = 5;
+function choiceSearchable(source, choices = source.choices?.() || []) {
+  return !!source.searchable && choices.length > SHORT_CHOICE_LIST_LENGTH;
+}
+
 function focusChoiceValues() {
   const source = activeChoiceSource();
-  const typing = source.searchable && !matchMedia("(pointer: coarse)").matches;
+  const typing = choiceSearchable(source) && !matchMedia("(pointer: coarse)").matches;
   const row =
     (!source.menu && choiceList.querySelector('[aria-selected="true"]')) ||
     choiceList.querySelector(".choice-option:not(:disabled), .choice-control button");
@@ -121,7 +126,7 @@ function choiceControl(choice) {
     "div",
     { class: "choice-control" },
     el("div", { class: "choice-control-label" }, choice.icon && actionIcon(choice.icon, "choice-icon"), el("span", { text: choice.label })),
-    segmentedControl(choice.label, choice.options, choice.current, choice.change),
+    segmentedControl(choice.label, choice.options, choice.current, choice.change, { fill: true }),
     choice.note && el("div", { class: "choice-note", text: choice.note })
   );
 }
@@ -164,14 +169,16 @@ function choiceRow(choice, menu) {
 function renderChoiceMenu() {
   const focused = choiceList.contains(document.activeElement) ? document.activeElement.choice : undefined;
   const source = activeChoiceSource();
+  const all = source.choices?.() || [];
+  const searchable = choiceSearchable(source, all);
   choicePane.classList.toggle("hidden", !!choiceSource.categories && !choiceSource.category);
-  choiceSearch.classList.toggle("hidden", !source.searchable);
+  choiceSearch.classList.toggle("hidden", !searchable);
   setText(choiceBack.lastElementChild, source.label || "");
   choiceList.setAttribute("role", source.menu ? "menu" : "listbox");
   setTextAttribute(choiceList, "aria-label", source.label);
-  const query = choiceSearch.value.trim().toLocaleLowerCase();
+  const query = searchable ? choiceSearch.value.trim().toLocaleLowerCase() : "";
   const menu = !!source.menu;
-  const choices = (source.choices?.() || []).filter((choice) => !query || String(choice.label).toLocaleLowerCase().includes(query));
+  const choices = all.filter((choice) => !query || String(choice.label).toLocaleLowerCase().includes(query));
   const rows = [];
   choices.forEach((choice, index) => {
     if (index > 0 && choice.group !== choices[index - 1].group) rows.push(el("div", { class: "choice-separator", role: "separator" }));

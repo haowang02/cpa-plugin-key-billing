@@ -215,7 +215,7 @@ function scheduleToolbarLayout() { if (!toolbarLayoutFrame) toolbarLayoutFrame =
 
 $("page-refresh").append(actionIcon("refresh"));
 $("page-refresh").onclick = () => refreshPage();
-$("auto-refresh").append(el("span", { class: "refresh-interval" }), actionIcon("chevron-down"));
+$("auto-refresh").append(el("span", { class: "refresh-interval" }), actionIcon("chevron-down", "menu-chevron"));
 attachChoiceMenu($("auto-refresh"), {
   label: m("ui.auto_refresh_interval"),
   choices: refreshChoices,
@@ -238,7 +238,7 @@ $("privacy-mask").onclick = () => {
 $("page-tab-menu").append(
   el("span", { class: "page-tab-menu-label" }),
   el("span", { class: "count-badge" }),
-  actionIcon("chevron-down", "page-tab-menu-chevron")
+  actionIcon("chevron-down", "menu-chevron")
 );
 attachChoiceMenu($("page-tab-menu"), {
   label: m("ui.select_view"),

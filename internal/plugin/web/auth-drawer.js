@@ -93,19 +93,15 @@ function renderAuthDrawerHistory() {
   renderAuthDrawerModels();
   if (authDrawer.window >= history.windows.length) authDrawer.window = 0;
   switcher.replaceChildren(
-    ...history.windows.map((window, index) =>
-      el(
-        "button",
-        {
-          type: "button",
-          role: "tab",
-          onclick: () => {
-            authDrawer.window = index;
-            renderAuthDrawerPeriods();
-          }
-        },
-        quotaLabels(window).full
-      )
+    segmentedControl(
+      m("ui.quota_windows"),
+      history.windows.map((window, index) => ({ value: index, label: quotaLabels(window).full })),
+      authDrawer.window,
+      (index) => {
+        authDrawer.window = index;
+        renderAuthDrawerPeriods();
+      },
+      { fill: true }
     )
   );
   renderAuthDrawerPeriods();
@@ -153,10 +149,6 @@ function renderAuthDrawerModels() {
 
 function renderAuthDrawerPeriods() {
   const { history, window: selected, account, file } = authDrawer;
-  for (const [index, button] of Array.from($("auth-drawer-window-switch").children).entries()) {
-    button.classList.toggle("active", index === selected);
-    button.setAttribute("aria-selected", String(index === selected));
-  }
   const window = history.windows[selected];
   $("auth-drawer-periods").replaceChildren(
     window

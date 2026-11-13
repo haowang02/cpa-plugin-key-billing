@@ -267,7 +267,7 @@ function renderQuotaBar(percent, label) {
       "aria-valuemax": "100",
       "aria-valuenow": known ? Math.round(percent) : null
     },
-    el("i", { class: "quota-fill " + (known ? level : "high"), style: "width:" + (known ? percent : 0) + "%" })
+    el("i", { class: "bar-fill " + (known ? level : "high"), style: "width:" + (known ? percent : 0) + "%" })
   );
 }
 
@@ -604,7 +604,7 @@ async function resetAuthQuota(file, account) {
       el(
         "div",
         { class: "auth-reset-available" },
-        el("span", { class: "auth-reset-count-badge", text: int(authQuotaResets(file.quota).count) }),
+        el("span", { class: "count-badge", text: int(authQuotaResets(file.quota).count) }),
         m("ui.available_reset_count")
       ),
       el("div", { text: m("ui.consume_one_reset_now") }),

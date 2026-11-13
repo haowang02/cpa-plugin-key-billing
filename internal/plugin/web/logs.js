@@ -90,7 +90,7 @@ function upstreamCredentialText(value) {
 
 function renderPluginLogMessage(pluginLog) {
   const message = pluginLog.message || "";
-  if (!message.startsWith("route ")) return el("div", { class: "plugin-log-message" }, message);
+  if (!message.startsWith("route ")) return el("div", { class: "event-detail" }, message);
   try {
     const row = JSON.parse(message.slice(6));
     const model = row.model_result === "deny" ? m("ui.denied") : row.model_result === "allow" ? m("ui.allowed") : m("ui.unknown_2");
@@ -137,9 +137,9 @@ function renderPluginLogMessage(pluginLog) {
           el("span", { text: m("ui.request_result_value", { v0: outcome }) })
         )
       ),
-      el("pre", { class: "event-error-body mono" }, routeLogDetails(row))
+      el("pre", { class: "event-detail mono small" }, routeLogDetails(row))
     );
-  } catch (_) { return el("div", { class: "plugin-log-message" }, message); }
+  } catch (_) { return el("div", { class: "event-detail" }, message); }
 }
 
 $("plugin-logs-clear").onclick = () =>

@@ -155,7 +155,7 @@ function renderAccountModel(model) {
     );
   return el(
     "div",
-    { class: "account-model-card" },
+    { class: "inset-card account-model-card" },
     el("b", { class: "mono account-model-name", "data-tip": model, "data-tip-overflow": "" }, model),
     price
       ? el("div", { class: "account-model-price-list" }, priceRows.map(priceRow))

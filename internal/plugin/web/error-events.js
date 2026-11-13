@@ -42,7 +42,7 @@ function renderErrors(account) {
           ),
           el("div", { class: "event-entry-tags" }, tags)
         ),
-        el("pre", { class: "event-error-body mono", text: entry.body || m("ui.no_error_details") })
+        el("pre", { class: "event-detail mono small", text: entry.body || m("ui.no_error_details") })
       );
     }
   });

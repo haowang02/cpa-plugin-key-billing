@@ -80,7 +80,7 @@ function renderQuotaWindows(view, account = false) {
                 "aria-valuemax": "100",
                 "aria-valuenow": String(Math.round(quota.percent))
               },
-              el("i", { class: "quota-fill " + quota.level, style: "width:" + quota.percent + "%" })
+              el("i", { class: "bar-fill " + quota.level, style: "width:" + quota.percent + "%" })
             )
           );
         })

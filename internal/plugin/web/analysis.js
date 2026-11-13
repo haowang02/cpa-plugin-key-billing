@@ -473,7 +473,7 @@ function renderAnalysisDistribution(account, { colors = analysisColors(), animat
           : el("b", {}, namesIdentity(dimension, row) ? maskedLabelText(row.label) : row.label || row.key || m("ui.unknown_2")),
         el("b", { class: "mono" }, row.percent.toFixed(2) + "%")
       ),
-      el("div", { class: "usage-distribution-track" }, el("i", { style: "width:" + row.percent + "%" })),
+      el("div", { class: "bar" }, el("i", { class: "bar-fill", style: "width:" + row.percent + "%" })),
       el(
         "div",
         { class: "usage-distribution-metrics" },

@@ -5,7 +5,10 @@
 .choice-menu.choice-columns:popover-open { flex-direction: row; align-items: stretch; }
 .choice-columns > .choice-pane { flex: 1; padding: 6px; }
 .choice-categories {
+  display: grid;
   flex: none;
+  align-content: start;
+  gap: 2px;
   min-width: 128px;
   max-width: 176px;
   padding: 6px;
@@ -13,7 +16,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-:root .choice-menu button.choice-category {
+:root .choice-menu :is(button.choice-category, button.choice-option) {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -26,56 +29,28 @@
   color: var(--text-secondary);
   text-align: left;
 }
-:root .choice-menu button.choice-category:is(:hover, :focus-visible) {
-  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+/* Keyboard focus highlights the row; the scrolling list would clip a ring. */
+:root .choice-menu :is(button.choice-category, button.choice-option):not(:disabled):where(:hover, :focus-visible) {
+  outline: none;
+  box-shadow: none;
+  background: var(--hover-fill);
   color: var(--text-primary);
 }
-:root .choice-menu button.choice-category[aria-current="true"] {
-  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+:root .choice-menu :is(button.choice-category[aria-current="true"], button.choice-option[aria-selected="true"]) {
+  background: var(--selected-fill);
   color: var(--primary-active);
   font-weight: 600;
 }
-:root .choice-menu button.choice-category:focus-visible, :root .choice-menu .tabs > button:focus-visible {
-  outline: 2px solid var(--primary-color);
-  outline-offset: -2px;
-}
+:root .choice-menu .tabs > button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
 .choice-columns:has(> .choice-pane.hidden) { min-width: 112px; }
 .choice-columns:has(> .choice-pane.hidden) > .choice-categories { border-right: 0; }
 :root .choice-menu button.choice-back { display: none; }
 .choice-back-icon { width: 15px; height: 15px; transform: rotate(180deg); }
 .choice-control { display: flex; flex-direction: column; gap: 8px; padding: 6px 8px; }
 .choice-control-label { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
-.choice-control > .tabs { width: 100%; }
-.choice-control > .tabs > button { flex: 1; justify-content: center; min-width: 52px; }
 .choice-note { color: var(--text-tertiary); font-size: 12px; overflow-wrap: anywhere; }
 .choice-search { flex: none; width: 100%; min-width: 0; }
 .choice-options { display: grid; gap: 2px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-:root .choice-menu button.choice-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 12px;
-  border-color: transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary);
-  text-align: left;
-}
-/* Like a native menu, the keyboard's current option is highlighted rather than ringed, which the list would clip. */
-:root .choice-menu button.choice-option:is(:hover:not(:disabled), :focus-visible) {
-  border-color: transparent;
-  outline: none;
-  box-shadow: none;
-  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
-  color: var(--text-primary);
-}
-:root .choice-menu button.choice-option[aria-selected="true"] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
-  color: var(--primary-active);
-  font-weight: 600;
-}
 :root .choice-menu button.choice-danger { color: var(--failure-badge-text); }
 :root .choice-menu button.choice-danger:is(:hover:not(:disabled), :focus-visible) {
   background: var(--failure-badge-bg);

@@ -26,9 +26,7 @@ function renderPlans() {
             );
             if (window.cycle_anchor_at)
               quotas.append(el("span", { class: "small muted", text: m("ui.next_reset_value", { v0: when(nextCycleStart(window)) }) }));
-            const field = settingsEntryField(window.name + DISPLAY_SEPARATOR + periodLabel(window.period_seconds), quotas);
-            field.classList.add("plan-window-summary");
-            return field;
+            return settingsEntryField(window.name + DISPLAY_SEPARATOR + periodLabel(window.period_seconds), quotas);
           });
       return settingsCard(
         name,

@@ -184,7 +184,7 @@ function openFilterMenu(bar, anchor, category) {
 function addFilterButton(bar) {
   const button = el(
     "button",
-    { type: "button", class: "filter-add", "aria-haspopup": "menu", "aria-expanded": "false" },
+    { type: "button", class: "labeled-icon-button filter-add", "aria-haspopup": "menu", "aria-expanded": "false" },
     actionIcon("plus"),
     el("span", { text: m("ui.filter") })
   );

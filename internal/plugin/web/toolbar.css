@@ -4,43 +4,6 @@
 .toolbar-actions { display: flex; align-items: center; gap: 8px; }
 /* The switcher clips its tab bar while the bar is too wide, so its controls show focus inside their own box. */
 .page-tab-switcher { position: relative; flex: 0 1 auto; min-width: 0; overflow: hidden; }
-.tabs {
-  --tab-hover-bg: var(--bg-hover);
-  --tab-selected-bg: var(--floating-surface);
-  --tab-selected-text: var(--text-primary);
-  --tab-selected-shadow: 0 1px 3px rgb(0 0 0 / 0.12), inset 0 0 0 1px var(--border-primary);
-  display: flex;
-  gap: 2px;
-  width: max-content;
-  padding: 2px;
-  border: 1px solid var(--border-color);
-  border-radius: calc(var(--radius-md) + 2px);
-  background: var(--bg-tertiary);
-}
-.tabs > button {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  min-height: 29px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-.tabs > button:hover:not(:disabled) { background: var(--tab-hover-bg); color: var(--text-primary); }
-.tabs > button.active, .tabs > button.active:hover:not(:disabled) {
-  background: var(--tab-selected-bg);
-  color: var(--tab-selected-text);
-  box-shadow: var(--tab-selected-shadow);
-}
-/* Outside CPAMP, which gives the tab bar its glass surface, the page tabs are an underlined row. */
 :root:not([data-cpamp-plugin-host="true"]) .page-tab-switcher > .tabs {
   --tab-selected-bg: transparent;
   --tab-selected-shadow: none;
@@ -72,32 +35,10 @@
   font-weight: 600;
 }
 .page-tab-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.page-tab-menu-chevron { width: 18px; height: 18px; margin-left: auto; color: var(--text-secondary); transition: transform 0.15s; }
-.page-tab-menu[aria-expanded="true"] .page-tab-menu-chevron { transform: rotate(180deg); }
+.page-tab-menu > .menu-chevron { margin-left: auto; }
 /* Hidden tabs stay measurable, so the menu button gives way to them once they fit again. */
 .toolbar.compact .tabs { position: absolute; visibility: hidden; pointer-events: none; }
 .toolbar.compact .page-tab-menu { display: inline-flex; }
-@media (prefers-reduced-motion: no-preference) {
-  .tabs > button { transition: background-color 0.15s, color 0.15s, box-shadow 0.2s, scale 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
-  .tabs > button:active { scale: 0.96; transition-duration: 0.08s; }
-}
-.count-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 5px;
-  border: 1px solid var(--count-badge-border);
-  border-radius: 6px;
-  background: var(--count-badge-bg);
-  color: var(--count-badge-text);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-.count-badge:empty { display: none; }
 
 .toolbar-button {
   --button-padding-inline: 8px;
@@ -107,8 +48,7 @@
   gap: 6px;
   min-width: 35px;
 }
-.toolbar-button .lucide-icon { width: 16px; height: 16px; color: var(--text-secondary); }
-.toolbar-button[aria-expanded="true"] { border-color: var(--border-hover); background: var(--bg-hover); }
+.toolbar-button .lucide-icon:not(.menu-chevron) { width: 16px; height: 16px; color: var(--text-secondary); }
 .toolbar-button[aria-pressed="true"] .lucide-icon { color: var(--primary-active); }
 .refresh-control { display: inline-flex; }
 .refresh-control:has(> #auto-refresh:not(.hidden)) > #page-refresh { border-start-end-radius: 0; border-end-end-radius: 0; }
@@ -117,23 +57,10 @@
   position: relative;
   z-index: 1;
 }
-#auto-refresh .lucide-chevron-down { width: 14px; height: 14px; transition: transform 0.15s; }
-#auto-refresh[aria-expanded="true"] .lucide-chevron-down { transform: rotate(180deg); }
 .refresh-interval:empty { display: none; }
 
 .filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-:root button.filter-add {
-  --button-padding-inline: 11px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-style: dashed;
-  background: transparent;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-.filter-add .lucide-icon { width: 14px; height: 14px; }
-/* A chip is one control: its parts stay transparent, and it shows hover and focus as a whole. */
+:root button.filter-add { --button-padding-inline: 11px; border-style: dashed; background: transparent; color: var(--text-secondary); }
 .filter-chip {
   display: inline-flex;
   align-items: center;
@@ -146,7 +73,7 @@
   font-size: 13px;
   transition: background-color 0.15s, border-color 0.15s;
 }
-.filter-chip:hover { border-color: var(--border-hover); background: var(--bg-hover); }
+.filter-chip:is(:hover, :has(> [aria-expanded="true"])) { border-color: var(--border-hover); background: var(--bg-hover); }
 .filter-chip:focus-within { border-color: var(--primary-color); }
 .filter-chip-body {
   display: inline-flex;
@@ -183,24 +110,12 @@
 .section-note { color: var(--text-tertiary); font-size: 12px; font-weight: 400; }
 #app.untracked :is(.toolbar-main, .time-range-control, .page-view) { display: none; }
 
-:root[data-cpamp-plugin-host="true"] .tabs {
-  --tab-hover-bg: color-mix(in srgb, var(--primary-color) 6%, var(--app-surface-strong, var(--bg-primary)));
-  --tab-selected-bg: color-mix(in srgb, var(--primary-color) 12%, var(--app-surface-strong, var(--bg-primary)));
-  --tab-selected-text: var(--primary-active);
-  --tab-selected-shadow: 0 1px 3px rgb(15 23 42 / 0.1), inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 16%, transparent);
-  border-color: var(--border-subtle, var(--border-color));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-subtle, var(--bg-tertiary)) 78%, var(--bg-primary));
-  box-shadow: inset 0 1px 2px rgb(15 23 42 / 0.04);
-}
 :root[data-cpamp-plugin-host="true"] .page-tab-switcher > .tabs {
   border-color: var(--glass-border, var(--border-color));
   background: var(--glass-bg, var(--bg-primary));
   box-shadow: var(--glass-shadow, none);
   backdrop-filter: var(--glass-backdrop-filter, none);
 }
-:root[data-cpamp-plugin-host="true"] .tabs > button { border-radius: calc(var(--radius-md) - 3px); }
-:root[data-cpamp-plugin-host="true"][data-theme="dark"] .tabs { --tab-selected-text: var(--primary-color); }
 :root[data-cpamp-plugin-host="true"] .toolbar-button { min-width: 34px; }
 :root[data-cpamp-plugin-host="true"] .filter-chip { min-height: 34px; }
 

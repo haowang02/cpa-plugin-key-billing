@@ -34,7 +34,7 @@
             <button type="button" class="icon-action" data-page-action="theme" aria-label="Switch theme" data-i18n-aria-label="ui.switch_theme"></button>
           </div>
         </div>
-        <div class="segmented-control" role="tablist" aria-label="Access method" data-i18n-aria-label="ui.access_method">
+        <div class="tabs fill" role="tablist" aria-label="Access method" data-i18n-aria-label="ui.access_method">
           <button id="gate-mode-admin" type="button" role="tab" aria-selected="true" class="active" data-i18n="ui.management_key">Management key</button>
           <button id="gate-mode-account" type="button" role="tab" aria-selected="false" data-i18n="ui.api_key_access">API key</button>
         </div>
@@ -79,7 +79,7 @@
               <button id="time-range-trigger" class="time-range-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
                 <span class="time-range-icon" data-lucide-icon="clock" aria-hidden="true"></span>
                 <span id="time-range-label" data-i18n="ui.last_30_days">Last 30 days</span>
-                <span class="time-range-chevron" data-lucide-icon="chevron-down" aria-hidden="true"></span>
+                <span class="menu-chevron" data-lucide-icon="chevron-down" aria-hidden="true"></span>
               </button>
               <div id="time-range-popover" class="time-range-popover hidden" role="dialog" aria-label="Select time range" data-i18n-aria-label="ui.select_time_range"></div>
             </div>
@@ -293,12 +293,12 @@
     <dialog id="action-dialog">
       <h2 id="action-dialog-title"></h2>
       <div class="editor-state" role="alert"></div>
-      <div id="action-content" class="muted small" style="white-space: pre-line"></div>
+      <div id="action-content" class="muted small"></div>
       <input id="action-input" class="dialog-input" />
       <div class="row dialog-actions"> <button id="action-cancel" data-i18n="ui.cancel">Cancel</button> <button id="action-confirm" class="primary" data-i18n="ui.confirm">Confirm</button> </div>
     </dialog>
 
-    <dialog id="events-clear-dialog" class="event-cleanup-dialog" aria-labelledby="events-clear-title" aria-describedby="events-clear-hint">
+    <dialog id="events-clear-dialog" aria-labelledby="events-clear-title" aria-describedby="events-clear-hint">
       <h2 id="events-clear-title" data-i18n="ui.clear_request_events">Clear request events</h2>
       <div class="editor-state" role="alert"></div>
       <div class="event-cleanup-fields">
@@ -375,15 +375,15 @@
         </section>
         <section id="auth-drawer-reset-section" class="drawer-section" aria-labelledby="auth-drawer-reset-title">
           <div class="drawer-section-head">
-            <h3 id="auth-drawer-reset-title"><span data-i18n="ui.manual_resets">Manual resets</span><span id="auth-drawer-reset-count" class="auth-reset-count-badge"></span></h3>
+            <h3 id="auth-drawer-reset-title"><span data-i18n="ui.manual_resets">Manual resets</span><span id="auth-drawer-reset-count" class="count-badge"></span></h3>
             <button id="auth-drawer-reset" type="button" class="labeled-icon-button"></button>
           </div>
           <div id="auth-drawer-resets"></div>
         </section>
         <section class="drawer-section" aria-labelledby="auth-drawer-windows-title">
           <h3 id="auth-drawer-windows-title" data-i18n="ui.quota_windows">Quota windows</h3>
-          <div id="auth-drawer-window-switch" class="segmented-control" role="tablist" aria-labelledby="auth-drawer-windows-title"></div>
-          <div id="auth-drawer-periods" role="tabpanel" aria-labelledby="auth-drawer-windows-title"></div>
+          <div id="auth-drawer-window-switch"></div>
+          <div id="auth-drawer-periods"></div>
         </section>
       </div>
     </dialog>
