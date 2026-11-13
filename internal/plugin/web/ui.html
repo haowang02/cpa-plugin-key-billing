@@ -170,19 +170,21 @@
 
         <section id="tab-settings" class="page-view hidden">
           <div class="card">
-            <div class="section-header"> <h2 data-i18n="ui.subscription_plans">Subscription plans</h2> <button id="plan-new" type="button" data-i18n="ui.create_plan">Create plan</button> </div>
+            <div class="section-header"> <h2 data-i18n="ui.subscription_plans">Subscription plans</h2> <div class="section-actions"><button id="plan-new" type="button" class="labeled-icon-button"><span data-lucide-icon="plus" aria-hidden="true"></span><span data-i18n="ui.create_plan">Create plan</span></button></div> </div>
             <div id="plans-body"></div>
           </div>
           <div class="card">
-            <div class="section-header"> <h2 data-i18n="ui.routing_rules">Routing rules</h2> <button id="route-new" type="button" data-i18n="ui.create_rule">Create rule</button> </div>
+            <div class="section-header"> <h2 data-i18n="ui.routing_rules">Routing rules</h2> <div class="section-actions"><button id="route-new" type="button" class="labeled-icon-button"><span data-lucide-icon="plus" aria-hidden="true"></span><span data-i18n="ui.create_rule">Create rule</span></button></div> </div>
             <div id="routes-body"></div>
           </div>
           <div class="card">
             <div class="section-header">
               <h2><span data-i18n="ui.model_pricing">Model pricing</span><span class="section-note" data-i18n="ui.per_1m_tokens">per 1M tokens</span></h2>
               <div id="price-filters" class="filter-bar"></div>
-              <button id="price-reference-refresh" type="button" data-i18n="ui.update_references">Update references</button>
-              <button id="price-new" type="button" data-i18n="ui.add_pricing">Add pricing</button>
+              <div class="section-actions">
+                <button id="price-reference-refresh" type="button" class="labeled-icon-button"><span data-lucide-icon="refresh" aria-hidden="true"></span><span data-i18n="ui.update_references">Update references</span></button>
+                <button id="price-new" type="button" class="labeled-icon-button"><span data-lucide-icon="plus" aria-hidden="true"></span><span data-i18n="ui.add_pricing">Add pricing</span></button>
+              </div>
             </div>
             <div id="prices-body"></div>
             <p id="price-status" class="muted small table-footnote"></p>
@@ -191,7 +193,7 @@
             <div class="section-header">
               <h2><span data-i18n="ui.plugin_logs">Plugin logs</span><span id="plugin-log-count" class="count-badge"></span></h2>
               <div id="plugin-log-filters" class="filter-bar"></div>
-              <button id="plugin-logs-clear" type="button" class="danger" data-i18n="ui.clear_logs">Clear logs</button>
+              <div class="section-actions"><button id="plugin-logs-clear" type="button" class="labeled-icon-button danger"><span data-lucide-icon="trash-2" aria-hidden="true"></span><span data-i18n="ui.clear_logs">Clear logs</span></button></div>
             </div>
             <div id="plugin-logs-body" class="event-list-region"></div>
           </div>

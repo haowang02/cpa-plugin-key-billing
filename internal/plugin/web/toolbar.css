@@ -104,9 +104,10 @@
 :root .filter-chip > .filter-chip-remove { --icon-action-size: 24px; border-radius: 50%; color: var(--text-tertiary); }
 .filter-chip-remove .lucide-icon { width: 13px; height: 13px; }
 
-.section-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
-.section-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
-.section-header > button:first-of-type { margin-left: auto; }
+.section-header { display: flex; align-items: flex-start; gap: 8px 12px; margin-bottom: 12px; }
+.section-header h2 { display: flex; align-items: center; gap: 8px; min-height: 35px; margin: 0; }
+.section-header > .filter-bar { flex: 1 1 0; }
+.section-actions { display: flex; flex: none; gap: 8px; margin-left: auto; }
 .section-note { color: var(--text-tertiary); font-size: 12px; font-weight: 400; }
 #app.untracked :is(.toolbar-main, .time-range-control, .page-view) { display: none; }
 
@@ -119,6 +120,11 @@
 :root[data-cpamp-plugin-host="true"] .toolbar-button { min-width: 34px; }
 :root[data-cpamp-plugin-host="true"] .filter-chip { min-height: 34px; }
 
+@media (max-width: 768px) {
+  .section-header { flex-wrap: wrap; }
+  .section-header > .filter-bar { order: 1; flex-basis: 100%; }
+}
+
 /* Phones keep the view and actions on the first line; the empty full-width item pushes the rest below. */
 @media (max-width: 640px) {
   .toolbar { flex-wrap: wrap; align-items: center; gap: 0 8px; }
@@ -129,4 +135,6 @@
   .time-range-control { order: 2; margin-top: 8px; }
   #page-filters > * { order: 3; margin-top: 8px; }
   .filter-chip-value { max-width: 140px; }
+  .section-actions > button { --button-padding-inline: 9px; }
+  .section-actions span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }

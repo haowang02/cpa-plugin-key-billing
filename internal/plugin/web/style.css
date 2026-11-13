@@ -809,6 +809,7 @@ button.icon-action:hover:not(:disabled) { background: var(--hover-fill); color: 
 .icon-action .lucide-icon { width: 16px; height: 16px; }
 .labeled-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
 .labeled-icon-button .lucide-icon { width: 15px; height: 15px; color: var(--text-tertiary); }
+.labeled-icon-button.danger .lucide-icon { color: inherit; }
 .account-subscription-stats { margin-bottom: 16px; }
 .account-plan { display: grid; align-content: start; gap: 10px; margin: 0; }
 .account-plan-value { font-size: 24px; }
