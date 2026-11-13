@@ -6,7 +6,6 @@ const pluginLogLevels = {
   error: { label: m("ui.error"), class: "tag bad" }
 };
 
-// The server selects a level; the keyword searches the logs already loaded.
 const PLUGIN_LOG_FILTERS = {
   level: {
     id: "log-level",
@@ -76,7 +75,7 @@ function routeLogDetails(row) {
     const separator = field[1] === "selected_credential" ? line.indexOf("·", field[0].length) : -1;
     const start = separator < 0 ? field[0].length : separator + 1;
     const end = line.lastIndexOf('"');
-    // Preserve JSON whitespace and escapes; displayText would normalize middle-dot separators.
+    // displayText would normalize the middle dots inside JSON.
     details.append(line.slice(0, start), el("span", { class: "mask-blur", text: line.slice(start, end) }), line.slice(end));
   });
   return details;

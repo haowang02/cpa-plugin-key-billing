@@ -121,8 +121,6 @@ func TestQuotaPreservesOverageAndRetriesWrites(t *testing.T) {
 	}
 }
 
-// Spending keeps each request's currency; the plan's currency and the rate
-// apply when it is read, so changing either rewrites nothing.
 func TestQuotaConvertsSpendingIntoPlanCurrency(t *testing.T) {
 	store, _, now := quotaStore(t, QuotaWindow{Amount: 1})
 	store.ReplaceAll(func(state *State) {

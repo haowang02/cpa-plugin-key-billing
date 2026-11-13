@@ -21,14 +21,12 @@ function moneyChoice() {
   return { selected: displaySettings[role].currency, rate: resources[role].currency.value?.cny_per_usd };
 }
 
-// Renders compare this key to know when displayed amounts change.
 function moneyDisplayKey() {
   const { selected, rate } = moneyChoice();
   return selected + ":" + (rate || "");
 }
 
-// Amounts show in the selected currency, or under Auto in the one they were
-// charged in, and in USD for a mix. Converting waits for the rate.
+// Auto shows the charged currency, or USD for a mix; conversion waits for the rate.
 function displayMoney(amount, from, chargedIn, fixedDigits) {
   const { selected, rate } = moneyChoice();
   const target = selected === "auto" ? (chargedIn === "CNY" ? "CNY" : "USD") : selected;
@@ -37,10 +35,8 @@ function displayMoney(amount, from, chargedIn, fixedDigits) {
   return money(target === "CNY" ? value * rate : value / rate, target, fixedDigits);
 }
 
-// Usage totals arrive in USD with the one currency they were charged in, if any.
 function usageMoney(valueUSD, chargedIn, fixedDigits) { return displayMoney(valueUSD, "USD", chargedIn, fixedDigits); }
 
-// A request's cost and rates are in the currency of its price.
 function costMoney(amount, currency, fixedDigits) { return displayMoney(amount, currency, currency, fixedDigits); }
 
 function commonChargedIn(totals) {
@@ -106,7 +102,6 @@ function compactResetDate(date) {
   return pad(date.getMonth() + 1) + "/" + pad(date.getDate()) + " " + pad(date.getHours()) + ":" + pad(date.getMinutes());
 }
 
-// Time until a moment in its largest whole unit, as "in 3 hours" or, with the left form, "3 hours left".
 function compactTimeUntil(seconds, form = "in") {
   if (seconds < 60) return m(form === "left" ? "ui.less_than_a_minute_left" : "ui.in_less_than_a_minute");
   const [unit, size] = seconds >= 86400 ? ["day", 86400] : seconds >= 3600 ? ["hour", 3600] : ["minute", 60];
@@ -119,7 +114,6 @@ function previewCredential(value) {
   return value.slice(0, 6) + "…" + value.slice(-4);
 }
 
-// Format display labels without changing API values or editable text.
 function displayLabel(value) {
   return window.billingI18n.isMessage(value) ? value : String(value ?? "").replace(/\s*·\s*/g, DISPLAY_SEPARATOR);
 }
@@ -160,7 +154,6 @@ function apiKeyIdentity(view) {
   const preview = String(view.preview || "");
   const candidate = view.label || "";
   const name = String(candidate);
-  // Account views identify the caller by label and preview alone, without a scope.
   const label = name && name !== preview && name !== scope ? candidate : "";
   const primary = label || preview || (scope ? "unknown" : m("ui.unassigned"));
   const secondary = label ? preview : "";
@@ -183,7 +176,6 @@ function matchesTerm(text, term) {
   return (!term || String(displayLabel(text)).toLowerCase().includes(String(displayLabel(term)).toLowerCase()));
 }
 
-// Group prefixed and unprefixed variants by base model name.
 function modelIdParts(modelID) {
   const slash = modelID.indexOf("/");
   if (slash < 0) return { name: modelID, prefix: "" };

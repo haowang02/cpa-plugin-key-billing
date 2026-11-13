@@ -75,8 +75,6 @@ function speedModelRows(analysis) {
   return analysis.usage_distribution.models.filter((row) => row.key).sort((a, b) => b.requests - a.requests || a.key.localeCompare(b.key));
 }
 
-// An explicit choice applies while the model has requests in the selected
-// range; otherwise the most requested model is shown.
 function selectedSpeedModel(account) {
   const role = account ? "account" : "admin";
   const analysis = analysisQueries[role].value;
@@ -84,7 +82,6 @@ function selectedSpeedModel(account) {
   return (rows.find((row) => row.key === speedModels[role]) || rows[0])?.key || "";
 }
 
-// Speed belongs to the loaded analysis and the model selected from it.
 function speedKey(role, model) { return JSON.stringify([analysisQueries[role].key, model]); }
 
 function readSpeed(account, reload) {
@@ -143,8 +140,7 @@ function analysisChartPanel(className, id, label) {
   return el("div", { class: className }, el("canvas", { id, role: "img", "aria-label": label }), el("div", { class: "empty hidden" }));
 }
 
-// The canvas and Chart instance belong to the page, not to a response.
-// Replacing options also replaces tooltip callbacks with the current data.
+// Replacing options also refreshes the data the tooltip callbacks read.
 function updateAnalysisChart(account, kind, canvas, config, { empty = "", animate = false } = {}) {
   config = window.billingI18n.chartValue(config);
   const charts = analysisCharts[account ? "account" : "admin"];
@@ -205,7 +201,6 @@ function timeAxis(axis, width) {
 
 function isDailyTrend(points) { return points.length > 1 && new Date(points[1].time) - new Date(points[0].time) > 12 * 3600000; }
 
-// Hours spanning more than a day also name their date.
 function trendLabels(times, daily) {
   const date = { month: "numeric", day: "numeric" };
   const format = new Intl.DateTimeFormat(
@@ -422,7 +417,6 @@ function renderAnalysisSummary(summary, trends, daily) {
   );
 }
 
-// A row's breakdown selects the requests of the analysis that the row, or each row it groups, covers.
 function distributionUsageQuery(analysis, dimension, row) {
   if (!(row.requests > 0)) return null;
   const rows = row.grouped ? row.rows : [row];
@@ -564,7 +558,6 @@ function renderSpeedChart(account, canvas, speed, palette, empty) {
   const surface = themeColor("--analysis-segment-border", "#f0eee8");
   const boxFill = "color-mix(in srgb, " + palette.box + " 22%, " + surface + ")";
   const range = (from, to) => points.map((point) => (point.samples ? [point[from], point[to]] : null));
-  // The median line draws over its box (P25–P75) and whiskers (P10–P90).
   const datasets = [
     {
       type: "line",

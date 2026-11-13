@@ -32,7 +32,7 @@
 .notice-text > .notice-icon { width: 16px; height: 16px; margin-block: 3px; }
 .notice > button { margin-left: auto; }
 
-/* Toasts sit under the host's floating header, centred like CPAMC's own. */
+/* Toasts sit under the host's floating header, as CPAMC's do. */
 .toast-region {
   inset: calc(var(--host-header-inset, 0px) + max(12px, env(safe-area-inset-top))) 0 auto;
   width: min(420px, calc(100vw - 24px));

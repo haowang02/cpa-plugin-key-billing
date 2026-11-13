@@ -1,4 +1,3 @@
-// Keyed by query field; each error type shows how many entries it has under the other filters.
 const ERROR_EVENT_FILTERS = {
   model: modelFilter("error-model", "errors"),
   credential: credentialFilter("error-credential", "errors"),

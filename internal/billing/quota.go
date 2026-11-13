@@ -15,9 +15,7 @@ const (
 	QuotaRequests QuotaMetric = "requests"
 )
 
-// Spending keeps money in the currency it was charged in. A plan converts it
-// into its own currency when it compares it with a limit. Sums saturate rather
-// than overflow.
+// Spending keeps money in its charged currency; plans convert it when comparing with a limit. Sums saturate.
 type Spending struct {
 	USD float64 `json:"spent_usd"`
 	CNY float64 `json:"spent_cny"`
@@ -48,8 +46,7 @@ type quotaUsage struct {
 	Requests int64
 }
 
-// JSON numbers retain integer counters without float conversion. An amount
-// balance is in its plan's Currency.
+// JSON numbers keep integer counters exact; an amount balance is in its plan's currency.
 type QuotaBalance struct {
 	Metric      QuotaMetric `json:"metric"`
 	Currency    Currency    `json:"currency,omitempty"`

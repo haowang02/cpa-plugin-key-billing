@@ -11,9 +11,7 @@ import (
 	"cpa-key-billing/internal/messages"
 )
 
-// authFileQuota is an auth file's quota: what its provider answered when it
-// was last queried, at FetchedAt, as the reports of its requests have updated
-// it since.
+// authFileQuota is the last query's answer, updated by the reports of later requests.
 type authFileQuota struct {
 	FetchedAt                           time.Time           `json:"fetched_at,omitzero"`
 	Plan                                string              `json:"plan,omitempty"`
@@ -41,24 +39,18 @@ type quotaRow struct {
 	Limit            *float64         `json:"limit,omitempty"`
 	Currency         string           `json:"currency,omitempty"`
 	ResetAt          string           `json:"reset_at,omitempty"`
-	// WindowSeconds is the window's length; zero when the provider does not say.
-	WindowSeconds int64     `json:"window_seconds,omitempty"`
-	ObservedAt    time.Time `json:"observed_at,omitzero"`
-	// LimitKey names the limit of a window that requests report; with the
-	// window's length it identifies the window from one report to the next.
-	LimitKey string      `json:"limit_key,omitempty"`
-	Meter    *quotaMeter `json:"meter,omitempty"`
-	// Usage is what CLIProxyAPI requests consumed in the window's current
-	// period, which UsageQuery selects.
+	WindowSeconds    int64            `json:"window_seconds,omitempty"`
+	ObservedAt       time.Time        `json:"observed_at,omitzero"`
+	// LimitKey and the window's length identify a window from one report to the next.
+	LimitKey   string              `json:"limit_key,omitempty"`
+	Meter      *quotaMeter         `json:"meter,omitempty"`
 	Usage      *billing.UsageTotal `json:"usage,omitempty"`
 	UsageQuery *billing.UsageQuery `json:"usage_query,omitempty"`
 }
 
-// quotaSince is when the oldest query or report still worth reading was made;
-// an older one describes no window that ran in the history range.
+// Anything older than quotaSince describes no window in the history range.
 func quotaSince(now time.Time) time.Time { return now.Add(-quotaHistoryRange - quotaHistoryLookback) }
 
-// saveQuotaQuery keeps what a query of the auth file's quota answered.
 func (a *App) saveQuotaQuery(file hostAuthFile, quota authFileQuota) error {
 	encoded, err := json.Marshal(quota)
 	if err != nil {
@@ -68,8 +60,6 @@ func (a *App) saveQuotaQuery(file hostAuthFile, quota authFileQuota) error {
 	return a.store.SaveQuotaQuery(file.AuthIndex, query, quotaSince(quota.FetchedAt))
 }
 
-// currentQuotas returns the quota of each credential that has one, with the
-// usage of each window's current period. A scope limits usage to one API key.
 func (a *App) currentQuotas(scope string, credentials []quotaCredential) (map[quotaCredential]*authFileQuota, error) {
 	indexes := make([]string, len(credentials))
 	for i, credential := range credentials {
@@ -100,14 +90,9 @@ func (a *App) currentQuotas(scope string, credentials []quotaCredential) (map[qu
 	return quotas, a.attachQuotaUsage(scope, quotas)
 }
 
-// currentQuota combines a credential's last query with the reports of its
-// requests, oldest first; nil means neither says anything. A query lists
-// every window, so it replaces the windows reported before it, while a
-// response reports only the windows of the limit it used and so updates just
-// those. A window drops out once its limit is reported after the window's
-// reset time without it, as the 5-hour window is after an upgrade to a plan
-// that has none. Plan and credits follow the latest source that reports them;
-// only a query reports manual resets.
+// A query lists every window and replaces earlier reports; a response updates only the windows of its limit.
+// A window drops out once its limit is reported past the window's reset without it, as after a plan upgrade.
+// Plan and credits follow the latest source; only a query reports manual resets.
 func currentQuota(provider string, query *authFileQuota, observations []billing.QuotaObservation) *authFileQuota {
 	var result *authFileQuota
 	pending := query

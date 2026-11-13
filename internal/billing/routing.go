@@ -507,8 +507,7 @@ func (s *Store) ResolveRouting(scope, upstreamModel, routeModel string) RoutingD
 	return decision
 }
 
-// AllowedModels reports whether the key's model rules admit a request for
-// each model, resolving the billing model as admission does.
+// Resolves the billing model as admission does.
 func (s *Store) AllowedModels(scope string, models []string) []bool {
 	allowed := make([]bool, len(models))
 	s.read(func(state *State) {

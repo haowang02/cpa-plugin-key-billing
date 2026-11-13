@@ -10,10 +10,8 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// The write-ahead log holds the most recently committed rows until a checkpoint,
-// and those rows name masked keys, operator labels and upstream credentials. It
-// is created with the mode of the database, so the database has to carry the
-// restricted one before the driver ever opens it.
+// The WAL holds masked keys, labels and credentials and inherits the database's mode, so the database must
+// be restricted before the driver opens it.
 func TestOpenRestrictsTheDatabaseAndItsSidecars(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	database := openDatabase(t, path)
@@ -33,9 +31,6 @@ func TestOpenRestrictsTheDatabaseAndItsSidecars(t *testing.T) {
 	}
 }
 
-// A database left world-readable by an earlier version, and any sidecar a crash
-// left beside it, is narrowed on the way in rather than staying exposed for as
-// long as the file lives.
 func TestOpenNarrowsAnExistingDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	for _, name := range []string{path, path + "-wal"} {

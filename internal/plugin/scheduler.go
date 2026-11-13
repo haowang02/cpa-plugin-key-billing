@@ -313,12 +313,8 @@ func (a *App) pickCredential(raw []byte) ([]byte, error) {
 	return OKEnvelope(SchedulerPickResponse{AuthID: id, Handled: true})
 }
 
-// The host offers only credentials it can use now, so a routed request left
-// without a candidate either has its allowed credentials unavailable or has no
-// allowed credential serving the model. The refusal stays generic when the host
-// cannot report the models its credentials serve. A refusal reaches
-// request.complete only as its message, which the route log maps back to the
-// result.
+// The host offers only usable credentials, so a routed request without a candidate has its allowed credentials
+// unavailable or none serving the model. A refusal reaches request.complete only as its message.
 type routingShortfall struct{ result, message string }
 
 var (

@@ -1,5 +1,3 @@
-// One toolbar serves both roles: the role's views, the current page's filters, its time range, refresh,
-// privacy and a menu holding the less frequent page actions and display settings.
 const TAB_LABELS = {
   keys: "API Key",
   subscription: m("ui.subscription"),
@@ -11,7 +9,7 @@ const TAB_LABELS = {
   settings: m("ui.settings")
 };
 const PAGE_STALE_MS = 5 * 60 * 1000;
-// Each role keeps its own display settings, chosen from the page menu. The first value of each is its default.
+// The first value of each setting is its default.
 const DISPLAY_SETTINGS = {
   currency: ["auto", ...Object.keys(CURRENCY_SYMBOLS)],
   refresh: [0, 5, 10, 30, 60, 300],
@@ -111,8 +109,7 @@ function clearPageRefresh() {
   pageRefreshTarget = null;
 }
 
-// One deadline belongs to the visible page. Loads restart it on completion;
-// hiding the document pauses the timer while retaining an overdue deadline.
+// One deadline for the visible page: loads restart it, and a hidden document pauses it but keeps an overdue deadline.
 function schedulePageRefresh(page, loading) {
   const seconds = autoRefreshSeconds(page);
   if (!seconds || loading) {
@@ -197,7 +194,6 @@ function refreshChoices() {
   }));
 }
 
-// The tab bar gives way to a menu button when the views no longer fit beside the tools.
 function updateToolbarLayout() {
   toolbarLayoutFrame = 0;
   const toolbar = $("toolbar");
@@ -208,7 +204,6 @@ function updateToolbarLayout() {
   const focusedTab = tabs.contains(document.activeElement);
   const focusedMenu = document.activeElement === menu;
   toolbar.classList.toggle("compact", compact);
-  // Keyboard focus moves to whichever control is now shown.
   if (compact && focusedTab) menu.focus({ preventScroll: true });
   if (!compact && focusedMenu) tabs.querySelector(".active").focus({ preventScroll: true });
   const card = Array.from(document.querySelectorAll("#app .event-list-card")).find((card) => card.getClientRects().length);

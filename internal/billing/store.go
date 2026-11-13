@@ -10,11 +10,8 @@ import (
 	"time"
 )
 
-// cfgMu serializes Configure/Close. mu guards state, config and repository
-// access, including mutations and their database writes.
-//
-// Work must finish synchronously within host calls: background activity in this
-// embedded Go runtime can conflict with CLIProxyAPI's runtime.
+// cfgMu serializes Configure and Close; mu guards state, config and repository access.
+// Work finishes within host calls: background goroutines can conflict with CLIProxyAPI's runtime.
 type Store struct {
 	cfgMu           sync.Mutex
 	referencePrices atomic.Pointer[referencePriceManager]
@@ -30,12 +27,10 @@ type Store struct {
 	activeRequests map[string]concurrencySlot
 	activeByScope  map[string]int
 
-	// blocked remembers which keys have already had their exhausted quota
-	// reported, so retries against one do not repeat it.
+	// blocked keeps retries from reporting the same exhausted quota again.
 	blocked blockedKeys
 
-	// configOrder is each key's position in the list CPA last synced. It is not
-	// persisted: the admin UI syncs that list before it reads the keys.
+	// configOrder is not persisted: the admin UI syncs the key list before reading keys.
 	configOrder map[string]int
 
 	errMu     sync.Mutex
@@ -144,7 +139,6 @@ func (s *Store) Configure(cfg Config) error {
 	return nil
 }
 
-// Close releases the database when the host shuts down the plugin.
 func (s *Store) Close() {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
@@ -169,8 +163,7 @@ func (s *Store) closeRepository(repo Repository) {
 	}
 }
 
-// Enabled reports whether the plugin should act on requests. A disabled plugin
-// still answers Management API calls so an operator can inspect it.
+// A disabled plugin still answers Management API calls.
 func (s *Store) Enabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -215,9 +208,7 @@ func updateResult[T any](s *Store, fn func(*State) (T, Changes)) T {
 		defer s.mu.Unlock()
 		var current Changes
 		value, current = fn(s.state)
-		// A store the host has not configured yet keeps its working set in
-		// memory and has nowhere to put it. That window closes at
-		// plugin.register, before any traffic reaches the plugin.
+		// Before plugin.register configures it, a store has nowhere to write; no traffic arrives in that window.
 		changes := s.dirty.merge(current)
 		written = s.repo != nil && !changes.empty()
 		if written {
@@ -317,9 +308,7 @@ func (s *Store) recordWriteError(err error) {
 	first := s.lastError == ""
 	s.lastError = err.Error()
 	s.errMu.Unlock()
-	// A disk that refuses one write refuses the next one too, on every host call
-	// that follows. Report the onset and then stay quiet until a write succeeds,
-	// so the log still shows what happened before the failure.
+	// A failing disk fails every later write: report the onset, then stay quiet until a write succeeds.
 	if first {
 		s.AddPluginLog(PluginLogError, "Failed to save billing data: %v", err)
 	}

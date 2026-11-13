@@ -57,7 +57,6 @@ type viewAccess struct {
 	Key        billing.KeyView
 }
 
-// usageScope limits usage statistics to the presenting API key.
 func (access viewAccess) usageScope() string {
 	if access.APIKey {
 		return access.Scope
@@ -138,10 +137,6 @@ func (a *App) analysisSpeed(req ManagementRequest, access viewAccess) Management
 	return viewJSON(access, http.StatusOK, view)
 }
 
-// usageModels breaks down by model the usage of the requests a query selects:
-// a credential's, in a quota period when the query names one, or those of rows
-// of the usage distribution, which a dimension and its values name. Credential rows
-// are named by their filters.
 func (a *App) usageModels(req ManagementRequest, access viewAccess) ManagementResponse {
 	if access.APIKey && !access.Tracked {
 		return apiKeyUnauthorized()

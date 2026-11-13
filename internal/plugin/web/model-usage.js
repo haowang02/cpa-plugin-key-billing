@@ -1,6 +1,5 @@
 const MODEL_USAGE_SUMS = ["requests", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_usd"];
 
-// More than one model adds a row of their totals.
 function renderModelUsageTable(models) {
   const columns = [
     [m("ui.requests"), (row) => tokens(row.requests, 2)],
@@ -26,8 +25,6 @@ function renderModelUsageTable(models) {
   );
 }
 
-// Breakdowns by model load when first shown, once per role and query. A
-// failed load shows its error once and is tried again the next time.
 const modelUsages = { admin: new Map(), account: new Map() };
 
 function modelUsage(account, query) {
@@ -56,7 +53,6 @@ function modelUsage(account, query) {
   return state;
 }
 
-// The tooltip of a usage total breaks down the requests query selects by model.
 function modelUsageTooltip(account, query) {
   if (!query) return null;
   return () => {

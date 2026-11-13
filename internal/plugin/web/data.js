@@ -1,5 +1,3 @@
-// Data groups publish independently; saves replace their returned entries.
-// Each entry retains its last successful value when a read fails.
 function dataEntries(labels) {
   return Object.fromEntries(Object.entries(labels).map(([name, label]) => [name, { label, value: null, error: "", readAt: 0 }]));
 }
@@ -24,8 +22,6 @@ const resources = {
     currency: m("ui.exchange_rate")
   })
 };
-// Key metadata is shared by configuration, event queries, and analysis.
-// Their cached rows keep scope references; labels and previews live here once.
 const keyDirectory = {
   value: new Map(),
   revisions: new Map(),
@@ -45,7 +41,6 @@ const keyDirectory = {
       const previous = identities.get(scope);
       if (fallback && previous) return reference;
       if (revision >= (keyDirectory.revisions.get(scope) || 0)) {
-        // Analysis provides a display name; exact labels come from Key records.
         const identity = { label: fallback && (label === preview || label === scope) ? "" : label, preview };
         if (!fallback) keyDirectory.revisions.set(scope, revision);
         if (!previous || previous.label !== identity.label || previous.preview !== preview) {
@@ -75,8 +70,7 @@ const resourceGroups = {
 // These are also page dependencies, even when the editor is still closed.
 const EDITOR_RESOURCES = { plan: ["keys", "plans"], route: ["keys", "routes", "credentials", "models"] };
 
-// A query caches one explicit selection. Changing that selection or starting
-// a new session discards the result; elapsed time never invalidates it.
+// A query caches one selection until the selection or session changes; elapsed time never invalidates it.
 function createQuery(label, receive = (value) => value) {
   const query = {
     label,
@@ -107,7 +101,6 @@ function createQuery(label, receive = (value) => value) {
         .catch((error) => {
           if (query.request !== request) throw new StaleRequestError();
           if (error instanceof AuthError || error instanceof StaleRequestError) throw error;
-          // Ordinary read failures belong to the query's inline status.
           query.error = error.message || String(error);
           return query.value;
         })
@@ -175,8 +168,7 @@ const PAGED_LIST_VIEWS = {
   }
 };
 
-// A selection separates its cache identity from the concrete time window.
-// Rolling ranges advance only when starting a fresh traversal.
+// Rolling ranges advance only when a fresh traversal starts.
 function pagedListSelection(kind, account) {
   const view = PAGED_LIST_VIEWS[kind];
   const query = view.query(account);
@@ -204,8 +196,7 @@ async function fetchListPage(kind, account, params, previous = null) {
   return { page, params, cursor, previous, revision };
 }
 
-// createQuery calls this only after accepting the response. Stale reads
-// cannot publish Key metadata or append rows to a newer selection.
+// Called only for accepted responses, so stale reads cannot touch key metadata or a newer selection.
 function mergeListPage(kind, account, { page, params, cursor, previous, revision }) {
   const rows = PAGED_LIST_VIEWS[kind].keyed && !account ? keyDirectory.receive(page.entries, revision) : page.entries;
   return {
@@ -245,8 +236,6 @@ function createPagedList(kind, account) {
       const previous = list.rendered;
       const identities = view.keyed && !account ? keyDirectory.value : null;
       const shape = JSON.stringify([options.headers || null, moneyDisplayKey()]);
-      // Appended pages retain the same entry objects. Rebuild when the identity
-      // metadata, table shape or displayed currency changes, or rows are no longer a prefix.
       const append =
         previous?.rows?.isConnected && previous.shape === shape && previous.identities === identities &&
         previous.items.length <= items.length &&
@@ -381,13 +370,11 @@ function editorData(kind) {
     const resource = resources.admin[name];
     if (resource.value === null) throw new UIError(resource.error || m("ui.value_has_not_loaded_yet", { v0: resource.label }));
   }
-  // Resources are replaced on reads and writes. Holding these values gives
-  // an editor stable options until it closes, including search and toggles.
+  // Editors keep these values until they close, even when resources are replaced.
   return Object.fromEntries(names.map((name) => [name, resources.admin[name].value]));
 }
 
-// Each write family has its own order. Configuration and pricing also
-// serialize their reads; clearing logs never waits for either family.
+// Configuration and pricing serialize their reads and writes; clearing logs waits for neither.
 const adminDataQueues = { configuration: Promise.resolve(), pricing: Promise.resolve(), logs: Promise.resolve() };
 function queueAdminData(group, operation) {
   const generation = sessionGeneration;
@@ -504,15 +491,14 @@ async function fetchConfiguredAPIKeys() {
   return result["api-keys"] || [];
 }
 
-// The plugin filters /v1/models by the key's routing rules; management lists every model.
+// The plugin's /v1/models applies the key's routing rules; management lists every model.
 async function fetchModels(account, key) {
   const headers = account ? {} : { "X-CPA-Key-Billing-Models": "all" };
   const result = await api("GET", "/v1/models", null, { key, headers, auxiliaryCredential: !account });
   const rows = result.data;
   const models = [...new Set(rows.map((row) => row.id))].sort(compareModelId);
   const previous = resources[account ? "account" : "admin"].models.value;
-  // The model list is the catalog's input. Preserve its identity when
-  // discovery returns the same IDs, even if their server order changed.
+  // Keep the previous array when the IDs are unchanged, even if reordered.
   return previous?.length === models.length && previous.every((model, index) => model === models[index]) ? previous : models;
 }
 
@@ -531,9 +517,6 @@ function dataGroupCached(account, group) {
   );
 }
 
-// Groups own complete loading flows, including their upstream inputs.
-// A catalog waits for its model source and records the list it priced;
-// a changed directory does not clear a hidden page's existing prices.
 function loadDataGroup(account, name, reload = false) {
   const role = account ? "account" : "admin";
   const group = resourceGroups[role][name];

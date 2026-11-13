@@ -109,10 +109,8 @@ func (a *App) setAIProviderNote(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, struct{}{})
 }
 
-// syncConfiguredCredentials stores the AI provider entries the UI read from
-// the host configuration. A loaded entry is the host credential behind its auth
-// index, so its ref fingerprints the runtime ID the host assigned; an entry the
-// host has not loaded is known only by its configuration identity.
+// A loaded entry is fingerprinted by the runtime ID the host assigned; an unloaded one only by its
+// configuration identity.
 func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementResponse {
 	var body struct {
 		Credentials []billing.ConfigCredentialDetails `json:"credentials"`

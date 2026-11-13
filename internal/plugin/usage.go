@@ -27,14 +27,8 @@ func usageHasTokens(detail UsageDetail) bool {
 		detail.TotalTokens != 0
 }
 
-// usageBreakdown reconstructs the provider-specific accounting semantics
-// CLIProxyAPI applies before flattening its internal usage.Detail for plugins.
-// A zero detail means the provider reported no usage, not a measured zero, so
-// it deliberately keeps the zero-value quality used by request events.
-//
-// Plugin executors and other unknown executors carry no semantics. Their usage
-// is still classified when every semantics the counts do not contradict yields
-// the same breakdown, because CLIProxyAPI recorded one of them.
+// A zero detail means no reported usage, not a measured zero. Unknown executors carry no semantics, but their
+// usage is classified when every semantics the counts allow yields the same breakdown.
 func usageBreakdown(record UsageRecord) billing.TokenBreakdown {
 	detail := record.Detail
 	if !usageHasTokens(detail) {
@@ -87,11 +81,8 @@ func semanticBreakdown(detail UsageDetail, semantics tokenSemantics) billing.Tok
 	case tokenSemanticsSeparateReasoning:
 		return separateReasoningBreakdown(input, cacheRead, cacheWrite, output, reasoning, total)
 	}
-	// OpenAI-style parsers retain raw child buckets even when their parent total
-	// is absent, but the canonical host breakdown leaves those children in the
-	// unclassified remainder. Presence bits are not exposed through UsageRecord;
-	// under subset semantics, a non-zero child of a zero parent is the equivalent
-	// signal.
+	// Host breakdowns leave the raw child buckets of an absent parent unclassified; without presence bits, a
+	// non-zero child of a zero parent is the equivalent signal.
 	if input == 0 {
 		cacheRead = 0
 		cacheWrite = 0
@@ -102,8 +93,7 @@ func semanticBreakdown(detail UsageDetail, semantics tokenSemantics) billing.Tok
 	return subsetBreakdown(input, cacheRead, cacheWrite, output, reasoning, total)
 }
 
-// unclassifiedUsage keeps the reported total, or the sum of the known parts
-// when the provider reported none.
+// Keeps the reported total, or the sum of the known parts when none was reported.
 func unclassifiedUsage(detail UsageDetail) billing.TokenBreakdown {
 	lowerBound, okLowerBound := unclassifiedLowerBound(detail.InputTokens, detail.OutputTokens, detail.ReasoningTokens,
 		detail.CacheReadTokens, detail.CacheCreationTokens, detail.CachedTokens)
@@ -313,8 +303,7 @@ func (record UsageRecord) executionMetadata() billing.ExecutionMetadata {
 	if id := strings.TrimSpace(record.AuthID); id != "" {
 		metadata.CredentialRef = billing.CredentialFingerprint(id)
 	}
-	// An upstream URL may contain credentials in any URL component. Store only
-	// its HTTP origin, never user info, query parameters, fragments or path tokens.
+	// An upstream URL may hold credentials anywhere; keep only its origin.
 	if parsed, err := url.Parse(strings.TrimSpace(record.BaseURL)); err == nil &&
 		(parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" {
 		metadata.BaseURL = parsed.Scheme + "://" + parsed.Host
@@ -322,9 +311,8 @@ func (record UsageRecord) executionMetadata() billing.ExecutionMetadata {
 	return metadata
 }
 
-// usageAccount names the upstream credential of a usage record. The host
-// reports the caller's own key for a credential without an account; an auth
-// file is then named by its title, and other credentials stay unnamed.
+// The host reports the caller's own key for a credential without an account: an auth file then uses its title,
+// other credentials stay unnamed.
 func (a *App) usageAccount(record UsageRecord) string {
 	if account := strings.TrimSpace(record.Source); account != "" && account != strings.TrimSpace(record.APIKey) {
 		switch strings.ToLower(strings.TrimSpace(record.AuthType)) {

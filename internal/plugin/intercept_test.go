@@ -59,10 +59,6 @@ func TestInterceptTerminatesAnExhaustedKey(t *testing.T) {
 	}
 }
 
-// The type and code are the ones CLIProxyAPI derives from the status, so a
-// client branching on them cannot tell whether the proxy or the plugin refused.
-// Anthropic routes get the proxy's own envelope; every other format, Gemini
-// included, gets its OpenAI-shaped one.
 func TestInterceptUsesTheClientErrorShape(t *testing.T) {
 	app := exhaustedApp(t, 12*time.Hour)
 	for _, test := range []struct {

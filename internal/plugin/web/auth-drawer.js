@@ -9,7 +9,7 @@ function openAuthDrawer(file, account) {
   renderAuthDrawerHistory();
   $("auth-drawer").showModal();
   guard(loadAuthDrawerHistory);
-  // Manual resets come only from a quota query.
+  // Manual resets are only known after a quota query.
   if (
     AUTH_RESET_PROVIDERS.includes(file.category) && canRefreshAuthQuota(file) && !file.quota?.fetched_at &&
     !authUI(account).owner.authQuotaBatch
@@ -165,8 +165,7 @@ function renderAuthDrawerPeriods() {
   );
 }
 
-// Tag tones for the plan labels the backend reports, per provider: a Claude Pro is not a Codex Pro 200.
-// Antigravity reports its upstream tier name as is.
+// Plan tones are per provider: a Claude Pro is not a Codex Pro 200.
 const AUTH_PLAN_TONES = {
   codex: {
     elite: ["pro500", "pro200"],

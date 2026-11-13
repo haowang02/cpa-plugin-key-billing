@@ -7,10 +7,7 @@ import (
 	"time"
 )
 
-// ReportQuotaBlock records that a key was turned away for an exhausted
-// subscription. It is the only trace such a request leaves: enforcement runs
-// before the request reaches an upstream, so nothing is billed and nothing is
-// logged for it otherwise.
+// ReportQuotaBlock is the only record of a refused request: it never reaches an upstream, so nothing is billed.
 func (s *Store) ReportQuotaBlock(scope, endpoint string, decision Decision) {
 	if decision.Allowed {
 		return
@@ -45,8 +42,7 @@ func (s *Store) ReportQuotaBlock(scope, endpoint string, decision Decision) {
 		message.WriteString(", expected recovery ")
 		message.WriteString(decision.RetryAt.UTC().Format(time.RFC3339))
 	}
-	// Enforcement working as configured is not a fault of the plugin's, so this
-	// stays out of the level an operator reads to find one.
+	// Working enforcement is not a plugin fault, so it stays at info level.
 	s.AddPluginLog(PluginLogInfo, "%s", message.String())
 }
 
@@ -96,9 +92,6 @@ func (b *blockedKeys) reset() {
 	b.states = nil
 }
 
-// describeKey names a key the way the panel does: the operator's remark beside
-// the masked preview, either one alone when that is all there is, and the head
-// of the scope for a key no synchronization has ever named.
 func (s *State) describeKey(scope string) string {
 	if description := keyDescription(s.Keys[scope]); description != "" {
 		return description

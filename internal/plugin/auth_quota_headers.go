@@ -14,7 +14,6 @@ import (
 
 var codexQuotaGroup = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,120}$`)
 
-// usageQuotaReport is what an OAuth credential's response reported about its quota.
 func usageQuotaReport(record UsageRecord, fallback time.Time) *billing.QuotaReport {
 	if !strings.EqualFold(strings.TrimSpace(record.AuthType), "oauth") || strings.TrimSpace(record.AuthIndex) == "" {
 		return nil
@@ -26,9 +25,7 @@ func usageQuotaReport(record UsageRecord, fallback time.Time) *billing.QuotaRepo
 	return quotaHeaderReport(record.Provider, record.ResponseHeaders, at)
 }
 
-// quotaHeaderReport reads what response headers received at at say about a
-// credential's quota; nil means they say nothing. A window reported twice
-// keeps its later value.
+// A window reported twice keeps its later value.
 func quotaHeaderReport(provider string, input http.Header, at time.Time) *billing.QuotaReport {
 	headers := make(http.Header)
 	for key, values := range input {
@@ -49,11 +46,8 @@ func quotaHeaderReport(provider string, input http.Header, at time.Time) *billin
 			}
 		}
 		sort.Strings(groups)
-		// The ungrouped windows belong to the limit the response names: the main
-		// limit ("premium", or no name on older responses), a listed additional
-		// limit they copy, or another pool. Image requests report their pool's
-		// 24-hour window there, so the main limit keeps only its 5-hour and
-		// weekly windows.
+		// Ungrouped windows belong to the named limit. Image requests report their pool's 24-hour window there, so the
+		// main limit ("premium", or unnamed on older responses) keeps only its 5-hour and weekly windows.
 		if active := headers.Get("X-Codex-Active-Limit"); active == "" || quotaLimitAlias(active) == "premium" {
 			appendCodexWindows(&report, headers, "X-Codex-", codexMainLimit, at)
 		}
@@ -114,7 +108,6 @@ func addQuotaWindow(report *billing.QuotaReport, window billing.QuotaReportWindo
 	report.Windows = append(report.Windows, window)
 }
 
-// reportedRow presents a window that a response reported at at.
 func reportedRow(provider string, window billing.QuotaReportWindow, at time.Time) quotaRow {
 	labelPrefix, meter := reportedLimit(provider, window.LimitKey)
 	value := quotaWindow{Seconds: window.Seconds, RemainingPercent: remainingPercent(100 - window.UsedPercent), Meter: meter}

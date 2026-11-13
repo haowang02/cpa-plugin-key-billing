@@ -49,8 +49,6 @@ func (s *Store) ConfigCredentials() map[string]ConfigCredential {
 	return credentials
 }
 
-// SyncConfigCredentials replaces the configured entries. A note belongs to its
-// entry, and a balance to the upstream account behind the host credential.
 func (s *Store) SyncConfigCredentials(details map[string]ConfigCredentialDetails) error {
 	_, err := editConfiguration(s, func(state *State) (struct{}, Changes, error) {
 		notes := make(map[string]string)

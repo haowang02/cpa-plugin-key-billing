@@ -68,8 +68,6 @@ func TestRecordUsageSeparatesNormalAndErrorEvents(t *testing.T) {
 	}
 }
 
-// Payload rules decide whether a Codex request runs in fast mode, so the
-// outbound tier sets the multiplier rather than the tier the client asked for.
 func TestCodexFastModeFollowsOutboundTier(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, now)

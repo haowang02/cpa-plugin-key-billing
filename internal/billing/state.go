@@ -2,9 +2,7 @@ package billing
 
 import "time"
 
-// State is the working set the store keeps in memory. It holds everything the
-// request path has to consult without touching disk. Request and error events
-// grow with traffic and are queried directly from the repository.
+// State holds everything the request path consults without disk; events are queried from the repository.
 type State struct {
 	// Prices is keyed by NormalizeModelID; each value retains its stored spelling.
 	Prices            map[string]CustomPrice
@@ -22,9 +20,8 @@ func NewState() *State {
 	}
 }
 
-// LongContextPrice replaces the whole request's rates when total normalized
-// input exceeds ThresholdInputTokens. Cache prices use the tier's input price
-// when omitted, exactly like the standard price.
+// LongContextPrice replaces the whole request's rates above ThresholdInputTokens; omitted cache prices use
+// the tier's input price.
 type LongContextPrice struct {
 	ThresholdInputTokens int64    `json:"threshold_input_tokens"`
 	InputPer1M           float64  `json:"input_per_1m"`
@@ -37,16 +34,8 @@ type LongContextPrice struct {
 type KeyState struct {
 	Preview string `json:"preview,omitempty"`
 	Label   string `json:"label,omitempty"`
-	// These two tell the three kinds of record apart:
-	//
-	//	InConfig set     a key CPA currently holds
-	//	DeletedAt set    a key CPA held and no longer does
-	//	neither set      a principal only ever seen in traffic, which may belong
-	//	                 to another access provider and must therefore never be
-	//	                 marked deleted by a CPA Key-list sync
-	//
-	// Key records are permanent: historical events resolve their scope to the
-	// preview and label here, even after the key leaves CPA's configuration.
+	// InConfig: CPA holds the key. DeletedAt: CPA held it and no longer does. Neither: a principal seen only in
+	// traffic, possibly another access provider's, which a key-list sync must never delete. Records are permanent.
 	InConfig         bool          `json:"in_config,omitempty"`
 	DeletedAt        time.Time     `json:"deleted_at,omitzero"`
 	PlanID           string        `json:"plan_id,omitempty"`

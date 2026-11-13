@@ -57,7 +57,6 @@ func (b TokenBreakdown) Billable() bool {
 	return b.Valid() && b.Quality == TokenAccountingComplete
 }
 
-// PriceSource records where the applied price came from.
 type PriceSource string
 
 const (
@@ -67,9 +66,7 @@ const (
 	PriceSourceBuiltin   PriceSource = "builtin"
 )
 
-// PriceRates describes token prices per million tokens in the currency of the
-// price that holds them. Nil cache rates inherit the input rate; configured
-// cache rates are used as supplied.
+// Rates are per million tokens in the price's currency; nil cache rates inherit the input rate.
 type PriceRates struct {
 	InputPer1M      float64           `json:"input_per_1m"`
 	OutputPer1M     float64           `json:"output_per_1m"`
@@ -160,8 +157,7 @@ type Cost struct {
 	AppliedCacheWritePer1M float64 `json:"applied_cache_write_per_1m,omitempty"`
 }
 
-// ComputeCost prices one already-normalized usage record. Invalid or
-// unclassified records are deliberately not guessed and therefore cost zero.
+// Invalid or unclassified records are never guessed and cost zero.
 func ComputeCost(price Price, breakdown TokenBreakdown) Cost {
 	if !breakdown.Billable() {
 		return Cost{Currency: price.Currency}

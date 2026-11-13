@@ -104,9 +104,8 @@ func (d *DB) Analysis(query billing.RequestEventQuery, rate billing.ExchangeRate
 	return view, nil
 }
 
-// Hours follow the browser's wall clock, so the first one starts on the local
-// hour before From. Subtracting the elapsed part of that hour keeps the
-// selected occurrence of a repeated DST hour.
+// The first hour starts on the browser's local hour before From; subtracting its elapsed part keeps the chosen
+// occurrence of a repeated DST hour.
 func analysisTrends(query billing.RequestEventQuery) billing.AnalysisTrends {
 	location := query.Timezone
 	if location == nil {
@@ -234,8 +233,7 @@ func (d *DB) AnalysisSpeed(query billing.RequestEventQuery, since time.Time) (bi
 	return view, nil
 }
 
-// Quantiles cannot be merged afterwards, so ranges over a day are bucketed
-// here by the browser's calendar days, which DST makes 23 or 25 hours long.
+// Quantiles cannot be merged, so days are bucketed here; DST makes them 23 or 25 hours long.
 func speedTrendTimes(query billing.RequestEventQuery) []time.Time {
 	daily := query.To.Sub(query.From) > 24*time.Hour
 	start := query.From

@@ -32,8 +32,7 @@ function metricTag(metrics, accessibleLabel) {
   );
 }
 
-// Replace a display collection while retaining its scroll position.
-// Paged lists also use the returned row container to append new entries.
+// Returns the row container, which paged lists append to.
 function renderCollection(target, items, { render, headers, attrs, selection, empty = m("ui.no_data") }) {
   if (selection) selection.update(target, items);
   const top = target.scrollTop, left = target.scrollLeft;
@@ -72,8 +71,7 @@ function renderCollection(target, items, { render, headers, attrs, selection, em
         )
       : rows;
   }
-  // WebKit lays out a query container before styling rows inserted into it; holding the height until the swap is laid out
-  // keeps the page from briefly shrinking and clamping its scroll offset.
+  // WebKit lays out a query container before styling inserted rows; holding the height stops the scroll offset from clamping.
   target.style.minBlockSize = target.offsetHeight + "px";
   target.replaceChildren(
     ...(selection && items.length
@@ -288,7 +286,6 @@ async function copyText(text) {
   }
 }
 
-// read may resolve the text asynchronously when the button is pressed.
 function copyButton(label, read, attrs) {
   const button = el(
     "button",

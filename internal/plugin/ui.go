@@ -10,12 +10,10 @@ import (
 //go:embed web/ui.html web/*.css web/*.js web/locales/*.json
 var uiFiles embed.FS
 
-// Assemble once. The browser receives one self-contained HTML resource.
 var uiHTML = buildUI()
 
 var pluginLogo = "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(pluginIconSVG))
 
-// uiInclude marks where web/ui.html inlines a sibling stylesheet or script.
 var uiInclude = regexp.MustCompile(`/\*([a-z0-9-]+\.(?:css|js))\*/`)
 
 func buildUI() []byte {
@@ -46,7 +44,6 @@ func buildUI() []byte {
 	})
 }
 
-// The inline SVG keeps the plugin logo independent of external image files.
 const pluginIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="24.57 25.47 461.94 459.4" fill="#72787c">
   <style>
     /* Hosts render the logo through an img element, where currentColor resolves

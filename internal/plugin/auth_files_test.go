@@ -207,7 +207,6 @@ func TestAuthFilesStatisticsFollowTimeRangeAndAccountScope(t *testing.T) {
 			if view.Files[0].InFlight != wantInFlight {
 				t.Fatalf("in-flight requests = %d, want %d", view.Files[0].InFlight, wantInFlight)
 			}
-			// Every request used gpt-5.5, so the breakdown of the same requests repeats the totals.
 			breakdown := url.Values{"auth_index": {view.Files[0].AuthIndex}, "from": tc.query["from"], "to": tc.query["to"]}
 			if tc.key != "" {
 				response = callAccount(t, app, routeUsageModels, tc.key, breakdown)

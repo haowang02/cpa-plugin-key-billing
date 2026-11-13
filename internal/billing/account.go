@@ -53,16 +53,14 @@ func (s *Store) recordUsage(event UsageEvent, failure *RequestError) {
 		s.AddPluginLog(PluginLogError, "Failed to read model pricing; preserving the usage event with zero cost")
 	}
 	if priceErr != nil || price.Source == PriceSourceNone {
-		// Usage has already happened. Keep all reported tokens and failure
-		// details even if its price was deleted or reference prices are unavailable.
+		// Usage already happened: record its tokens and failure details even without a price.
 		price = Price{Source: PriceSourceNone, Currency: USD}
 	}
 
 	cost := ComputeCost(price, event.Breakdown)
 	missingCycleTime := false
 	updateResult(s, func(state *State) (struct{}, Changes) {
-		// Codex runs fast mode exactly when the outbound request asks for the
-		// priority tier; its response reports a different tier.
+		// Codex runs fast mode exactly when the outbound request asks for priority; its response reports another tier.
 		if s.cfg.CodexFastModeBilling && price.Source != PriceSourceNone && event.Breakdown.Billable() &&
 			strings.EqualFold(provider, "codex") && authType == "oauth" && strings.EqualFold(effectiveTier, "priority") {
 			cost.multiply(CodexFastModeMultiplier)

@@ -112,8 +112,6 @@ func keptPluginLogs(entries []PluginLog, cutoff time.Time) []PluginLog {
 	return kept
 }
 
-// Prices share the loaded state; Store publishes each change after these
-// methods report whether the write succeeded.
 func (r *memoryRepository) UpsertPrice(CustomPrice) error { return r.fail }
 
 func (r *memoryRepository) DeletePrice(string) error { return r.fail }

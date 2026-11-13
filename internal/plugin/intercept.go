@@ -157,8 +157,7 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 		}
 	}
 
-	// Reference price refresh may have taken time. Quota and Retry-After share the
-	// current instant, rather than the instant before the download.
+	// A reference price refresh may have taken time; quota and Retry-After share the current instant.
 	now := a.store.Now()
 	decision := a.store.Authorize(scope, now)
 	if !decision.Allowed {
@@ -268,9 +267,7 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 	return OKEnvelope(struct{}{})
 }
 
-// metadataString reads a string value from the host's metadata snapshot. The
-// host sanitizes metadata into JSON-native types before the RPC hop, so a value
-// that survives is either a string or something safely formatted as one.
+// The host sanitizes metadata into JSON-native types, so a surviving value is a string or formats safely as one.
 func metadataString(metadata map[string]any, key string) string {
 	if metadata == nil {
 		return ""
@@ -386,11 +383,8 @@ func modelForbiddenMessage(decision billing.RoutingDecision) string {
 	return message + "."
 }
 
-// refusal is one reason for turning a request away, spelled the way CLIProxyAPI
-// spells an error of that status. The proxy derives both fields from the status
-// alone, which is why an exhausted budget reads as a rate limit and a refused
-// model as a quota problem: a client branching on type and code must not have to
-// know which of the two wrote the body.
+// CLIProxyAPI derives type and code from the status alone, so an exhausted budget reads as a rate limit and a
+// refused model as a quota problem; clients cannot tell whether the proxy or the plugin refused.
 type refusal struct {
 	anthropicType string
 	openaiType    string
@@ -410,9 +404,7 @@ var (
 	}
 )
 
-// Anthropic clients use their native envelope; other formats use the
-// OpenAI-compatible envelope. Substring matching covers format variants such
-// as "claude-code".
+// Anthropic formats, including variants like "claude-code", get their native envelope; others the OpenAI one.
 func refusalBody(sourceFormat string, kind refusal, message string) []byte {
 	normalized := strings.ToLower(strings.TrimSpace(sourceFormat))
 	var payload any

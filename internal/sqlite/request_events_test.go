@@ -27,8 +27,7 @@ func requestEvent(scope string, at time.Time) billing.RequestEvent {
 	}
 }
 
-// requestEventDatabase holds four normal events for Alice and two failed events
-// for Bob.
+// Four normal events for Alice and two failed ones for Bob.
 func requestEventDatabase(t *testing.T) (*DB, *billing.State) {
 	t.Helper()
 	database := openTestDB(t)

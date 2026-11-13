@@ -6,7 +6,6 @@ type index struct {
 
 // Non-unique indexes named <table>_<name> belong to this module.
 var indexes = map[string][]index{
-	// Names the sources of configured credentials' events.
 	"config_credentials": {
 		{"auth_index", "auth_index"},
 	},
@@ -40,9 +39,7 @@ var indexes = map[string][]index{
 	},
 }
 
-// quotaReportTables hold what each request's response reported about its
-// credential's quota. A window copies its report's credential, time and plan so
-// that each window's reports are an index range.
+// A window copies its report's credential, time and plan so each window's reports are an index range.
 const quotaReportTables = `
 CREATE TABLE quota_reports (
 	request_event_id  INTEGER PRIMARY KEY REFERENCES request_events(id) ON DELETE CASCADE,
@@ -68,8 +65,6 @@ CREATE TABLE quota_report_windows (
 ) WITHOUT ROWID;
 `
 
-// quotaQueriesTable keeps what each credential's provider answered when its
-// quota was last queried.
 const quotaQueriesTable = `
 CREATE TABLE quota_queries (
 	auth_index TEXT    PRIMARY KEY,

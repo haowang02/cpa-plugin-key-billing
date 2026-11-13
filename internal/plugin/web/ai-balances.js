@@ -1,5 +1,4 @@
-// Upstreams whose API keys can read their own account balance. A key's base URL must name one of
-// these hosts exactly, so a key is only ever sent to the upstream that issued it.
+// A key goes only to the host that issued it: its base URL must match one of these exactly.
 const AI_BALANCE_UPSTREAMS = [
   {
     hosts: ["api.deepseek.com"],
@@ -16,7 +15,7 @@ const AI_BALANCE_UPSTREAMS = [
   {
     hosts: ["openrouter.ai"],
     async read(call) {
-      // The key's own spending limit is optional detail; the account credits are the balance.
+      // The key limit is optional; the account credits are the balance.
       const [credits, key] = await Promise.all([
         call("/api/v1/credits"),
         call("/api/v1/key").catch((error) => {
@@ -207,7 +206,7 @@ function aiBalanceAction() {
 
 async function queryFilteredAIBalances() {
   const owner = adminUIState;
-  // A key listed twice shares one auth index, and so one query.
+  // A key listed twice shares one auth index, so it is queried once.
   const providers = [
     ...new Map(
       filteredAIProviders(false).filter((provider) => aiBalanceUpstream(provider) && !owner.aiBalanceLoading.has(provider.auth_index))

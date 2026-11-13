@@ -1,7 +1,5 @@
 const REQUEST_EVENT_COLUMN_LAYOUT = "request-event-columns";
 
-// Keyed by query field. Result counts cover the other filters and ignore the result choice,
-// so each option shows how many entries selecting it would reveal.
 const REQUEST_EVENT_FILTERS = {
   model: modelFilter("event-model", "events"),
   credential: credentialFilter("event-credential", "events"),
@@ -19,7 +17,7 @@ const REQUEST_EVENT_FILTERS = {
   }
 };
 
-// Table columns in their default order. Time anchors each row, so it cannot be hidden.
+// Time anchors each row, so it cannot be hidden.
 const REQUEST_EVENT_COLUMNS = [
   { id: "time", label: m("ui.time"), required: true, cell: ({ entry }) => dateTimeLines(entry.at) },
   { id: "api_key", label: "API Key", admin: true, cell: ({ entry }) => renderAPIKeyIdentity(entry, { stacked: true }) },
@@ -127,7 +125,6 @@ function requestEventActions(account) {
   ];
 }
 
-// Keep the saved order, inserting new columns before their next default neighbor.
 function requestEventColumnLayout(account, preference = viewPreference(account ? "account" : "admin", REQUEST_EVENT_COLUMN_LAYOUT, {})) {
   const { order = [], hidden = [] } = preference;
   const columns = REQUEST_EVENT_COLUMNS.filter((column) => !account || !column.admin);

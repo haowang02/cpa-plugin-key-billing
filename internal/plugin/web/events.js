@@ -42,7 +42,6 @@ const EVENT_CSV_COLUMNS = {
   errors: ["at", "preview", "label", "billing_model", "upstream_model", "credential", "status_code", "error_type", "body"]
 };
 
-// Analysis and event lists share one API key choice, offered from the keys with events in the time range.
 const API_KEY_FILTER = {
   id: "api-key",
   label: "API Key",
@@ -53,7 +52,6 @@ const API_KEY_FILTER = {
   load: readEventKeys,
   options: (account) => {
     const keys = eventKeysQuery.value || [];
-    // Only the event lists count their rows per key.
     const list = { "request-events": "events", errors: "errors" }[currentTab];
     const counts = list && pagedList(list, account).data?.filter_options?.key_counts;
     const detail = (scope) => (counts ? int(counts[scope] || 0) : null);
@@ -71,7 +69,6 @@ const API_KEY_FILTER = {
 
 function apiKeyQuery(account) { return account ? {} : filterQuery(false, { api_key: API_KEY_FILTER }); }
 
-// Event lists offer the models and upstream credentials found in the whole time range.
 function modelFilter(id, kind) {
   return {
     id,
@@ -96,7 +93,6 @@ function credentialFilter(id, kind) {
   };
 }
 
-// Credentials sharing a display name gain the shortest digest prefix that tells them apart.
 function disambiguateCredentialOptions(options) {
   const prepared = options.map((option) => ({
     value: option.value,

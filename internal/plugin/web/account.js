@@ -1,4 +1,3 @@
-// Views stay hidden until the profile shows the key has usage.
 function renderAccountProfile() {
   const profile = resources.account.profile.value;
   const tracked = profile?.tracked === true;
@@ -33,7 +32,7 @@ function renderAccountSubscription() {
   target.replaceChildren(renderQuotaWindows(subscription, true));
 }
 
-// The key's model catalog already lists only the models its routing rules allow.
+// /v1/models already applies the key's routing rules.
 function renderAccountModels() {
   const data = resources.account;
   const target = $("account-models");

@@ -40,7 +40,6 @@ type Snapshot struct {
 }
 
 type Changes struct {
-	// Keys lists the scopes to upsert. AllKeys upserts every key in State.
 	Keys    []string
 	AllKeys bool
 

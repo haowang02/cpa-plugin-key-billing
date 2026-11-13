@@ -311,8 +311,6 @@ func TestAIProviderCredentialDisplayNameMasksKeysAndAccounts(t *testing.T) {
 	}
 }
 
-// Auth files are named like CPAMC names them, and an email is never parsed out
-// of a file name.
 func TestAuthFileCredentialDisplayNameFollowsCPAMC(t *testing.T) {
 	const fileName = "codex-1dfbc38b-wrong@example.com-pro.json"
 	for _, test := range []struct {

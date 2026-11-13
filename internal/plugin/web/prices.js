@@ -153,8 +153,7 @@ let priceReferenceRequest = 0;
 
 function priceNumber(id, emptyValue = 0) {
   const input = $(id);
-  // Check badInput before treating an empty value as an omitted field.
-  // Browsers can expose an invalid numeric entry as an empty string.
+  // Browsers can report an invalid number as an empty value, so check badInput first.
   if (!input.reportValidity()) throw new UIError(m("ui.check_the_values_in_model_pricing"));
   if (input.value.trim() === "") return emptyValue;
   const value = input.valueAsNumber;

@@ -2,7 +2,7 @@ package billing
 
 import "strings"
 
-// Builtin prices are shipped with the plugin and are intentionally not persisted.
+// Builtin prices ship with the plugin and are never persisted.
 var builtinPrices = map[string]PriceRates{
 	NormalizeModelID("codex-auto-review"): {InputPer1M: 0, OutputPer1M: 0},
 	NormalizeModelID("gpt-image-1.5"): {

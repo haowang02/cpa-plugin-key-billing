@@ -23,7 +23,6 @@ type KeyView struct {
 	QuotaView
 }
 
-// Settle expired cycles before displaying quota status for active keys.
 func (s *Store) KeyViews() []KeyView {
 	now := s.Now()
 	return updateResult(s, func(state *State) ([]KeyView, Changes) {
@@ -49,7 +48,7 @@ func (s *Store) KeyViews() []KeyView {
 	})
 }
 
-// keyView needs the store lock for its concurrency and exchange rate.
+// Caller holds s.mu.
 func (s *Store) keyView(state *State, scope string, key *KeyState, plan *Plan, now time.Time) KeyView {
 	planName := ""
 	if plan != nil {
@@ -98,8 +97,7 @@ func (s *Store) KeyViewForScope(scope string) (KeyView, bool) {
 	return current.view, current.ok
 }
 
-// Keys CPA holds keep their configuration order, as its panels list them; the
-// rest follow by label.
+// Keys CPA holds keep its configuration order; the rest follow by label.
 func sortKeyViews(views []KeyView, configOrder map[string]int) {
 	rank := func(scope string) int {
 		if position, listed := configOrder[scope]; listed {
@@ -181,7 +179,6 @@ func (s *Store) SetLabel(scope, label string) error {
 	return err
 }
 
-// LiveScope returns the first scope that names a live key, or "".
 func (s *Store) LiveScope(scopes []string) string {
 	result := ""
 	s.read(func(state *State) {
@@ -227,16 +224,9 @@ func (s *State) ensureKey(scope, preview string) *KeyState {
 	return key
 }
 
-// SyncKeys reconciles the tracked keys with the list CPA currently holds.
-//
-// Plaintext keys are discarded after producing a scope hash and masked preview.
-// A key missing from the list is marked deleted rather than dropped, and only if
-// an earlier sync saw it, so principals from other access providers survive.
-// allowEmpty prevents an accidental empty push from marking every synchronized
-// record deleted.
-//
-// Restoring a key preserves its bindings and spent quota. Normal cycle expiry
-// and explicit resets still apply.
+// SyncKeys keeps only scope hashes and masked previews. A missing key is marked deleted only if an earlier
+// sync saw it, so other access providers' principals survive; allowEmpty guards against an accidental empty
+// push. A restored key keeps its bindings and spent quota.
 func (s *Store) SyncKeys(keys []string, allowEmpty bool) (SyncResult, error) {
 	scopes := make(map[string]string, len(keys))
 	order := make(map[string]int, len(keys))
@@ -312,9 +302,7 @@ func normalizeScopes(scopes []string) []string {
 	return dedupe(lowered)
 }
 
-// dedupe drops blanks and repeats from an operator's list. Values are compared
-// case-insensitively but kept in the spelling they arrived in, because model
-// names and identifiers are read back on screen.
+// Values compare case-insensitively but keep their original spelling for display.
 func dedupe(values []string) []string {
 	var deduped []string
 	seen := make(map[string]struct{}, len(values))

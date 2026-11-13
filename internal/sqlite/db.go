@@ -1,4 +1,3 @@
-// Package sqlite implements billing.Repository with SQLite.
 package sqlite
 
 import (
@@ -29,8 +28,6 @@ type DB struct {
 // before schema 20; nil means the headers report nothing.
 type StoredQuotaHeaders func(provider string, headers http.Header, at time.Time) *billing.QuotaReport
 
-// Open opens the billing database at path, migrating older formats;
-// storedHeaders reads the quota headers that formats before schema 20 stored.
 func Open(path string, storedHeaders StoredQuotaHeaders) (*DB, error) {
 	database, err := connect(path)
 	if err != nil {
@@ -53,7 +50,6 @@ func Open(path string, storedHeaders StoredQuotaHeaders) (*DB, error) {
 	return database, nil
 }
 
-// connect opens the database at path as it is.
 func connect(path string) (*DB, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

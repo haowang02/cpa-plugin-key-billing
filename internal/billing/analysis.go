@@ -14,7 +14,6 @@ type AnalysisTrends struct {
 	TotalCost           []float64 `json:"total_cost"`
 }
 
-// Costs and ChargedIn are as in CredentialUsageStats.
 type AnalysisComposition struct {
 	Key              string   `json:"key"`
 	Label            string   `json:"label"`
@@ -38,7 +37,6 @@ type UsageDistribution struct {
 	Credentials []AnalysisComposition `json:"credentials"`
 }
 
-// Costs and ChargedIn are as in CredentialUsageStats; the cost trend shares them.
 type AnalysisCostSummary struct {
 	TotalUSD      float64  `json:"total_usd"`
 	InputUSD      float64  `json:"input_usd"`
@@ -68,9 +66,7 @@ type AnalysisView struct {
 	UsageDistribution UsageDistribution `json:"usage_distribution"`
 }
 
-// SpeedStats summarizes TPS as the request list measures it: output tokens of
-// successful, fully accounted requests over total latency. Interpolated
-// quantiles are zero without samples.
+// SpeedStats measures TPS as output tokens of successful, fully accounted requests over total latency.
 type SpeedStats struct {
 	Samples int     `json:"samples"`
 	P10     float64 `json:"p10"`

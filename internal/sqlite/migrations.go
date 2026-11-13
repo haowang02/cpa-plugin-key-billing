@@ -188,9 +188,7 @@ func migrateClientHeaders(tx *sql.Tx) error {
 	return nil
 }
 
-// Schema 20 moves the quota headers stored with each request into the reports
-// they make, which are read without decoding headers. Headers that report
-// nothing under the current rules leave no report.
+// Schema 20 turns stored quota headers into reports; headers that report nothing leave none.
 func migrateQuotaReports(tx *sql.Tx, storedHeaders StoredQuotaHeaders) error {
 	if _, err := tx.Exec(quotaReportTables); err != nil {
 		return fmt.Errorf("Create quota report tables: %w", err)
@@ -371,7 +369,6 @@ func migrateModelPricing(tx *sql.Tx) error {
 	return err
 }
 
-// migrateModelGroups converts the v10 model-access tables into route bindings.
 func migrateModelGroups(tx *sql.Tx) error {
 	if _, err := tx.Exec(`CREATE TABLE routes (
 			position INTEGER PRIMARY KEY,

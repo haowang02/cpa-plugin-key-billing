@@ -34,8 +34,7 @@ func TestConfigureLoadsTheDocumentBehindTheNewPath(t *testing.T) {
 		}
 	})
 
-	// Reconfiguring to the same path must not reopen the database, or every
-	// plugin.reconfigure would drop the working set and reload it.
+	// Reconfiguring to the same path must not reopen the database.
 	if errConfigure := store.Configure(cfg); errConfigure != nil {
 		t.Fatalf("Configure (same path) error = %v", errConfigure)
 	}
@@ -55,8 +54,6 @@ func TestConfigureLoadsTheDocumentBehindTheNewPath(t *testing.T) {
 	})
 }
 
-// A path that cannot be opened must leave the live one alone: starting empty
-// there would silently discard the real record once someone fixes the path.
 func TestConfigureKeepsTheLiveDocumentWhenTheNewPathFails(t *testing.T) {
 	repo := &memoryRepository{state: NewState()}
 	store := NewStore(func(path string) (Repository, error) {
@@ -85,9 +82,6 @@ func TestConfigureKeepsTheLiveDocumentWhenTheNewPathFails(t *testing.T) {
 	}
 }
 
-// Closing is where the write-ahead log is folded back into the database, so a
-// failure there is the operator's warning that the tail of the record may exist
-// only beside it. A reconfigure has the incoming database to record that in.
 func TestReconfigureReportsADatabaseThatFailsToClose(t *testing.T) {
 	repos := []Repository{
 		&memoryRepository{state: NewState(), closeFail: errors.New("磁盘已满")},

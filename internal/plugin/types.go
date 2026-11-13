@@ -1,4 +1,3 @@
-// Package plugin implements the CLIProxyAPI plugin RPC contract.
 package plugin
 
 import (
@@ -13,8 +12,7 @@ const (
 	SchemaVersion uint32 = 7
 )
 
-// Plugin identity. PluginID doubles as the dynamic library file name, the
-// `plugins.configs` key, and the Management/resource route segment.
+// PluginID is also the library file name, the plugins.configs key and the route segment.
 const (
 	PluginID   = "cpa-key-billing"
 	PluginName = "cpa-key-billing"
@@ -47,9 +45,8 @@ const (
 )
 
 const (
-	// MetadataCallerScope is sha256("cli-proxy-api:caller-scope:v1\x00"+apiKey)
-	// in hex. It is the only downstream-key identifier available at interception
-	// time, and it covers keys presented via query string as well as headers.
+	// MetadataCallerScope is hex sha256("cli-proxy-api:caller-scope:v1\x00"+apiKey), the only downstream key
+	// identifier at interception, covering keys sent in query strings as well as headers.
 	MetadataCallerScope    = "caller_scope"
 	MetadataGenerate       = "generate"
 	MetadataSource         = "source"
@@ -57,8 +54,7 @@ const (
 	MetadataRequestedModel = "requested_model"
 	MetadataSelectedAuth   = "selected_auth_id"
 	MetadataSelectedIndex  = "selected_auth_index"
-	// SourcePluginHostModelCallback is the MetadataSource value for nested
-	// plugin-initiated executions, which bypass client model and quota checks.
+	// Nested plugin-initiated executions bypass client model and quota checks.
 	SourcePluginHostModelCallback = "plugin_host_model_callback"
 )
 
@@ -159,7 +155,6 @@ type RequestInterceptResponse struct {
 	ResponseBody    []byte      `json:"ResponseBody,omitempty"`
 }
 
-// ResponseInterceptRequest holds the fields model catalog filtering reads.
 type ResponseInterceptRequest struct {
 	Model          string      `json:"Model"`
 	RequestedModel string      `json:"RequestedModel"`

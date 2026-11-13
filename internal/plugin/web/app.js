@@ -128,8 +128,7 @@ async function startAccount(key) {
   const generation = sessionGeneration;
   currentRole = "account";
   authKey = key;
-  // CLIProxyAPI remains authoritative for whether this downstream key is
-  // currently valid. The plugin endpoint only uses the key to select its hash.
+  // CLIProxyAPI decides whether the key is valid; the plugin only hashes it to select data.
   resources.account.models.value = await fetchModels(true, key);
   await activateCredentialScope(true, key);
   if (generation !== sessionGeneration) throw new StaleRequestError();

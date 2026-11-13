@@ -16,8 +16,7 @@ const referencePriceOperationTimeout = 40 * time.Second
 
 type referencePriceStorageError struct{ error }
 
-// ReferencePrice preserves one provider/model entry from models.dev. Nil rates
-// mean its cost is absent or cannot be represented by the supported token rates.
+// Nil rates mean the cost is absent or not representable by the supported token rates.
 type ReferencePrice struct {
 	ProviderID  string `json:"provider_id"`
 	ModelID     string `json:"model_id"`
@@ -69,8 +68,7 @@ type referencePriceCacheEntry struct {
 	found bool
 }
 
-// Each Store owns a repository and bounded match entries. storageMu protects SQL reads,
-// publication and Close, never network/parse work. mu protects small memory state.
+// storageMu guards SQL reads, publication and Close, never network or parse work; mu guards memory state.
 type referencePriceManager struct {
 	download         func(context.Context) ([]byte, error)
 	log              func(PluginLogLevel, string, ...any)
@@ -231,8 +229,7 @@ func referencePricesNeedRefresh(metadata ReferencePriceMetadata, found bool, now
 	return age > 24*time.Hour || (!found && age > time.Hour)
 }
 
-// refresh executes in the caller, or joins the current caller's operation. An
-// observed refreshSequence prevents waiters from issuing a second download after it.
+// refresh runs in the caller or joins its operation; an observed refreshSequence stops a second download.
 func (references *referencePriceManager) refresh(ctx context.Context, now func() time.Time, force bool, observed uint64, found bool) (ReferencePriceMetadata, error) {
 	if references == nil {
 		return ReferencePriceMetadata{}, fmt.Errorf("The reference price database is not ready")
@@ -395,8 +392,7 @@ func (s *Store) SearchReferencePrices(query string, limit int) ([]ReferencePrice
 	return references.repository.SearchReferencePrices(ctx, query, min(max(limit, 1), 50))
 }
 
-// lookupModels reads one reference-price version for display without changing the
-// request cache. Batches keep SQLite parameters bounded even for large model lists.
+// lookupModels never changes the request cache; batches keep SQLite parameters bounded.
 func (references *referencePriceManager) lookupModels(ctx context.Context, models []string) (map[string]ReferencePrice, error) {
 	matched := make(map[string]ReferencePrice)
 	if references == nil || len(models) == 0 {
@@ -447,8 +443,7 @@ func (references *referencePriceManager) lookupModels(ctx context.Context, model
 	return matched, nil
 }
 
-// ReferenceModelKey removes namespaces and normalizes case in models.dev IDs.
-// Request options are removed with ModelWithoutThinkingSuffix before lookup.
+// Strip request options with ModelWithoutThinkingSuffix before lookup.
 func ReferenceModelKey(modelID string) string {
 	key := NormalizeModelID(modelID)
 	if i := strings.LastIndex(key, "/"); i >= 0 {
@@ -457,9 +452,8 @@ func ReferenceModelKey(modelID string) string {
 	return key
 }
 
-// MatchReferencePrice prefers the canonical models.dev source. Without one,
-// all matching providers must agree on supported rates. An absent rate or a
-// conflict leaves the model unpriced.
+// MatchReferencePrice prefers the canonical source; otherwise all providers must agree, and an absent or
+// conflicting rate leaves the model unpriced.
 func MatchReferencePrice(modelID string, candidates []ReferencePrice) (ReferencePrice, bool) {
 	return matchReferencePriceKeys(candidates, referencePriceKeys(modelID, modelID))
 }

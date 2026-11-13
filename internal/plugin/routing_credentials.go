@@ -59,8 +59,7 @@ func safeCredentialName(raw, account, provider, ref string) string {
 	return name
 }
 
-// providerName names a provider its configuration leaves unnamed. CPA keys an
-// OpenAI-compatible provider by its lowercased configured name.
+// CPA keys an OpenAI-compatible provider by its lowercased configured name.
 func providerName(provider string) string { return strings.TrimPrefix(provider, "openai-compatible-") }
 
 func credentialDisplayName(file hostAuthFile, source, provider, ref string) string {
@@ -124,9 +123,8 @@ func credentialSourceFromCandidate(candidate SchedulerAuthCandidate) string {
 	return ""
 }
 
-// Display data synchronized by the UI is not evidence of credential identity.
-// Config credentials use the immutable identity observed in host candidates;
-// physical auth files are checked against the current host runtime entry.
+// UI display data proves no credential identity: config credentials use the identity seen in host candidates,
+// auth files the current host runtime entry.
 func (a *App) selectedCredentialAllowed(req RequestInterceptRequest, decision billing.RoutingDecision) (bool, error) {
 	id := metadataString(req.Metadata, MetadataSelectedAuth)
 	if id == "" {
@@ -169,10 +167,7 @@ func (a *App) selectedCredentialAllowed(req RequestInterceptRequest, decision bi
 	return routingAllowsCredential(id, identity.Source, identity.Provider, decision), nil
 }
 
-// credentialModels collects the models served by credentials the rules allow.
-// Sources matter only to provider selectors. host.auth.list omits exactly the
-// config-backed credentials, so a credential it does not list is an AI
-// provider key.
+// host.auth.list omits exactly the config-backed credentials, so one it does not list is an AI provider key.
 func (a *App) credentialModels(decision billing.RoutingDecision) (map[string]bool, error) {
 	credentials, err := a.hostCredentials()
 	if err != nil {

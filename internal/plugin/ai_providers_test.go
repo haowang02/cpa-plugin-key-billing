@@ -109,7 +109,6 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	app, path := newAppWithPriceAndState(t, true)
 	configuration := mustMarshal(t, LifecycleRequest{ConfigYAML: []byte(fmt.Sprintf("state_file: %q\n", path))})
 	const rawKey = "sk-dummy-upstream-secret-1234"
-	// The host loads one entry; the other is known only by its configuration identity.
 	ref := billing.CredentialFingerprint("dummy-config")
 	configRef := billing.CredentialFingerprint("dummy-config-identity")
 	unloaded := billing.CredentialFingerprint("dummy-unloaded")
@@ -227,7 +226,6 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 		t.Fatalf("config snapshot was not restored after switching back: %+v", inventory)
 	}
 
-	// Unloading the entry drops its runtime identity but keeps its note.
 	callOK(t, app, http.MethodPost, routeCredentialsSync, nil, map[string]any{"credentials": []map[string]any{
 		{"config_ref": configRef, "provider": "codex", "disabled": true},
 	}}, http.StatusOK, nil)
@@ -256,7 +254,6 @@ func TestConfigCredentialSyncSurvivesRestartAndRollsBack(t *testing.T) {
 	}
 }
 
-// hostCredentialsCaller is a host that reports only its loaded credentials.
 func hostCredentialsCaller(credentials string) HostCaller {
 	return func(method string, _ any) (json.RawMessage, error) {
 		if method != hostAuthModels {

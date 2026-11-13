@@ -19,10 +19,8 @@ type quotaMeter struct {
 	Exclusive bool `json:"exclusive,omitempty"`
 }
 
-// codexLimit is one Codex rate limit. The main limit meters every model but
-// those an additional limit meters. Only Spark's additional limit is known to
-// meter a model; other additional limits, and Code Review, whose reviews never
-// pass through CLIProxyAPI, meter traffic the plugin cannot tell apart.
+// Only Spark's additional limit is known to meter a model; other additional limits and Code Review meter
+// traffic the plugin cannot tell apart.
 type codexLimit struct {
 	key, labelPrefix, model string
 }
@@ -45,7 +43,6 @@ func codexAdditionalLimit(name string) codexLimit {
 	return limit
 }
 
-// codexLimitByKey is the limit a window's key names.
 func codexLimitByKey(key string) codexLimit {
 	switch unnamed := codexAdditionalLimit(""); key {
 	case codexMainLimit.key:
@@ -58,8 +55,7 @@ func codexLimitByKey(key string) codexLimit {
 	return codexAdditionalLimit(key)
 }
 
-// reportedLimit gives the label prefix and meter of a window that responses
-// report, by its limit's key. Claude reports only its unified limit.
+// Claude reports only its unified limit.
 func reportedLimit(provider, key string) (string, *quotaMeter) {
 	if provider == "claude" {
 		return "", &quotaMeter{}
@@ -78,11 +74,9 @@ func (limit codexLimit) meter() *quotaMeter {
 	return nil
 }
 
-// claudeUnifiedLimit keys the 5-hour and weekly windows of Claude's unified
-// limit, which covers every model and is reported on each request.
+// Claude's unified limit covers every model and is reported on each request.
 const claudeUnifiedLimit = "unified"
 
-// claudeModelMeter meters a weekly limit Claude keeps for one model family.
 func claudeModelMeter(family string) *quotaMeter {
 	return &quotaMeter{Models: billing.ModelMatch{Include: []string{family}}}
 }
@@ -106,7 +100,6 @@ func antigravityGroupMeter(label string) *quotaMeter {
 	return &quotaMeter{Models: models}
 }
 
-// periodSeconds is the length of a period reported by its start and reset.
 func periodSeconds(start, resetAt string) int64 {
 	from, errFrom := time.Parse(time.RFC3339, strings.TrimSpace(start))
 	to, errTo := time.Parse(time.RFC3339, resetAt)
@@ -117,30 +110,21 @@ func periodSeconds(start, resetAt string) int64 {
 }
 
 const (
-	// quotaHistoryRange is how far back an auth file's quota periods are listed.
 	quotaHistoryRange = 30 * 24 * time.Hour
-	// quotaHistoryLookback first reads the reports of one more week, the
-	// longest window providers report on requests, so that a period running at
-	// the start of a range is usually read whole at once.
+	// Read one more week, the longest reported window, so a period running at the start of the range is read whole.
 	quotaHistoryLookback = 7 * 24 * time.Hour
 )
 
-// quotaCredential is the credential whose requests quota windows meter: an
-// auth file under the provider its quota belongs to.
 type quotaCredential struct {
 	authIndex, provider string
 }
 
-// quotaWindowHistory is a metered window with the periods its reports divide it into.
 type quotaWindowHistory struct {
 	row     quotaRow
 	periods []billing.QuotaWindowPeriod
 }
 
-// quotaWindowHistories reconstructs, main limits first, the periods of each
-// metered window that the credential's requests reported from from until now.
-// A response reports only the windows of the limit it used, so a window it
-// leaves out is unchanged rather than gone.
+// A response reports only the windows of the limit it used, so a window it leaves out is unchanged, not gone.
 func (a *App) quotaWindowHistories(credential quotaCredential, from, now time.Time) ([]quotaWindowHistory, error) {
 	windows, err := a.store.QuotaWindowHistories(credential.authIndex, credential.provider, from, now)
 	if err != nil {
@@ -166,8 +150,6 @@ func (a *App) quotaWindowHistories(credential quotaCredential, from, now time.Ti
 	return histories, nil
 }
 
-// compareQuotaWindows orders the limits over every model before additional
-// ones, and each limit's windows from shortest to longest.
 func compareQuotaWindows(left, right quotaRow) int {
 	rank := func(row quotaRow) int {
 		if row.LimitKey == codexMainLimit.key || row.LimitKey == claudeUnifiedLimit {
@@ -179,9 +161,7 @@ func compareQuotaWindows(left, right quotaRow) int {
 		cmp.Compare(left.WindowSeconds, right.WindowSeconds))
 }
 
-// completeQuotaHistories reconstructs the windows' periods that run after
-// from, each whole: when one began before the reports read so far, they are
-// read again from its start, so resets before from still place it.
+// A period that began before from is read again from its start, so earlier resets still place it.
 func (a *App) completeQuotaHistories(credential quotaCredential, from, now time.Time) ([]quotaWindowHistory, error) {
 	start := from.Add(-quotaHistoryLookback)
 	for {
@@ -207,17 +187,12 @@ func (row quotaRow) sameWindow(other quotaRow) bool {
 	return row.LimitKey == other.LimitKey && row.WindowSeconds == other.WindowSeconds
 }
 
-// periodReset is when the period that a metered window of known length
-// reports on resets. Once that time has passed, the window has reported no
-// period since.
+// Once the reset has passed, the window has reported no period since.
 func (row quotaRow) periodReset(now time.Time) (time.Time, bool) {
 	resetAt, err := time.Parse(time.RFC3339, row.ResetAt)
 	return resetAt, row.Meter != nil && row.WindowSeconds > 0 && err == nil && resetAt.After(now)
 }
 
-// currentPeriod is the period a metered row reports on: the period of the
-// window's history that ends at the row's reset time, or else the one the
-// reset time declares.
 func (row quotaRow) currentPeriod(histories []quotaWindowHistory, now time.Time) (billing.QuotaWindowPeriod, bool) {
 	resetAt, ok := row.periodReset(now)
 	if !ok {
@@ -233,8 +208,6 @@ func (row quotaRow) currentPeriod(histories []quotaWindowHistory, now time.Time)
 	return billing.QuotaWindowPeriod{Start: resetAt.Add(-time.Duration(row.WindowSeconds) * time.Second), ResetAt: resetAt}, true
 }
 
-// usageQuery selects the requests a period of the row's window covers,
-// through now or the period's end.
 func (row quotaRow) usageQuery(credential quotaCredential, period billing.QuotaWindowPeriod, now time.Time, exclusive []string) billing.UsageQuery {
 	end := period.End
 	if end.IsZero() {
@@ -257,8 +230,6 @@ func exclusiveModels(rows []quotaRow) []string {
 	return models
 }
 
-// attachQuotaUsage reports what each metered window of quotas consumed in its
-// current period. A scope limits usage to one API key.
 func (a *App) attachQuotaUsage(scope string, quotas map[quotaCredential]*authFileQuota) error {
 	now := a.store.Now()
 	var queries []billing.UsageQuery
@@ -308,7 +279,6 @@ type authFileHistoryResponse struct {
 	Windows []quotaWindowView            `json:"windows"`
 }
 
-// quotaWindowView lists a window's periods, newest first.
 type quotaWindowView struct {
 	Label        string            `json:"label"`
 	LabelMessage messages.Message  `json:"label_message,omitzero"`
@@ -316,8 +286,6 @@ type quotaWindowView struct {
 	Periods      []quotaPeriodView `json:"periods"`
 }
 
-// quotaPeriodView lists its usage as totals; UsageQuery breaks it down by
-// model on request.
 type quotaPeriodView struct {
 	Start       time.Time              `json:"start"`
 	End         time.Time              `json:"end,omitzero"`
@@ -329,9 +297,7 @@ type quotaPeriodView struct {
 	UsageQuery  billing.UsageQuery     `json:"usage_query"`
 }
 
-// readAuthFileHistory lists an auth file's usage over the last 30 days and the
-// periods of its metered quota windows that ran in them, each with its whole
-// usage, even from before. A scope limits usage to one API key.
+// Each listed period carries its whole usage, even from before the 30 days.
 func (a *App) readAuthFileHistory(credential quotaCredential, scope string) (authFileHistoryResponse, error) {
 	now := a.store.Now()
 	response := authFileHistoryResponse{From: now.Add(-quotaHistoryRange), To: now, Windows: []quotaWindowView{}}

@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// ExecutionMetadata contains host-reported execution identity. CredentialRef is
-// a plugin fingerprint, and BaseURL omits user info, query strings and fragments.
+// CredentialRef is a plugin fingerprint; BaseURL omits user info, query strings and fragments.
 type ExecutionMetadata struct {
 	RequestID       string `json:"request_id,omitempty"`
 	TraceID         string `json:"trace_id,omitempty"`
@@ -18,9 +17,7 @@ type ExecutionMetadata struct {
 	IsNativeKey     *bool  `json:"is_native_key,omitempty"`
 }
 
-// RequestOrigin describes the inbound client request as admission saw it.
-// Endpoint is the route path only; UserAgent and XForwardedFor are the
-// client-reported headers, which the host does not verify.
+// UserAgent and XForwardedFor are client-reported and unverified by the host.
 type RequestOrigin struct {
 	Endpoint      string `json:"endpoint,omitempty"`
 	Transport     string `json:"transport,omitempty"`
@@ -28,9 +25,7 @@ type RequestOrigin struct {
 	XForwardedFor string `json:"x_forwarded_for,omitempty"`
 }
 
-// RequestEvent is one persisted request record and never stores a plaintext API key.
-// Account names the upstream credential by an OAuth identity, a masked API key
-// or an auth file title.
+// A RequestEvent never stores a plaintext API key.
 type RequestEvent struct {
 	RequestOrigin
 	Execution       *ExecutionMetadata `json:"execution,omitempty"`
@@ -43,8 +38,7 @@ type RequestEvent struct {
 	ExecutorType    string             `json:"executor_type,omitempty"`
 	ReasoningEffort string             `json:"reasoning_effort,omitempty"`
 	ServiceTier     string             `json:"service_tier,omitempty"`
-	// EffectiveServiceTier is the tier of the final outbound request, which
-	// payload rules may change. Events recorded before schema 27 have none.
+	// EffectiveServiceTier is the final outbound tier, which payload rules may change; none before schema 27.
 	EffectiveServiceTier *string `json:"effective_service_tier,omitempty"`
 	ResponseServiceTier  string  `json:"response_service_tier,omitempty"`
 	UpstreamModel        string  `json:"upstream_model,omitempty"`
@@ -55,8 +49,7 @@ type RequestEvent struct {
 	TTFTMS               int64   `json:"ttft_ms,omitempty"`
 	// AccountingQuality is empty when the host reported no token detail.
 	AccountingQuality TokenAccountingQuality `json:"accounting_quality,omitempty"`
-	// PriceSource says where the numbers came from. "none" means no rule
-	// matched and the usage event was billed at zero.
+	// PriceSource "none" means no rule matched and the usage was billed at zero.
 	PriceSource PriceSource `json:"price_source,omitempty"`
 	Cost        Cost        `json:"cost"`
 	// ReasoningTokens is already included in Cost.BilledOutputTokens.
@@ -75,10 +68,8 @@ type RequestEventRow struct {
 	ErrorBody  string `json:"error_body,omitempty"`
 }
 
-// RequestEventQuery selects one filtered page of request events.
 type RequestEventQuery struct {
-	// Scope is an internal authorization boundary. Callers never select it from
-	// a query parameter: account endpoints derive it from the presented API key.
+	// Scope is an authorization boundary: account endpoints derive it from the presented key, never a parameter.
 	Scope          string
 	KeyScope       string
 	KeyScopeEmpty  bool
@@ -97,7 +88,6 @@ type RequestEventQuery struct {
 	Limit int
 }
 
-// RequestEventView is one page plus totals that cannot be inferred from it.
 type RequestEventView struct {
 	SnapshotID int64                     `json:"snapshot_id,string"`
 	Entries    []RequestEventRow         `json:"entries"`
@@ -139,8 +129,7 @@ func (s *Store) RequestEvents(query RequestEventQuery) (RequestEventView, error)
 	return view, err
 }
 
-// EventKey identifies a key with at least one request or error in the time range.
-// An empty Scope represents unassigned events and sorts last.
+// An empty Scope stands for unassigned events and sorts last.
 type EventKey struct {
 	Scope     string    `json:"scope"`
 	Preview   string    `json:"preview"`

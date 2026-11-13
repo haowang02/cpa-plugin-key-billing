@@ -2,8 +2,7 @@ package billing
 
 import "time"
 
-// QuotaReport is what one response said about its credential's quota under
-// Provider. A response reports only the windows of the limit it used.
+// A response reports only the windows of the limit it used.
 type QuotaReport struct {
 	Provider         string
 	Plan             string
@@ -12,41 +11,34 @@ type QuotaReport struct {
 	Windows          []QuotaReportWindow
 }
 
-// QuotaReportWindow is a quota window as one response reported it. Its limit
-// key and length identify it from one report to the next.
+// A window's limit key and length identify it from one report to the next.
 type QuotaReportWindow struct {
 	LimitKey    string
 	Seconds     int64
 	UsedPercent float64
-	// ResetAt is zero when the response did not say when the window resets.
-	ResetAt time.Time
+	ResetAt     time.Time
 }
 
-// QuotaObservation is the report stored for a request made At.
 type QuotaObservation struct {
 	At time.Time
 	QuotaReport
 }
 
-// LatestQuotaReports returns, oldest first, the newest report made since since
-// of each quota window and value on each credential. An observation keeps only
-// the windows and values it is the newest report of.
+// LatestQuotaReports returns, oldest first, the newest report since since of each window and value;
+// an observation keeps only what it is the newest report of.
 func (s *Store) LatestQuotaReports(authIndexes []string, since time.Time) (map[string][]QuotaObservation, error) {
 	return withRepository(s, func(repo Repository) (map[string][]QuotaObservation, error) {
 		return repo.LatestQuotaReports(authIndexes, since)
 	})
 }
 
-// QuotaQuery is what a credential's provider answered when its quota was last
-// queried, encoded by the querier.
 type QuotaQuery struct {
 	Provider string
 	At       time.Time
 	Quota    []byte
 }
 
-// SaveQuotaQuery keeps a credential's quota query in place of its previous
-// one and drops every query made before since.
+// SaveQuotaQuery replaces the credential's previous query and drops every query made before since.
 func (s *Store) SaveQuotaQuery(authIndex string, query QuotaQuery, since time.Time) error {
 	_, err := withRepository(s, func(repo Repository) (struct{}, error) {
 		return struct{}{}, repo.SaveQuotaQuery(authIndex, query, since)
@@ -54,30 +46,24 @@ func (s *Store) SaveQuotaQuery(authIndex string, query QuotaQuery, since time.Ti
 	return err
 }
 
-// QuotaQueries returns the quota query of each credential made since since.
 func (s *Store) QuotaQueries(authIndexes []string, since time.Time) (map[string]QuotaQuery, error) {
 	return withRepository(s, func(repo Repository) (map[string]QuotaQuery, error) {
 		return repo.QuotaQueries(authIndexes, since)
 	})
 }
 
-// QuotaWindowHistory is what a credential's requests reported about one quota
-// window, oldest first.
 type QuotaWindowHistory struct {
 	LimitKey string
 	Seconds  int64
 	Reports  []QuotaWindowReport
 }
 
-// QuotaWindowHistories returns what a credential's requests to provider made
-// from from until to reported about each window.
 func (s *Store) QuotaWindowHistories(authIndex, provider string, from, to time.Time) ([]QuotaWindowHistory, error) {
 	return withRepository(s, func(repo Repository) ([]QuotaWindowHistory, error) {
 		return repo.QuotaWindowHistories(authIndex, provider, from, to)
 	})
 }
 
-// QuotaWindowReport is what one request's response said about a quota window.
 type QuotaWindowReport struct {
 	At          time.Time
 	UsedPercent float64
@@ -92,23 +78,19 @@ const (
 	QuotaPeriodEarlyReset QuotaPeriodEnd = "early_reset"
 )
 
-// QuotaWindowPeriod is one period of a quota window, from Start until End;
-// a zero End means it still runs. ResetAt is when it was scheduled to end.
+// A zero End means the period still runs; ResetAt is when it was scheduled to end.
 type QuotaWindowPeriod struct {
 	Start, End, ResetAt time.Time
 	EndReason           QuotaPeriodEnd
-	// UsedPercent is the highest share of the window reported in the period.
+	// UsedPercent is the highest share reported in the period.
 	UsedPercent float64
 	Plans       []string
 }
 
-// EndsAfter reports whether the period still runs at, or ends after, at.
 func (p QuotaWindowPeriod) EndsAfter(at time.Time) bool { return p.End.IsZero() || p.End.After(at) }
 
-// Boundary rules shared with CPA-Manager-Plus. Requests that run concurrently
-// report usage slightly out of order, so a counter reset needs a drop from
-// meaningful usage to almost none, or by at least half and 20 points. Reset
-// times within a minute of each other are the same boundary.
+// Shared with CPA-Manager-Plus. Concurrent requests report out of order, so a counter reset needs a drop to
+// almost none, or by half and 20 points; reset times within a minute are one boundary.
 const (
 	quotaResetMinimumPriorPercent = 5
 	quotaResetNearZeroPercent     = 1
@@ -119,10 +101,8 @@ const (
 	quotaReorderHorizon = 10 * time.Minute
 )
 
-// QuotaWindowPeriods splits the reports on a window of the given length,
-// oldest first, into periods. A period begins when its reset time says the
-// window began and ends at that reset time or at a counter reset. Any other
-// change of reset time reschedules the period.
+// A period begins when its reset time says the window began and ends at that reset time or at a counter reset;
+// any other change of reset time reschedules it.
 func QuotaWindowPeriods(length time.Duration, reports []QuotaWindowReport, now time.Time) []QuotaWindowPeriod {
 	var periods []QuotaWindowPeriod
 	var current *QuotaWindowPeriod
@@ -208,7 +188,6 @@ func QuotaWindowPeriods(length time.Duration, reports []QuotaWindowReport, now t
 	return periods
 }
 
-// QuotaPeriodEnding returns the period scheduled to end at resetAt.
 func QuotaPeriodEnding(periods []QuotaWindowPeriod, resetAt time.Time) (QuotaWindowPeriod, bool) {
 	for i := len(periods) - 1; i >= 0; i-- {
 		if absDuration(periods[i].ResetAt.Sub(resetAt)) <= quotaBoundaryJitter {

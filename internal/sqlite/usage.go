@@ -55,14 +55,11 @@ func authIndexFilter(authIndexes []string) (string, []any) {
 
 func placeholders(count int) string { return strings.TrimSuffix(strings.Repeat("?,", count), ",") }
 
-// usdSumSQL sums an amount column of request events r in USD.
 func usdSumSQL(column string, rate billing.ExchangeRate) string {
 	return "sum(CASE r.currency WHEN '" + string(billing.CNY) + "' THEN r." + column + " / " +
 		strconv.FormatFloat(float64(rate), 'g', -1, 64) + " ELSE r." + column + " END)"
 }
 
-// costCurrenciesSQL reads into costCurrencies whether request events r cost
-// anything in USD and in CNY.
 const costCurrenciesSQL = "coalesce(max(r.total_cost != 0 AND r.currency != '" + string(billing.CNY) + "'), 0), " +
 	"coalesce(max(r.total_cost != 0 AND r.currency = '" + string(billing.CNY) + "'), 0)"
 
@@ -82,8 +79,6 @@ func (c costCurrencies) chargedIn() billing.Currency {
 	return ""
 }
 
-// usageFilter selects the requests r of a usage query; a non-empty scope
-// limits them to one API key's.
 func usageFilter(scope string, query billing.UsageQuery) (string, []any) {
 	where := "r.at >= ? AND r.at < ?"
 	args := []any{nanos(query.From), nanos(query.To)}
@@ -138,7 +133,6 @@ func (d *DB) UsageTotal(scope string, query billing.UsageQuery, rate billing.Exc
 	return usage, nil
 }
 
-// UsageByModel lists the most tokens first. InputTokens include cached ones.
 func (d *DB) UsageByModel(scope string, query billing.UsageQuery, rate billing.ExchangeRate) ([]billing.ModelUsage, error) {
 	where, args := usageFilter(scope, query)
 	rows, err := d.db.Query(`SELECT `+eventModelSQL+` AS model, count(*),

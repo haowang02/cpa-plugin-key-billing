@@ -25,8 +25,7 @@ type PriceRow struct {
 	CustomPriceModelID string      `json:"custom_price_model_id,omitempty"`
 }
 
-// The browser supplies the current CPA model list for display only.
-// Display reads do not populate the call LRU.
+// Display reads never populate the call LRU.
 func (s *Store) ModelPriceRows(models []string, includeCustom bool) ([]PriceRow, error) {
 	var custom map[string]CustomPrice
 	var references *referencePriceManager
@@ -104,8 +103,7 @@ func (price CustomPrice) Validate() error {
 	return price.PriceRates.validate(modelID)
 }
 
-// Custom price changes publish only after the database write succeeds. A
-// price without a currency is in USD.
+// Custom prices publish only after the database write succeeds; a price without a currency is in USD.
 func (s *Store) UpsertPrice(price CustomPrice) (CustomPrice, error) {
 	price.ModelID = strings.TrimSpace(price.ModelID)
 	if price.Currency == "" {
@@ -201,8 +199,7 @@ func (s *Store) ResolveModelPrice(upstream, requested string, refresh bool) (Pri
 	return price, model, nil
 }
 
-// ResolveCustomPrice uses only the client-visible billing model. A provider's
-// upstream model must not select a different custom price during usage billing.
+// An upstream model must not select a different custom price than the client-visible model.
 func (s *State) ResolveCustomPrice(billingModel string) Price {
 	if price, ok := s.Prices[NormalizeModelID(billingModel)]; ok {
 		return price.PriceRates.resolve(PriceSourceCustom, price.Currency)
@@ -210,9 +207,7 @@ func (s *State) ResolveCustomPrice(billingModel string) Price {
 	return Price{Source: PriceSourceNone}
 }
 
-// ResolveBillingModel returns the stable client-visible model used for pricing
-// and aggregation. A trailing CPA thinking suffix is a request option unless an
-// existing custom price includes it in the model ID.
+// A trailing CPA thinking suffix is a request option unless a custom price includes it in the model ID.
 func (s *State) ResolveBillingModel(upstreamModel, routeModel string) string {
 	upstreamModel = ModelWithoutThinkingSuffix(upstreamModel)
 	routeModel = strings.TrimSpace(routeModel)
@@ -236,8 +231,6 @@ func (s *State) ResolveBillingModel(upstreamModel, routeModel string) string {
 	return base
 }
 
-// ModelWithoutThinkingSuffix removes the trailing CPA request option, preserving
-// the model spelling and routing prefix.
 func ModelWithoutThinkingSuffix(model string) string {
 	model = strings.TrimSpace(model)
 	if open := strings.LastIndex(model, "("); open >= 0 && strings.HasSuffix(model, ")") {

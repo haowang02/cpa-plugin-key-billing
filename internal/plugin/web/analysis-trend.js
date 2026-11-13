@@ -6,7 +6,7 @@ const TREND_METRICS = {
 const analysisTrendMetrics = { admin: "total_tokens", account: "total_tokens" };
 const analysisTrendBuckets = { admin: "hour", account: "hour" };
 
-// The server counts usage per hour from trends.start. Days are the browser's calendar days, which DST makes 23 or 25 hours long.
+// Server buckets are hourly from trends.start; local days can be 23 or 25 hours across DST.
 function usageTrendSeries(trends, daily) {
   const { start, ...hourly } = trends;
   const first = new Date(start).getTime();

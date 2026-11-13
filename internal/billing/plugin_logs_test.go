@@ -50,13 +50,9 @@ func TestDebugPluginLogsFollowConfig(t *testing.T) {
 	}
 }
 
-// The store stamps each line with its own clock and reads back the window that
-// clock says is current; the order and the storage of them belong to the
-// repository and are exercised against a real database.
 func TestPluginLogsKeepTheRetentionWindow(t *testing.T) {
 	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	store, _ := newStoreWithRepository(t)
-	// Configuring the store already reported the database it loaded.
 	if _, errClear := store.ClearPluginLogs(); errClear != nil {
 		t.Fatalf("ClearPluginLogs error = %v", errClear)
 	}
@@ -76,8 +72,6 @@ func TestPluginLogsKeepTheRetentionWindow(t *testing.T) {
 	}
 }
 
-// A database that cannot be written is invisible without the plugin log: the
-// billing record keeps updating in memory while nothing reaches disk.
 func TestUnwritableDatabaseIsReportedOnceAndOnRecovery(t *testing.T) {
 	store, repo := newStoreWithRepository(t)
 	repo.fail = errors.New("disk full")

@@ -1,5 +1,3 @@
-// One popover serves whichever control opened it. A plain source lists choices; a source with categories shows them
-// in a first column, each opening its own choices beside it (or in its place on narrow screens) or running an action.
 const choiceSearch = el("input", {
   type: "search",
   class: "choice-search",
@@ -50,7 +48,6 @@ function toggleChoiceMenu(anchor, source) {
   placeChoiceMenu();
   const selected = choiceList.querySelector('[aria-selected="true"]');
   selected?.scrollIntoView({ block: "nearest" });
-  // Narrow screens show one column at a time, starting from the categories.
   const categoryFirst = categories.length && !requested && (!choiceSource.category || matchMedia("(max-width: 520px)").matches);
   if (categoryFirst)
     (choiceCategories.querySelector('[aria-current="true"]') || choiceCategories.firstElementChild).focus({ preventScroll: true });
@@ -129,7 +126,6 @@ function choiceControl(choice) {
   );
 }
 
-// The button's menu opens from its end edge; it lists values, or actions when source.menu is set.
 function attachChoiceMenu(button, source) {
   button.setAttribute("aria-haspopup", source.menu ? "menu" : "listbox");
   button.setAttribute("aria-expanded", "false");
@@ -203,7 +199,6 @@ function focusChoice(row) {
   row?.scrollIntoView({ block: "nearest" });
 }
 
-// The menu follows its anchor and closes once the anchor leaves the viewport.
 function followChoiceAnchor() {
   if (!choiceMenu.matches(":popover-open")) return;
   const box = choiceSource.anchor.getBoundingClientRect();

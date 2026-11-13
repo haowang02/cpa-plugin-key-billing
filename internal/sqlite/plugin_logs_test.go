@@ -25,8 +25,6 @@ func mustPluginLogs(t *testing.T, database *DB, since time.Time) []billing.Plugi
 	return page.Entries
 }
 
-// The plugin log outlives the process, which is the whole of why it is stored:
-// what an operator needs after a restart is what was written before it.
 func TestPluginLogsSurviveAReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	database := openDatabase(t, path)
@@ -48,8 +46,6 @@ func TestPluginLogsSurviveAReopen(t *testing.T) {
 	}
 }
 
-// Appending is the moment the log grows, and opening it is the moment a log
-// that stopped growing is looked at again.
 func TestPluginLogsAreDroppedPastRetention(t *testing.T) {
 	database := openTestDB(t)
 	cutoff := eventStart.Add(-billing.PluginLogRetention)

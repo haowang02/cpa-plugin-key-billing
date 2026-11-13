@@ -296,8 +296,6 @@ func TestManagementErrorsMapToStatusCodes(t *testing.T) {
 	}
 }
 
-// The plaintext keys the panel pushes are hashed into caller scopes and
-// dropped; what comes back must name them by mask alone, in the pushed order.
 func TestSyncKeysStoresMaskedKeysInConfigOrder(t *testing.T) {
 	app := newConfiguredApp(t)
 	alpha, beta := "sk-alpha-000000001", "sk-beta-0000000002"
@@ -327,7 +325,6 @@ func TestSyncKeysStoresMaskedKeysInConfigOrder(t *testing.T) {
 		}
 	}
 
-	// Clearing the synchronized list requires allow_empty.
 	if resp := callManagement(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{}}); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body=%s)", resp.StatusCode, resp.Body)
 	}
@@ -352,7 +349,6 @@ func TestManagementAnalysisOmitsTheSelectedKeyWindow(t *testing.T) {
 		view.UsageDistribution.Models[0].Requests != 1 {
 		t.Fatalf("analysis = %+v", view)
 	}
-	// A row's breakdown stays within the selected key, whose window has no key rows.
 	var breakdown struct{ Models []billing.ModelUsage }
 	callOK(t, app, http.MethodGet, routeUsageModels, url.Values{"api_key": selected["api_key"], "dimension": {"credentials"},
 		"value": {view.UsageDistribution.Credentials[0].Filter}}, nil, http.StatusOK, &breakdown)

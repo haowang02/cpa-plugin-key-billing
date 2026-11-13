@@ -72,7 +72,6 @@ function timeRangeLabel(range) {
   return format(range.from) + " – " + format(end);
 }
 
-// Shows the current role's range or, while the popover is open, the range being chosen.
 function updateSharedTimeControl(range = sharedTimeRanges[currentRole]) {
   const label = timeRangeLabel(range);
   setText($("time-range-label"), label);
@@ -484,8 +483,7 @@ $("time-range-popover").onkeydown = (event) => {
   }
 };
 
-// The narrow-screen backdrop closes on its own click. Closing on its press would hide it before the click,
-// which touch browsers then deliver to the trigger underneath, reopening the popover.
+// Close on click, not press: touch browsers would deliver the click to the trigger underneath and reopen the popover.
 addEventListener(
   "pointerdown",
   (event) => {

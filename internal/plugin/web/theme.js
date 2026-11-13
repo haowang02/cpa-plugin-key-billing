@@ -1,6 +1,5 @@
 "use strict";
 
-/* Apply the host or stored theme before painting the body. */
 (function () {
   const STORE_KEY = "cli-proxy-theme";
   const PLUGIN_STORE_KEY = "cpa-key-billing:theme";

@@ -47,8 +47,6 @@ const (
 	deletedKeyPlaintext = "sk-deleted-0123456789"
 )
 
-// newSyncStore returns a store holding one plan and both keys above, already
-// synchronized and bound, with a clock the caller can move.
 func newSyncStore(t *testing.T, clock *time.Time) *Store {
 	t.Helper()
 	store := newAccountStore(t, *clock)
@@ -159,8 +157,7 @@ func TestSyncKeysMarksDeletedOnlyOnceAndSparesTrafficOnlyPrincipals(t *testing.T
 	now := time.Date(2026, 8, 12, 15, 57, 0, 0, time.UTC)
 	clock := now
 	store := newSyncStore(t, &clock)
-	// A principal that no sync ever listed may belong to another access
-	// provider, so a CPA key-list sync has no authority over it.
+	// A principal no sync ever listed may belong to another access provider.
 	store.RecordUsage(subsetEvent("foreign-principal", now))
 
 	if _, errSync := store.SyncKeys([]string{keptKeyPlaintext}, false); errSync != nil {

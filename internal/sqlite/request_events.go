@@ -281,8 +281,7 @@ func (d *DB) requestEventFilterValues(query billing.RequestEventQuery, since tim
 	}, nil
 }
 
-// Each filter's counts cover the events matching every other selection, so its
-// options show what choosing them would list. where builds the event filter.
+// Each filter counts the events matching every other selection, so its options show what choosing them lists.
 func (d *DB) countEventFilters(filters *billing.RequestEventFilterValues, query billing.RequestEventQuery,
 	where func(billing.RequestEventQuery) (string, []any)) error {
 	count := func(expression string, selection billing.RequestEventQuery) (map[string]int, error) {

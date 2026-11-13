@@ -14,8 +14,7 @@ function sortedConfiguredHeaders(headers) {
   return Object.keys(headers).sort().map((key) => key + "\0" + headers[key] + "\0").join("");
 }
 
-// An entry's identity hashes the fields that tell entries of one kind apart, so
-// unlike the host's runtime credential it survives disabling the entry.
+// Hashing the distinguishing fields, unlike the host's runtime credential, survives disabling the entry.
 async function configuredEntryRef(kind, parts, counters) {
   const digest = await sha256Hex(kind + parts.map((part) => "\0" + String(part || "").trim()).join(""));
   const base = kind + ":" + digest.slice(0, 12);
@@ -35,9 +34,7 @@ function configuredProviderDetails(entry, type, name) {
   };
 }
 
-// The v0 lists name only OpenAI-compatible providers, while the v8 API names
-// every group of keys. A host without providers, or a panel that forwards only
-// v0 routes, answers 404.
+// v0 lists only OpenAI-compatible providers and v8 every key group; hosts without providers or v0-only panels answer 404.
 async function readProviderGroupNames() {
   let groups;
   try { groups = await api("GET", "/v8/management/config/api-keys", null); } catch (error) {

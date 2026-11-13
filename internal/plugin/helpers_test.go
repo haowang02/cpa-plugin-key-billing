@@ -69,8 +69,7 @@ func mustMarshal(t *testing.T, v any) []byte {
 	return raw
 }
 
-// testConfigYAML keeps every app under test on its own database: the default
-// path is relative to the working directory, which is the source tree here.
+// The default database path is relative to the working directory, which is the source tree here.
 func testConfigYAML(t *testing.T, enabled bool) []byte {
 	t.Helper()
 	return []byte("enabled: " + strconv.FormatBool(enabled) +

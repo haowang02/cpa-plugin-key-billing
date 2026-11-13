@@ -15,8 +15,7 @@ const (
 	hostAuthModels     = "host.auth.models"
 )
 
-// hostAuthFile is a credential as host.auth.list and host.auth.get_runtime
-// report it; neither reports config API keys.
+// Neither host.auth.list nor host.auth.get_runtime reports config API keys.
 type hostAuthFile struct {
 	ID          string    `json:"id"`
 	AuthIndex   string    `json:"auth_index"`
@@ -97,8 +96,7 @@ type hostCredential struct {
 	Models    []string `json:"models"`
 }
 
-// hostCredentials lists every credential the host has loaded, config API keys
-// included, with the models each serves.
+// hostCredentials includes config API keys, with the models each serves.
 func (a *App) hostCredentials() ([]hostCredential, error) {
 	raw, err := a.hostCaller(hostAuthModels, map[string]any{})
 	if err != nil {

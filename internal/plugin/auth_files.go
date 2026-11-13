@@ -148,7 +148,6 @@ func (a *App) resolveQuotaAuthFile(req ManagementRequest, access viewAccess) (*h
 	return selected, ManagementResponse{}
 }
 
-// resolveAuthFile finds the auth file a request names, among those the caller may see.
 func (a *App) resolveAuthFile(req ManagementRequest, access viewAccess) (*hostAuthFile, ManagementResponse) {
 	authIndex := strings.TrimSpace(req.Query.Get("auth_index"))
 	if authIndex == "" || len(authIndex) > 512 {
@@ -280,8 +279,7 @@ func (a *App) authFileWeight(file hostAuthFile) *int64 {
 	return &weight
 }
 
-// Auth files are titled the way CPAMC titles them: email, then project ID, then
-// the file name. An email is never parsed out of the file name.
+// Titled as CPAMC titles auth files: email, project ID, then file name; never parse an email from the name.
 func authFileTitle(file hostAuthFile) string {
 	for _, title := range []string{file.Email, file.ProjectID} {
 		if title = cleanText(title); title != "" {

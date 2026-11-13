@@ -35,8 +35,7 @@ type PluginLogPage struct {
 	NextBeforeID int64                  `json:"next_before_id,omitempty"`
 }
 
-// Panic reporting may run before the store exists. Ignore write failures to
-// avoid logging another error through the same database.
+// Panics may be reported before the store exists, and a failed write must not log again.
 func (s *Store) AddPluginLog(level PluginLogLevel, format string, args ...any) {
 	if s == nil {
 		return

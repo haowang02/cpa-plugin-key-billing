@@ -1,5 +1,3 @@
-// One popover serves every [data-tip] anchor. A mouse has to rest on an anchor before its tooltip opens;
-// while one is open, or just after it closes, the next opens at once. Keyboard focus and touch taps open it directly.
 const HOVER_TOOLTIP_DELAY = 400;
 const HOVER_TOOLTIP_SKIP_DELAY = 300;
 let hoverTooltipAnchor = null;

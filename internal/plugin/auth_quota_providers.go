@@ -63,8 +63,7 @@ func (a *App) resetAuthQuota(callbackID string, file hostAuthFile, resetID strin
 	if err := reset(client, resetID); err != nil {
 		return false, err
 	}
-	// Upstream reset already succeeded. A missing optional callback or local
-	// cooldown error must never turn this into a failed, retryable redemption.
+	// The upstream reset already succeeded; a cooldown error must not make it a retryable failure.
 	_, err = a.hostCaller(hostRoutingResetCooldown, map[string]string{"auth_index": file.AuthIndex, "host_callback_id": callbackID})
 	return err == nil, nil
 }

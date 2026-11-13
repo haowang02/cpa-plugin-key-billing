@@ -1,4 +1,4 @@
-/* CPAMC fallbacks; standalone uses local CPAMP tokens and CPAMP overrides them from the host. */
+/* CPAMC fallbacks; standalone pages use the CPAMP tokens below, and CPAMP injects its own. */
 :root {
   --bg-secondary: #faf9f5;
   --bg-primary: #f0eee8;
@@ -13,7 +13,6 @@
   --analysis-grid-color: rgb(45 42 38 / 0.08);
   --border-primary: #d5d2cb;
   --border-hover: #cecac4;
-  /* Buttons, fields, dropdowns and toggles share one surface so controls side by side match. */
   --control-bg: var(--bg-primary);
   --control-border: var(--border-primary);
   --primary-color: #766858;
@@ -201,7 +200,6 @@
   --data-badge-neutral-border: rgb(148 163 184 / 0.2);
 }
 :root[data-cpamp-plugin-host="true"] {
-  /* Resolve plugin components from CPAMP's injected semantic tokens. */
   --bg-secondary: var(--app-bg, #eff2f7);
   --bg-primary: var(--app-surface, #fff);
   --bg-tertiary: var(--app-surface-muted, #f6faff);
@@ -258,7 +256,7 @@
   --analysis-segment-border: var(--app-surface, var(--bg-primary));
 }
 :root[data-cpamp-plugin-host="true"][data-theme="dark"] { --floating-shadow: 0 16px 34px rgb(0 0 0 / 0.55); }
-/* Renders replace whole sections, leaving scroll anchoring no node to hold; WebKit (Safari 27+, every iOS browser) then jumps. */
+/* WebKit (Safari 27+, all iOS browsers) jumps when renders remove the scroll anchor. */
 * { box-sizing: border-box; overflow-anchor: none; }
 body {
   margin: 0;
@@ -376,7 +374,7 @@ input:focus, ui-select:is(:focus-visible, :state(open)), .time-range-trigger[ari
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
   outline: none;
 }
-/* Scrolling lists clip at their padding edge, so they pad by the 3px focus ring and give the space back in margins. */
+/* Scrolling lists clip at their padding edge, so they make room for the 3px focus ring. */
 .price-reference-results, .time-range-hour-list, .column-settings { margin: -3px; padding: 3px; }
 input[type="radio"] { accent-color: var(--primary-color); }
 input[type="number"] { width: 110px; }
@@ -463,7 +461,7 @@ tbody tr:hover { background: var(--bg-hover); }
 }
 .tag.metrics .tag-value { font-weight: 600; }
 .tag.metrics .tag-separator { color: color-mix(in srgb, currentColor 40%, transparent); }
-/* CPAMP paints <html> in plugin frames, so the backdrop lives there and the blobs layer above it. */
+/* CPAMP paints <html> in plugin frames, so the backdrop goes there. */
 :root[data-cpamp-plugin-host="true"] { background: var(--app-bg-gradient, none) fixed var(--app-bg, #eff2f7); }
 :root[data-cpamp-plugin-host="true"] body {
   background: none;
@@ -508,7 +506,7 @@ tbody tr:hover { background: var(--bg-hover); }
 }
 /* CPAMP's top bar already shows the management page title. */
 :root[data-cpamp-plugin-host="true"]:not([data-cpamp-standalone]) #app[data-role="admin"] > .app-header { display: none; }
-/* CPAMC frames plugin pages edge to edge under its floating header, without the band that fades its other pages there. */
+/* CPAMC frames plugin pages edge to edge under its floating header. */
 :root:not([data-cpamp-plugin-host="true"]) { --host-header-inset: 70px; }
 :root:not([data-cpamp-plugin-host="true"]) .wrap { padding: var(--host-header-inset) clamp(20px, 3vw, 48px) 0; }
 :root:not([data-cpamp-plugin-host="true"]) .app-header { min-height: 0; margin-bottom: 24px; }
@@ -761,7 +759,6 @@ button.inline-icon-button.copied, button.inline-icon-button.copied:hover { color
   color: var(--text-primary);
 }
 body.embedded .standalone-actions { display: none; }
-/* Icon-only controls carry no frame; buttons with a label keep the bordered button look. */
 button.icon-action {
   display: grid;
   place-items: center;
@@ -815,7 +812,7 @@ button.icon-action:hover:not(:disabled) { background: color-mix(in srgb, var(--t
 .plan-details input, .plan-details ui-select, .plan-window input { width: 100%; min-width: 0; }
 .plan-window.unified { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
 .plan-window-limits { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-/* Fields in a row share label and control tracks, so neither a wrapped label nor an error moves a neighbouring input. */
+/* Shared rows keep a wrapped label or an error from moving the neighbouring input. */
 .plan-window .field { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 4px; }
 .period-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .plan-window .window-delete {
@@ -983,7 +980,7 @@ details[open] > .details-summary .lucide-chevron-icon, .routing-section-toggle[a
 .compact-toggle .switch-control { width: 24px; height: 14px; }
 .compact-toggle .switch-track::after { width: 10px; height: 10px; }
 .compact-toggle .switch-control > input:checked + .switch-track::after { transform: translateX(10px); }
-/* Keep the blur below a third of the font size so dense scripts retain separate glyphs. */
+/* Blur stays under a third of the font size so dense scripts stay legible. */
 body.privacy-masked .mask-blur { filter: blur(0.28em); }
 .credential-list { container: credential-table / inline-size; }
 .credential-table { width: 100%; min-width: 0; table-layout: auto; }
@@ -1041,7 +1038,6 @@ body.privacy-masked .mask-blur { filter: blur(0.28em); }
 .provider-icon[data-provider="vertex"] { --provider-icon-scale: 0.8; background: #fff; }
 .provider-icon[data-provider="meta"] { --provider-icon-scale: 0.7; background: #fff; }
 .provider-icon[data-provider="openai"] { --provider-icon-scale: 0.7; background: #fff; color: #000; }
-/* Marks on white keep an outline on light surfaces, marks on black on dark ones. */
 .provider-icon:is(
   [data-provider="antigravity"],
   [data-provider="codex"],
@@ -1065,7 +1061,7 @@ body.privacy-masked .mask-blur { filter: blur(0.28em); }
 @media (prefers-reduced-motion: reduce) {
   .credential-actions .loading .lucide-icon, #page-refresh:disabled .lucide-icon { animation: none; }
 }
-/* A clickable area rather than a button, so it keeps the cell's look in hosts that theme every button role. */
+/* A plain area, not a button, so hosts that theme every button leave it alone. */
 .auth-quota-open {
   min-height: 0;
   margin: -6px -8px;
@@ -1148,7 +1144,7 @@ body.privacy-masked .mask-blur { filter: blur(0.28em); }
 .ai-balance { display: grid; gap: 10px; min-width: 0; font-variant-numeric: tabular-nums; }
 .ai-balance-row { display: grid; gap: 3px; min-width: 0; }
 .ai-balance-row.depleted .credential-metric-value { color: var(--failure-badge-text); }
-/* Every detail leads with its separator; the clipped margin hides the one starting each line. */
+/* Each detail leads with a separator; the clipped margin hides the one starting a line. */
 .ai-balance-details {
   display: flex;
   flex-wrap: wrap;
@@ -1184,7 +1180,6 @@ body.privacy-masked .mask-blur { filter: blur(0.28em); }
   }
   .auth-plan-expiry .inline-icon-button { display: grid; }
 }
-/* Card cells flow in DOM order, so rows without an edit button, plan or actions need no layout of their own. */
 @container credential-table (max-width: 900px) {
   .credential-table, .credential-table tbody { display: block; }
   .credential-table thead { display: none; }
@@ -1198,7 +1193,6 @@ body.privacy-masked .mask-blur { filter: blur(0.28em); }
   .credential-metric-label { display: block; }
   .auth-quota-list { gap: 10px 16px; }
 }
-/* The edit button and the actions close the first row. */
 @container credential-table (560px < width <= 900px) {
   .credential-table .credential-row { grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto; gap: 16px; padding: 16px; }
   .credential-table .credential-identity-cell { grid-column: 1 / 4; }
@@ -1207,11 +1201,10 @@ body.privacy-masked .mask-blur { filter: blur(0.28em); }
   .credential-table .credential-actions-cell { grid-area: 1 / -2; }
   .credential-usage { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 }
-/* Only the edit button stays beside the identity; the actions close the card. */
 @container credential-table (max-width: 560px) {
   .credential-table .credential-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px 14px; padding: 14px; }
   .credential-table :is(.credential-inflight-cell, .credential-usage-cell, .credential-actions-cell) { grid-column: 1 / -1; }
-  /* The icon, not its hit area, lines up with the card's right edge. */
+  /* Aligns the icon, not its hit area, with the card edge. */
   .credential-table .credential-edit-cell { margin-right: -5px; }
   .auth-quota-list { grid-template-columns: minmax(0, 1fr); }
   .credential-actions { --icon-action-size: 30px; }
@@ -1423,7 +1416,7 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
   white-space: nowrap;
   overflow: hidden;
 }
-/* The tag is a full-height end segment; its extra end padding clears the rounded corner it is clipped to. */
+/* The extra end padding clears the rounded corner the tag is clipped to. */
 .settings-chip.has-tag { align-items: stretch; padding: 0 0 0 8px; }
 .settings-chip.has-tag > .tag { flex: none; margin-left: 3px; padding: 2px 11px 2px 8px; border-width: 0 0 0 1px; border-radius: 0; }
 .settings-chip > .lucide-icon, .settings-chip-tooltip > .lucide-icon { align-self: center; margin: 0; width: 13px; height: 13px; }
@@ -1434,7 +1427,7 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
 .key-route-cell { min-width: 125px; max-width: 190px; font-size: 12px; }
 .key-route-lines { display: grid; gap: 4px; }
 .key-route-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.65; }
-/* Collapsed lists show every rule together; otherwise each chip handles its own overflow. */
+/* A collapsed list shows every rule in one tooltip. */
 .key-route-lines[data-tip] .settings-chip { pointer-events: none; }
 .key-route-lines:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 3px; border-radius: 4px; }
 .hover-tooltip {
@@ -1473,7 +1466,6 @@ dialog.drawer[open] { display: flex; flex-direction: column; }
 .key-route-actions > button.link { min-height: 22px; font-size: 12px; }
 .compact-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .compact-actions > button.link { min-width: 0; padding: 0; white-space: nowrap; }
-/* List dialogs keep the title, its note and the actions in view while the list between them scrolls. */
 .list-dialog[open] { display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
 .list-dialog h2 { margin: 0; }
 .list-dialog h2 + p { margin: -4px 0 0; color: var(--text-secondary); overflow-wrap: anywhere; font-size: 12px; }
@@ -1827,7 +1819,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   border-top: 1px solid var(--border-color);
   font-weight: 600;
 }
-/* Host table header fills would stand out on the card or tooltip around this table. */
+/* Host header fills would stand out on the surrounding card or tooltip. */
 .compact-table { --table-header-bg: transparent; font-size: 12px; white-space: nowrap; }
 .compact-table th, .compact-table td { padding: 4px 8px; }
 .compact-table > :last-child > tr:last-child > td { border-bottom: 0; }
@@ -1943,7 +1935,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
 }
 .analysis-trend-chart { position: relative; height: 360px; min-width: 0; }
 .analysis-heading { margin-bottom: 12px; }
-/* Titles take the height of a control row, so they line up across cards with or without controls. */
+/* Titles match a control row's height so cards line up with or without controls. */
 .analysis-heading h2 { display: flex; align-items: center; min-height: 35px; margin: 0; }
 .analysis-controls { gap: 8px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
 .analysis-controls > ui-select { flex: 0 1 auto; }
@@ -2009,7 +2001,6 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .usage-distribution-chart { width: min(240px, 75vw); height: min(240px, 75vw); }
 }
 @media (max-width: 640px) {
-  /* Wrapping chips need the full width; a short value still fits beside its label. */
   .settings-entry-field:has(.settings-chip-list) { display: grid; gap: 4px; }
   .settings-entry-field:has(.settings-chip-list) > .settings-entry-label { max-width: none; }
 }

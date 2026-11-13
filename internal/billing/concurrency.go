@@ -9,9 +9,7 @@ type concurrencySlot struct {
 	CredentialRef string
 }
 
-// SlotDecision reports the result of reserving one generation concurrency
-// slot. Active is the number of slots already occupied when a request is
-// refused, or the number occupied after a successful reservation.
+// Active counts occupied slots: before a refusal, or after a successful reservation.
 type SlotDecision struct {
 	Allowed bool
 	Limit   int

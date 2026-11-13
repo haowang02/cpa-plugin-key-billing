@@ -1,4 +1,3 @@
-// Inline notices describe a state where it applies; toasts confirm what an action did. Both share kinds and icons.
 const NOTICE_ICONS = { success: "circle-check", info: "info", warning: "triangle-alert", error: "circle-alert" };
 const TOAST_LIMIT = 3;
 const toastRegion = $("toasts");
@@ -24,7 +23,6 @@ function notify(message, kind = "success") {
   for (const toast of activeToasts()) {
     if (toast.dataset.kind === kind && toast.querySelector(".toast-message").textContent === text) dismissToast(toast);
   }
-  // Warnings and errors ask for attention: they interrupt screen readers and stay twice as long.
   const urgent = kind === "warning" || kind === "error";
   const toast = el(
     "div",
@@ -54,7 +52,6 @@ function dismissToast(toast) {
   toastLifetimes.get(toast).cancel();
   const focused = document.activeElement;
   if (toast.contains(focused)) {
-    // Keyboard focus moves on to a neighbouring toast or back to where it came from.
     const toasts = activeToasts();
     const index = toasts.indexOf(toast);
     const next = (toasts[index + 1] || toasts[index - 1])?.querySelector(".toast-close");
@@ -82,7 +79,6 @@ function closeToastRegion() {
   holdToasts("focus", false);
 }
 
-// Toasts wait while they are read: under the pointer, holding focus, or in a hidden tab.
 function holdToasts(reason, held) {
   const wasHeld = toastHolds.size > 0;
   if (held) toastHolds.add(reason); else toastHolds.delete(reason);

@@ -16,7 +16,7 @@ const VIEW_PREFERENCE_PREFIX = "cpa-key-billing.view.v1.";
 
 const embedded = window.parent !== window;
 document.body.classList.toggle("embedded", embedded);
-// Each role's views, starting with the one it opens on.
+// The first view of each role is its default.
 const ROLE_TABS = {
   admin: ["keys", "analysis", "request-events", "errors", "auth-files", "ai-providers", "settings"],
   account: ["subscription", "analysis", "request-events", "errors", "auth-files", "ai-providers"]
@@ -196,8 +196,7 @@ const accountAPI = (path, opts) => api("GET", ACCOUNT_BASE + path, null, opts);
 async function settleLoads(tasks) {
   const results = await Promise.allSettled(tasks);
   const failures = results.filter((result) => result.status === "rejected").map((result) => result.reason);
-  // Let every independent read finish, but never swallow unexpected errors.
-  // Authentication takes precedence over ordinary failures and cancellation.
+  // Wait for every read; authentication errors win over other failures and cancellation.
   const failure =
     failures.find((error) => error instanceof AuthError) || failures.find((error) => !(error instanceof StaleRequestError)) || failures[0];
   if (failure) throw failure;

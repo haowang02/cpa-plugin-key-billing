@@ -27,8 +27,6 @@ func admissionPluginLogs(t *testing.T, store *Store) []PluginLog {
 	return kept
 }
 
-// A client that retries a blocked key would otherwise write the same line into
-// the log on every attempt.
 func TestQuotaBlockIsReportedOncePerCycle(t *testing.T) {
 	store := failingStore(t)
 	cycle := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
@@ -53,7 +51,6 @@ func TestQuotaBlockIsReportedOncePerCycle(t *testing.T) {
 		}
 	}
 
-	// The next window is a new exhaustion and worth saying again.
 	rolled := blocked
 	rolled.Windows = append([]QuotaWindowView(nil), blocked.Windows...)
 	rolled.Windows[0].StartAt = cycle.Add(7 * 24 * time.Hour)
@@ -62,7 +59,6 @@ func TestQuotaBlockIsReportedOncePerCycle(t *testing.T) {
 		t.Fatalf("events = %+v, want the new window reported", events)
 	}
 
-	// A key that is not blocked has nothing to report.
 	store.ReportQuotaBlock("scope-a", "/v1/messages", Decision{Allowed: true})
 	if events := admissionPluginLogs(t, store); len(events) != 2 {
 		t.Fatalf("events = %+v, want an allowed request left out", events)

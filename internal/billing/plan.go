@@ -145,8 +145,7 @@ func (s *State) FindPlan(id string) *Plan {
 	return nil
 }
 
-// CreatePlanWithBindings creates a plan and binds the selected currently
-// unbound keys in the same state transaction. A plan without a currency is in USD.
+// A plan without a currency is in USD.
 func (s *Store) CreatePlanWithBindings(plan Plan, scopes []string) (Plan, error) {
 	plan.ID = strings.TrimSpace(plan.ID)
 	plan.Name = strings.TrimSpace(plan.Name)
@@ -201,9 +200,7 @@ type PlanPatch struct {
 	SharedQuota *bool          `json:"shared_quota,omitempty"`
 }
 
-// UpdatePlanWithBindings applies a plan edit and, when scopes is non-nil,
-// replaces the plan's complete key set. Selected keys may be unbound or already
-// on this plan; keys owned by another plan are rejected atomically.
+// A nil scopes keeps the bindings; keys owned by another plan reject the whole edit.
 func (s *Store) UpdatePlanWithBindings(patch PlanPatch, scopes *[]string) (Plan, error) {
 	patch.ID = strings.TrimSpace(patch.ID)
 	if patch.ID == "" {

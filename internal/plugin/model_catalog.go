@@ -12,17 +12,13 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-// Model catalogs list only the models a key's routing rules let it call. This
-// keeps client model pickers accurate; admission still enforces the rules, so
-// a request may simply ask for the full catalog.
+// Catalogs list only the models a key's routing rules allow; admission still enforces the rules.
 const (
 	modelCatalogHeader       = "X-CPA-Key-Billing-Models"
 	claudeCloakedModelPrefix = "claude-fable-5-dd-"
 )
 
-// Every non-streaming execution response also passes through this hook, with
-// its full bodies. Only a model catalog names no model, so decode the rest of
-// the request only for one.
+// Every non-streaming response passes through this hook; only a model catalog names no model.
 func (a *App) interceptResponse(raw []byte) ([]byte, error) {
 	if !a.store.Enabled() {
 		return OKEnvelope(ResponseInterceptResponse{})
@@ -168,8 +164,7 @@ func uncloakedModelID(id string) string {
 	return string(runes)
 }
 
-// filter drops the entries keep rejects and returns the new body, which is nil
-// when every entry stays. Claude catalogs also name their first and last IDs.
+// Returns a nil body when every entry stays. Claude catalogs also name their first and last IDs.
 func (c modelCatalog) filter(keep []bool) (body []byte, listed int) {
 	kept := make([]json.RawMessage, 0, len(c.entries))
 	for i, entry := range c.entries {

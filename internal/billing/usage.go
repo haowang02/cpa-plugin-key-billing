@@ -2,9 +2,8 @@ package billing
 
 import "time"
 
-// Usage costs sum in USD, converting CNY costs at the configured rate.
-// ChargedIn is the one currency every cost in a sum was charged in, empty when
-// they mix currencies or cost nothing, so that a display can keep it.
+// Costs sum in USD at the configured rate. ChargedIn is the one currency of every summed cost, empty when
+// they mix or cost nothing.
 type CredentialUsageStats struct {
 	Requests        int64    `json:"requests"`
 	Failed          int64    `json:"failed"`
@@ -15,8 +14,7 @@ type CredentialUsageStats struct {
 	ChargedIn       Currency `json:"charged_in,omitempty"`
 }
 
-// ModelUsage is one model's part of a usage total, most tokens first.
-// InputTokens include cached ones.
+// Most tokens first; InputTokens include cached ones.
 type ModelUsage struct {
 	Model            string   `json:"model"`
 	Requests         int64    `json:"requests"`
@@ -34,30 +32,24 @@ type UsageTotal struct {
 	ChargedIn Currency `json:"charged_in,omitempty"`
 }
 
-// UsageQuery selects the requests made from From until To that match every
-// other field set; a list matches any of its values. Its JSON gives the usage
-// endpoint's parameters for the same requests.
+// UsageQuery selects requests from From until To matching every set field; a list matches any of its values.
 type UsageQuery struct {
 	From      time.Time `json:"from"`
 	To        time.Time `json:"to"`
 	AuthIndex string    `json:"auth_index,omitempty"`
 	Provider  string    `json:"provider,omitempty"`
 	ModelMatch
-	// The usage distribution's rows: keys, the models usage is attributed to,
-	// and credentials. The endpoint names them by dimension.
 	KeyScopes   []string `json:"-"`
 	Models      []string `json:"-"`
 	Credentials []string `json:"-"`
 }
 
-// ModelMatch selects upstream models containing one of Include and none of
-// Exclude, ignoring case. An empty Include matches every model.
+// An empty Include matches every model; matching ignores case.
 type ModelMatch struct {
 	Include []string `json:"include,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
 }
 
-// A non-empty scope limits usage to one API key's requests.
 func (s *Store) CredentialUsageStats(authIndexes []string, scope string, from, to time.Time) (map[string]CredentialUsageStats, error) {
 	return withRepository(s, func(repo Repository) (map[string]CredentialUsageStats, error) {
 		from, to, err := s.cfg.usageTimeRange(from, to, s.Now())

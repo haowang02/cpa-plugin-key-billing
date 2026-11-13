@@ -86,8 +86,6 @@ func TestModelCatalogKeepsAllowedModelsInEveryFormat(t *testing.T) {
 	}
 }
 
-// CLIProxyAPI authenticates the first configured key among Authorization,
-// X-Goog-Api-Key and X-Api-Key; management panels see the whole proxy.
 func TestModelCatalogFollowsTheAuthenticatedKey(t *testing.T) {
 	app := catalogApp(t, billing.RouteRule{DeniedModels: []string{"gpt-5.6"}})
 	const catalog = `{"data":[{"id":"gpt-5.5"},{"id":"gpt-5.6"}]}`

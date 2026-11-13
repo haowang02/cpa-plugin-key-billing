@@ -1,8 +1,5 @@
-// A filter narrows a view by one field: a choice among options(account), an on/off toggle, or a search term.
-// Choices and toggles persist with the role's view preferences; search terms last for the session.
-// A filter may also declare the query its options come from (source) and how to read it (load).
+// A filter is a choice among options(account), a toggle or a search term, optionally with a source query and load(); choices and toggles persist per role, search terms per session.
 const filterValues = { admin: new Map(), account: new Map() };
-// Selects records whose field is empty, such as requests without an API key.
 const EMPTY_FIELD = "__empty__";
 
 function searchFilter(id) { return { id, label: m("ui.keyword"), icon: "search", search: true }; }
@@ -36,7 +33,6 @@ function filterActive(account, filter) {
 
 function filterSnapshot(account, filters) { return JSON.stringify(filters.map((filter) => filterValue(account, filter))); }
 
-// Maps query fields to the filters that set them; an empty-field choice sets field_empty.
 function filterQuery(account, fields) {
   const query = {};
   for (const [field, filter] of Object.entries(fields)) {
@@ -54,8 +50,6 @@ function filterOptions(account, filter) {
   return options;
 }
 
-// A bar shows each active filter as a chip; its menu lists every filter beside the choices of one; apply(filter) runs after a change.
-// Its state lives on its element: the filters it shows, the chips it drew, and the search filter being edited.
 function renderFilterBar(target, account, filters, apply) {
   const bar = (target.filterBar ||= { target, chips: "", editing: null });
   Object.assign(bar, { account, filters, apply });
@@ -120,7 +114,6 @@ function filterChip(bar, filter) {
   return chip;
 }
 
-// An emptied search chip stays while its field has focus, and leaves once the field loses it.
 function searchFilterChip(bar, filter, remove) {
   const input = el("input", {
     type: "search",

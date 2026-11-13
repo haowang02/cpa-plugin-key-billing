@@ -6,11 +6,6 @@ const SORTABLE_SCROLL_STEP_PX = 14;
 
 function sortableDuration() { return matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : SORTABLE_MOVE_MS; }
 
-// Lets the children of a vertical list be reordered through their handles.
-// A dragged item follows the pointer while the others slide aside, and the DOM
-// order changes only after it settles into its slot. Escape returns it to its
-// origin. Arrow keys on a focused handle move its item by one place.
-// moved(item) runs after every change of order.
 function makeSortable(list, handleSelector, moved) {
   let drag = null;
   let settling = false;
@@ -34,7 +29,6 @@ function makeSortable(list, handleSelector, moved) {
     shiftItems(drag);
   };
 
-  // Holding the pointer near an edge keeps scrolling, faster the deeper it goes.
   const autoScroll = () => {
     const box = list.getBoundingClientRect();
     const above = box.top + SORTABLE_EDGE_PX - drag.y, below = drag.y - box.bottom + SORTABLE_EDGE_PX;
@@ -60,7 +54,7 @@ function makeSortable(list, handleSelector, moved) {
       easing: SORTABLE_EASING
     })
       .finished.then(() => {
-        // Without transitions, clearing the shifts and reordering show the same layout.
+        // Without transitions, clearing the shifts and reordering look the same.
         list.classList.remove("sorting");
         item.classList.remove("dragging");
         for (const other of items) other.style.transform = "";

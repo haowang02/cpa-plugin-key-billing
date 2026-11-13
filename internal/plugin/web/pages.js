@@ -1,5 +1,3 @@
-// A page owns its displays, editors, filters and menu actions. Loading and refresh use the union of
-// their sources; rendering uses only each display's own dependencies, and the page's filter values.
 function createPages(role) {
   const account = role === "account";
   const data = {
@@ -102,7 +100,6 @@ function createPages(role) {
       page.load = page.list.load;
       page.renderStatus = () => { if (page.list.data) page.list.renderStatus(); };
     }
-    // Pages that show amounts load the exchange rate to convert them.
     const rate = page.currency ? [data.currency] : [];
     const filterSources = page.filters.map((filter) => filter.source).filter(Boolean);
     page.sources = [
@@ -124,8 +121,6 @@ const pages = { admin: createPages("admin"), account: createPages("account") };
 
 function currentPage() { return currentRole ? pages[currentRole][currentTab] : null; }
 
-// Cached navigation only paints changed sections. A refresh retains the
-// existing DOM until new data arrives; hidden pages are painted on entry.
 function renderPage() {
   const page = currentPage();
   if (!page) return;
@@ -147,7 +142,7 @@ function renderPage() {
   page.renderStatus?.();
 }
 
-// Server-side filters start a new read before the page repaints, so it shows that read instead of stale rows.
+// Start the read before repainting so stale rows never show.
 function refilterPage() {
   const task = currentPage().load?.(false);
   renderPage();
@@ -169,8 +164,7 @@ function loadPage(account, { reload = false } = {}) {
     }
     renderPage();
     try { await settleLoads(tasks); } catch (error) {
-      // Hidden pages keep their errors for the next visit. Only an
-      // authentication failure concerns the whole session.
+      // Hidden pages keep their errors; only authentication failures concern the session.
       if (currentPage() === page || error instanceof AuthError) throw error;
     }
   })().finally(() => {
@@ -185,7 +179,6 @@ function loadPage(account, { reload = false } = {}) {
 
 function renderDataNotice() {
   const page = currentPage();
-  // Paged lists display their own loading and error states.
   const listQuery = page.list?.query;
   const visible = page.sources.filter((source) => source !== listQuery);
   const errors = visible.filter((source) => source.error).map((source) =>

@@ -110,7 +110,6 @@
 .toolbar-button .lucide-icon { width: 16px; height: 16px; color: var(--text-secondary); }
 .toolbar-button[aria-expanded="true"] { border-color: var(--border-hover); background: var(--bg-hover); }
 .toolbar-button[aria-pressed="true"] .lucide-icon { color: var(--primary-active); }
-/* Refresh and its auto refresh interval form one split control. */
 .refresh-control { display: inline-flex; }
 .refresh-control:has(> #auto-refresh:not(.hidden)) > #page-refresh { border-start-end-radius: 0; border-end-end-radius: 0; }
 #auto-refresh { margin-left: -1px; border-start-start-radius: 0; border-end-start-radius: 0; font-variant-numeric: tabular-nums; }
@@ -205,8 +204,7 @@
 :root[data-cpamp-plugin-host="true"] .toolbar-button { min-width: 34px; }
 :root[data-cpamp-plugin-host="true"] .filter-chip { min-height: 34px; }
 
-/* Phones keep the view and actions on the first line. An empty full-width item ends it,
-   so the time range and filters flow below from the left edge and wrap together. */
+/* Phones keep the view and actions on the first line; the empty full-width item pushes the rest below. */
 @media (max-width: 640px) {
   .toolbar { flex-wrap: wrap; align-items: center; gap: 0 8px; }
   .toolbar::after { content: ""; order: 1; flex-basis: 100%; }

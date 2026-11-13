@@ -1,5 +1,4 @@
-// A select whose option children stay the data, so callers keep the select API: value, options,
-// selectedIndex, selectedOptions, disabled and change events. It sizes to the selected label.
+// The option children stay the data, so callers keep the native select API.
 class UISelect extends HTMLElement {
   static formAssociated = true;
   static observedAttributes = ["disabled", "placeholder"];
@@ -35,7 +34,7 @@ class UISelect extends HTMLElement {
 
   connectedCallback() { this.#render(); }
 
-  // Renders replace controls, so a menu never outlives the control that opened it.
+  // Renders replace controls, so close the menu with its control.
   disconnectedCallback() { if (this.#menuOpen) choiceMenu.hidePopover(); }
 
   attributeChangedCallback(name) {
@@ -54,7 +53,6 @@ class UISelect extends HTMLElement {
   get disabled() { return this.hasAttribute("disabled"); }
   set disabled(value) { this.toggleAttribute("disabled", !!value); }
 
-  // Without a placeholder, an unmatched value falls back to the first enabled option.
   #selected() {
     const options = this.options;
     return (
@@ -72,7 +70,7 @@ class UISelect extends HTMLElement {
     this.tabIndex = this.disabled ? -1 : 0;
     this.#internals.ariaDisabled = String(this.disabled);
     const selected = this.#selected();
-    // A fallback choice becomes selected, so option:checked matches what the control shows.
+    // Mark a fallback selected so option:checked matches the label.
     if (selected) selected.selected = true;
     setText(this.#label, selected?.label ?? this.getAttribute("placeholder") ?? "");
     if (selected) this.#internals.states.delete("placeholder"); else this.#internals.states.add("placeholder");

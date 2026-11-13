@@ -14,7 +14,6 @@ const (
 	KindConflict ErrorKind = "conflict"
 )
 
-// Msg is operator-facing; callers classify the error with KindOf.
 type Error struct {
 	Kind   ErrorKind
 	Msg    string

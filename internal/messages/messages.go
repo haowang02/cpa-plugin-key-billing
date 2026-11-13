@@ -1,5 +1,4 @@
-// Package messages attaches stable translation metadata at message creation.
-// It never attempts to interpret user data or match rendered error sentences.
+// Package messages attaches translation metadata at creation and never interprets user data.
 package messages
 
 import (
@@ -33,7 +32,6 @@ type Message struct {
 
 func (m Message) IsZero() bool { return m.Key == "" }
 
-// New accepts a source template and its arguments, before formatting loses context.
 func New(format string, args ...any) Message {
 	text := format
 	if len(args) > 0 {
@@ -54,8 +52,7 @@ func New(format string, args ...any) Message {
 	return result
 }
 
-// Literal describes a known, unformatted source message without treating raw
-// diagnostics containing percent signs as formatting instructions.
+// Literal keeps percent signs in raw diagnostics from being read as format verbs.
 func Literal(text string) Message { return New(text, []any{}...) }
 
 type describedError struct {
@@ -77,9 +74,7 @@ func FromError(err error) Message {
 	if err == nil {
 		return Message{}
 	}
-	// Only the error that owns the full message can supply its translation.
-	// Looking through arbitrary wrappers would lose their context; matching raw
-	// upstream text against the catalog could translate user-provided content.
+	// Only the error owning the full message may translate it; matching raw upstream text could translate user content.
 	if described, ok := err.(interface{ MessageDetail() Message }); ok {
 		return described.MessageDetail()
 	}

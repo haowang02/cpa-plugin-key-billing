@@ -62,7 +62,6 @@ function authFileMeta(file) {
   );
 }
 
-// Wide tables show one form of a plan's expiry; switching it applies to every row.
 let authPlanShowsEndTime = false;
 
 function renderAuthFilePlan(file) {
@@ -155,7 +154,6 @@ function readAuthFiles(account, reload = false) {
         account ? accountAPI(path) : plugin("GET", path),
         account ? null : readCPAAuthSubscriptions()
       ]);
-      // A breakdown selects the same requests as its total.
       return result.files.map((file) => ({
         ...file,
         subscription_until: subscriptions?.get(file.auth_index),
@@ -199,8 +197,7 @@ function filteredAuthFiles(account) {
   });
 }
 
-// A window whose reset time has passed has reported nothing of its next period. Like a window nobody has used,
-// that period resets one window length after its first request.
+// An elapsed window reports nothing of its next period, which, like an unused window, resets one length after its first request.
 function quotaResetMeta(row) {
   const resetAt = Date.parse(row.reset_at);
   if (!Number.isFinite(resetAt)) return null;
@@ -238,11 +235,9 @@ function quotaLabels(row) {
   return { group, label: windowLabel, full };
 }
 
-// Usage covers a window's period. An estimate scales it to the whole window by the share already used,
-// so it needs both a used share and recorded usage.
+// Scaling to the whole window needs both a used share and recorded usage.
 function quotaEstimateScale(usedPercent, usage) { return usedPercent > 0 && usage.tokens > 0 ? 100 / usedPercent : 0; }
 
-// Usage left out is usage not collected yet.
 function renderQuotaMetrics(usage, scale = 1, tooltip = null) {
   const known = usage && scale;
   const metric = (icon, label, value) =>
@@ -279,7 +274,6 @@ function renderQuotaBar(percent, label) {
 function renderQuotaRow(row, account, estimate) {
   const { label, full } = quotaLabels(row);
   const reset = quotaResetMeta(row);
-  // A reset starts the counter over.
   const shown = reset?.elapsed ? { ...row, remaining_percent: 100, used: row.used === undefined ? undefined : 0, usage: null } : row;
   const percent = shown.remaining_percent;
   // The row sits inside the button that opens the drawer, so its tooltips are hover-only.
@@ -335,7 +329,6 @@ function renderAuthQuotaRows(rows, account, estimate) {
   );
 }
 
-// Resets that have expired since the quota was queried are gone.
 function authQuotaResets(quota) {
   const listed = quota?.rate_limit_reset_credits || [];
   const credits = listed.filter((credit) => !(Date.parse(credit.expires_at) <= Date.now()));
@@ -663,7 +656,6 @@ async function resetAuthQuota(file, account) {
   );
 }
 
-// Callers own rendering of queried quotas.
 async function loadAuthQuota(file, account) {
   const owner = account ? accountUIState : adminUIState;
   const role = account ? "account" : "admin";
