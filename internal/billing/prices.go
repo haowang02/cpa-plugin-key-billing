@@ -23,6 +23,7 @@ type PriceRow struct {
 	Source             PriceSource `json:"source"`
 	InModels           bool        `json:"in_models"`
 	CustomPriceModelID string      `json:"custom_price_model_id,omitempty"`
+	Lab                ModelLab    `json:"lab,omitzero"`
 }
 
 // Display reads never populate the call LRU.
@@ -51,7 +52,7 @@ func (s *Store) ModelPriceRows(models []string, includeCustom bool) ([]PriceRow,
 	pricingState := &State{Prices: custom}
 	seen := make(map[string]bool, len(names))
 	rows := make([]PriceRow, 0, len(names))
-	missing := []string{}
+	modelIDs := make([]string, 0, len(names))
 	for _, name := range names {
 		name = strings.TrimSpace(name)
 		key := NormalizeModelID(name)
@@ -71,17 +72,21 @@ func (s *Store) ModelPriceRows(models []string, includeCustom bool) ([]PriceRow,
 		} else if rates, found := resolveBuiltinRates(billingModel); found {
 			row.Currency, row.PriceRates = USD, rates
 			row.Source = PriceSourceBuiltin
-		} else {
-			missing = append(missing, name)
 		}
 		rows = append(rows, row)
+		modelIDs = append(modelIDs, name)
 	}
-	matched, err := references.lookupModels(ctx, missing)
+	entries, err := references.lookupModels(ctx, modelIDs)
 	if err != nil {
 		return nil, err
 	}
 	for i := range rows {
-		if price, found := matched[rows[i].ModelID]; found {
+		modelEntries := entries[rows[i].ModelID]
+		rows[i].Lab = referenceLab(modelEntries)
+		if rows[i].Source != PriceSourceNone {
+			continue
+		}
+		if price, found := matchReferenceEntries(modelEntries); found {
 			rows[i].Currency, rows[i].PriceRates = USD, *price.PriceRates
 			rows[i].Source = PriceSourceReference
 		}

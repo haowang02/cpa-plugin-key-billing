@@ -1,11 +1,42 @@
-const PRICE_SEARCH_FILTER = searchFilter("price-search");
+const PRICE_SOURCES = {
+  custom: { label: m("ui.custom"), tone: "ok" },
+  builtin: { label: m("ui.built_in"), tone: "plain" },
+  reference: { label: m("ui.reference"), tone: "info" },
+  none: { label: m("ui.unpriced"), tone: "warn" }
+};
+
+const PRICE_FILTERS = {
+  lab: {
+    id: "price-lab",
+    label: m("ui.model_lab"),
+    icon: "flask-conical",
+    searchable: true,
+    options: () =>
+      [...Map.groupBy(priceRows(), (row) => row.lab?.id || EMPTY_FIELD)]
+        .map(([value, rows]) => ({ value, label: rows[0].lab?.name || m("ui.other"), detail: int(rows.length) }))
+        .sort((a, b) => (a.value === EMPTY_FIELD) - (b.value === EMPTY_FIELD) || a.label.localeCompare(b.label)),
+    describe: (value) => (value === EMPTY_FIELD ? m("ui.other") : value)
+  },
+  source: {
+    id: "price-source",
+    label: m("ui.source"),
+    icon: "tag",
+    options: () =>
+      Object.entries(PRICE_SOURCES).map(([value, { label }]) => ({
+        value,
+        label,
+        detail: int(priceRows().filter((row) => row.source === value).length)
+      }))
+  },
+  search: searchFilter("price-search")
+};
 
 const priceSelection = createTableSelection({
   id: (price) => price.custom_price_model_id || price.model_id,
   label: (price) => price.model_id,
   eligible: (price) => price.source === "custom",
   disabledTip: m("ui.batch_custom_prices_only"),
-  context: () => filterValue(false, PRICE_SEARCH_FILTER).trim().toLowerCase(),
+  context: () => filterSnapshot(false, Object.values(PRICE_FILTERS)),
   render: renderPriceTable,
   actions: (prices) => [priceSelection.action(m("ui.delete_custom_prices"), prices, deleteSelectedPrices, true)]
 });
@@ -19,17 +50,11 @@ function deleteSelectedPrices(prices) {
 }
 
 function priceSourceTag(source) {
-  switch (source) {
-    case "custom":
-      return el("span", { class: "tag ok", text: m("ui.custom") });
-    case "builtin":
-      return el("span", { class: "tag plain", text: m("ui.built_in") });
-    case "reference":
-      return el("span", { class: "tag info", text: m("ui.reference") });
-    default:
-      return el("span", { class: "tag warn", text: m("ui.unpriced") });
-  }
+  const { label, tone } = PRICE_SOURCES[source];
+  return el("span", { class: "tag " + tone, text: label });
 }
+
+function priceRows() { return resources.admin.catalog.value?.prices || []; }
 
 const PRICE_FIELDS = [
   ["input_per_1m", "ui.input"],
@@ -88,10 +113,15 @@ function longContextPrices(row) {
 }
 
 function renderPriceTable() {
-  renderFilterBar($("price-filters"), false, [PRICE_SEARCH_FILTER], renderPriceTable);
+  renderFilterBar($("price-filters"), false, Object.values(PRICE_FILTERS), renderPriceTable);
   if (renderDataPending($("prices-body"), [resources.admin.catalog], m("ui.loading_model_prices"))) return;
-  const filter = filterValue(false, PRICE_SEARCH_FILTER).trim().toLowerCase();
-  const rows = resources.admin.catalog.value.prices.filter((row) => !filter || row.model_id.toLowerCase().includes(filter))
+  const lab = filterValue(false, PRICE_FILTERS.lab);
+  const source = filterValue(false, PRICE_FILTERS.source);
+  const term = filterValue(false, PRICE_FILTERS.search).trim().toLowerCase();
+  const rows = priceRows().filter(
+    (row) =>
+      (!lab || (row.lab?.id || EMPTY_FIELD) === lab) && (!source || row.source === source) && row.model_id.toLowerCase().includes(term)
+  )
     .sort((a, b) => compareModelId(a.model_id, b.model_id));
   const renderRow = (row) => {
     const priced = row.source !== "none";

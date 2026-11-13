@@ -62,11 +62,38 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 25 {
 		steps = append(steps, migrateQuotaQueries)
 	}
-	steps = append(steps, migrateEffectiveServiceTier)
+	if version <= 26 {
+		steps = append(steps, migrateEffectiveServiceTier)
+	}
+	steps = append(steps, migrateReferenceLabs)
 	for _, step := range steps {
 		if err := step(tx); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// Schema 28 adds reference labs; a cleared hash makes the next sync refill them while stored prices stay usable.
+func migrateReferenceLabs(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+        ALTER TABLE reference_prices RENAME TO reference_prices_v27;
+        CREATE TABLE reference_prices (
+            provider_id  TEXT    NOT NULL,
+            model_id     TEXT    NOT NULL,
+            match_key    TEXT    NOT NULL,
+            is_canonical INTEGER NOT NULL,
+            lab_id       TEXT    NOT NULL DEFAULT '',
+            lab_name     TEXT    NOT NULL DEFAULT '',
+            rates_json   TEXT,
+            PRIMARY KEY (provider_id, model_id)
+        );
+        INSERT INTO reference_prices(provider_id, model_id, match_key, is_canonical, rates_json)
+            SELECT provider_id, model_id, match_key, is_canonical, rates_json FROM reference_prices_v27;
+        DROP TABLE reference_prices_v27;
+        UPDATE reference_prices_metadata SET content_hash = '';
+    `); err != nil {
+		return fmt.Errorf("Add reference model labs: %w", err)
 	}
 	return nil
 }

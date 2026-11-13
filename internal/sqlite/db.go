@@ -17,7 +17,7 @@ import (
 	"cpa-key-billing/internal/billing"
 )
 
-const schemaVersion = 27
+const schemaVersion = 28
 
 type DB struct {
 	db   *sql.DB
@@ -76,7 +76,7 @@ func (d *DB) initSchema(tx *sql.Tx, storedHeaders StoredQuotaHeaders) error {
 		return fmt.Errorf("Read billing database %s: %w", d.path, err)
 	}
 	switch version {
-	case 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26:
+	case 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27:
 		if err := migrateSchema(tx, version, storedHeaders); err != nil {
 			return err
 		}

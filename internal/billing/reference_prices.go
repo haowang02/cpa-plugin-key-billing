@@ -16,11 +16,17 @@ const referencePriceOperationTimeout = 40 * time.Second
 
 type referencePriceStorageError struct{ error }
 
+type ModelLab struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // Nil rates mean the cost is absent or not representable by the supported token rates.
 type ReferencePrice struct {
-	ProviderID  string `json:"provider_id"`
-	ModelID     string `json:"model_id"`
-	IsCanonical bool   `json:"is_canonical"`
+	ProviderID  string   `json:"provider_id"`
+	ModelID     string   `json:"model_id"`
+	IsCanonical bool     `json:"is_canonical"`
+	Lab         ModelLab `json:"lab,omitzero"`
 	*PriceRates
 }
 
@@ -155,15 +161,20 @@ func referencePriceKeys(upstream, requested string) []string {
 	return keys
 }
 
-func matchReferencePriceKeys(prices []ReferencePrice, keys []string) (ReferencePrice, bool) {
+// referenceEntries returns the entries under the first key that has any.
+func referenceEntries(prices []ReferencePrice, keys []string) []ReferencePrice {
 	for _, key := range keys {
+		var entries []ReferencePrice
 		for _, price := range prices {
 			if ReferenceModelKey(price.ModelID) == key {
-				return matchReferencePriceKey(key, prices)
+				entries = append(entries, price)
 			}
 		}
+		if len(entries) > 0 {
+			return entries
+		}
 	}
-	return ReferencePrice{}, false
+	return nil
 }
 
 func (references *referencePriceManager) lookup(ctx context.Context, upstream, model string) (referencePriceMatch, error) {
@@ -201,7 +212,7 @@ func (references *referencePriceManager) lookup(ctx context.Context, upstream, m
 	if err != nil {
 		return referencePriceMatch{}, err
 	}
-	price, found := matchReferencePriceKeys(prices, keys)
+	price, found := matchReferenceEntries(referenceEntries(prices, keys))
 	references.mu.Lock()
 	defer references.mu.Unlock()
 	if element := references.entries[key]; element != nil {
@@ -222,7 +233,7 @@ func (references *referencePriceManager) lookup(ctx context.Context, upstream, m
 }
 
 func referencePricesNeedRefresh(metadata ReferencePriceMetadata, found bool, now time.Time) bool {
-	if !metadata.Usable || metadata.FetchedAt.IsZero() {
+	if !metadata.Usable || metadata.FetchedAt.IsZero() || metadata.ContentHash == "" {
 		return true
 	}
 	age := now.Sub(metadata.FetchedAt)
@@ -392,9 +403,10 @@ func (s *Store) SearchReferencePrices(query string, limit int) ([]ReferencePrice
 	return references.repository.SearchReferencePrices(ctx, query, min(max(limit, 1), 50))
 }
 
-// lookupModels never changes the request cache; batches keep SQLite parameters bounded.
-func (references *referencePriceManager) lookupModels(ctx context.Context, models []string) (map[string]ReferencePrice, error) {
-	matched := make(map[string]ReferencePrice)
+// lookupModels returns each model's reference entries without changing the request cache;
+// batches keep SQLite parameters bounded.
+func (references *referencePriceManager) lookupModels(ctx context.Context, models []string) (map[string][]ReferencePrice, error) {
+	matched := make(map[string][]ReferencePrice)
 	if references == nil || len(models) == 0 {
 		return matched, nil
 	}
@@ -424,19 +436,17 @@ func (references *referencePriceManager) lookupModels(ctx context.Context, model
 		if err != nil {
 			return nil, err
 		}
-		candidatesByKey := make(map[string][]ReferencePrice)
+		entriesByKey := make(map[string][]ReferencePrice)
 		for _, price := range prices {
 			key := ReferenceModelKey(price.ModelID)
-			candidatesByKey[key] = append(candidatesByKey[key], price)
+			entriesByKey[key] = append(entriesByKey[key], price)
 		}
 		for _, model := range batch {
-			modelKeys := referencePriceKeys(model, model)
-			var candidates []ReferencePrice
-			for _, key := range modelKeys {
-				candidates = append(candidates, candidatesByKey[key]...)
-			}
-			if price, found := matchReferencePriceKeys(candidates, modelKeys); found {
-				matched[model] = price
+			for _, key := range referencePriceKeys(model, model) {
+				if entries := entriesByKey[key]; len(entries) > 0 {
+					matched[model] = entries
+					break
+				}
 			}
 		}
 	}
@@ -452,27 +462,18 @@ func ReferenceModelKey(modelID string) string {
 	return key
 }
 
-// MatchReferencePrice prefers the canonical source; otherwise all providers must agree, and an absent or
-// conflicting rate leaves the model unpriced.
 func MatchReferencePrice(modelID string, candidates []ReferencePrice) (ReferencePrice, bool) {
-	return matchReferencePriceKeys(candidates, referencePriceKeys(modelID, modelID))
+	return matchReferenceEntries(referenceEntries(candidates, referencePriceKeys(modelID, modelID)))
 }
 
-func matchReferencePriceKey(key string, candidates []ReferencePrice) (ReferencePrice, bool) {
-	if key == "" {
-		return ReferencePrice{}, false
-	}
-	canonical := false
-	for _, price := range candidates {
-		if price.IsCanonical && ReferenceModelKey(price.ModelID) == key {
-			canonical = true
-			break
-		}
-	}
+// matchReferenceEntries prefers the canonical source; otherwise all providers must agree, and an absent or
+// conflicting rate leaves the model unpriced.
+func matchReferenceEntries(entries []ReferencePrice) (ReferencePrice, bool) {
+	canonical := slices.ContainsFunc(entries, func(price ReferencePrice) bool { return price.IsCanonical })
 	var matched ReferencePrice
 	found := false
-	for _, price := range candidates {
-		if ReferenceModelKey(price.ModelID) != key || (canonical && !price.IsCanonical) {
+	for _, price := range entries {
+		if canonical && !price.IsCanonical {
 			continue
 		}
 		if price.PriceRates == nil {
@@ -487,4 +488,19 @@ func matchReferencePriceKey(key string, candidates []ReferencePrice) (ReferenceP
 		}
 	}
 	return matched, found
+}
+
+// referenceLab is the lab every entry that names one agrees on.
+func referenceLab(entries []ReferencePrice) ModelLab {
+	var lab ModelLab
+	for _, price := range entries {
+		if price.Lab.ID == "" {
+			continue
+		}
+		if lab.ID != "" && lab.ID != price.Lab.ID {
+			return ModelLab{}
+		}
+		lab = price.Lab
+	}
+	return lab
 }

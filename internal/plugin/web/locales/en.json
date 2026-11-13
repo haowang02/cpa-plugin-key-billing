@@ -201,6 +201,7 @@
   "ui.hourly_peak": "Hourly peak",
   "ui.model": "Model",
   "ui.source": "Source",
+  "ui.model_lab": "Model lab",
   "ui.usage_distribution_metric": "Usage distribution metric",
   "ui.usage_trend": "Usage trend",
   "ui.usage_trend_chart": "Usage trend chart",

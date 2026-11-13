@@ -201,6 +201,7 @@
   "ui.hourly_peak": "按小时峰值",
   "ui.model": "模型",
   "ui.source": "来源",
+  "ui.model_lab": "研发机构",
   "ui.usage_distribution_metric": "用量分布统计方式",
   "ui.usage_trend": "用量趋势",
   "ui.usage_trend_chart": "用量趋势组合图",

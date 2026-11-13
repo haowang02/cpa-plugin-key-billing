@@ -43,7 +43,7 @@ func (d *DB) LoadReferencePriceMetadata(ctx context.Context) (billing.ReferenceP
 	if err != nil {
 		return metadata, fmt.Errorf("Check reference price integrity: %w", err)
 	}
-	metadata.Usable = metadata.ContentHash != "" && modelCount == metadata.ModelCount && pricedCount > 0
+	metadata.Usable = modelCount == metadata.ModelCount && pricedCount > 0
 	return metadata, nil
 }
 
@@ -93,8 +93,8 @@ func replaceReferencePrices(ctx context.Context, tx *sql.Tx, prices []billing.Re
 		return err
 	}
 	priceStatement, err := tx.PrepareContext(ctx, `
-        INSERT INTO reference_prices(provider_id, model_id, match_key, is_canonical, rates_json)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO reference_prices(provider_id, model_id, match_key, is_canonical, lab_id, lab_name, rates_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
 	if err != nil {
 		return err
@@ -113,7 +113,8 @@ func replaceReferencePrices(ctx context.Context, tx *sql.Tx, prices []billing.Re
 			}
 			ratesJSON = string(encoded)
 		}
-		if _, err := priceStatement.ExecContext(ctx, price.ProviderID, price.ModelID, billing.ReferenceModelKey(price.ModelID), price.IsCanonical, ratesJSON); err != nil {
+		if _, err := priceStatement.ExecContext(ctx, price.ProviderID, price.ModelID, billing.ReferenceModelKey(price.ModelID),
+			price.IsCanonical, price.Lab.ID, price.Lab.Name, ratesJSON); err != nil {
 			return fmt.Errorf("Save reference price %s/%s: %w", price.ProviderID, price.ModelID, err)
 		}
 	}
@@ -138,7 +139,7 @@ func (d *DB) ReferencePriceCandidates(ctx context.Context, keys []string) ([]bil
 		return []billing.ReferencePrice{}, nil
 	}
 	rows, err := d.db.QueryContext(ctx, `
-        SELECT provider_id, model_id, is_canonical, rates_json
+        SELECT provider_id, model_id, is_canonical, lab_id, lab_name, rates_json
         FROM reference_prices
         WHERE match_key IN (`+strings.Join(placeholders, ",")+`)
         ORDER BY provider_id, model_id
@@ -157,7 +158,7 @@ func (d *DB) SearchReferencePrices(ctx context.Context, query string, limit int)
 	}
 	key := billing.ReferenceModelKey(billing.ModelWithoutThinkingSuffix(query))
 	rows, err := d.db.QueryContext(ctx, `
-        SELECT provider_id, model_id, is_canonical, rates_json FROM reference_prices
+        SELECT provider_id, model_id, is_canonical, lab_id, lab_name, rates_json FROM reference_prices
         WHERE rates_json IS NOT NULL AND (
             match_key = ? OR instr(lower(provider_id || '/' || model_id), ?) > 0
         )
@@ -180,7 +181,7 @@ func scanReferencePrices(rows *sql.Rows) ([]billing.ReferencePrice, error) {
 	for rows.Next() {
 		var price billing.ReferencePrice
 		var ratesJSON sql.NullString
-		if err := rows.Scan(&price.ProviderID, &price.ModelID, &price.IsCanonical, &ratesJSON); err != nil {
+		if err := rows.Scan(&price.ProviderID, &price.ModelID, &price.IsCanonical, &price.Lab.ID, &price.Lab.Name, &ratesJSON); err != nil {
 			return nil, err
 		}
 		if ratesJSON.Valid {

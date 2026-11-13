@@ -155,6 +155,8 @@ CREATE TABLE reference_prices (
     model_id     TEXT    NOT NULL,
     match_key    TEXT    NOT NULL,
     is_canonical INTEGER NOT NULL,
+    lab_id       TEXT    NOT NULL DEFAULT '',
+    lab_name     TEXT    NOT NULL DEFAULT '',
     rates_json   TEXT,
     PRIMARY KEY (provider_id, model_id)
 );

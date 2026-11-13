@@ -997,9 +997,15 @@ KEYS[-1]["deleted_at"] = iso(NOW - timedelta(days=1))
 KEYS[-1]["route_bindings"]["route_ids"] = ["economy"]
 LIVE_KEYS = [key for key in KEYS if not key.get("deleted_at")]
 
+OPENAI_LAB = {"id": "openai", "name": "OpenAI"}
+GOOGLE_LAB = {"id": "google", "name": "Google"}
+DEEPSEEK_LAB = {"id": "deepseek", "name": "DeepSeek"}
+MOONSHOT_LAB = {"id": "moonshotai", "name": "Moonshot AI"}
+
 PRICES = [
     {
         "model_id": "gpt-5.6-sol",
+        "lab": OPENAI_LAB,
         "currency": "USD",
         "input_per_1m": 4,
         "output_per_1m": 20,
@@ -1014,6 +1020,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-5.5",
+        "lab": OPENAI_LAB,
         "currency": "USD",
         "input_per_1m": 5,
         "output_per_1m": 30,
@@ -1028,6 +1035,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-5.6-luna",
+        "lab": OPENAI_LAB,
         "currency": "USD",
         "input_per_1m": 0.2,
         "output_per_1m": 1.2,
@@ -1036,6 +1044,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-5.6-terra",
+        "lab": OPENAI_LAB,
         "currency": "USD",
         "input_per_1m": 2,
         "output_per_1m": 12,
@@ -1044,6 +1053,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-image-2",
+        "lab": OPENAI_LAB,
         "currency": "USD",
         "input_per_1m": 5,
         "output_per_1m": 30,
@@ -1052,6 +1062,7 @@ PRICES = [
     },
     {
         "model_id": "gemini-3-flash",
+        "lab": GOOGLE_LAB,
         "currency": "USD",
         "input_per_1m": 0.5,
         "output_per_1m": 3,
@@ -1060,6 +1071,7 @@ PRICES = [
     },
     {
         "model_id": "gemini-4-argon",
+        "lab": GOOGLE_LAB,
         "currency": "USD",
         "input_per_1m": 2,
         "output_per_1m": 12,
@@ -1068,6 +1080,7 @@ PRICES = [
     },
     {
         "model_id": "claude/deepseek-v4-pro",
+        "lab": DEEPSEEK_LAB,
         "currency": "CNY",
         "input_per_1m": 3,
         "output_per_1m": 6,
@@ -1076,6 +1089,7 @@ PRICES = [
     },
     {
         "model_id": "claude/deepseek-v4-flash",
+        "lab": DEEPSEEK_LAB,
         "currency": "CNY",
         "input_per_1m": 2,
         "output_per_1m": 3,
@@ -1834,7 +1848,7 @@ for price in PRICES:
     price["in_models"] = True
 PRICES.extend([
     {
-        "model_id": "demo-reference", "source": "reference", "currency": "USD",
+        "model_id": "demo-reference", "lab": MOONSHOT_LAB, "source": "reference", "currency": "USD",
         "input_per_1m": 1.5, "output_per_1m": 3, "in_models": True,
     },
     {
@@ -1848,6 +1862,10 @@ PRICES.extend([
     {
         "model_id": "demo-retired-custom", "source": "custom", "currency": "CNY",
         "input_per_1m": 1, "output_per_1m": 2, "in_models": False,
+    },
+    {
+        "model_id": "gpt-image-2.5", "lab": OPENAI_LAB, "source": "builtin", "currency": "USD",
+        "input_per_1m": 5, "output_per_1m": 30, "cache_read_per_1m": 1.25, "in_models": True,
     },
 ])
 REFERENCE_PRICES = {

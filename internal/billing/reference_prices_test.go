@@ -526,6 +526,44 @@ func TestReferencePriceSyncLogsOnlyActualDownloads(t *testing.T) {
 	}
 }
 
+func TestPriceRowsCreditModelsToLabs(t *testing.T) {
+	prices, err := parseModelsDevPrices([]byte(`{
+        "models": {"maker/chat": {}},
+        "providers": {
+            "maker": {"id": "maker", "name": "Maker (maker.io)", "models": {"chat": {"cost": {"input": 1, "output": 2}}}},
+            "reseller": {"id": "reseller", "models": {
+                "guest": {"canonical_model_id": "outside/guest", "cost": {"input": 1, "output": 2}},
+                "shared": {"canonical_model_id": "first/shared"},
+                "solo": {"cost": {"input": 1, "output": 2}}
+            }},
+            "mirror": {"id": "mirror", "models": {"shared": {"canonical_model_id": "second/shared"}}}
+        }
+    }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, repository := newReferencePriceStore(t, 0)
+	repository.prices = prices
+	if _, err := store.UpsertPrice(CustomPrice{ModelID: "route/chat"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.ModelPriceRows([]string{"guest", "shared", "solo"}, true)
+	if err != nil || len(rows) != 4 {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+	want := map[string]ModelLab{
+		"route/chat": {ID: "maker", Name: "Maker"},
+		"guest":      {ID: "outside", Name: "outside"},
+		"shared":     {},
+		"solo":       {},
+	}
+	for _, row := range rows {
+		if row.Lab != want[row.ModelID] {
+			t.Fatalf("%s lab = %+v, want %+v", row.ModelID, row.Lab, want[row.ModelID])
+		}
+	}
+}
+
 func TestReferenceRequestSuffixIsRemovedOnce(t *testing.T) {
 	prices := []ReferencePrice{
 		{ProviderID: "maker", ModelID: "family/model(custom)", PriceRates: &PriceRates{InputPer1M: 1}},
@@ -535,10 +573,6 @@ func TestReferenceRequestSuffixIsRemovedOnce(t *testing.T) {
 	matched, found := MatchReferencePrice(requested, prices)
 	if !found || matched.InputPer1M != 1 {
 		t.Fatalf("request suffix stripped more than once: %+v", matched)
-	}
-	matched, found = matchReferencePriceKeys(prices, referencePriceKeys(requested, requested))
-	if !found || matched.InputPer1M != 1 {
-		t.Fatalf("lookup keys differ from direct matching: %+v", matched)
 	}
 	store, repository := newReferencePriceStore(t, 0)
 	repository.prices = prices

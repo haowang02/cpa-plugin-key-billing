@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -16,12 +17,14 @@ type modelsDevResponse struct {
 
 type modelsDevProvider struct {
 	ID     string                     `json:"id"`
+	Name   string                     `json:"name"`
 	Models map[string]json.RawMessage `json:"models"`
 }
 
 type modelsDevModel struct {
-	ID   string         `json:"id"`
-	Cost *modelsDevCost `json:"cost"`
+	ID               string         `json:"id"`
+	CanonicalModelID string         `json:"canonical_model_id"`
+	Cost             *modelsDevCost `json:"cost"`
 }
 
 type modelsDevCost struct {
@@ -58,6 +61,15 @@ func parseModelsDevPrices(raw []byte) ([]ReferencePrice, error) {
 	for name := range source.Models {
 		canonicalModels[NormalizeModelID(name)] = struct{}{}
 	}
+	labNames := make(map[string]string, len(source.Providers))
+	for providerKey, provider := range source.Providers {
+		name := strings.TrimSpace(provider.Name)
+		// A lab takes its own provider's name without an endpoint qualifier such as " (minimax.io)".
+		if open := strings.LastIndex(name, " ("); open > 0 && strings.HasSuffix(name, ")") {
+			name = name[:open]
+		}
+		labNames[NormalizeModelID(modelsDevID(provider.ID, providerKey))] = name
+	}
 
 	prices := []ReferencePrice{}
 	pricedModels := 0
@@ -78,6 +90,13 @@ func parseModelsDevPrices(raw []byte) ([]ReferencePrice, error) {
 			// The top-level model namespace identifies the originating provider.
 			_, canonical := canonicalModels[NormalizeModelID(providerID+"/"+modelID)]
 			price := ReferencePrice{ProviderID: providerID, ModelID: modelID, IsCanonical: canonical}
+			canonicalModelID := model.CanonicalModelID
+			if canonical {
+				canonicalModelID = providerID + "/" + modelID
+			}
+			if lab, _, found := strings.Cut(NormalizeModelID(canonicalModelID), "/"); found && lab != "" {
+				price.Lab = ModelLab{ID: lab, Name: cmp.Or(labNames[lab], lab)}
+			}
 			if err := price.Validate(); err != nil {
 				return nil, err
 			}

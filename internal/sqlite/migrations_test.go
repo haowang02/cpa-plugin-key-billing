@@ -1,8 +1,10 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +12,64 @@ import (
 
 	"cpa-key-billing/internal/billing"
 )
+
+func TestReferenceLabMigrationKeepsPricesUsableUntilResync(t *testing.T) {
+	raw, err := os.ReadFile("../billing/testdata/models_dev_prices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var downloads int
+	download := func(context.Context) ([]byte, error) {
+		downloads++
+		return raw, nil
+	}
+	path := filepath.Join(t.TempDir(), "state.db")
+	open := func(path string) (billing.Repository, error) { return Open(path, nil) }
+	cfg := billing.DefaultConfig()
+	cfg.StateFile = path
+	store := billing.NewStore(open, download)
+	if err := store.Configure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnsureReferencePrices(); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	legacy, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`
+        ALTER TABLE reference_prices DROP COLUMN lab_id;
+        ALTER TABLE reference_prices DROP COLUMN lab_name;
+        PRAGMA user_version = 27;
+    `); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Close()
+
+	downloads = 0
+	migrated := billing.NewStore(open, download)
+	defer migrated.Close()
+	if err := migrated.Configure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if metadata := migrated.ReferencePriceMetadata(); !metadata.Usable || metadata.ContentHash != "" {
+		t.Fatalf("migrated reference metadata = %+v", metadata)
+	}
+	rows, err := migrated.ModelPriceRows([]string{"gpt-4o"}, false)
+	if err != nil || len(rows) != 1 || rows[0].Source != billing.PriceSourceReference || rows[0].Lab != (billing.ModelLab{}) || downloads != 0 {
+		t.Fatalf("migrated rows = %+v, downloads = %d, err = %v", rows, downloads, err)
+	}
+	if _, err := migrated.EnsureReferencePrices(); err != nil || downloads != 1 {
+		t.Fatalf("resync downloads = %d, err = %v", downloads, err)
+	}
+	rows, err = migrated.ModelPriceRows([]string{"gpt-4o"}, false)
+	if err != nil || len(rows) != 1 || rows[0].Lab != (billing.ModelLab{ID: "openai", Name: "openai"}) {
+		t.Fatalf("resynced rows = %+v, err = %v", rows, err)
+	}
+}
 
 func TestV12PriceMigrationPreservesModelIDsAndHistory(t *testing.T) {
 	for _, modelIDs := range [][]string{
