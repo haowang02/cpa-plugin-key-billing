@@ -5,6 +5,22 @@ const TREND_METRICS = {
 };
 const analysisTrendMetrics = { admin: "total_tokens", account: "total_tokens" };
 const analysisTrendBuckets = { admin: "hour", account: "hour" };
+// A line dataset on a bar chart's category axis would stop at the outer bar centers.
+const TREND_AVERAGE_LINE = {
+  id: "trendAverage",
+  afterDatasetsDraw: ({ ctx, chartArea, scales }, _, { value, color }) => {
+    const y = scales.usage.getPixelForValue(value);
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left, y);
+    ctx.lineTo(chartArea.right, y);
+    ctx.stroke();
+    ctx.restore();
+  }
+};
 
 // Server buckets are hourly from trends.start; local days can be 23 or 25 hours across DST.
 function usageTrendSeries(trends, daily) {
@@ -95,22 +111,14 @@ function renderUsageTrendChart(account, colors = analysisColors()) {
     if (series.cache_write_tokens.some((value) => value > 0))
       datasets.push(bars(m("ui.cache_write"), series.cache_write_tokens, colors[4]));
   } else { datasets.push(bars(TREND_METRICS[metric].label, totals, colors[TREND_METRICS[metric].color])); }
-  datasets.push({
-    type: "line",
-    label: m("ui.average_value", { v0: format(average) }),
-    data: totals.map(() => average),
-    yAxisID: "usage",
-    stack: "average",
-    borderColor: axis.text,
-    borderWidth: 1.5,
-    borderDash: [5, 5],
-    pointRadius: 0,
-    pointHoverRadius: 0
-  });
-  legend.replaceChildren(...datasets.map((dataset) => analysisLegendItem(dataset.borderColor, dataset.label)));
+  legend.replaceChildren(
+    ...datasets.map((dataset) => analysisLegendItem(dataset.borderColor, dataset.label)),
+    analysisLegendItem(axis.text, m("ui.average_value", { v0: format(average) }))
+  );
   updateAnalysisChart(account, "trend", canvas, {
     type: "bar",
     data: { labels: trendLabels(series.times, daily), datasets },
+    plugins: [TREND_AVERAGE_LINE],
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -119,12 +127,12 @@ function renderUsageTrendChart(account, colors = analysisColors()) {
       interaction: { mode: "index", intersect: false },
       plugins: {
         legend: { display: false },
+        trendAverage: { value: average, color: axis.text },
         tooltip: chartTooltip({
           usePointStyle: true,
           boxWidth: 8,
           boxHeight: 8,
           boxPadding: 6,
-          filter: (context) => context.dataset.type === "bar",
           callbacks: {
             labelPointStyle: () => ({ pointStyle: "circle", rotation: 0 }),
             label: (context) => context.dataset.label + ": " + format(context.raw),
