@@ -101,3 +101,11 @@ class UISelect extends HTMLElement {
 }
 
 customElements.define("ui-select", UISelect);
+
+// As with a native select, clicking a label focuses its control without opening the menu.
+document.addEventListener("click", (event) => {
+  const control = event.target.closest("label")?.control;
+  if (!(control instanceof UISelect) || control.contains(event.target)) return;
+  event.preventDefault();
+  if (!control.disabled) control.focus();
+});
