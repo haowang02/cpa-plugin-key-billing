@@ -426,6 +426,8 @@ label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; 
   font-size: 14px;
   line-height: 1.5;
 }
+/* Shared rows keep a wrapped label or an error from moving the neighbouring input. */
+:is(.plan-window, .price-fields) .field { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 4px; }
 .table-scroll { width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
 table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
@@ -830,7 +832,6 @@ button.icon-action:hover:not(:disabled) { background: var(--hover-fill); color: 
 .quota-heading .blocked { color: var(--quota-low-color); }
 #keys-body .quota-windows { width: 260px; }
 #keys-body .key-index { padding-right: 0; color: var(--text-tertiary); font-size: 12px; }
-.settings-dialog.plan-dialog { width: min(720px, calc(100vw - 32px)); }
 .plan-windows-heading { margin-top: 16px; }
 #plan-windows { display: grid; gap: 10px; margin-top: 8px; }
 .plan-window {
@@ -846,8 +847,6 @@ button.icon-action:hover:not(:disabled) { background: var(--hover-fill); color: 
 .plan-details input, .plan-details ui-select, .plan-window input { width: 100%; min-width: 0; }
 .plan-window.unified { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
 .plan-window-limits { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-/* Shared rows keep a wrapped label or an error from moving the neighbouring input. */
-.plan-window .field { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 4px; }
 .period-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .plan-window .window-delete {
   --icon-action-size: 20px;
@@ -1251,6 +1250,7 @@ html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
 .event-cleanup-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .event-cleanup-age.field { flex-direction: row; align-items: center; gap: 6px; }
 .settings-dialog { width: min(620px, calc(100vw - 32px)); }
+.settings-dialog:is(.plan-dialog, .price-dialog) { width: min(720px, calc(100vw - 32px)); }
 #credential-dialog { width: min(460px, calc(100vw - 32px)); }
 #credential-dialog input { width: 100%; }
 .credential-editor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
@@ -1262,10 +1262,8 @@ html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
 @media (max-width: 520px) {
   .credential-editor-fields { grid-template-columns: 1fr; }
 }
-.price-dialog-model { margin: 0 0 16px; font-size: 14px; overflow-wrap: anywhere; }
-.price-reference { display: grid; gap: 8px; margin-bottom: 18px; }
-.price-reference input { width: 100%; }
 .price-reference-results {
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1295,9 +1293,14 @@ html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
   white-space: normal;
 }
 .price-reference-empty { padding: 9px 2px; color: var(--text-tertiary); font-size: 12px; }
-.price-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.price-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 18px; }
+.price-fields + .price-fields { margin-top: 14px; }
 .price-fields .field { min-width: 0; }
-.price-fields input[type="number"] { width: 100%; }
+.price-fields input { width: 100%; }
+.price-wide-field { grid-column: span 2; }
+@media (max-width: 640px) {
+  .price-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .route-dialog { width: min(820px, calc(100vw - 32px)); }
 .route-dialog[open] { display: flex; flex-direction: column; }
 .route-dialog .selection-list { max-height: min(16dvh, 160px); }
@@ -2003,7 +2006,7 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .drawer-header, .drawer-body { padding-inline: 16px; }
   .route-dialog .route-form-toolbar { grid-template-columns: 1fr; }
   .settings-entry-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .account-access-summary, .price-fields { grid-template-columns: 1fr; }
+  .account-access-summary { grid-template-columns: 1fr; }
   .price-reference-option { grid-template-columns: 1fr; gap: 2px; }
   .price-reference-prices { text-align: left; }
 }

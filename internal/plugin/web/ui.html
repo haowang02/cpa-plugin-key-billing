@@ -264,30 +264,32 @@
       </div>
     </dialog>
 
-    <dialog id="price-dialog" class="settings-dialog">
+    <dialog id="price-dialog" class="settings-dialog price-dialog">
       <h2 id="price-dialog-title" data-i18n="ui.edit_model_pricing">Edit model pricing</h2>
       <div class="editor-state" role="alert"></div>
-      <label class="field"> <span data-i18n="ui.model_id">Model ID</span> <input class="mono price-dialog-model" id="price-model" placeholder="Model ID" maxlength="1024"  data-i18n-placeholder="ui.model_id"/> </label>
-      <div class="price-reference">
-        <label class="field"> <span data-i18n="ui.choose_reference_price">Use reference price</span> <input id="price-reference-search" placeholder="Search reference models" autocomplete="off"  data-i18n-placeholder="ui.search_reference_models"/> </label>
+      <div class="price-fields">
+        <label class="field price-wide-field"> <span data-i18n="ui.model_id">Model ID</span> <input class="mono" id="price-model" placeholder="Model ID" maxlength="1024"  data-i18n-placeholder="ui.model_id"/> </label>
+        <label class="field"> <span data-i18n="ui.currency">Currency</span> <ui-select id="price-currency"></ui-select> </label>
+        <label class="field price-wide-field"> <span data-i18n="ui.choose_reference_price">Use reference price</span> <input id="price-reference-search" placeholder="Search reference models" autocomplete="off"  data-i18n-placeholder="ui.search_reference_models"/> </label>
         <div id="price-reference-results" class="price-reference-results" aria-live="polite"></div>
       </div>
       <div class="price-fields">
-        <label class="field"> <span data-i18n="ui.currency">Currency</span> <ui-select id="price-currency"></ui-select> </label>
-        <span></span>
         <label class="field"> <span data-i18n="ui.input_1m_tokens">Input&thinsp;/&thinsp;1M tokens</span> <input id="price-in" type="number" step="any" min="0" value="0" /> </label>
         <label class="field"> <span data-i18n="ui.output_1m_tokens">Output&thinsp;/&thinsp;1M tokens</span> <input id="price-out" type="number" step="any" min="0" value="0" /> </label>
         <label class="field"> <span data-i18n="ui.cache_read_1m_tokens">Cache read&thinsp;/&thinsp;1M tokens</span> <input id="price-cr" type="number" step="any" min="0" /> </label>
         <label class="field"> <span data-i18n="ui.cache_write_1m_tokens">Cache write&thinsp;/&thinsp;1M tokens</span> <input id="price-cw" type="number" step="any" min="0" /> </label>
       </div>
       <label class="switch-field"> <input id="price-tiered" type="checkbox" /> <span data-i18n="ui.enable_long_context_tiered_pricing">Enable long-context tiered pricing</span> </label>
-      <div id="price-tier-fields" class="price-fields tier-fields hidden">
-        <label class="field"> <span data-i18n="ui.long_context_threshold_input_tokens">Long-context threshold (input tokens)</span> <input id="price-tier-threshold" type="number" step="1" min="1" value="272000" /> </label>
-        <span></span>
-        <label class="field"> <span data-i18n="ui.long_context_input_1m_tokens">Long-context input&thinsp;/&thinsp;1M tokens</span> <input id="price-tier-in" type="number" step="any" min="0" value="0" /> </label>
-        <label class="field"> <span data-i18n="ui.long_context_output_1m_tokens">Long-context output&thinsp;/&thinsp;1M tokens</span> <input id="price-tier-out" type="number" step="any" min="0" value="0" /> </label>
-        <label class="field"> <span data-i18n="ui.long_context_cache_read_1m_tokens">Long-context cache read&thinsp;/&thinsp;1M tokens</span> <input id="price-tier-cr" type="number" step="any" min="0" /> </label>
-        <label class="field"> <span data-i18n="ui.long_context_cache_write_1m_tokens">Long-context cache write&thinsp;/&thinsp;1M tokens</span> <input id="price-tier-cw" type="number" step="any" min="0" /> </label>
+      <div id="price-tier-fields" class="tier-fields hidden">
+        <div class="price-fields">
+          <label class="field"> <span data-i18n="ui.long_context_threshold_input_tokens">Long-context threshold (input tokens)</span> <input id="price-tier-threshold" type="number" step="1" min="1" value="272000" /> </label>
+        </div>
+        <div class="price-fields">
+          <label class="field"> <span data-i18n="ui.long_context_input_1m_tokens">Long-context input&thinsp;/&thinsp;1M tokens</span> <input id="price-tier-in" type="number" step="any" min="0" value="0" /> </label>
+          <label class="field"> <span data-i18n="ui.long_context_output_1m_tokens">Long-context output&thinsp;/&thinsp;1M tokens</span> <input id="price-tier-out" type="number" step="any" min="0" value="0" /> </label>
+          <label class="field"> <span data-i18n="ui.long_context_cache_read_1m_tokens">Long-context cache read&thinsp;/&thinsp;1M tokens</span> <input id="price-tier-cr" type="number" step="any" min="0" /> </label>
+          <label class="field"> <span data-i18n="ui.long_context_cache_write_1m_tokens">Long-context cache write&thinsp;/&thinsp;1M tokens</span> <input id="price-tier-cw" type="number" step="any" min="0" /> </label>
+        </div>
       </div>
       <div class="row dialog-actions"> <button id="price-cancel" data-i18n="ui.cancel">Cancel</button> <button id="price-save" class="primary" data-i18n="ui.save">Save</button> </div>
     </dialog>
