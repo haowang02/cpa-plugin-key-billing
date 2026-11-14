@@ -750,7 +750,7 @@
   "ui.weight_hint": "默认值为 1；小于或等于 0 时不参与加权调度；最大值为 1,000,000。填入后打开加权轮询设置即可生效。",
   "ui.weight_invalid": "调度权重必须为整数，且不能超过 1,000,000。",
   "ui.data_cleanup": "数据清理",
-  "ui.event_cleanup_hint": "清理所有 API Key 的所选记录及关联错误，无法恢复。",
+  "ui.event_cleanup_hint": "清理所选范围内的请求事件及关联错误，无法恢复。",
   "ui.cleanup_range": "清理范围",
   "ui.all_request_events": "全部记录",
   "ui.cleanup_age_days": "自定义天数",

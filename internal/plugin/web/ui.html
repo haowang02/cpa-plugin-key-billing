@@ -308,12 +308,12 @@
           <span data-i18n="ui.cleanup_range">Cleanup range</span>
           <ui-select id="events-clear-range"></ui-select>
         </label>
-        <label id="events-clear-days-field" class="event-cleanup-age hidden">
+        <label id="events-clear-days-field" class="field event-cleanup-age hidden">
           <input id="events-clear-days" type="number" inputmode="numeric" min="1" max="106751" step="1" value="30" required disabled aria-label="Custom age in days" data-i18n-aria-label="ui.cleanup_age_days" />
           <span data-i18n="ui.days_ago">days ago</span>
         </label>
       </div>
-      <p id="events-clear-hint" class="muted small" data-i18n="ui.event_cleanup_hint">Deletes matching records and linked errors for all API keys. This cannot be undone.</p>
+      <p id="events-clear-hint" class="muted small" data-i18n="ui.event_cleanup_hint">Deletes request events in the selected range and their linked errors. This cannot be undone.</p>
       <div class="row dialog-actions">
         <button data-i18n="ui.cancel">Cancel</button>
         <button id="events-clear-confirm" class="primary danger" data-i18n="ui.confirm_cleanup">Clear events</button>

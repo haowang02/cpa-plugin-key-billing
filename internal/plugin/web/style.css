@@ -421,7 +421,6 @@ ui-select::part(chevron), .menu-chevron {
   transition: transform 0.15s;
 }
 ui-select:state(open)::part(chevron), [aria-expanded="true"] > .menu-chevron { transform: rotate(180deg); }
-label.field > ui-select { width: 100%; }
 label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
 :root:not([data-cpamp-plugin-host="true"]) label.field input, :root:not([data-cpamp-plugin-host="true"]) label.field ui-select {
   font-size: 14px;
@@ -1249,10 +1248,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
 #action-content { white-space: pre-line; }
 .selection-section { display: grid; gap: 8px; margin-top: 20px; }
-.event-cleanup-fields { display: grid; gap: 10px; }
-.event-cleanup-age { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); }
-.event-cleanup-age input { flex: 1; min-width: 0; }
-.event-cleanup-age > span { flex: none; }
+.event-cleanup-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.event-cleanup-age.field { flex-direction: row; align-items: center; gap: 6px; }
 .settings-dialog { width: min(620px, calc(100vw - 32px)); }
 #credential-dialog { width: min(460px, calc(100vw - 32px)); }
 #credential-dialog input { width: 100%; }

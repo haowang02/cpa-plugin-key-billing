@@ -750,7 +750,7 @@
   "ui.weight_hint": "Defaults to 1. Values at or below 0 exclude this credential from weighted scheduling; maximum 1,000,000. After entering a value, enable weighted round robin for it to take effect.",
   "ui.weight_invalid": "Scheduling weight must be an integer no greater than 1,000,000.",
   "ui.data_cleanup": "Cleanup",
-  "ui.event_cleanup_hint": "Deletes matching records and linked errors for all API keys. This cannot be undone.",
+  "ui.event_cleanup_hint": "Deletes request events in the selected range and their linked errors. This cannot be undone.",
   "ui.cleanup_range": "Cleanup range",
   "ui.all_request_events": "All records",
   "ui.cleanup_age_days": "Custom age in days",
