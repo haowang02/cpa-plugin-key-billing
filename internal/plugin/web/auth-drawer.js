@@ -95,7 +95,7 @@ function renderAuthDrawerHistory() {
   switcher.replaceChildren(
     segmentedControl(
       m("ui.quota_windows"),
-      history.windows.map((window, index) => ({ value: index, label: quotaLabels(window).full })),
+      history.windows.map((window, index) => ({ value: index, label: quotaLabel(window) })),
       authDrawer.window,
       (index) => {
         authDrawer.window = index;

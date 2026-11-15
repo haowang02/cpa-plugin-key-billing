@@ -175,11 +175,11 @@ function renderCredentialUsage(usage, breakdown) {
   ];
   return el(
     "td",
-    { class: "credential-usage-cell", ...hoverTooltipProps(breakdown, breakdown && summary?.requests > 0) },
+    { class: "credential-usage-cell" },
     el("span", { class: "credential-metric-label", text: m("ui.historical_usage") }),
     el(
       "div",
-      { class: "credential-usage" },
+      { class: "credential-usage", ...hoverTooltipProps(breakdown, breakdown && summary?.requests > 0) },
       metrics.map(([icon, label, value]) =>
         el(
           "span",
