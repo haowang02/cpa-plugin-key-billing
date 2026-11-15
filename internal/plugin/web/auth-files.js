@@ -57,33 +57,50 @@ function authFileMeta(file) {
   return el(
     "div",
     { class: "credential-meta" },
+    file.quota?.plan && authPlanTag(file.category, file.quota.plan),
+    authPlanExpiryTag(file),
     credentialRoutingTag(file),
     file.unavailable && el("span", { class: "tag bad", text: m("ui.unavailable") })
   );
 }
 
+// Plan tones are per provider: a Claude Pro is not a Codex Pro 200.
+const AUTH_PLAN_TONES = {
+  codex: {
+    elite: ["pro500", "pro200"],
+    premium: ["pro100", "businesspremium"],
+    info: ["plus"],
+    ok: ["go"],
+    business: ["business", "enterprise", "enterpriseautomation"]
+  },
+  claude: { premium: ["max"], info: ["pro"], business: ["team"] },
+  antigravity: { elite: ["ultra20"], premium: ["ultra5"], info: ["pro"], ok: ["plus"] },
+  xai: { premium: ["paid"] }
+};
+
+function authPlanTag(category, plan) {
+  const key = plan.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const tone = Object.entries(AUTH_PLAN_TONES[category] || {}).find(([, plans]) => plans.includes(key))?.[0] || "plain";
+  return el("span", { class: "tag " + tone, text: plan });
+}
+
 let authPlanShowsEndTime = false;
 
-function renderAuthFilePlan(file) {
+function authPlanExpiryTag(file) {
   const left = (file.subscription_until - Date.now()) / 1000;
+  if (!(left > 0)) return null;
   const toggle = m("ui.switch_between_time_left_and_end_time");
-  const expiry =
-    left > 0 &&
+  return el(
+    "span",
+    { class: "tag plain auth-plan-expiry" + (authPlanShowsEndTime ? " end-time" : "") },
+    el("span", { class: "auth-plan-time-left", text: compactTimeUntil(left, "left") }),
+    el("span", { class: "auth-plan-end-time", text: compactResetDate(new Date(file.subscription_until)) }),
     el(
-      "span",
-      { class: "auth-plan-expiry" + (authPlanShowsEndTime ? " end-time" : "") },
-      el("span", { class: "auth-plan-time-left", text: compactTimeUntil(left, "left") }),
-      el("span", { class: "auth-plan-expiry-separator", text: DISPLAY_SEPARATOR }),
-      el("span", { class: "auth-plan-end-time", text: compactResetDate(new Date(file.subscription_until)) }),
-      el(
-        "button",
-        { class: "inline-icon-button link", type: "button", "data-tip": toggle, "aria-label": toggle, onclick: toggleAuthPlanTime },
-        actionIcon("arrow-left-right")
-      )
-    );
-  const cell = credentialMetric("plan", m("ui.plan"), file.quota?.plan?.trim() || "—");
-  if (expiry) cell.append(expiry);
-  return cell;
+      "button",
+      { class: "inline-icon-button link", type: "button", "data-tip": toggle, "aria-label": toggle, onclick: toggleAuthPlanTime },
+      actionIcon("arrow-left-right")
+    )
+  );
 }
 
 function toggleAuthPlanTime() {
@@ -413,7 +430,6 @@ function renderAuthFiles(account) {
     selection: account ? null : authSelection,
     headers: [
       m("ui.auth_files"),
-      m("ui.plan"),
       ...credentialMetricHeaders(),
       { label: m("ui.quota"), class: "credential-quota-column" },
       m("ui.actions")
@@ -452,7 +468,6 @@ function renderAuthFileRow(file, account) {
         )
       )
     ),
-    renderAuthFilePlan(file),
     renderCredentialMetrics(file, modelUsageTooltip(account, file.usage_query)),
     el(
       "td",

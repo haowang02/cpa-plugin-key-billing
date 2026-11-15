@@ -22,7 +22,6 @@
   "ui.error_events": "Error events",
   "ui.auth_files": "Auth Files",
   "ui.auth_file_usage_scope": "Requests, tokens and costs cover only the current API key, not the auth file’s total usage.",
-  "ui.plan": "Plan",
   "ui.switch_between_time_left_and_end_time": "Switch between time left and end time",
   "ui.credential_routing": "Priority: {priority} · Scheduling weight: {weight}",
   "ui.settings": "Settings",

@@ -157,25 +157,6 @@ function renderAuthDrawerPeriods() {
   );
 }
 
-// Plan tones are per provider: a Claude Pro is not a Codex Pro 200.
-const AUTH_PLAN_TONES = {
-  codex: {
-    elite: ["pro500", "pro200"],
-    premium: ["pro100", "businesspremium"],
-    info: ["plus"],
-    ok: ["go"],
-    business: ["business", "enterprise", "enterpriseautomation"]
-  },
-  claude: { premium: ["max"], info: ["pro"], business: ["team"] },
-  antigravity: { elite: ["ultra", "googleaiultra"], premium: ["ultralite", "googleaiultralite"], info: ["pro", "googleaipro"] },
-  xai: { premium: ["paid"] }
-};
-
-function authPlanTone(category, plan) {
-  const key = plan.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return Object.entries(AUTH_PLAN_TONES[category] || {}).find(([, plans]) => plans.includes(key))?.[0] || "plain";
-}
-
 // Estimates need the usage of every request, which API key views do not have.
 function renderQuotaPeriod(period, category, account) {
   const remaining = Math.max(0, 100 - period.used_percent);
@@ -205,14 +186,7 @@ function renderQuotaPeriod(period, category, account) {
       ),
       !account && usage(m("ui.quota_projected"), renderQuotaMetrics(period.usage, quotaEstimateScale(period.used_percent, period.usage))),
       period.plans?.length > 0 &&
-        el(
-          "span",
-          { class: "quota-period-plans" },
-          period.plans.flatMap((plan, index) => [
-            index > 0 && "→",
-            el("span", { class: "tag " + authPlanTone(category, plan), text: plan })
-          ])
-        )
+        el("span", { class: "quota-period-plans" }, period.plans.flatMap((plan, index) => [index > 0 && "→", authPlanTag(category, plan)]))
     )
   );
 }

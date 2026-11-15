@@ -1047,6 +1047,9 @@ body.privacy-masked .mask-blur { filter: blur(0.28em); }
 .credential-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; margin-top: 5px; }
 .credential-meta > .tag { min-width: 0; max-width: 100%; }
 .credential-meta .tag > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.auth-plan-expiry { gap: 2px; padding-right: 3px; }
+.auth-plan-expiry.end-time .auth-plan-time-left, .auth-plan-expiry:not(.end-time) .auth-plan-end-time { display: none; }
+.credential-meta .auth-plan-expiry > button.inline-icon-button { width: 16px; min-width: 16px; min-height: 16px; color: inherit; }
 .ai-provider-meta { flex-wrap: nowrap; }
 .ai-provider-meta > .tag { flex-shrink: 0; }
 .ai-provider-meta > .ai-provider-key { flex-shrink: 1; }
@@ -1200,28 +1203,13 @@ button.icon-action.credential-power:hover:not(:disabled) {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.auth-plan-expiry {
-  display: flex;
-  align-items: center;
-  margin-top: 3px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.auth-plan-expiry .inline-icon-button { display: none; }
-@container credential-table (width > 900px) {
-  .auth-plan-expiry-separator, .auth-plan-expiry.end-time .auth-plan-time-left, .auth-plan-expiry:not(.end-time) .auth-plan-end-time {
-    display: none;
-  }
-  .auth-plan-expiry .inline-icon-button { display: grid; }
-}
 @container credential-table (max-width: 900px) {
   .credential-table, .credential-table tbody { display: block; }
   .credential-table thead { display: none; }
   .credential-table .credential-row { display: grid; border-bottom: 1px solid var(--border-color); }
   .credential-table .credential-row:last-child { border-bottom: none; }
   .credential-table td { display: block; min-width: 0; padding: 0; border: none; }
-  .credential-table :is(.credential-plan-cell, .credential-quota-cell) { grid-column: 1 / -1; }
+  .credential-table .credential-quota-cell { grid-column: 1 / -1; }
   .credential-usage { min-width: 0; }
   .credential-metric-label { display: block; }
   .auth-quota-list { gap: 10px 16px; }
@@ -1238,10 +1226,7 @@ button.icon-action.credential-power:hover:not(:disabled) {
   .credential-table .credential-row { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px; }
   .auth-quota-list { grid-template-columns: minmax(0, 1fr); }
   .credential-actions { --icon-action-size: 30px; }
-  .credential-table :is(.credential-plan-cell, .credential-metric) { display: flex; flex-wrap: wrap; align-items: baseline; }
-  .credential-table .credential-plan-cell { gap: 2px 12px; }
-  .credential-table .credential-metric { gap: 2px 6px; }
-  .auth-plan-expiry { margin: 0 0 0 auto; color: var(--text-primary); font-size: 13px; }
+  .credential-table .credential-metric { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
 }
 dialog, .time-range-popover { max-height: 80dvh; }
 dialog {

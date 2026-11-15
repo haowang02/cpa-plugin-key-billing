@@ -303,7 +303,7 @@ func TestAntigravityQuotaPreservesGroupsAndFallbacks(t *testing.T) {
 						calls++
 						return mustJSONRaw(t, response), nil
 					}
-					return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"body":{"currentTier":{"id":"pro","name":"Google AI Pro"}}}`)}), nil
+					return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{"body":{"currentTier":{"id":"free-tier","name":"Antigravity"},"paidTier":{"id":"g1-ultra-lite-tier","name":"Google AI Ultra"}}}`)}), nil
 				default:
 					t.Fatalf("unexpected host method %q", method)
 					return nil, nil
@@ -313,7 +313,7 @@ func TestAntigravityQuotaPreservesGroupsAndFallbacks(t *testing.T) {
 			if (err != nil) != tc.wantError || len(result.Quota) != tc.wantRows || calls != len(tc.responses) {
 				t.Fatalf("error = %v, calls = %d, quota = %+v", err, calls, result.Quota)
 			}
-			if !tc.wantError && result.Plan != "Google AI Pro" {
+			if !tc.wantError && result.Plan != "Ultra 5×" {
 				t.Fatalf("plan = %q", result.Plan)
 			}
 			expected := []struct {

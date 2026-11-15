@@ -147,21 +147,18 @@ function credentialUsageSummary({ requests, failed, input_tokens: inputTokens, o
 
 function credentialMetricHeaders() { return ["ui.in_flight_requests", "ui.historical_usage"].map((key) => m(key)); }
 
-function credentialMetric(name, label, value) {
-  return el(
+function renderCredentialMetrics({ usage, in_flight: inFlight }, breakdown) {
+  const inFlightCell = el(
     "td",
-    { class: "credential-" + name + "-cell" },
+    { class: "credential-inflight-cell" },
     el(
       "div",
       { class: "credential-metric" },
-      el("span", { class: "credential-metric-label", text: label }),
-      el("span", { class: "credential-metric-value" }, value)
+      el("span", { class: "credential-metric-label", text: m("ui.in_flight_requests") }),
+      el("span", { class: "credential-metric-value", text: int(inFlight) })
     )
   );
-}
-
-function renderCredentialMetrics({ usage, in_flight: inFlight }, breakdown) {
-  return [credentialMetric("inflight", m("ui.in_flight_requests"), int(inFlight)), renderCredentialUsage(usage, breakdown)];
+  return [inFlightCell, renderCredentialUsage(usage, breakdown)];
 }
 
 function renderCredentialUsage(usage, breakdown) {

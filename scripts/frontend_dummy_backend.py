@@ -745,7 +745,7 @@ AUTH_FILE_QUOTAS = {
         ],
     },
     "auth-demo-antigravity": {
-        "plan": "Google AI Pro",
+        "plan": "Pro",
         "quota": [
             quota_row("5 小时限额", 100, 9300, group_label="Gemini Models",
                       include=("gemini-",), exclude=("gemini-4-argon",), **quota_usage(1_520, 0.002, ("gemini-3-flash",))),

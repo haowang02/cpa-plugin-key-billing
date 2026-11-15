@@ -22,7 +22,6 @@
   "ui.error_events": "错误事件",
   "ui.auth_files": "认证文件",
   "ui.auth_file_usage_scope": "请求、Token、成本等仅统计当前 API Key，不代表认证文件的全部用量。",
-  "ui.plan": "套餐",
   "ui.switch_between_time_left_and_end_time": "切换剩余时间和到期时间",
   "ui.credential_routing": "优先级：{priority} · 调度权重：{weight}",
   "ui.settings": "设置",

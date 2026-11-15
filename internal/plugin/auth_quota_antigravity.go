@@ -15,6 +15,11 @@ import (
 // Cloud Code limits the model inventory reported to older clients.
 const antigravityUserAgent = "antigravity/hub/2.23.0 darwin/arm64"
 
+// Both Ultra tiers are named "Google AI Ultra"; only the tier ID tells 5× from 20×.
+var antigravityPlanLabels = map[string]string{
+	"free-tier": "Free", "g1-plus-tier": "Plus", "g1-pro-tier": "Pro", "g1-ultra-lite-tier": "Ultra 5×", "g1-ultra-tier": "Ultra 20×",
+}
+
 func (c *authQuotaClient) fetchAntigravityQuota(projectID string, result *authFileQuota) error {
 	headers := http.Header{"User-Agent": {antigravityUserAgent}}
 	var lastErr error
@@ -54,7 +59,7 @@ func (c *authQuotaClient) fetchAntigravityQuota(projectID string, result *authFi
 			tier = objectMap(subscription, "currentTier", "current_tier")
 		}
 		if tier != nil {
-			result.Plan = firstNonEmptyString(firstString(tier, "name"), firstString(tier, "description"))
+			result.Plan = firstNonEmptyString(antigravityPlanLabels[firstString(tier, "id")], firstString(tier, "name"), firstString(tier, "description"))
 			break
 		}
 	}
