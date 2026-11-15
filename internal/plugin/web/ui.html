@@ -338,7 +338,10 @@
     <dialog id="credential-dialog" aria-labelledby="credential-dialog-title">
       <h2 id="credential-dialog-title"></h2>
       <div class="editor-state" role="alert"></div>
-      <label class="field"><span data-i18n="ui.label">Label</span><input id="credential-note" type="text" autocomplete="off" placeholder="Leave empty to clear the label" data-i18n-placeholder="ui.clear_label_placeholder" /></label>
+      <div class="credential-note-row">
+        <label class="field"><span data-i18n="ui.label">Label</span><input id="credential-note" type="text" autocomplete="off" placeholder="Leave empty to clear the label" data-i18n-placeholder="ui.clear_label_placeholder" /></label>
+        <label class="field"><span data-i18n="ui.test_model">Test model</span><ui-select id="credential-test-model" searchable aria-label="Test model" data-i18n-aria-label="ui.test_model"></ui-select></label>
+      </div>
       <div class="credential-editor-fields">
         <div class="credential-editor-control">
           <label class="field">
@@ -429,6 +432,7 @@
       /*model-usage.js*/
       /*credentials.js*/
       /*credential-editor.js*/
+      /*credential-actions.js*/
       /*table-selection.js*/
       /*keys.js*/
       /*routing.js*/

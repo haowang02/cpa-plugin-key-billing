@@ -109,3 +109,15 @@ func (s *Store) SetCredentialNote(ref, note string) error {
 	})
 	return err
 }
+
+// An empty model makes connection tests use the credential's first model.
+func (s *Store) SetCredentialTestModel(authIndex, model string) error {
+	_, err := withRepository(s, func(repo Repository) (struct{}, error) {
+		return struct{}{}, repo.SetCredentialTestModel(authIndex, model)
+	})
+	return err
+}
+
+func (s *Store) CredentialTestModel(authIndex string) (string, error) {
+	return withRepository(s, func(repo Repository) (string, error) { return repo.CredentialTestModel(authIndex) })
+}

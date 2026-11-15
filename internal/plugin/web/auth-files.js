@@ -413,7 +413,6 @@ function renderAuthFiles(account) {
     selection: account ? null : authSelection,
     headers: [
       m("ui.auth_files"),
-      ...(!account ? [""] : []),
       m("ui.plan"),
       ...credentialMetricHeaders(),
       { label: m("ui.quota"), class: "credential-quota-column" },
@@ -429,39 +428,10 @@ function renderAuthFileRow(file, account) {
   const ui = authUI(account);
   const loading = ui.owner.authQuotaLoading.has(file.auth_index);
   const resettable = (!account || resources.account.profile.value?.can_reset_auth_quota === true) && authQuotaResets(file.quota).count > 0;
-  const quotaActions = el(
-    "div",
-    { class: "auth-quota-actions" },
-    resettable &&
-      el(
-        "button",
-        {
-          type: "button",
-          class: "icon-action",
-          "aria-label": m("ui.reset_quota"),
-          "data-tip": m("ui.reset_quota"),
-          disabled: !canResetAuthQuota(file, account),
-          onclick: () => guard(() => resetAuthQuota(file, account))
-        },
-        actionIcon("rotate-cw-clock")
-      ),
-    el(
-      "button",
-      {
-        type: "button",
-        class: "icon-action" + (loading ? " loading" : ""),
-        disabled: !canRefreshAuthQuota(file) || loading || !!ui.owner.authQuotaBatch || (!account && authSelection.running),
-        "aria-label": m("ui.update_quotas"),
-        "data-tip": authQuotaRefreshTitle(file) || m("ui.update_quotas"),
-        onclick: () => guard(() => refreshAuthQuota(file, account))
-      },
-      actionIcon("refresh")
-    )
-  );
+  const statusBusy = adminUIState.authStatusSubmissions.has(file.auth_index) || authSelection.running;
   return el(
     "tr",
     { class: "credential-row" + (file.disabled ? " disabled" : ""), "data-auth-index": file.auth_index },
-
     el(
       "td",
       { class: "credential-identity-cell" },
@@ -482,8 +452,6 @@ function renderAuthFileRow(file, account) {
         )
       )
     ),
-    !account &&
-      credentialEditCell(() => editAuthFile(file), authSelection.running || adminUIState.authStatusSubmissions.has(file.auth_index)),
     renderAuthFilePlan(file),
     renderCredentialMetrics(file, modelUsageTooltip(account, file.usage_query)),
     el(
@@ -513,18 +481,22 @@ function renderAuthFileRow(file, account) {
       el(
         "div",
         { class: "credential-actions" },
-        quotaActions,
-        !account &&
-          switchControl({
-            input: el("input", {
-              type: "checkbox",
-              role: "switch",
-              checked: !file.disabled,
-              "aria-label": m("ui.enable"),
-              disabled: adminUIState.authStatusSubmissions.has(file.auth_index) || authSelection.running,
-              onchange: (event) => guard(() => setAuthFileEnabled(file, event.target.checked))
-            })
-          })
+        resettable &&
+          credentialActionButton("rotate-cw-clock", m("ui.reset_quota"), {
+            disabled: !canResetAuthQuota(file, account),
+            run: () => resetAuthQuota(file, account)
+          }),
+        credentialActionButton("refresh", m("ui.update_quotas"), {
+          tip: authQuotaRefreshTitle(file) || m("ui.update_quotas"),
+          disabled: !canRefreshAuthQuota(file) || loading || !!ui.owner.authQuotaBatch || (!account && authSelection.running),
+          className: loading ? "loading" : "",
+          run: () => refreshAuthQuota(file, account)
+        }),
+        !account && [
+          credentialTestButton(file, () => renderAuthFiles(false)),
+          credentialActionButton("pencil", m("ui.edit"), { disabled: statusBusy, run: () => editAuthFile(file) }),
+          credentialPowerButton(file, { disabled: statusBusy, toggle: (enabled) => setAuthFileEnabled(file, enabled) })
+        ]
       )
     )
   );

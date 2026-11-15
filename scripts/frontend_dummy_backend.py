@@ -635,6 +635,32 @@ def credential_usage(rows):
 
 CODEX_MODELS = ("gpt-5.6-sol", "gpt-5.6-luna", "codex-auto-review")
 CLAUDE_MODELS = ("claude-sonnet-5-5", "claude-opus-5-5")
+# Models each credential type serves; a disabled credential is unregistered and serves none.
+SERVED_MODELS = {
+    "codex": [*CODEX_MODELS, "gpt-5.5", "gpt-image-2"],
+    "claude": list(CLAUDE_MODELS),
+    "antigravity": ["gemini-3-flash", "gemini-4-argon", "claude-sonnet-4-6", "gpt-oss-120b"],
+    "kimi": ["kimi-k3"],
+    "xai": ["grok-4.7", "grok-build-0.1"],
+    "openai-compatibility": ["deepseek-v4", "deepseek-v4-flash", "codex/deepseek-v4-flash-vision-exp"],
+}
+CREDENTIAL_TEST_MODELS = {}
+
+
+def served_models(auth_index):
+    credential = next(item for item in [*AUTH_FILES, *CONFIG_CREDENTIALS.values()] if item["auth_index"] == auth_index)
+    return [] if credential["disabled"] else SERVED_MODELS.get(credential.get("category") or credential["type"], ["gpt-5.5"])
+
+
+def test_credential(auth_index):
+    """Answers like a pinned chat request; the unavailable Kimi file stands in for an upstream rejection."""
+    model = CREDENTIAL_TEST_MODELS.get(auth_index) or served_models(auth_index)[0]
+    time.sleep(1.2)
+    if auth_index != "auth-demo-kimi":
+        return 200, {"model": model, "latency_ms": 1184}
+    detail = 'host_call_failed：{"error":{"message":"Invalid authentication credentials","type":"invalid_request_error"}}'
+    return 502, {"error": {"code": "connection_failed", "message": f"Connection test with {model} failed: {detail}",
+                           "message_key": "backend.connection_test_with_value_failed_value", "message_params": {"v0": model, "v1": detail}}}
 
 
 def model_split(tokens, cost_usd, models):
@@ -1968,6 +1994,9 @@ def payload_for(path, query):
         return usage_models(query)
     if path == f"{API_BASE}/ai-providers":
         return {"providers": configured_provider_views(query)}
+    if path == f"{API_BASE}/credentials/test-model":
+        auth_index = query.get("auth_index", [""])[0]
+        return {"model": CREDENTIAL_TEST_MODELS.get(auth_index, ""), "models": served_models(auth_index)}
     if path.startswith("/v0/management/") and path.removeprefix("/v0/management/") in AI_PROVIDER_LISTS:
         field = path.removeprefix("/v0/management/")
         return {field: AI_PROVIDER_LISTS[field]}
@@ -2358,6 +2387,16 @@ class Handler(BaseHTTPRequestHandler):
                     "unavailable": False,
                 })
             self.send_json(200, {"credentials": CREDENTIALS})
+        elif route == ("POST", f"{API_BASE}/credentials/test-model"):
+            body = json.loads(request_body or b"{}")
+            model = body.get("model", "").strip()
+            if model:
+                CREDENTIAL_TEST_MODELS[body["auth_index"]] = model
+            else:
+                CREDENTIAL_TEST_MODELS.pop(body["auth_index"], None)
+            self.send_json(200, {})
+        elif route == ("POST", f"{API_BASE}/credentials/test"):
+            self.send_json(*test_credential(json.loads(request_body or b"{}").get("auth_index", "")))
         elif route == ("POST", f"{API_BASE}/ai-providers/note"):
             body = json.loads(request_body or b"{}")
             item = CONFIG_CREDENTIALS.get(body.get("ref"))

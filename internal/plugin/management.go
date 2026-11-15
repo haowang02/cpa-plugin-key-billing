@@ -38,6 +38,8 @@ const (
 	routeKeysConcurrency        = "/keys/concurrency"
 	routeKeysSync               = "/keys/sync"
 	routeCredentialsSync        = "/credentials/sync"
+	routeCredentialTestModel    = "/credentials/test-model"
+	routeCredentialTest         = "/credentials/test"
 	routeEvents                 = "/events"
 	routeEventKeys              = "/events/keys"
 	routeErrors                 = "/errors"
@@ -92,6 +94,9 @@ var managementEndpoints = []managementEndpoint{
 	{http.MethodPost, routeKeysConcurrency, "Set API key concurrency limit", (*App).setKeyConcurrency},
 	{http.MethodPost, routeKeysSync, "Sync API keys from CLIProxyAPI", (*App).syncKeys},
 	{http.MethodPost, routeCredentialsSync, "Sync configured credentials", (*App).syncConfiguredCredentials},
+	{http.MethodGet, routeCredentialTestModel, "View the connection test model of an upstream credential", (*App).credentialTestModel},
+	{http.MethodPost, routeCredentialTestModel, "Set the connection test model of an upstream credential", (*App).setCredentialTestModel},
+	{http.MethodPost, routeCredentialTest, "Test the connection of an upstream credential", (*App).testCredential},
 	{http.MethodGet, routeEventKeys, "View API keys in the event time range", (*App).eventKeys},
 	{http.MethodGet, routeEvents, "List request events with pagination", func(a *App, req ManagementRequest) ManagementResponse {
 		return a.listRequestEvents(req, viewAccess{})

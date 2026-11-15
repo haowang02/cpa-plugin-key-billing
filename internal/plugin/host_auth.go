@@ -98,7 +98,24 @@ type hostCredential struct {
 
 // hostCredentials includes config API keys, with the models each serves.
 func (a *App) hostCredentials() ([]hostCredential, error) {
-	raw, err := a.hostCaller(hostAuthModels, map[string]any{})
+	return a.readHostCredentials(map[string]any{})
+}
+
+func (a *App) hostCredential(authIndex string) (hostCredential, error) {
+	credentials, err := a.readHostCredentials(map[string]any{"auth_index": authIndex})
+	if err != nil {
+		return hostCredential{}, err
+	}
+	for _, credential := range credentials {
+		if credential.AuthIndex == authIndex {
+			return credential, nil
+		}
+	}
+	return hostCredential{}, fmt.Errorf("auth not found for auth_index %s", authIndex)
+}
+
+func (a *App) readHostCredentials(request map[string]any) ([]hostCredential, error) {
+	raw, err := a.hostCaller(hostAuthModels, request)
 	if err != nil {
 		return nil, err
 	}

@@ -43,6 +43,7 @@ func TestReferenceLabMigrationKeepsPricesUsableUntilResync(t *testing.T) {
 	if _, err := legacy.Exec(`
         ALTER TABLE reference_prices DROP COLUMN lab_id;
         ALTER TABLE reference_prices DROP COLUMN lab_name;
+        DROP TABLE credential_test_models;
         PRAGMA user_version = 27;
     `); err != nil {
 		t.Fatal(err)
@@ -851,7 +852,7 @@ func downgradeToV19(t *testing.T, d *DB) {
 		ALTER TABLE config_credentials DROP COLUMN balance_json;
 		ALTER TABLE config_credentials DROP COLUMN config_ref;
 		ALTER TABLE config_credentials DROP COLUMN note;
-		DROP TABLE quota_report_windows; DROP TABLE quota_reports; DROP TABLE quota_queries;
+		DROP TABLE quota_report_windows; DROP TABLE quota_reports; DROP TABLE quota_queries; DROP TABLE credential_test_models;
 		ALTER TABLE request_events DROP COLUMN user_agent;
 		ALTER TABLE request_events DROP COLUMN x_forwarded_for;
 		ALTER TABLE request_events DROP COLUMN effective_service_tier;

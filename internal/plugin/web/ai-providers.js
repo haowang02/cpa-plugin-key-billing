@@ -81,7 +81,6 @@ function renderAIProviders(account) {
     selection: account ? null : aiSelection,
     headers: [
       m("ui.ai_providers"),
-      ...(!account ? [""] : []),
       ...credentialMetricHeaders(),
       { label: m("ui.balance"), class: "credential-quota-column" },
       ...(!account ? [m("ui.actions")] : [])
@@ -95,6 +94,7 @@ function renderAIProviders(account) {
 function renderAIProviderRow(provider, account) {
   const upstream = aiBalanceUpstream(provider);
   const loading = adminUIState.aiBalanceLoading.has(provider.auth_index);
+  const busy = aiProviderStatusSaving || aiSelection.running;
   const baseURL = provider.base_url.replace(/^https:\/\//i, "");
   const title = provider.note || baseURL || m("ui.default_base_url");
   return el(
@@ -139,7 +139,6 @@ function renderAIProviderRow(provider, account) {
         )
       )
     ),
-    !account && credentialEditCell(() => editAIProvider(provider), aiProviderStatusSaving || aiSelection.running),
     renderCredentialMetrics(provider, modelUsageTooltip(account, provider.usage_query)),
     el("td", { class: "credential-quota-cell" }, renderAIBalance(provider, account)),
     !account &&
@@ -149,32 +148,18 @@ function renderAIProviderRow(provider, account) {
         el(
           "div",
           { class: "credential-actions" },
-          el(
-            "button",
-            {
-              type: "button",
-              class: "icon-action" + (loading ? " loading" : ""),
-              disabled: !upstream || loading || aiSelection.running || aiProviderStatusSaving || !!adminUIState.aiBalanceBatch,
-              "aria-label": m("ui.query_balance"),
-              "data-tip": upstream ? m("ui.query_balance") : m("ui.balance_queries_are_not_supported_for_this_provider"),
-              onclick: () => guard(() => queryAIBalance(provider))
-            },
-            actionIcon("refresh")
-          ),
-          switchControl({
-            input: el("input", {
-              type: "checkbox",
-              role: "switch",
-              checked: !provider.disabled,
-              "aria-label": m(provider.type === "openai-compatibility" ? "ui.provider_group_switch" : "ui.enable"),
-              "data-tip": m(provider.type === "openai-compatibility" ? "ui.provider_group_switch" : "ui.enable"),
-              disabled: aiProviderStatusSaving || aiSelection.running,
-              onchange: (event) => {
-                const enabled = event.target.checked;
-                event.target.checked = !provider.disabled;
-                guard(() => setAIProvidersEnabled([provider], enabled));
-              }
-            })
+          credentialActionButton("refresh", m("ui.query_balance"), {
+            tip: upstream ? m("ui.query_balance") : m("ui.balance_queries_are_not_supported_for_this_provider"),
+            disabled: !upstream || loading || busy || !!adminUIState.aiBalanceBatch,
+            className: loading ? "loading" : "",
+            run: () => queryAIBalance(provider)
+          }),
+          credentialTestButton(provider, () => renderAIProviders(false)),
+          credentialActionButton("pencil", m("ui.edit"), { disabled: busy, run: () => editAIProvider(provider) }),
+          credentialPowerButton(provider, {
+            disabled: busy,
+            group: provider.type === "openai-compatibility",
+            toggle: (enabled) => setAIProvidersEnabled([provider], enabled)
           })
         )
       )

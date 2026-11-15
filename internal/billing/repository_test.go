@@ -36,6 +36,10 @@ func (r *memoryRepository) QuotaQueries([]string, time.Time) (map[string]QuotaQu
 	return map[string]QuotaQuery{}, r.fail
 }
 
+func (r *memoryRepository) SetCredentialTestModel(string, string) error { return r.fail }
+
+func (r *memoryRepository) CredentialTestModel(string) (string, error) { return "", r.fail }
+
 func (r *memoryRepository) UsageTotal(string, UsageQuery, ExchangeRate) (UsageTotal, error) {
 	return UsageTotal{}, r.fail
 }

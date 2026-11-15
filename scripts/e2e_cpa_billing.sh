@@ -1344,6 +1344,32 @@ assert_reference_price_billing() {
   log_step "参考价已验证：普通模型及带前缀、思考后缀的模型，流式和非流式均按参考价记账"
 }
 
+assert_credential_connection_test() {
+  local port="$1" runtime_dir="$2" auth_index count
+  local events_file="$runtime_dir/connection-test-events.json"
+  local response_file="$runtime_dir/responses/connection-test.json"
+  management_call GET "$port" "/v0/management/openai-compatibility" >"$runtime_dir/connection-test-providers.json"
+  auth_index="$(jq -er '."openai-compatibility"[] | select(.name == "route-allowed-e2e") | ."api-key-entries"[0]."auth-index"' \
+    "$runtime_dir/connection-test-providers.json")"
+  management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$events_file"
+  count="$(jq -er '.entries | length' "$events_file")"
+
+  management_call POST "$port" "/v0/management/plugins/cpa-key-billing/credentials/test" \
+    -H "Content-Type: application/json" --data "$(jq -nc --arg index "$auth_index" '{auth_index:$index}')" >"$response_file"
+  if ! jq -e '.model == "e2e-credential-route"' "$response_file" >/dev/null; then
+    echo "连接测试未使用凭证的首个模型：$(cat "$response_file")" >&2
+    return 1
+  fi
+  wait_for_event_count "$port" "$((count + 1))" "$events_file"
+  if ! jq -e --arg index "$auth_index" '
+      .entries[0] | .scope == "" and .auth_index == $index and .billing_model == "e2e-credential-route" and .failed == false
+    ' "$events_file" >/dev/null; then
+    echo "连接测试请求未固定到所选凭证：$(jq -c '.entries[0]' "$events_file")" >&2
+    return 1
+  fi
+  log_ok "连接测试：请求固定到所选凭证，并记为无 Key 请求"
+}
+
 run_target() {
   local target="$1"
   local index="$2"
@@ -1722,11 +1748,12 @@ run_target() {
   log_step "插件启动事件已验证"
   assert_reference_price_billing "$port" "$runtime_dir"
   assert_unpriced_model_policy "$port" "$runtime_dir"
+  assert_credential_connection_test "$port" "$runtime_dir"
 
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  log_ok "${host_label}：54 个上游请求（含 4 个参考价请求和 1 个未定价请求），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，14 次额度拦截"
+  log_ok "${host_label}：55 个上游请求（含 4 个参考价请求、1 个未定价请求和 1 个连接测试），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，14 次额度拦截"
 }
 
 log_stage "启动 dummy provider"

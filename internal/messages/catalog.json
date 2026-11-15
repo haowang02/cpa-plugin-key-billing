@@ -624,5 +624,26 @@
   "Invalid quota cycle data": {
     "key": "backend.invalid_quota_cycle_data",
     "formats": []
+  },
+  "Invalid credential identifier": {
+    "key": "backend.invalid_credential_identifier",
+    "formats": []
+  },
+  "This credential serves no models": {
+    "key": "backend.this_credential_serves_no_models",
+    "formats": []
+  },
+  "Test model %s is not served by this credential": {
+    "key": "backend.test_model_value_is_not_served_by_this_credential",
+    "formats": [
+      "%s"
+    ]
+  },
+  "Connection test with %s failed: %s": {
+    "key": "backend.connection_test_with_value_failed_value",
+    "formats": [
+      "%s",
+      "%s"
+    ]
   }
 }

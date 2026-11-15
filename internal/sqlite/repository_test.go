@@ -164,7 +164,7 @@ func TestFreshSchemaVersionAndTables(t *testing.T) {
 		"api_keys": true, "routes": true, "plans": true,
 		"prices": true, "request_events": true, "config_credentials": true,
 		"request_errors": true, "plugin_logs": true, "reference_prices_metadata": true, "reference_prices": true,
-		"quota_reports": true, "quota_report_windows": true, "quota_queries": true,
+		"quota_reports": true, "quota_report_windows": true, "quota_queries": true, "credential_test_models": true,
 	}
 	rows, err := database.db.Query(`SELECT name FROM sqlite_master
 		WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
@@ -222,7 +222,7 @@ func TestQuotaConfigurationExtendsExistingJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := database.db.Exec(`ALTER TABLE plans DROP COLUMN shared_quota;
-        ALTER TABLE plans DROP COLUMN cycles_json; DROP TABLE quota_queries;
+        ALTER TABLE plans DROP COLUMN cycles_json; DROP TABLE quota_queries; DROP TABLE credential_test_models;
         ALTER TABLE request_events DROP COLUMN effective_service_tier; PRAGMA user_version=24;`); err != nil {
 		t.Fatal(err)
 	}

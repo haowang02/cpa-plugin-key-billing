@@ -65,11 +65,21 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 26 {
 		steps = append(steps, migrateEffectiveServiceTier)
 	}
-	steps = append(steps, migrateReferenceLabs)
+	if version <= 27 {
+		steps = append(steps, migrateReferenceLabs)
+	}
+	steps = append(steps, migrateCredentialTestModels)
 	for _, step := range steps {
 		if err := step(tx); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateCredentialTestModels(tx *sql.Tx) error {
+	if _, err := tx.Exec(credentialTestModelsTable); err != nil {
+		return fmt.Errorf("Add credential test models: %w", err)
 	}
 	return nil
 }

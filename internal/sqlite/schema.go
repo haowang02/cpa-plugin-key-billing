@@ -74,6 +74,13 @@ CREATE TABLE quota_queries (
 );
 `
 
+const credentialTestModelsTable = `
+CREATE TABLE credential_test_models (
+	auth_index TEXT PRIMARY KEY,
+	model      TEXT NOT NULL
+);
+`
+
 // Time columns use Unix nanoseconds; JSON cycles use UTC RFC3339Nano. Amounts
 // are in the currency of their row.
 const schema = `
@@ -214,7 +221,7 @@ CREATE TABLE request_errors (
 	body             TEXT    NOT NULL DEFAULT ''
 );
 
-` + quotaReportTables + quotaQueriesTable + `
+` + quotaReportTables + quotaQueriesTable + credentialTestModelsTable + `
 CREATE TABLE plugin_logs (
 	id      INTEGER PRIMARY KEY AUTOINCREMENT,
 	at      INTEGER NOT NULL,

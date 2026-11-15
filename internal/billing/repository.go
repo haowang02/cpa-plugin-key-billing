@@ -23,6 +23,8 @@ type Repository interface {
 	QuotaWindowHistories(authIndex, provider string, from, to time.Time) ([]QuotaWindowHistory, error)
 	SaveQuotaQuery(authIndex string, query QuotaQuery, since time.Time) error
 	QuotaQueries(authIndexes []string, since time.Time) (map[string]QuotaQuery, error)
+	SetCredentialTestModel(authIndex, model string) error
+	CredentialTestModel(authIndex string) (string, error)
 	UsageTotal(scope string, query UsageQuery, rate ExchangeRate) (UsageTotal, error)
 	UsageByModel(scope string, query UsageQuery, rate ExchangeRate) ([]ModelUsage, error)
 	UsageCredentials(scope string, query UsageQuery) ([]string, error)
