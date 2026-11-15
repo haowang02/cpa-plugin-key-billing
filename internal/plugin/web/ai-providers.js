@@ -80,12 +80,12 @@ function renderAIProviders(account) {
   renderCollection(body, filteredAIProviders(account), {
     selection: account ? null : aiSelection,
     headers: [
-      m("ui.ai_providers"),
+      { label: m("ui.ai_providers"), class: "credential-identity-column" },
       ...credentialMetricHeaders(),
-      { label: m("ui.balance"), class: "credential-quota-column" },
+      { label: credentialColumnHeader(m("ui.balance"), account ? [] : [aiBalanceAction()]), class: "credential-quota-column" },
       ...(!account ? [m("ui.actions")] : [])
     ],
-    attrs: { class: "credential-table" },
+    attrs: { class: "credential-table ai-provider-table" },
     empty: m("ui.no_ai_providers_match_the_filters"),
     render: (provider) => renderAIProviderRow(provider, account)
   });

@@ -184,6 +184,7 @@ function aiBalanceAction() {
   return {
     label: batch ? m("ui.querying_value_value", { v0: batch.done, v1: batch.total }) : m("ui.query_balance"),
     icon: "wallet",
+    loading: !!batch,
     disabled: !!batch || aiSelection.running || aiProviderStatusSaving || !filteredAIProviders(false).some(aiBalanceUpstream),
     run: () => guard(queryFilteredAIBalances)
   };
@@ -207,6 +208,8 @@ async function queryFilteredAIBalances() {
       while (next < providers.length && owner === adminUIState) {
         await loadAIBalance(providers[next++]);
         batch.done++;
+        if (owner === adminUIState)
+          updateCredentialBatchProgress("ai-providers-body", m("ui.querying_value_value", { v0: batch.done, v1: batch.total }));
       }
     };
     await settleLoads(Array.from({ length: Math.min(AI_BALANCE_BATCH_CONCURRENCY, providers.length) }, worker));

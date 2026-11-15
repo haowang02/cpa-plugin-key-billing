@@ -163,7 +163,9 @@ function setPrivacyMask(masked) {
 
 function pageMenuItems() {
   const page = currentPage();
-  const items = (page.actions?.() || []).map((item) => ({ ...item, group: "page" }));
+  const column = page.actionColumn && $(page.actionColumn).querySelector(".credential-column-actions");
+  const actions = column?.getClientRects().length ? [] : page.actions?.() || [];
+  const items = actions.map((item) => ({ ...item, group: "page" }));
   if (page.currency) items.push(currencyMenuItem());
   return items;
 }

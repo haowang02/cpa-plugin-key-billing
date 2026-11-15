@@ -131,6 +131,7 @@ function authFileActions(account) {
     {
       label: batch ? m("ui.updating_value_value", { v0: batch.done, v1: batch.total }) : m("ui.update_quotas"),
       icon: "refresh",
+      loading: !!batch,
       disabled: !!batch || (!account && authSelection.running) || !filteredAuthFiles(account).some(canRefreshAuthQuota),
       run: () => guard(() => refreshFilteredAuthQuotas(account))
     },
@@ -221,9 +222,9 @@ function renderAuthFiles(account) {
   renderCollection(body, filteredAuthFiles(account), {
     selection: account ? null : authSelection,
     headers: [
-      m("ui.auth_files"),
+      { label: m("ui.auth_files"), class: "credential-identity-column" },
       ...credentialMetricHeaders(),
-      { label: m("ui.quota"), class: "credential-quota-column" },
+      { label: credentialColumnHeader(m("ui.quota"), authFileActions(account)), class: "credential-quota-column" },
       m("ui.actions")
     ],
     attrs: { class: "credential-table" },
@@ -476,6 +477,8 @@ async function refreshFilteredAuthQuotas(account) {
       while (next < files.length && generation === authQuotaGeneration[role]) {
         await loadAuthQuota(files[next++], account);
         batch.done++;
+        if (generation === authQuotaGeneration[role])
+          updateCredentialBatchProgress("auth-files-body", m("ui.updating_value_value", { v0: batch.done, v1: batch.total }));
       }
     };
     await settleLoads(Array.from({ length: Math.min(AUTH_QUOTA_BATCH_CONCURRENCY, files.length) }, worker));
