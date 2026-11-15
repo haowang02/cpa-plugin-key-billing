@@ -15,6 +15,21 @@ var builtinPrices = map[string]PriceRates{
 		OutputPer1M:    30,
 		CacheReadPer1M: float64Ptr(1.25),
 	},
+	NormalizeModelID("gpt-image-2.6"): {
+		InputPer1M:     5,
+		OutputPer1M:    30,
+		CacheReadPer1M: float64Ptr(1.25),
+	},
+	NormalizeModelID("gpt-image-2.6-flare"): {
+		InputPer1M:     5,
+		OutputPer1M:    30,
+		CacheReadPer1M: float64Ptr(1.25),
+	},
+	NormalizeModelID("gpt-image-2.6-sunburst"): {
+		InputPer1M:     5,
+		OutputPer1M:    30,
+		CacheReadPer1M: float64Ptr(1.25),
+	},
 	NormalizeModelID("deepseek-flash"): {
 		InputPer1M:     0.15,
 		OutputPer1M:    0.6,
