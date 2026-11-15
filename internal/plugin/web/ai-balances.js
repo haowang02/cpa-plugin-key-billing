@@ -57,21 +57,6 @@ const AI_BALANCE_UPSTREAMS = [
     }
   },
   {
-    hosts: ["api.siliconflow.cn", "api.siliconflow.com"],
-    async read(call, host) {
-      const data = requireObject((await call("/v1/user/info")).data, m("ui.balance"));
-      const amount = balanceAmount(data.totalBalance);
-      return [
-        {
-          currency: host.endsWith(".cn") ? "CNY" : "USD",
-          amount,
-          depleted: amount <= 0,
-          parts: [["ui.balance_topped_up_value", data.chargeBalance], ["ui.balance_granted_value", data.balance]]
-        }
-      ];
-    }
-  },
-  {
     hosts: ["api.stepfun.com", "api.stepfun.ai"],
     async read(call, host) {
       const body = await call("/v1/accounts");
