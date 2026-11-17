@@ -74,7 +74,13 @@ const REQUEST_EVENT_COLUMNS = [
       measured ? el("div", { class: "muted small" }, cacheReadRate(cost.cache_read_tokens, input)) : null
     ]
   },
-  { id: "cache_write", label: m("ui.cache_write"), class: "num", cell: ({ cost, tokens }) => tokens(cost.cache_write_tokens) },
+  {
+    id: "cache_write",
+    label: m("ui.cache_write"),
+    class: "num",
+    hasData: (entry) => entry.cost.cache_write_tokens !== 0,
+    cell: ({ cost, tokens }) => tokens(cost.cache_write_tokens)
+  },
   {
     id: "output",
     label: m("ui.output"),
@@ -85,6 +91,22 @@ const REQUEST_EVENT_COLUMNS = [
         ? el("div", { class: "muted small" }, m("ui.reasoning_value", { v0: exactTokens(entry.reasoning_tokens) }))
         : null
     ]
+  },
+  {
+    id: "quota_five_hour",
+    label: m("backend.5_hour_limit"),
+    class: "num",
+    defaultVisible: false,
+    hasData: (entry) => entry.quota_five_hour != null,
+    cell: ({ entry }) => requestEventQuota(entry.quota_five_hour)
+  },
+  {
+    id: "quota_weekly",
+    label: m("backend.weekly_limit"),
+    class: "num",
+    defaultVisible: false,
+    hasData: (entry) => entry.quota_weekly != null,
+    cell: ({ entry }) => requestEventQuota(entry.quota_weekly)
   },
   { id: "cost", label: m("ui.cost"), class: "num", cell: requestEventCost },
   { id: "session_id", label: m("ui.session_id"), class: "small", cell: requestEventSession },
@@ -134,7 +156,10 @@ function requestEventColumnLayout(account, preference = viewPreference(account ?
     const next = columns.slice(index + 1).find((candidate) => ordered.includes(candidate));
     ordered.splice(next ? ordered.indexOf(next) : ordered.length, 0, column);
   }
-  return ordered.map((column) => ({ column, visible: column.required || !hidden.includes(column.id) }));
+  return ordered.map((column) => ({
+    column,
+    visible: column.required || (order.includes(column.id) ? !hidden.includes(column.id) : column.defaultVisible !== false)
+  }));
 }
 
 function renderRequestEvents(account = false) {
@@ -142,10 +167,9 @@ function renderRequestEvents(account = false) {
   const list = pagedList("events", account);
   if (list.renderEmpty()) return;
   const entries = list.data.entries;
-  const hasCacheWrite = entries.some((entry) => entry.cost.cache_write_tokens !== 0);
-  const columns = requestEventColumnLayout(account)
-    .filter(({ column, visible }) => visible && (column.id !== "cache_write" || hasCacheWrite))
-    .map(({ column }) => column);
+  const layout = requestEventColumnLayout(account).filter(({ column }) => !column.hasData || entries.some(column.hasData));
+  const hasCacheWrite = layout.some(({ column }) => column.id === "cache_write");
+  const columns = layout.filter(({ visible }) => visible).map(({ column }) => column);
   list.renderItems(entries, {
     render: (entry) => {
       // Missing usage details mean unknown counts, not zero usage.
@@ -259,6 +283,15 @@ function requestEventCost({ cost, measured, hasCacheWrite }) {
         : costMoney(cost.total, cost.currency)
     ),
     note ? el("div", { class: "muted small" }, note) : null
+  ];
+}
+
+function requestEventQuota(quota) {
+  if (!quota) return "—";
+  const resetAt = Date.parse(quota.reset_at);
+  return [
+    el("div", {}, quota.remaining_percent.toFixed(0) + "%"),
+    el("div", { class: "muted small mono", text: Number.isFinite(resetAt) ? compactResetDate(new Date(resetAt)) : "—" })
   ];
 }
 

@@ -177,10 +177,15 @@ func (d *DB) RequestEvents(query billing.RequestEventQuery, since time.Time) (bi
 			r.applied_input_per_1m, r.applied_output_per_1m,
 			r.applied_cache_read_per_1m, r.applied_cache_write_per_1m,
 			coalesce(k.preview, ''), coalesce(k.label, ''), `+requestEventCredentialName+`,
-			coalesce(e.body, ''), r.endpoint, r.transport, r.stream, r.execution_json, r.user_agent, r.x_forwarded_for
+			coalesce(e.body, ''), r.endpoint, r.transport, r.stream, r.execution_json, r.user_agent, r.x_forwarded_for,
+			q5.used_percent, q5.reset_at, q7.used_percent, q7.reset_at
 		FROM page JOIN request_events r ON r.id = page.id
 		LEFT JOIN api_keys k ON k.scope = r.scope
 		LEFT JOIN request_errors e ON e.request_event_id = r.id
+		LEFT JOIN quota_report_windows q5 ON q5.request_event_id = r.id AND q5.provider = r.provider
+			AND q5.limit_key = CASE r.provider WHEN 'codex' THEN 'codex' WHEN 'claude' THEN 'unified' END AND q5.seconds = 18000
+		LEFT JOIN quota_report_windows q7 ON q7.request_event_id = r.id AND q7.provider = r.provider
+			AND q7.limit_key = CASE r.provider WHEN 'codex' THEN 'codex' WHEN 'claude' THEN 'unified' END AND q7.seconds = 604800
 		ORDER BY r.at DESC, r.id DESC`, pageArgs...)
 	if errQuery != nil {
 		return billing.RequestEventView{}, fmt.Errorf("Read request events: %w", errQuery)
@@ -330,10 +335,12 @@ func (d *DB) countEventFilters(filters *billing.RequestEventFilterValues, query 
 
 func scanRequestEventRow(rows *sql.Rows) (billing.RequestEventRow, error) {
 	var (
-		row                  billing.RequestEventRow
-		at, failed           int64
-		quality, priceSource string
-		execution            string
+		row                    billing.RequestEventRow
+		at, failed             int64
+		quality, priceSource   string
+		execution              string
+		fiveUsed, weeklyUsed   sql.NullFloat64
+		fiveReset, weeklyReset sql.NullInt64
 	)
 	if errScan := rows.Scan(&row.ID, &at, &row.Scope, &row.AuthIndex, &row.Provider, &row.Account,
 		&row.ExecutorType, &row.ReasoningEffort, &row.ServiceTier, &row.EffectiveServiceTier, &row.ResponseServiceTier,
@@ -348,13 +355,15 @@ func scanRequestEventRow(rows *sql.Rows) (billing.RequestEventRow, error) {
 		&row.Cost.AppliedInputPer1M, &row.Cost.AppliedOutputPer1M,
 		&row.Cost.AppliedCacheReadPer1M, &row.Cost.AppliedCacheWritePer1M,
 		&row.Preview, &row.Label, &row.Credential, &row.ErrorBody, &row.Endpoint, &row.Transport, &row.Stream, &execution,
-		&row.UserAgent, &row.XForwardedFor); errScan != nil {
+		&row.UserAgent, &row.XForwardedFor, &fiveUsed, &fiveReset, &weeklyUsed, &weeklyReset); errScan != nil {
 		return billing.RequestEventRow{}, fmt.Errorf("Read request events: %w", errScan)
 	}
 	if err := json.Unmarshal([]byte(execution), &row.Execution); err != nil {
 		return billing.RequestEventRow{}, fmt.Errorf("Read execution metadata: %w", err)
 	}
 	row.At = timeAt(at)
+	row.QuotaFiveHour = quotaWindowSnapshot(fiveUsed, fiveReset)
+	row.QuotaWeekly = quotaWindowSnapshot(weeklyUsed, weeklyReset)
 	row.Failed = failed != 0
 	row.AccountingQuality = billing.TokenAccountingQuality(quality)
 	switch priceSource {

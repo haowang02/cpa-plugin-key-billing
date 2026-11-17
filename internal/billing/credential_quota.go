@@ -19,6 +19,12 @@ type QuotaReportWindow struct {
 	ResetAt     time.Time
 }
 
+// QuotaWindowSnapshot preserves the remaining quota and reset time of one observation.
+type QuotaWindowSnapshot struct {
+	RemainingPercent float64   `json:"remaining_percent"`
+	ResetAt          time.Time `json:"reset_at,omitzero"`
+}
+
 type QuotaObservation struct {
 	At time.Time
 	QuotaReport

@@ -61,11 +61,13 @@ type RequestEvent struct {
 type RequestEventRow struct {
 	RequestEvent
 	// Encode the database identity as a string to preserve all 64 bits in browsers.
-	ID         int64  `json:"id,string"`
-	Preview    string `json:"preview,omitempty"`
-	Label      string `json:"label,omitempty"`
-	Credential string `json:"credential,omitempty"`
-	ErrorBody  string `json:"error_body,omitempty"`
+	ID            int64                `json:"id,string"`
+	Preview       string               `json:"preview,omitempty"`
+	Label         string               `json:"label,omitempty"`
+	Credential    string               `json:"credential,omitempty"`
+	ErrorBody     string               `json:"error_body,omitempty"`
+	QuotaFiveHour *QuotaWindowSnapshot `json:"quota_five_hour,omitempty"`
+	QuotaWeekly   *QuotaWindowSnapshot `json:"quota_weekly,omitempty"`
 }
 
 type RequestEventQuery struct {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,7 +19,11 @@ func TestQuotaReportsReadNewestValuesAndWindowHistories(t *testing.T) {
 	unlimited, limited := true, false
 	reports := []billing.QuotaReport{
 		{Provider: "codex", Plan: "plus", CreditBalance: "12", CreditsUnlimited: &unlimited,
-			Windows: []billing.QuotaReportWindow{{LimitKey: "codex", Seconds: 18000, UsedPercent: 10}, {LimitKey: "codex", Seconds: 604800, UsedPercent: 30}}},
+			Windows: []billing.QuotaReportWindow{
+				{LimitKey: "codex", Seconds: 18000, UsedPercent: 10, ResetAt: eventStart.Add(5 * time.Hour)},
+				{LimitKey: "codex", Seconds: 604800, UsedPercent: 30},
+				{LimitKey: "spark", Seconds: 18000, UsedPercent: 99},
+			}},
 		{Provider: "claude", Windows: []billing.QuotaReportWindow{{LimitKey: "unified", Seconds: 18000, UsedPercent: 9}}},
 		{Provider: "codex", Plan: "pro", Windows: []billing.QuotaReportWindow{{LimitKey: "codex", Seconds: 18000, UsedPercent: 20}}},
 		{Provider: "codex", CreditsUnlimited: &limited},
@@ -26,9 +31,25 @@ func TestQuotaReportsReadNewestValuesAndWindowHistories(t *testing.T) {
 	events := make([]billing.RequestEvent, len(reports))
 	for i := range reports {
 		events[i] = requestEvent("dummy", eventStart.Add(time.Duration(i)*time.Minute))
+		events[i].Provider = reports[i].Provider
 		events[i].Quota = &reports[i]
 	}
 	mustSave(t, d, billing.NewState(), billing.Changes{NormalRequestEvents: events})
+	view := mustQueryRequestEvents(t, d, billing.RequestEventQuery{})
+	want := [][2]*billing.QuotaWindowSnapshot{
+		{nil, nil},
+		{{RemainingPercent: 80}, nil},
+		{{RemainingPercent: 91}, nil},
+		{{RemainingPercent: 90, ResetAt: eventStart.Add(5 * time.Hour)}, {RemainingPercent: 70}},
+	}
+	if len(view.Entries) != len(want) {
+		t.Fatalf("request rows = %d, want %d", len(view.Entries), len(want))
+	}
+	for i, row := range view.Entries {
+		if got := [2]*billing.QuotaWindowSnapshot{row.QuotaFiveHour, row.QuotaWeekly}; !reflect.DeepEqual(got, want[i]) {
+			t.Fatalf("request %d quota = %+v, want %+v", row.ID, got, want[i])
+		}
+	}
 
 	latest := func(since time.Time) string {
 		view, err := d.LatestQuotaReports([]string{"auth-codex"}, since)
@@ -55,7 +76,7 @@ func TestQuotaReportsReadNewestValuesAndWindowHistories(t *testing.T) {
 		return strings.Join(parts, " | ")
 	}
 	// An older report keeps only what no later one reported again.
-	if got := latest(eventStart); got != "0 balance=12 604800:30 | 1 18000:9 | 2 plan=pro 18000:20 | 3 unlimited=false" {
+	if got := latest(eventStart); got != "0 balance=12 604800:30 18000:99 | 1 18000:9 | 2 plan=pro 18000:20 | 3 unlimited=false" {
 		t.Fatalf("newest reports: %s", got)
 	}
 	if got := latest(eventStart.Add(90 * time.Second)); got != "2 plan=pro 18000:20 | 3 unlimited=false" {
@@ -72,7 +93,7 @@ func TestQuotaReportsReadNewestValuesAndWindowHistories(t *testing.T) {
 			got = append(got, fmt.Sprint(history.Seconds, "@", int(report.At.Sub(eventStart)/time.Minute), ":", report.Plan, ":", report.UsedPercent))
 		}
 	}
-	if strings.Join(got, " ") != "18000@0:plus:10 18000@2:pro:20 604800@0:plus:30" {
+	if strings.Join(got, " ") != "18000@0:plus:10 18000@2:pro:20 604800@0:plus:30 18000@0:plus:99" {
 		t.Fatalf("window histories: %v", got)
 	}
 

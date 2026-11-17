@@ -1594,7 +1594,19 @@ def seed_paginated_history():
                 "latency_ms": round(sample["latency_ms"] * load),
                 "ttft_ms": round(sample["ttft_ms"] * load),
             }
-            REQUEST_EVENTS.append({**sample, **identity})
+            entry = {**sample, **identity}
+            if sample["provider"] in {"codex", "claude"} and index % 4 != 3:
+                at = NOW - timedelta(minutes=sequence)
+                entry["quota_five_hour"] = {
+                    "remaining_percent": [80, 0, 100][index % 3],
+                    "reset_at": iso(at + timedelta(hours=5)),
+                }
+                if index % 4 != 2:
+                    entry["quota_weekly"] = {
+                        "remaining_percent": 65.4,
+                        "reset_at": iso(at + timedelta(days=3, hours=2)),
+                    }
+            REQUEST_EVENTS.append(entry)
             if sample["id"] in error_samples:
                 ERRORS.append({**error_samples[sample["id"]], **identity})
         for index, sample in enumerate(log_samples):

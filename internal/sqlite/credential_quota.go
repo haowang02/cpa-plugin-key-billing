@@ -5,11 +5,22 @@ import (
 	"database/sql"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"time"
 
 	"cpa-key-billing/internal/billing"
 )
+
+func quotaWindowSnapshot(used sql.NullFloat64, reset sql.NullInt64) *billing.QuotaWindowSnapshot {
+	if !used.Valid {
+		return nil
+	}
+	return &billing.QuotaWindowSnapshot{
+		RemainingPercent: math.Max(0, math.Min(100, 100-used.Float64)),
+		ResetAt:          timeAt(reset.Int64),
+	}
+}
 
 func insertQuotaReport(tx *sql.Tx, eventID int64, authIndex string, at time.Time, report billing.QuotaReport) error {
 	var unlimited any
