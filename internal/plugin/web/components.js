@@ -189,6 +189,9 @@ for (const id of [
 
 // @license Lucide Icons - ISC; SVG assets are embedded locally.
 const LUCIDE_ICONS = {
+  type: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-type"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/></svg>`,
+  image: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-image"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>`,
+
   "info": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`,
   "pencil": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/></svg>`,
   "circle-check": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></svg>`,
@@ -476,4 +479,22 @@ function renderDataPending(target, sources, message = m("ui.loading"), className
     el("div", { class: className, text: missing.some((source) => source.error) ? m("ui.failed_to_load_data") : message })
   );
   return true;
+}
+
+function modalityIcon(image) {
+  const label = m(image ? "ui.image" : "ui.text");
+  return el(
+    "span",
+    { class: "modality-icon muted", role: "img", "aria-label": label, "data-tip": label },
+    actionIcon(image ? "image" : "type")
+  );
+}
+
+function modalityPair(text, image) {
+  return el(
+    "span",
+    { class: "modality-pair" },
+    text != null ? el("span", { class: "modality-part" }, modalityIcon(false), text) : null,
+    image != null ? el("span", { class: "modality-part" }, modalityIcon(true), image) : null
+  );
 }

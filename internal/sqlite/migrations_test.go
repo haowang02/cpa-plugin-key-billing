@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,7 @@ func TestReferenceLabMigrationKeepsPricesUsableUntilResync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dropTokenDetailColumns(t, legacy)
 	if _, err := legacy.Exec(`
         ALTER TABLE reference_prices DROP COLUMN lab_id;
         ALTER TABLE reference_prices DROP COLUMN lab_name;
@@ -830,6 +832,7 @@ func TestRequestErrorReasonMigration(t *testing.T) {
 
 func downgradeToV19(t *testing.T, d *DB) {
 	t.Helper()
+	dropTokenDetailColumns(t, d.db)
 	if _, err := d.db.Exec(`
 		DROP INDEX request_events_auth_usage;
 		DROP INDEX config_credentials_auth_index;
@@ -903,5 +906,48 @@ func TestV18ExecutionMetadataMigrationPreservesAllEvents(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("execution metadata lost after reopening")
+	}
+}
+
+func dropTokenDetailColumns(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for table, columns := range map[string][]string{
+		"prices":         {"image_input_per_1m", "image_cache_read_per_1m", "image_output_per_1m"},
+		"request_events": {"cache_write_5m_tokens", "cache_write_1h_tokens", "image_input_tokens", "image_cache_read_tokens", "image_output_tokens", "cache_write_1h_cost", "image_input_cost", "image_cache_read_cost", "image_output_cost", "applied_cache_write_1h_per_1m", "applied_image_input_per_1m", "applied_image_cache_read_per_1m", "applied_image_output_per_1m"},
+	} {
+		for _, column := range columns {
+			if _, err := db.Exec("ALTER TABLE " + table + " DROP COLUMN " + column); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func TestV29TokenDetailMigrationPreservesRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v29.db")
+	database := openDatabase(t, path)
+	events := []billing.RequestEvent{requestEvent("scope", eventStart), {At: eventStart, Scope: "scope"}, {At: eventStart, Scope: "scope", Failed: true}}
+	mustSave(t, database, billing.NewState(), billing.Changes{NormalRequestEvents: events})
+	if err := database.UpsertPrice(billing.CustomPrice{ModelID: "dummy", Currency: billing.USD, PriceRates: billing.PriceRates{InputPer1M: 5}}); err != nil {
+		t.Fatal(err)
+	}
+	before := mustQueryRequestEvents(t, database, billing.RequestEventQuery{})
+	dropTokenDetailColumns(t, database.db)
+	if _, err := database.db.Exec(`PRAGMA user_version=29;
+ CREATE TRIGGER preserve_event_rows BEFORE UPDATE ON request_events BEGIN SELECT RAISE(ABORT,'event rewritten'); END;
+ CREATE TRIGGER preserve_price_rows BEFORE UPDATE ON prices BEGIN SELECT RAISE(ABORT,'price rewritten'); END;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	migrated := openDatabase(t, path)
+	defer migrated.Close()
+	after := mustQueryRequestEvents(t, migrated, billing.RequestEventQuery{})
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("history changed: before=%+v after=%+v", before, after)
+	}
+	if p := mustLoad(t, migrated).State.Prices["dummy"]; p.InputPer1M != 5 || p.ImageInputPer1M != nil || p.ImageCacheReadPer1M != nil || p.ImageOutputPer1M != nil {
+		t.Fatalf("price changed: %+v", p)
 	}
 }

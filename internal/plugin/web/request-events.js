@@ -64,13 +64,19 @@ const REQUEST_EVENT_COLUMNS = [
   },
   { id: "result", label: m("ui.result"), cell: ({ entry }) => failureTag(entry) },
   { id: "tps_latency", label: m("ui.tps_latency"), class: "num", cell: requestEventSpeed },
-  { id: "input", label: m("ui.input"), class: "num", cell: ({ input, tokens }) => tokens(input) },
+  {
+    id: "input",
+    label: m("ui.input"),
+    class: "num",
+    cell: ({ cost, input, tokens }) =>
+      tokens(input, cost.image_input_tokens == null ? null : cost.image_input_tokens + (cost.image_cache_read_tokens ?? 0))
+  },
   {
     id: "cache_read",
     label: m("ui.cache_read"),
     class: "num",
     cell: ({ cost, input, measured, tokens }) => [
-      el("div", {}, tokens(cost.cache_read_tokens)),
+      el("div", {}, tokens(cost.cache_read_tokens, cost.image_cache_read_tokens)),
       measured ? el("div", { class: "muted small" }, cacheReadRate(cost.cache_read_tokens, input)) : null
     ]
   },
@@ -79,14 +85,14 @@ const REQUEST_EVENT_COLUMNS = [
     label: m("ui.cache_write"),
     class: "num",
     hasData: (entry) => entry.cost.cache_write_tokens !== 0,
-    cell: ({ cost, tokens }) => tokens(cost.cache_write_tokens)
+    cell: ({ cost, measured, tokens }) => [el("div", {}, tokens(cost.cache_write_tokens)), measured ? cacheWriteTTL(cost) : null]
   },
   {
     id: "output",
     label: m("ui.output"),
     class: "num",
     cell: ({ entry, cost, measured, tokens }) => [
-      el("div", {}, tokens(cost.billed_output_tokens)),
+      el("div", {}, tokens(cost.billed_output_tokens, cost.image_output_tokens)),
       measured && entry.reasoning_tokens
         ? el("div", { class: "muted small" }, m("ui.reasoning_value", { v0: exactTokens(entry.reasoning_tokens) }))
         : null
@@ -180,12 +186,18 @@ function renderRequestEvents(account = false) {
         measured,
         hasCacheWrite,
         input: requestInputTokens(entry.cost),
-        tokens: (value) => (measured ? exactTokens(value) : "—")
+        tokens: (value, image) => (measured ? requestEventTokens(value, image) : "—")
       };
       return el("tr", {}, columns.map((column) => el("td", { class: column.class || "" }, column.cell(row))));
     },
     headers: columns.map((column) => ({ label: column.label, num: column.class === "num" }))
   });
+}
+
+function requestEventTokens(total, image) {
+  if (image == null || total === 0) return exactTokens(total);
+  const text = total - image;
+  return modalityPair(text ? exactTokens(text) : null, image ? exactTokens(image) : null);
 }
 
 function requestEventModel({ entry }) {
@@ -300,13 +312,57 @@ function costTierText(cost) {
   return cost.long_context ? m("ui.long_context_value", { v0: threshold }) : m("ui.standard_context_value", { v0: threshold });
 }
 
+function cacheWriteParts(cost) {
+  const five = cost.cache_write_5m_tokens ?? 0, hour = cost.cache_write_1h_tokens ?? 0;
+  return [
+    { ttl: "5m", tokens: five, rate: cost.applied_cache_write_per_1m, amount: (five * cost.applied_cache_write_per_1m) / 1000000 },
+    { ttl: "1h", tokens: hour, rate: cost.applied_cache_write_1h_per_1m, amount: cost.cache_write_1h }
+  ].filter((part) => part.tokens > 0);
+}
+
+function cacheWriteTTL(cost) {
+  const parts = cacheWriteParts(cost);
+  if (!parts.length) return null;
+  const text =
+    parts.length === 1 && parts[0].tokens === cost.cache_write_tokens
+      ? parts[0].ttl
+      : parts.map((part) => part.ttl + " " + exactTokens(part.tokens)).join(DISPLAY_SEPARATOR);
+  return el("div", { class: "muted small" }, text);
+}
+
 function renderCostTooltip(cost, hasCacheWrite) {
-  const rows = [
-    [m("ui.uncached_input"), cost.uncached_input_tokens, cost.applied_input_per_1m, cost.uncached_input],
-    [m("ui.cache_read"), cost.cache_read_tokens, cost.applied_cache_read_per_1m, cost.cache_read],
-    ...(hasCacheWrite ? [[m("ui.cache_write"), cost.cache_write_tokens, cost.applied_cache_write_per_1m, cost.cache_write]] : []),
-    [m("ui.output"), cost.billed_output_tokens, cost.applied_output_per_1m, cost.output]
+  const rows = [];
+  const buckets = [
+    { name: "uncached_input", tokens: "uncached_input_tokens", rate: "input", image: "image_input" },
+    { name: "cache_read", tokens: "cache_read_tokens", rate: "cache_read", image: "image_cache_read" },
+    { name: "cache_write", tokens: "cache_write_tokens", rate: "cache_write" },
+    { name: "output", tokens: "billed_output_tokens", rate: "output", image: "image_output" }
   ];
+  for (const bucket of buckets) {
+    const { name, tokens, rate, image } = bucket;
+    const count = cost[tokens], amount = cost[name], unitPrice = cost["applied_" + rate + "_per_1m"];
+    const label = m("ui." + name);
+    if (name === "cache_write") {
+      if (!hasCacheWrite) continue;
+      const parts = cacheWriteParts(cost);
+      let remainingTokens = count, remainingAmount = amount;
+      for (const part of parts) {
+        rows.push([[label, " ", part.ttl], part.tokens, part.rate, part.amount]);
+        remainingTokens -= part.tokens;
+        remainingAmount -= part.amount;
+      }
+      if (remainingTokens > 0 || !parts.length) rows.push([label, remainingTokens, unitPrice, remainingAmount]);
+      continue;
+    }
+    const imageTokens = cost[image + "_tokens"];
+    if (imageTokens == null || count === 0) {
+      rows.push([label, count, unitPrice, amount]);
+      continue;
+    }
+    const textTokens = count - imageTokens;
+    if (textTokens) rows.push([[modalityIcon(false), " ", label], textTokens, unitPrice, amount - cost[image]]);
+    if (imageTokens) rows.push([[modalityIcon(true), " ", label], imageTokens, cost["applied_" + image + "_per_1m"], cost[image]]);
+  }
   return [
     el("div", { class: "cost-tooltip-title", text: m("ui.cost_breakdown") }),
     ...(cost.tiered ? [el("div", { class: "cost-tooltip-summary" }, el("span", {}, m("ui.tier")), el("b", {}, costTierText(cost)))] : []),

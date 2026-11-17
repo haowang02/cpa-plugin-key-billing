@@ -212,6 +212,7 @@ func TestQuotaConfigurationExtendsExistingJSON(t *testing.T) {
 	const tokenLimit = int64(1<<53 - 1)
 	path := filepath.Join(t.TempDir(), "state.db")
 	database := openDatabase(t, path)
+	dropTokenDetailColumns(t, database.db)
 	// Load the original JSON without counter or schedule extensions.
 	if _, err := database.db.Exec(`INSERT INTO plans (position, id, name, windows_json)
 		VALUES (0, 'p', '团队', '[{"id":"w","name":"额度","period_seconds":3600,"amount":10}]')`); err != nil {

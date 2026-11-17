@@ -213,6 +213,13 @@ type UsageDetail struct {
 	CacheReadTokens     int64 `json:"CacheReadTokens"`
 	CacheCreationTokens int64 `json:"CacheCreationTokens"`
 	TotalTokens         int64 `json:"TotalTokens"`
+
+	CacheCreation5mTokens *int64 `json:"CacheCreation5mTokens"`
+	CacheCreation1hTokens *int64 `json:"CacheCreation1hTokens"`
+	ImageInputTokens      *int64 `json:"ImageInputTokens"`
+	CachedImageTokens     *int64 `json:"CachedImageTokens"`
+	CachedTextTokens      *int64 `json:"CachedTextTokens"`
+	ImageOutputTokens     *int64 `json:"ImageOutputTokens"`
 }
 
 type ManagementRegistrationResponse struct {

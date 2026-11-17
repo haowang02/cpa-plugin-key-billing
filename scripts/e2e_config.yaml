@@ -69,6 +69,9 @@ codex-api-key:
     prefix: "codex"
     base-url: "__UPSTREAM_ORIGIN__/v1"
     models:
+      # Direct Images API requests; never send this model to /responses.
+      - name: "gpt-image-1.5"
+        is-compat: true
       - name: "gpt-5.6-sol"
         is-compat: true
       - name: "e2e-chat-to-responses-nonstream"
@@ -91,6 +94,8 @@ claude-api-key:
   - api-key: __UPSTREAM_API_KEY__
     base-url: "__UPSTREAM_ORIGIN__"
     models:
+      - name: "e2e-claude-cache-ttl"
+        is-compat: true
       - name: "claude-opus-5"
         is-compat: true
       - name: "e2e-chat-to-anthropic-nonstream"

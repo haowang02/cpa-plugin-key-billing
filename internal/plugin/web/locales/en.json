@@ -802,5 +802,15 @@
   "ui.trend_bucket": "Time interval",
   "ui.by_hour": "Hourly",
   "ui.by_day": "Daily",
-  "ui.distribution_dimension": "Distribution dimension"
+  "ui.distribution_dimension": "Distribution dimension",
+  "ui.text": "Text",
+  "ui.image": "Image",
+  "ui.image_input": "Image input",
+  "ui.image_cache_read": "Image cache read",
+  "ui.image_output": "Image output",
+  "ui.separate_image_token_pricing": "Separate image token pricing",
+  "ui.same_as_text": "Same as text",
+  "ui.image_input_1m_tokens": "Image input / 1M tokens",
+  "ui.image_cache_read_1m_tokens": "Image cache read / 1M tokens",
+  "ui.image_output_1m_tokens": "Image output / 1M tokens"
 }

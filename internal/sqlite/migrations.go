@@ -68,11 +68,38 @@ func migrateSchema(tx *sql.Tx, version int, storedHeaders StoredQuotaHeaders) er
 	if version <= 27 {
 		steps = append(steps, migrateReferenceLabs)
 	}
-	steps = append(steps, migrateCredentialTestModels)
+	if version <= 28 {
+		steps = append(steps, migrateCredentialTestModels)
+	}
+	steps = append(steps, migrateTokenDetails)
 	for _, step := range steps {
 		if err := step(tx); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateTokenDetails(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+        ALTER TABLE prices ADD COLUMN image_input_per_1m REAL;
+        ALTER TABLE prices ADD COLUMN image_cache_read_per_1m REAL;
+        ALTER TABLE prices ADD COLUMN image_output_per_1m REAL;
+        ALTER TABLE request_events ADD COLUMN cache_write_5m_tokens INTEGER;
+        ALTER TABLE request_events ADD COLUMN cache_write_1h_tokens INTEGER;
+        ALTER TABLE request_events ADD COLUMN image_input_tokens INTEGER;
+        ALTER TABLE request_events ADD COLUMN image_cache_read_tokens INTEGER;
+        ALTER TABLE request_events ADD COLUMN image_output_tokens INTEGER;
+        ALTER TABLE request_events ADD COLUMN cache_write_1h_cost REAL NOT NULL DEFAULT 0;
+        ALTER TABLE request_events ADD COLUMN image_input_cost REAL NOT NULL DEFAULT 0;
+        ALTER TABLE request_events ADD COLUMN image_cache_read_cost REAL NOT NULL DEFAULT 0;
+        ALTER TABLE request_events ADD COLUMN image_output_cost REAL NOT NULL DEFAULT 0;
+        ALTER TABLE request_events ADD COLUMN applied_cache_write_1h_per_1m REAL NOT NULL DEFAULT 0;
+        ALTER TABLE request_events ADD COLUMN applied_image_input_per_1m REAL NOT NULL DEFAULT 0;
+        ALTER TABLE request_events ADD COLUMN applied_image_cache_read_per_1m REAL NOT NULL DEFAULT 0;
+        ALTER TABLE request_events ADD COLUMN applied_image_output_per_1m REAL NOT NULL DEFAULT 0;
+    `); err != nil {
+		return fmt.Errorf("Add token detail pricing: %w", err)
 	}
 	return nil
 }

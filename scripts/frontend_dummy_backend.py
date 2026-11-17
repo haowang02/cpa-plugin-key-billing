@@ -1079,6 +1079,7 @@ PRICES = [
     },
     {
         "model_id": "gpt-image-2",
+        "image_input_per_1m": 8, "image_cache_read_per_1m": 2, "image_output_per_1m": 30,
         "lab": OPENAI_LAB,
         "currency": "USD",
         "input_per_1m": 5,
@@ -1123,15 +1124,34 @@ PRICES = [
     },
 ]
 
-def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, long_context=False, multiplier=1, currency="USD"):
+def make_cost(uncached, cache_read, cache_write, output, rates, tiered=False, long_context=False,
+              multiplier=1, currency="USD", *, image_tokens=None, cache_ttl=None):
     input_price, read_price, write_price, output_price = (rate * multiplier for rate in rates)
+    image_input, image_read, image_output = image_tokens or (0, 0, 0)
+    five, hour = cache_ttl or (0, 0)
+    image_input_price, image_read_price, image_output_price = (rate * multiplier for rate in (8, 2, 30))
     parts = {
-        "uncached_input": uncached * input_price / 1_000_000,
-        "cache_read": cache_read * read_price / 1_000_000,
-        "cache_write": cache_write * write_price / 1_000_000,
-        "output": output * output_price / 1_000_000,
+        "uncached_input": ((uncached - image_input) * input_price + image_input * image_input_price) / 1_000_000,
+        "cache_read": ((cache_read - image_read) * read_price + image_read * image_read_price) / 1_000_000,
+        "cache_write": ((cache_write - hour) * write_price + hour * write_price * 1.6) / 1_000_000,
+        "output": ((output - image_output) * output_price + image_output * image_output_price) / 1_000_000,
     }
+    details = {}
+    if image_tokens is not None:
+        for name, count, rate in (
+            ("image_input", image_input, image_input_price),
+            ("image_cache_read", image_read, image_read_price),
+            ("image_output", image_output, image_output_price),
+        ):
+            details[name + "_tokens"] = count
+            details[name] = count * rate / 1_000_000
+            details["applied_" + name + "_per_1m"] = rate
+    if cache_ttl is not None:
+        details.update(cache_write_5m_tokens=five, cache_write_1h_tokens=hour,
+                       cache_write_1h=hour * write_price * 1.6 / 1_000_000,
+                       applied_cache_write_1h_per_1m=write_price * 1.6)
     return {
+        **details,
         **parts,
         "multiplier": multiplier,
         "currency": currency,
@@ -1173,6 +1193,8 @@ def event_sample(
     multiplier=1,
     auth_index="",
     currency="USD",
+    image_tokens=None,
+    cache_ttl=None,
 ):
     uncached, cache_read, cache_write, output = tokens
     if failed:
@@ -1205,6 +1227,8 @@ def event_sample(
             long_context,
             multiplier if not failed else 1,
             currency,
+            image_tokens=image_tokens,
+            cache_ttl=cache_ttl,
         ),
         "reasoning_tokens": 0 if failed else reasoning_tokens,
     }
@@ -1213,6 +1237,12 @@ def event_sample(
 # Numeric usage and timing values are sampled from a real export. All identities
 # below are synthetic and intentionally unrelated to the source records.
 SUCCESS_EVENT_SAMPLES = [
+    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-image-2", "CodexExecutor", "", "auto", 43679, 43476, 0, (80, 0, 0, 1056), (5, 1.25, 5, 30), image_tokens=(50, 0, 1056), auth_index="auth-demo-codex-plus"),
+    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-image-2", "CodexExecutor", "", "auto", 3000, 2000, 0, (80, 40, 0, 50), (5, 1.25, 5, 30), image_tokens=(40, 30, 50), auth_index="auth-demo-codex-plus"),
+    event_sample(0, "codex · dev-team@example.com", "codex", "gpt-image-2", "CodexExecutor", "", "auto", 3000, 2000, 0, (80, 0, 0, 50), (5, 1.25, 5, 30), image_tokens=(0, 0, 50), auth_index="auth-demo-codex-plus"),
+    event_sample(0, "claude · platform@example.com", "claude", "claude-sonnet-5-5", "ClaudeExecutor", "", "auto", 2000, 500, 0, (80, 32, 16, 8), (3, .3, 3.75, 15), cache_ttl=(16, 0), auth_index="auth-demo-claude"),
+    event_sample(0, "claude · platform@example.com", "claude", "claude-sonnet-5-5", "ClaudeExecutor", "", "auto", 2000, 500, 0, (80, 32, 16, 8), (3, .3, 3.75, 15), cache_ttl=(0, 16), auth_index="auth-demo-claude"),
+    event_sample(0, "claude · platform@example.com", "claude", "claude-sonnet-5-5", "ClaudeExecutor", "", "auto", 2000, 500, 0, (80, 32, 16, 8), (3, .3, 3.75, 15), cache_ttl=(6, 10), auth_index="auth-demo-claude"),
     event_sample(0, "codex · dev-team@example.com", "codex", "gpt-5.6-sol", "CodexExecutor", "high", "priority", 11513, 8209, 266, (712, 91648, 4096, 425), (4, 0.4, 5, 20), multiplier=2.5, effective_tier="priority", response_tier="priority", auth_index="auth-demo-codex-plus"),
     event_sample(5, "codex · dev-team@example.com", "codex", "codex-auto-review", "CodexWebsocketsExecutor", "low", "auto", 2516, 1431, 10, (1030, 49920, 0, 75), (0.2, 0.02, 0.25, 1.2), response_model="gpt-5.6-luna", response_tier="default", auth_index="auth-demo-codex-plus"),
     event_sample(1, "codex · dev-team@example.com", "codex", "gpt-5.5", "CodexWebsocketsExecutor", "medium", "auto", 2417, 1103, 0, (1194, 95616, 0, 73), (5, 0.5, 5, 30), auth_index="auth-demo-codex-plus"),
@@ -1902,7 +1932,7 @@ PRICES.extend([
         "input_per_1m": 1, "output_per_1m": 2, "in_models": False,
     },
     {
-        "model_id": "gpt-image-2.5", "lab": OPENAI_LAB, "source": "builtin", "currency": "USD",
+        "model_id": "gpt-image-2.5", "image_input_per_1m": 8, "image_cache_read_per_1m": 2, "image_output_per_1m": 30, "lab": OPENAI_LAB, "source": "builtin", "currency": "USD",
         "input_per_1m": 5, "output_per_1m": 30, "cache_read_per_1m": 1.25, "in_models": True,
     },
 ])

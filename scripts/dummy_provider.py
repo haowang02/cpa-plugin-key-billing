@@ -4,9 +4,8 @@
 
 It answers the four protocols CLIProxyAPI drives upstream — OpenAI chat
 completions, OpenAI Responses, Anthropic Messages and Gemini generateContent —
-streaming and not, for any model name, and reports usage in the shape each of
-them actually uses. Every request reports the same token counts, which keeps the
-end-to-end suite deterministic.
+plus OpenAI Images, streaming and not, and reports usage in each native shape.
+Fixed token counts keep the end-to-end suite deterministic.
 
 Point CLIProxyAPI at one instance with four provider entries:
 
@@ -40,10 +39,12 @@ TOKEN_INTERVAL_SECONDS = 1 / 200
 JITTER_RATIO = 0.1
 HOLD_PROMPT = "E2E HOLD CONCURRENCY SLOT"
 HOLD_SECONDS = 2.0
+IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aoc8AAAAASUVORK5CYII="
 
 PATHS = {
     "/v1/chat/completions": "chat",
     "/v1/responses": "responses",
+    "/v1/images/generations": "images",
     "/v1/messages": "anthropic",
 }
 GEMINI_PATH = re.compile(r"^/v1beta/models/(?P<model>.+):(?P<action>generateContent|streamGenerateContent)$")
@@ -60,6 +61,9 @@ class Turn:
         self.tokens = TOKENS
         self.output_tokens = len(TOKENS)
         self.text = "".join(self.tokens)
+        if model == "gpt-image-1.5":
+            self.input_total = 80
+            self.output_tokens = 1056
 
     @property
     def total_tokens(self):
@@ -87,11 +91,22 @@ class Turn:
             },
         }
 
+    def image_usage(self):
+        return {
+            "input_tokens": self.input_total,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "input_tokens_details": {"text_tokens": 30, "image_tokens": 50, "cached_tokens": 0},
+            "output_tokens_details": {"text_tokens": 0, "image_tokens": 1056},
+        }
+
     def anthropic_usage(self, output_tokens=None):
         return {
             "input_tokens": self.input_total - CACHE_READ_TOKENS - CACHE_WRITE_TOKENS,
             "cache_read_input_tokens": CACHE_READ_TOKENS,
             "cache_creation_input_tokens": CACHE_WRITE_TOKENS,
+            **({"cache_creation": {"ephemeral_5m_input_tokens": 6, "ephemeral_1h_input_tokens": 10}}
+               if self.model == "e2e-claude-cache-ttl" else {}),
             "output_tokens": self.output_tokens if output_tokens is None else output_tokens,
         }
 
@@ -167,6 +182,8 @@ class DummyProviderHandler(BaseHTTPRequestHandler):
             }
         if protocol == "responses":
             return self.responses_envelope(turn, "completed", [self.responses_item(turn)], turn.responses_usage())
+        if protocol == "images":
+            return {"created": turn.created, "data": [{"b64_json": IMAGE_BASE64}], "usage": turn.image_usage()}
         if protocol == "anthropic":
             return {
                 "id": f"msg_{turn.id}",
@@ -215,6 +232,7 @@ class DummyProviderHandler(BaseHTTPRequestHandler):
         emitters = {
             "chat": lambda: self.stream_chat(turn, include_usage),
             "responses": lambda: self.stream_responses(turn),
+            "images": lambda: self.stream_images(turn),
             "anthropic": lambda: self.stream_anthropic(turn),
             "gemini": lambda: self.stream_gemini(turn),
         }
@@ -230,6 +248,14 @@ class DummyProviderHandler(BaseHTTPRequestHandler):
             self.write_chunk(b"")
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
+
+    def stream_images(self, turn):
+        yield "image_generation.completed", {
+            "type": "image_generation.completed",
+            "created_at": turn.created,
+            "b64_json": IMAGE_BASE64,
+            "usage": turn.image_usage(),
+        }
 
     def stream_chat(self, turn, include_usage):
         # OpenAI names no events and ends with [DONE]; usage arrives in a

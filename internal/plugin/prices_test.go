@@ -98,7 +98,7 @@ func TestBuiltinPriceAdmissionAndListing(t *testing.T) {
 		input, out float64
 	}{
 		{model: "codex-auto-review", input: 0, out: 0},
-		{model: "gpt-image-1.5", input: 5, out: 32},
+		{model: "gpt-image-1.5", input: 5, out: 10},
 	} {
 		price, model, err := app.store.ResolveModelPrice(test.model, test.model, true)
 		if err != nil || model != test.model || price.Source != billing.PriceSourceBuiltin || price.InputPer1M != test.input || price.OutputPer1M != test.out {

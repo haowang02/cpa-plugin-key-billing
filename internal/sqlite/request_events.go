@@ -31,8 +31,11 @@ func appendRequestEvent(tx *sql.Tx, entry billing.RequestEvent) (int64, error) {
 			tiered, long_context, threshold_input_tokens,
 			applied_input_per_1m, applied_output_per_1m,
 			applied_cache_read_per_1m, applied_cache_write_per_1m,
+			cache_write_5m_tokens, cache_write_1h_tokens, image_input_tokens, image_cache_read_tokens, image_output_tokens, cache_write_1h_cost,
+			image_input_cost, image_cache_read_cost, image_output_cost, applied_cache_write_1h_per_1m, applied_image_input_per_1m,
+			applied_image_cache_read_per_1m, applied_image_output_per_1m,
 			endpoint, transport, stream, execution_json, user_agent, x_forwarded_for
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		nanos(entry.At), entry.Scope, entry.AuthIndex, entry.Provider, entry.Account, entry.ExecutorType, entry.ReasoningEffort, entry.ServiceTier,
 		entry.EffectiveServiceTier, entry.ResponseServiceTier, entry.UpstreamModel, entry.ResponseModel, entry.BillingModel, entry.Failed,
 		entry.LatencyMS, entry.TTFTMS,
@@ -44,6 +47,10 @@ func appendRequestEvent(tx *sql.Tx, entry billing.RequestEvent) (int64, error) {
 		entry.Cost.Tiered, entry.Cost.LongContext, entry.Cost.ThresholdInputTokens,
 		entry.Cost.AppliedInputPer1M, entry.Cost.AppliedOutputPer1M,
 		entry.Cost.AppliedCacheReadPer1M, entry.Cost.AppliedCacheWritePer1M,
+		entry.Cost.CacheWrite5mTokens, entry.Cost.CacheWrite1hTokens, entry.Cost.ImageInputTokens, entry.Cost.ImageCacheReadTokens,
+		entry.Cost.ImageOutputTokens, entry.Cost.CacheWrite1h, entry.Cost.ImageInput, entry.Cost.ImageCacheRead, entry.Cost.ImageOutput,
+		entry.Cost.AppliedCacheWrite1hPer1M, entry.Cost.AppliedImageInputPer1M, entry.Cost.AppliedImageCacheReadPer1M,
+		entry.Cost.AppliedImageOutputPer1M,
 		entry.Endpoint, entry.Transport, entry.Stream, string(execution), entry.UserAgent, entry.XForwardedFor)
 	if errInsert != nil {
 		return 0, fmt.Errorf("Write request event: %w", errInsert)
@@ -176,6 +183,9 @@ func (d *DB) RequestEvents(query billing.RequestEventQuery, since time.Time) (bi
 			r.tiered, r.long_context, r.threshold_input_tokens,
 			r.applied_input_per_1m, r.applied_output_per_1m,
 			r.applied_cache_read_per_1m, r.applied_cache_write_per_1m,
+			r.cache_write_5m_tokens, r.cache_write_1h_tokens, r.image_input_tokens, r.image_cache_read_tokens, r.image_output_tokens,
+			r.cache_write_1h_cost, r.image_input_cost, r.image_cache_read_cost, r.image_output_cost, r.applied_cache_write_1h_per_1m,
+			r.applied_image_input_per_1m, r.applied_image_cache_read_per_1m, r.applied_image_output_per_1m,
 			coalesce(k.preview, ''), coalesce(k.label, ''), `+requestEventCredentialName+`,
 			coalesce(e.body, ''), r.endpoint, r.transport, r.stream, r.execution_json, r.user_agent, r.x_forwarded_for,
 			q5.used_percent, q5.reset_at, q7.used_percent, q7.reset_at
@@ -354,6 +364,10 @@ func scanRequestEventRow(rows *sql.Rows) (billing.RequestEventRow, error) {
 		&row.Cost.Tiered, &row.Cost.LongContext, &row.Cost.ThresholdInputTokens,
 		&row.Cost.AppliedInputPer1M, &row.Cost.AppliedOutputPer1M,
 		&row.Cost.AppliedCacheReadPer1M, &row.Cost.AppliedCacheWritePer1M,
+		&row.Cost.CacheWrite5mTokens, &row.Cost.CacheWrite1hTokens, &row.Cost.ImageInputTokens, &row.Cost.ImageCacheReadTokens,
+		&row.Cost.ImageOutputTokens, &row.Cost.CacheWrite1h, &row.Cost.ImageInput, &row.Cost.ImageCacheRead, &row.Cost.ImageOutput,
+		&row.Cost.AppliedCacheWrite1hPer1M, &row.Cost.AppliedImageInputPer1M, &row.Cost.AppliedImageCacheReadPer1M,
+		&row.Cost.AppliedImageOutputPer1M,
 		&row.Preview, &row.Label, &row.Credential, &row.ErrorBody, &row.Endpoint, &row.Transport, &row.Stream, &execution,
 		&row.UserAgent, &row.XForwardedFor, &fiveUsed, &fiveReset, &weeklyUsed, &weeklyReset); errScan != nil {
 		return billing.RequestEventRow{}, fmt.Errorf("Read request events: %w", errScan)

@@ -72,16 +72,37 @@ func TestCodexFastModeFollowsOutboundTier(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	store := newAccountStore(t, now)
 	store.cfg.CodexFastModeBilling = true
+	store.ReplaceAll(func(state *State) {
+		price := state.Prices["gpt-5.5"]
+		price.ImageInputPer1M, price.ImageCacheReadPer1M, price.ImageOutputPer1M = floatPtr(3), floatPtr(.2), floatPtr(8)
+		state.Prices["gpt-5.5"] = price
+	})
 	for i, tiers := range []struct{ client, outbound string }{{"priority", ""}, {"auto", "priority"}} {
 		event := subsetEvent("scope-a", now.Add(time.Duration(i)*time.Minute))
 		event.Provider, event.AuthType = "codex", "oauth"
 		event.ServiceTier, event.EffectiveServiceTier = tiers.client, tiers.outbound
+		event.Breakdown.Detail = TokenDetail{
+			ImageInputTokens: int64Ptr(200), ImageCacheReadTokens: int64Ptr(100), ImageOutputTokens: int64Ptr(250),
+			CacheWrite5mTokens: int64Ptr(25), CacheWrite1hTokens: int64Ptr(75),
+		}
 		store.RecordUsage(event)
 	}
 	entries := mustRequestEvents(t, store, RequestEventQuery{}).Entries
 	if len(entries) != 2 || entries[0].Cost.Multiplier != CodexFastModeMultiplier || entries[1].Cost.Multiplier != 0 ||
 		*entries[0].EffectiveServiceTier != "priority" || *entries[1].EffectiveServiceTier != "" {
 		t.Fatalf("request events = %+v", entries)
+	}
+	fast, base := entries[0].Cost, entries[1].Cost
+	assertClose(t, "base total", base.Total, .00363125)
+	assertClose(t, "fast total", fast.Total, base.Total*2.5)
+	assertClose(t, "fast image input", fast.ImageInput, .0015)
+	assertClose(t, "fast cached image", fast.ImageCacheRead, .00005)
+	assertClose(t, "fast image output", fast.ImageOutput, .005)
+	assertClose(t, "fast 1h write", fast.CacheWrite1h, .000375)
+	if fast.AppliedImageInputPer1M != 7.5 || fast.AppliedImageCacheReadPer1M != .5 || fast.AppliedImageOutputPer1M != 20 ||
+		fast.AppliedCacheWrite1hPer1M != 5 || *fast.ImageInputTokens != 200 || *fast.ImageCacheReadTokens != 100 ||
+		*fast.ImageOutputTokens != 250 || *fast.CacheWrite1hTokens != 75 {
+		t.Fatalf("fast detail = %+v", fast)
 	}
 }
 

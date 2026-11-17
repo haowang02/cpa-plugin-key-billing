@@ -422,3 +422,38 @@ func TestEventFilterCountsFollowTheOtherSelections(t *testing.T) {
 	check("error", errors.Filters.RequestEventFilterValues,
 		map[string]int{"a": 1, "b": 1}, map[string]int{"m1": 1}, map[string]int{"codex · one": 1})
 }
+
+func TestRequestEventTokenDetailsRoundTrip(t *testing.T) {
+	db := openTestDB(t)
+	zero, five, hour, input, read, output := int64(0), int64(5), int64(15), int64(40), int64(30), int64(8)
+	base := requestEvent("scope", eventStart)
+	full := base
+	full.At = eventStart.Add(1)
+	full.Cost.CacheWrite5mTokens = &five
+	full.Cost.CacheWrite1hTokens = &hour
+	full.Cost.ImageInputTokens = &input
+	full.Cost.ImageCacheReadTokens = &read
+	full.Cost.ImageOutputTokens = &output
+	full.Cost.CacheWrite1h = .00012
+	full.Cost.ImageInput = .00032
+	full.Cost.ImageCacheRead = .00006
+	full.Cost.ImageOutput = .000256
+	full.Cost.AppliedCacheWrite1hPer1M = 8
+	full.Cost.AppliedImageInputPer1M = 8
+	full.Cost.AppliedImageCacheReadPer1M = 2
+	full.Cost.AppliedImageOutputPer1M = 32
+	zeros := base
+	zeros.At = eventStart.Add(2)
+	zeros.Cost.CacheWrite5mTokens = &zero
+	zeros.Cost.CacheWrite1hTokens = &zero
+	zeros.Cost.ImageInputTokens = &zero
+	zeros.Cost.ImageCacheReadTokens = &zero
+	zeros.Cost.ImageOutputTokens = &zero
+	mustSave(t, db, billing.NewState(), billing.Changes{NormalRequestEvents: []billing.RequestEvent{base, full, zeros}})
+	entries := mustQueryRequestEvents(t, db, billing.RequestEventQuery{}).Entries
+	for i, want := range []billing.Cost{zeros.Cost, full.Cost, base.Cost} {
+		if !reflect.DeepEqual(entries[i].Cost, want) {
+			t.Fatalf("row %d cost=%+v want=%+v", i, entries[i].Cost, want)
+		}
+	}
+}

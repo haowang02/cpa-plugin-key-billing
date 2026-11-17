@@ -802,5 +802,15 @@
   "ui.trend_bucket": "统计粒度",
   "ui.by_hour": "按小时",
   "ui.by_day": "按天",
-  "ui.distribution_dimension": "分布维度"
+  "ui.distribution_dimension": "分布维度",
+  "ui.text": "文本",
+  "ui.image": "图像",
+  "ui.image_input": "图像输入",
+  "ui.image_cache_read": "图像缓存读取",
+  "ui.image_output": "图像输出",
+  "ui.separate_image_token_pricing": "单独设置图像 Token 价格",
+  "ui.same_as_text": "与文本相同",
+  "ui.image_input_1m_tokens": "图像输入 / 1M Token",
+  "ui.image_cache_read_1m_tokens": "图像缓存读取 / 1M Token",
+  "ui.image_output_1m_tokens": "图像输出 / 1M Token"
 }

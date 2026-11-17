@@ -63,9 +63,11 @@ const PRICE_FIELDS = [
   ["cache_write_per_1m", "ui.cache_write"]
 ];
 
-function priceValue(value, currency) {
-  return value === null || value === undefined ? el("span", { class: "muted", text: "—" }) : money(value, currency);
-}
+const IMAGE_PRICE_FIELDS = [
+  ["image_input_per_1m", "price-image-in"],
+  ["image_cache_read_per_1m", "price-image-cr"],
+  ["image_output_per_1m", "price-image-out"]
+];
 
 function longContextPrices(row) {
   const tier = row.long_context;
@@ -93,8 +95,8 @@ function longContextPrices(row) {
             "tr",
             {},
             el("td", { text: m(label) }),
-            el("td", { class: "num" }, priceValue(row[field], row.currency)),
-            el("td", { class: "num" }, priceValue(tier[field], row.currency))
+            el("td", { class: "num" }, priceRateValue(row, field)),
+            el("td", { class: "num" }, priceRateValue(row, field, tier[field]))
           )
         )
       )
@@ -107,7 +109,7 @@ function longContextPrices(row) {
     " ",
     PRICE_FIELDS.flatMap(([field], index) => [
       index > 0 && el("span", { class: "muted", text: DISPLAY_SLASH }),
-      priceValue(tier[field], row.currency)
+      priceRateValue(row, field, tier[field])
     ])
   );
 }
@@ -138,7 +140,7 @@ function renderPriceTable() {
           : null
       ),
       el("td", {}, priced ? row.currency : priceValue(null)),
-      PRICE_FIELDS.map(([field]) => el("td", { class: "num" }, priceValue(priced ? row[field] : null, row.currency))),
+      PRICE_FIELDS.map(([field]) => el("td", { class: "num" }, priced ? priceRateValue(row, field) : priceValue(null))),
       el("td", {}, row.long_context ? longContextPrices(row) : priceValue(null)),
       el("td", {}, priceSourceTag(row.source)),
       el(
@@ -201,6 +203,9 @@ function fillPriceFields(row) {
   $("price-out").value = row.output_per_1m ?? 0;
   $("price-cr").value = row.cache_read_per_1m ?? "";
   $("price-cw").value = row.cache_write_per_1m ?? "";
+  $("price-images").checked = pricesImagesSeparately(row);
+  for (const [field, id] of IMAGE_PRICE_FIELDS) $(id).value = row[field] ?? "";
+  syncPriceImageFields();
   const tier = row.long_context;
   $("price-tiered").checked = !!tier;
   $("price-tier-threshold").value = tier?.threshold_input_tokens ?? 272000;
@@ -232,6 +237,8 @@ function referencePriceText(row) {
   }
   return prices.join(DISPLAY_SEPARATOR);
 }
+
+function syncPriceImageFields() { $("price-image-fields").classList.toggle("hidden", !$("price-images").checked); }
 
 function syncPriceTierFields() { $("price-tier-fields").classList.toggle("hidden", !$("price-tiered").checked); }
 
@@ -310,6 +317,7 @@ $("price-reference-search").addEventListener("input", () => {
     searchPriceReferences();
   }, 180);
 });
+$("price-images").addEventListener("change", syncPriceImageFields);
 $("price-tiered").addEventListener("change", syncPriceTierFields);
 $("price-dialog").addEventListener("close", () => {
   clearTimeout(priceReferenceTimer);
@@ -338,6 +346,7 @@ $("price-save").onclick = () =>
       cache_read_per_1m: priceNumber("price-cr", null),
       cache_write_per_1m: priceNumber("price-cw", null)
     };
+    for (const [field, id] of IMAGE_PRICE_FIELDS) price[field] = $("price-images").checked ? priceNumber(id, null) : null;
     if ($("price-tiered").checked) {
       const threshold = priceNumber("price-tier-threshold");
       if (!Number.isSafeInteger(threshold) || threshold <= 0)

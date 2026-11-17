@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"cpa-key-billing/internal/billing"
@@ -17,7 +18,9 @@ func TestCustomPriceUpdatesTouchOnlyTheirModelAndPublishAfterCommit(t *testing.T
 		t.Fatal(err)
 	}
 	for _, model := range []string{"Model-A", "untouched"} {
-		if _, err := store.UpsertPrice(billing.CustomPrice{ModelID: model, PriceRates: billing.PriceRates{InputPer1M: 1}}); err != nil {
+		if _, err := store.UpsertPrice(billing.CustomPrice{
+			ModelID: model, PriceRates: billing.PriceRates{InputPer1M: 1, ImageInputPer1M: price(8), ImageCacheReadPer1M: price(0)},
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -41,8 +44,12 @@ func TestCustomPriceUpdatesTouchOnlyTheirModelAndPublishAfterCommit(t *testing.T
 	if err := database.db.QueryRow("SELECT position FROM prices WHERE model_id='Model-A'").Scan(&originalPosition); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := store.UpsertPrice(billing.CustomPrice{ModelID: " MODEL-A ", PriceRates: billing.PriceRates{InputPer1M: 7,
-		LongContext: &billing.LongContextPrice{ThresholdInputTokens: 100, InputPer1M: 9}}})
+	updated, err := store.UpsertPrice(billing.CustomPrice{
+		ModelID: " MODEL-A ", PriceRates: billing.PriceRates{
+			InputPer1M: 7, ImageInputPer1M: price(9), ImageOutputPer1M: price(32),
+			LongContext: &billing.LongContextPrice{ThresholdInputTokens: 100, InputPer1M: 9},
+		},
+	})
 	if err != nil || updated.ModelID != "Model-A" {
 		t.Fatalf("update = %+v, %v", updated, err)
 	}
@@ -85,7 +92,11 @@ func TestCustomPriceUpdatesTouchOnlyTheirModelAndPublishAfterCommit(t *testing.T
 	if err != nil || model != "Model-A" || price.InputPer1M != 7 || price.LongContext == nil || price.LongContext.InputPer1M != 9 {
 		t.Fatalf("failed mutation changed live price: %+v, %q, %v", price, model, err)
 	}
-	if stored := mustLoad(t, database).State.Prices["model-a"]; stored.InputPer1M != 7 || stored.LongContext == nil || stored.LongContext.InputPer1M != 9 {
+	persisted := mustLoad(t, database).State.Prices
+	if cached := persisted["untouched"].ImageCacheReadPer1M; cached == nil || *cached != 0 {
+		t.Fatal("explicit zero image rate was lost")
+	}
+	if stored := persisted["model-a"]; !reflect.DeepEqual(stored.PriceRates, updated.PriceRates) {
 		t.Fatalf("failed mutation changed persisted price: %+v", stored)
 	}
 	store.Close()
@@ -93,7 +104,8 @@ func TestCustomPriceUpdatesTouchOnlyTheirModelAndPublishAfterCommit(t *testing.T
 		t.Fatal(err)
 	}
 	price, model, err = store.ResolveModelPrice("upstream", "MODEL-A(high)", false)
-	if err != nil || model != "Model-A" || price.InputPer1M != 7 {
+	if err != nil || model != "Model-A" || price.InputPer1M != 7 || price.ImageInputPer1M == nil || *price.ImageInputPer1M != 9 ||
+		price.ImageCacheReadPer1M != nil || price.ImageOutputPer1M == nil || *price.ImageOutputPer1M != 32 {
 		t.Fatalf("restart lost indexed price: %+v, %q, %v", price, model, err)
 	}
 }

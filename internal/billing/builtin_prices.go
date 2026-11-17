@@ -4,37 +4,29 @@ import "strings"
 
 // Builtin prices ship with the plugin and are never persisted.
 var builtinPrices = map[string]PriceRates{
-	NormalizeModelID("codex-auto-review"): {InputPer1M: 0, OutputPer1M: 0},
-	NormalizeModelID("gpt-image-1.5"): {
-		InputPer1M:     5,
-		OutputPer1M:    32,
-		CacheReadPer1M: float64Ptr(1.25),
-	},
-	NormalizeModelID("gpt-image-2.5"): {
-		InputPer1M:     5,
-		OutputPer1M:    30,
-		CacheReadPer1M: float64Ptr(1.25),
-	},
-	NormalizeModelID("gpt-image-2.6"): {
-		InputPer1M:     5,
-		OutputPer1M:    30,
-		CacheReadPer1M: float64Ptr(1.25),
-	},
-	NormalizeModelID("gpt-image-2.6-flare"): {
-		InputPer1M:     5,
-		OutputPer1M:    30,
-		CacheReadPer1M: float64Ptr(1.25),
-	},
-	NormalizeModelID("gpt-image-2.6-sunburst"): {
-		InputPer1M:     5,
-		OutputPer1M:    30,
-		CacheReadPer1M: float64Ptr(1.25),
-	},
-	NormalizeModelID("deepseek-flash"): {
+	"codex-auto-review":      {InputPer1M: 0, OutputPer1M: 0},
+	"gpt-image-1.5":          builtinImageRates(10, 32),
+	"gpt-image-2":            builtinImageRates(30, 30),
+	"gpt-image-2.5":          builtinImageRates(30, 30),
+	"gpt-image-2.5-flare":    builtinImageRates(30, 30),
+	"gpt-image-2.5-sunburst": builtinImageRates(30, 30),
+	"gpt-image-2.6":          builtinImageRates(30, 30),
+	"gpt-image-2.6-flare":    builtinImageRates(30, 30),
+	"gpt-image-2.6-sunburst": builtinImageRates(30, 30),
+	"deepseek-flash": {
 		InputPer1M:     0.15,
 		OutputPer1M:    0.6,
 		CacheReadPer1M: float64Ptr(0.003),
 	},
+}
+
+func builtinImageRates(textOutput, imageOutput float64) PriceRates {
+	return PriceRates{
+		InputPer1M: 5, OutputPer1M: textOutput, CacheReadPer1M: float64Ptr(1.25),
+		ImageInputPer1M:     float64Ptr(8),
+		ImageCacheReadPer1M: float64Ptr(2),
+		ImageOutputPer1M:    float64Ptr(imageOutput),
+	}
 }
 
 func float64Ptr(value float64) *float64 {

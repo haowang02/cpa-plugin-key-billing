@@ -33,6 +33,12 @@ const EVENT_CSV_COLUMNS = {
     "reasoning_tokens",
     "cache_read_tokens",
     "cache_write_tokens",
+    "cache_write_5m_tokens",
+    "cache_write_1h_tokens",
+    "image_input_tokens",
+    "image_cache_read_tokens",
+    "image_output_tokens",
+
     "multiplier",
     "currency",
     "cost",

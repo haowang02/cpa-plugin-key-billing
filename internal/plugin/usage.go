@@ -34,9 +34,49 @@ func usageBreakdown(record UsageRecord) billing.TokenBreakdown {
 	if !usageHasTokens(detail) {
 		return billing.TokenBreakdown{}
 	}
+	var breakdown billing.TokenBreakdown
 	if semantics := usageSemantics(record.Provider, record.ExecutorType); semantics != tokenSemanticsUnknown {
-		return semanticBreakdown(detail, semantics)
+		breakdown = semanticBreakdown(detail, semantics)
+	} else {
+		breakdown = unknownUsageBreakdown(detail)
 	}
+	if breakdown.Quality == billing.TokenAccountingComplete {
+		breakdown.Detail = detail.tokenDetails(breakdown)
+	}
+	return breakdown
+}
+
+func (d UsageDetail) tokenDetails(b billing.TokenBreakdown) billing.TokenDetail {
+	var detail billing.TokenDetail
+	var five, hour int64
+	if d.CacheCreation5mTokens != nil {
+		five = *d.CacheCreation5mTokens
+	}
+	if d.CacheCreation1hTokens != nil {
+		hour = *d.CacheCreation1hTokens
+	}
+	if total, ok := checkedTokenSum(five, hour); ok && total <= b.Input.CacheWriteTokens {
+		detail.CacheWrite5mTokens, detail.CacheWrite1hTokens = d.CacheCreation5mTokens, d.CacheCreation1hTokens
+	}
+	if image := d.ImageInputTokens; image != nil {
+		cached := d.CachedImageTokens
+		if cached == nil && (b.Input.CacheReadTokens == 0 ||
+			d.CachedTextTokens != nil && *d.CachedTextTokens == b.Input.CacheReadTokens) {
+			cached = new(int64)
+		}
+		if cached != nil && *cached >= 0 && *cached <= *image &&
+			*cached <= b.Input.CacheReadTokens && *image-*cached <= b.Input.UncachedTokens {
+			uncached := *image - *cached
+			detail.ImageInputTokens, detail.ImageCacheReadTokens = &uncached, cached
+		}
+	}
+	if image := d.ImageOutputTokens; image != nil && *image >= 0 && *image <= b.Output.NonReasoningTokens {
+		detail.ImageOutputTokens = image
+	}
+	return detail
+}
+
+func unknownUsageBreakdown(detail UsageDetail) billing.TokenBreakdown {
 	var agreed *billing.TokenBreakdown
 	for _, semantics := range []tokenSemantics{tokenSemanticsSubset, tokenSemanticsIndependent, tokenSemanticsSeparateReasoning} {
 		breakdown := semanticBreakdown(detail, semantics)

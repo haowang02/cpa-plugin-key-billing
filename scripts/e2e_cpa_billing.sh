@@ -10,10 +10,12 @@ set -euo pipefail
 #	8.0.44              GitHub 上的该发布版
 #	../CLIProxyAPI      代码目录，现场构建
 #	../cli-proxy-api    可执行文件，直接使用
+# Set CPA_E2E_REQUIRE_TOKEN_DETAILS=1 for hosts that expose image and cache-TTL
+# counters. Each added streaming/nonstreaming case must then report all details.
 readonly github_repo="router-for-me/CLIProxyAPI"
-# The upstream is scripts/dummy_provider.py: it answers all four protocols this
-# suite routes to, so model requests need no real credentials and return fixed
-# token counts. Reference prices are downloaded separately from models.dev.
+# The upstream is scripts/dummy_provider.py: it answers all four protocols and
+# Images API requests, so model requests use dummy credentials and fixed token
+# counts. Reference prices are downloaded separately from models.dev.
 readonly upstream_api_key="dummy-upstream-key-e2e"
 readonly expected_input_tokens=128
 readonly expected_output_tokens=8
@@ -21,6 +23,11 @@ readonly expected_cache_read_tokens=32
 readonly expected_cache_write_tokens=16
 readonly usage_settle_seconds=1
 readonly base_port="${CPA_E2E_BASE_PORT:-28317}"
+readonly require_token_details="${CPA_E2E_REQUIRE_TOKEN_DETAILS:-0}"
+case "$require_token_details" in
+  0|1) ;;
+  *) echo "CPA_E2E_REQUIRE_TOKEN_DETAILS 必须为 0 或 1。" >&2; exit 1 ;;
+esac
 targets=("$@")
 if (( ${#targets[@]} == 0 )); then
   targets=(latest)
@@ -175,7 +182,7 @@ resolve_host() {
   fi
   if [[ -f "$target" && -x "$target" ]]; then
     host_label="$target"
-    host_binary="$target"
+    host_binary="$(CDPATH= cd -- "$(dirname -- "$target")" && pwd)/$(basename -- "$target")"
     return
   fi
   version="$(resolve_version "$target")"
@@ -301,6 +308,7 @@ client_endpoint() {
   case "$client" in
     chat) printf '/v1/chat/completions' ;;
     responses) printf '/v1/responses' ;;
+    images) printf '/v1/images/generations' ;;
     anthropic) printf '/v1/messages' ;;
     gemini)
       if [[ "$stream" == "true" ]]; then
@@ -411,6 +419,9 @@ request_body() {
     anthropic)
       program='{model: $model, messages: [{role: "user", content: $prompt}], max_tokens: $budget, stream: $stream}'
       ;;
+    images)
+      program='{model: $model, prompt: $prompt, size: "1024x1024", quality: "low", n: 1, stream: $stream}'
+      ;;
     gemini)
       # The model and the streaming mode belong to the URL here, so the body
       # carries neither.
@@ -455,6 +466,79 @@ wait_for_event_count() {
   done
   echo "请求事件数量为 ${actual_count}，预期 ${expected_count}。" >&2
   return 1
+}
+
+assert_token_detail_billing() {
+  local port="$1" runtime_dir="$2" expected_count="$3"
+  local protocol model stream body response_file events_file endpoint details observed
+  management_call DELETE "$port" "/v0/management/plugins/cpa-key-billing/prices?model_id=codex%2Fgpt-image-1.5" >/dev/null
+  for protocol in images anthropic; do
+    if [[ "$protocol" == images ]]; then model="codex/gpt-image-1.5"; else model="e2e-claude-cache-ttl"; fi
+    for stream in false true; do
+      body="$(request_body "$protocol" "$model" "$stream" "Draw a small blue square.")"
+      response_file="$runtime_dir/responses/token-detail-$protocol-$stream.txt"
+      events_file="$runtime_dir/responses/token-detail-$protocol-$stream.json"
+      endpoint="$(client_endpoint "$protocol" "$model" "$stream")"
+      api_call "$port" "Token 明细：$protocol ($stream)" "$endpoint" "$body" "$protocol" "$response_file"
+      if [[ "$protocol" == images ]]; then
+        if ! jq -eRs --argjson stream "$stream" '
+          (if $stream then
+             [split("\n")[] | select(startswith("data:")) | sub("^data:[ ]?"; "") | fromjson? |
+               select(.type == "image_generation.completed")] | last
+           else fromjson end) |
+          (if $stream then .b64_json else .data[0].b64_json end | length > 0) and
+          .usage.input_tokens == 80 and .usage.output_tokens == 1056
+        ' "$response_file" >/dev/null; then
+          echo "Images API 未返回预期图像及 usage：stream=$stream。" >&2
+          return 1
+        fi
+      fi
+      expected_count=$((expected_count + 1))
+      wait_for_event_count "$port" "$expected_count" "$events_file"
+      details="$(jq -c --arg protocol "$protocol" '.entries[0].cost |
+        if $protocol == "images" then {image_input_tokens, image_cache_read_tokens, image_output_tokens}
+        else {cache_write_5m_tokens, cache_write_1h_tokens} end' "$events_file")"
+      observed="$(jq -r 'if all(.[]; . != null) then "complete" elif any(.[]; . != null) then "partial" else "absent (parent-rate fallback)" end' <<<"$details")"
+      log_step "Token 明细观测：$protocol stream=$stream strict=$require_token_details observed=$observed $details"
+      if ! jq -e --arg model "$model" --arg protocol "$protocol" --arg endpoint "$endpoint" \
+        --argjson stream "$stream" --argjson strict "$require_token_details" '
+        def near($expected): (. - $expected | fabs) < 0.000000000001;
+        .entries[0] | .billing_model == $model and .accounting_quality == "complete" and .failed == false and
+        .endpoint == $endpoint and .stream == $stream and
+        (if $protocol == "images" then
+          .price_source == "builtin" and (.cost |
+            (if $strict == 1 then .image_input_tokens != null and .image_cache_read_tokens != null and .image_output_tokens != null else true end) and
+            .uncached_input_tokens == 80 and .cache_read_tokens == 0 and .cache_write_tokens == 0 and .billed_output_tokens == 1056 and
+            (if .image_input_tokens != null then
+              .image_input_tokens == 50 and .image_cache_read_tokens == 0 and
+              .applied_image_input_per_1m == 8 and .applied_image_cache_read_per_1m == 2 and
+              (.image_input | near(50 * 8 / 1000000)) and (.image_cache_read == 0) and
+              (.uncached_input | near((30 * 5 + 50 * 8) / 1000000))
+             else .image_cache_read_tokens == null and (.uncached_input | near(80 * 5 / 1000000)) end) and
+            (if .image_output_tokens != null then
+              .image_output_tokens == 1056 and .applied_image_output_per_1m == 32 and
+              (.image_output | near(1056 * 32 / 1000000)) and (.output | near(1056 * 32 / 1000000))
+             else (.output | near(1056 * 10 / 1000000)) end) and .cache_read == 0 and .cache_write == 0)
+         else
+          .price_source == "custom" and (.cost |
+            (if $strict == 1 then .cache_write_5m_tokens != null and .cache_write_1h_tokens != null else true end) and
+            .uncached_input_tokens == 80 and .cache_read_tokens == 32 and .cache_write_tokens == 16 and .billed_output_tokens == 8 and
+            (.cache_write_5m_tokens == null or .cache_write_5m_tokens == 6) and
+            (.cache_write_1h_tokens == null or .cache_write_1h_tokens == 10) and
+            (if .cache_write_1h_tokens != null then
+              (.applied_cache_write_1h_per_1m | near(2)) and (.cache_write_1h | near(10 * 2 / 1000000)) and
+              (.cache_write | near((6 * 1.25 + 10 * 2) / 1000000))
+             else (.cache_write | near(16 * 1.25 / 1000000)) end) and
+            (.uncached_input | near(80 / 1000000)) and (.cache_read | near(32 * 0.1 / 1000000)) and
+            (.output | near(8 * 2 / 1000000)))
+         end) and
+        (.cost | (.total - (.uncached_input + .cache_read + .cache_write + .output) | fabs) < 0.000000000001)
+      ' "$events_file" >/dev/null; then
+        echo "${protocol} 的图像或缓存 TTL 明细与计费不正确。" >&2
+        return 1
+      fi
+    done
+  done
 }
 
 assert_billing_entry() {
@@ -1414,7 +1498,12 @@ run_target() {
     return 1
   fi
   log_step "启动 ${host_label}，监听 127.0.0.1:${port}"
-  "$host_binary" -config "$runtime_dir/config.yaml" -local-model >"$runtime_dir/host.log" 2>&1 &
+  # The host auto-loads .env from its working directory. Keep it inside the
+  # isolated test runtime so it cannot load private repository configuration.
+  (
+    cd "$runtime_dir"
+    exec "$host_binary" -config "$runtime_dir/config.yaml" -local-model
+  ) >"$runtime_dir/host.log" 2>&1 &
   active_pid=$!
   if ! wait_for_server "$port"; then
     tail -n 80 "$runtime_dir/host.log" >&2 || true
@@ -1717,6 +1806,9 @@ run_target() {
     return 1
   fi
   log_step "聚合统计已验证：35 条基础计费记录"
+  assert_token_detail_billing "$port" "$runtime_dir" "$expected_requests"
+  expected_requests=$((expected_requests + 4))
+  log_ok "图像 Token 与缓存 TTL：流式、非流式计费已验证"
 
   log_step "并发限制：SSE 占槽、HTTP 拦截与完成释放"
   assert_concurrency_limit "$port" "$runtime_dir" "$expected_requests"
@@ -1753,7 +1845,7 @@ run_target() {
   kill "$active_pid" >/dev/null 2>&1 || true
   wait "$active_pid" >/dev/null 2>&1 || true
   active_pid=""
-  log_ok "${host_label}：55 个上游请求（含 4 个参考价请求、1 个未定价请求和 1 个连接测试），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，14 次额度拦截"
+  log_ok "${host_label}：59 个上游请求（含 4 个 Token 明细请求、4 个参考价请求、1 个未定价请求和 1 个连接测试），1 次并发拦截，6 次模型拦截，4 次凭证路由，2 次凭证拦截，14 次额度拦截"
 }
 
 log_stage "启动 dummy provider"

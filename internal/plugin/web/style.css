@@ -1821,3 +1821,9 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
 #keys-body tr.key-deleted { background: color-mix(in srgb, var(--text-secondary) 5%, transparent); color: var(--text-secondary); }
 #keys-body tr.key-deleted .quota-window { opacity: 0.65; }
 #keys-body tr.key-deleted .bar-fill { background: var(--text-tertiary); }
+
+.modality-pair { display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.6em; white-space: nowrap; }
+.modality-part { display: inline-flex; align-items: center; gap: 0.25em; }
+.modality-icon { display: inline-flex; align-items: center; vertical-align: middle; }
+.modality-icon .lucide-icon { width: 1em; height: 1em; }
+.num .modality-pair { width: 100%; }

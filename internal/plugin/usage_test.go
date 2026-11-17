@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"cpa-key-billing/internal/billing"
@@ -234,6 +236,66 @@ func TestUsageBreakdownMatchesCurrentHostForAuxiliaryOnlyRecords(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if got := usageBreakdown(test.record); got != test.want {
 				t.Fatalf("breakdown = %+v, want %+v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestUsageBreakdownOptionalDetails(t *testing.T) {
+	count := func(value int64) *int64 { return &value }
+	for _, test := range []struct {
+		name         string
+		json         string
+		want         billing.TokenDetail
+		inconsistent bool
+	}{
+		{name: "absent", json: `{}`},
+		{name: "null", json: `{"CacheCreation5mTokens":null,"CacheCreation1hTokens":null,"ImageInputTokens":null,"CachedImageTokens":null,"CachedTextTokens":null,"ImageOutputTokens":null}`},
+		{
+			name: "zero", json: `{
+				"CacheCreation5mTokens":0,"CacheCreation1hTokens":0,
+				"ImageInputTokens":0,"CachedImageTokens":0,"ImageOutputTokens":0
+			}`,
+			want: billing.TokenDetail{CacheWrite5mTokens: count(0), CacheWrite1hTokens: count(0), ImageInputTokens: count(0), ImageCacheReadTokens: count(0), ImageOutputTokens: count(0)},
+		},
+		{
+			name: "image and TTL subsets", json: `{
+				"CacheCreation5mTokens":5,"CacheCreation1hTokens":15,
+				"ImageInputTokens":70,"CachedImageTokens":30,"ImageOutputTokens":8
+			}`,
+			want: billing.TokenDetail{CacheWrite5mTokens: count(5), CacheWrite1hTokens: count(15), ImageInputTokens: count(40), ImageCacheReadTokens: count(30), ImageOutputTokens: count(8)},
+		},
+		{
+			name: "known text cache", json: `{"ImageInputTokens":50,"CachedTextTokens":40}`,
+			want: billing.TokenDetail{ImageInputTokens: count(50), ImageCacheReadTokens: count(0)},
+		},
+		{
+			name: "unknown image cache", json: `{"ImageInputTokens":50,"ImageOutputTokens":8}`,
+			want: billing.TokenDetail{ImageOutputTokens: count(8)},
+		},
+		{
+			name: "partial TTL", json: `{"CacheCreation5mTokens":5,"CacheCreation1hTokens":10}`,
+			want: billing.TokenDetail{CacheWrite5mTokens: count(5), CacheWrite1hTokens: count(10)},
+		},
+		{name: "negative details", json: `{"CacheCreation5mTokens":-1,"ImageInputTokens":-1,"CachedImageTokens":0,"ImageOutputTokens":-1}`},
+		{name: "overlapping subsets", json: `{"CacheCreation5mTokens":11,"CacheCreation1hTokens":10,"ImageInputTokens":20,"CachedImageTokens":21,"ImageOutputTokens":9}`},
+		{name: "exceeds parents", json: `{"ImageInputTokens":81,"CachedImageTokens":0}`},
+		{name: "cached image exceeds parent", json: `{"ImageInputTokens":50,"CachedImageTokens":41}`},
+		{name: "overflowing TTL", json: `{"CacheCreation5mTokens":9223372036854775807,"CacheCreation1hTokens":9223372036854775807}`},
+		{name: "inconsistent parent", inconsistent: true, json: `{"TotalTokens":1,"ImageOutputTokens":8}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			detail := UsageDetail{InputTokens: 140, CacheReadTokens: 40, CacheCreationTokens: 20, OutputTokens: 10, ReasoningTokens: 2}
+			if err := json.Unmarshal([]byte(test.json), &detail); err != nil {
+				t.Fatal(err)
+			}
+			got := usageBreakdown(UsageRecord{Provider: "codex", Detail: detail})
+			quality := billing.TokenAccountingComplete
+			if test.inconsistent {
+				quality = billing.TokenAccountingInconsistent
+			}
+			if got.Quality != quality || !got.Valid() || !reflect.DeepEqual(got.Detail, test.want) {
+				t.Fatalf("breakdown = %+v, want quality %s and detail %+v", got, quality, test.want)
 			}
 		})
 	}

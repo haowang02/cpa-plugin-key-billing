@@ -280,6 +280,12 @@
         <label class="field"> <span data-i18n="ui.cache_read_1m_tokens">Cache read&thinsp;/&thinsp;1M tokens</span> <input id="price-cr" type="number" step="any" min="0" /> </label>
         <label class="field"> <span data-i18n="ui.cache_write_1m_tokens">Cache write&thinsp;/&thinsp;1M tokens</span> <input id="price-cw" type="number" step="any" min="0" /> </label>
       </div>
+      <label class="switch-field"> <input id="price-images" type="checkbox" /> <span data-i18n="ui.separate_image_token_pricing">Separate image token pricing</span> </label>
+      <div id="price-image-fields" class="tier-fields hidden"><div class="price-fields">
+        <label class="field"><span data-i18n="ui.image_input_1m_tokens">Image input&thinsp;/&thinsp;1M tokens</span><input id="price-image-in" type="number" step="any" min="0" data-i18n-placeholder="ui.same_as_text" placeholder="Same as text" /></label>
+        <label class="field"><span data-i18n="ui.image_cache_read_1m_tokens">Image cache read&thinsp;/&thinsp;1M tokens</span><input id="price-image-cr" type="number" step="any" min="0" data-i18n-placeholder="ui.same_as_text" placeholder="Same as text" /></label>
+        <label class="field"><span data-i18n="ui.image_output_1m_tokens">Image output&thinsp;/&thinsp;1M tokens</span><input id="price-image-out" type="number" step="any" min="0" data-i18n-placeholder="ui.same_as_text" placeholder="Same as text" /></label>
+      </div></div>
       <label class="switch-field"> <input id="price-tiered" type="checkbox" /> <span data-i18n="ui.enable_long_context_tiered_pricing">Enable long-context tiered pricing</span> </label>
       <div id="price-tier-fields" class="tier-fields hidden">
         <div class="price-fields">

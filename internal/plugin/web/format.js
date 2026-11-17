@@ -16,6 +16,24 @@ function money(value, currency, fixedDigits) {
   return symbol + amount.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+const IMAGE_RATE_FIELDS = {
+  input_per_1m: "image_input_per_1m",
+  cache_read_per_1m: "image_cache_read_per_1m",
+  output_per_1m: "image_output_per_1m"
+};
+
+function pricesImagesSeparately(row) { return Object.values(IMAGE_RATE_FIELDS).some((field) => row[field] != null); }
+
+function priceValue(value, currency) { return value == null ? el("span", { class: "muted", text: "—" }) : money(value, currency); }
+
+function priceRateValue(row, field, value = row[field]) {
+  const imageField = IMAGE_RATE_FIELDS[field];
+  const text = priceValue(value, row.currency);
+  if (!imageField || !pricesImagesSeparately(row)) return text;
+  const image = row[imageField];
+  return modalityPair(text, image == null ? null : priceValue(image, row.currency));
+}
+
 function moneyChoice() {
   const role = currentRole === "account" ? "account" : "admin";
   return { selected: displaySettings[role].currency, rate: resources[role].currency.value?.cny_per_usd };

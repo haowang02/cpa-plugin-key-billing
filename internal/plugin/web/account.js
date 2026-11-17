@@ -124,12 +124,13 @@ function renderAccountModel(model) {
   const fields = [[m("ui.input"), "input_per_1m"], [m("ui.output"), "output_per_1m"]];
   const longContext = price?.long_context;
   for (const [label, field] of [[m("ui.cache_read"), "cache_read_per_1m"], [m("ui.cache_write"), "cache_write_per_1m"]]) {
-    if (price?.[field] != null || longContext?.[field] != null) fields.push([label, field]);
+    if (price?.[field] != null || longContext?.[field] != null || price?.[IMAGE_RATE_FIELDS[field]] != null) fields.push([label, field]);
   }
   const threshold = longContext ? ">" + tokenThreshold(longContext.threshold_input_tokens) : "";
   const priceRows = price
     ? fields.map(([label, field]) => ({
         label,
+        field,
         base: price[field] == null ? null : Number(price[field]),
         long: longContext?.[field] == null ? null : Number(longContext[field])
       }))
@@ -139,7 +140,7 @@ function renderAccountModel(model) {
       "div",
       { class: "account-model-price-row" + (longContext ? " tiered" : "") },
       el("span", { class: "account-model-price-label" }, item.label),
-      el("strong", { class: "mono account-model-base-price" }, item.base == null ? "—" : money(item.base, price.currency)),
+      el("strong", { class: "mono account-model-base-price" }, priceRateValue(price, item.field, item.base)),
       longContext
         ? el(
             "span",
@@ -147,7 +148,7 @@ function renderAccountModel(model) {
             item.long != null
               ? [
                   el("span", { class: "account-model-threshold" }, threshold),
-                  el("strong", { class: "mono" }, money(item.long, price.currency))
+                  el("strong", { class: "mono" }, priceRateValue(price, item.field, item.long))
                 ]
               : el("span", { class: "muted" }, "—")
           )

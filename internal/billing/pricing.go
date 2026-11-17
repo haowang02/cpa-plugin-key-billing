@@ -1,61 +1,6 @@
 package billing
 
-import (
-	"math"
-)
-
-type TokenAccountingQuality string
-
-const (
-	TokenAccountingComplete     TokenAccountingQuality = "complete"
-	TokenAccountingInconsistent TokenAccountingQuality = "inconsistent"
-	TokenAccountingUnclassified TokenAccountingQuality = "unclassified"
-)
-
-type TokenInputBreakdown struct {
-	TotalTokens      int64
-	UncachedTokens   int64
-	CacheReadTokens  int64
-	CacheWriteTokens int64
-}
-
-type TokenOutputBreakdown struct {
-	TotalTokens        int64
-	NonReasoningTokens int64
-	ReasoningTokens    int64
-}
-
-// Provider usage is normalized into these non-overlapping buckets before pricing.
-type TokenBreakdown struct {
-	Quality            TokenAccountingQuality
-	TotalTokens        int64
-	Input              TokenInputBreakdown
-	Output             TokenOutputBreakdown
-	UnclassifiedTokens int64
-}
-
-func (b TokenBreakdown) Valid() bool {
-	switch b.Quality {
-	case TokenAccountingComplete, TokenAccountingInconsistent, TokenAccountingUnclassified:
-	default:
-		return false
-	}
-	if b.TotalTokens < 0 || b.UnclassifiedTokens < 0 ||
-		b.Input.TotalTokens < 0 || b.Input.UncachedTokens < 0 || b.Input.CacheReadTokens < 0 || b.Input.CacheWriteTokens < 0 ||
-		b.Output.TotalTokens < 0 || b.Output.NonReasoningTokens < 0 || b.Output.ReasoningTokens < 0 {
-		return false
-	}
-	if b.Input.TotalTokens != b.Input.UncachedTokens+b.Input.CacheReadTokens+b.Input.CacheWriteTokens ||
-		b.Output.TotalTokens != b.Output.NonReasoningTokens+b.Output.ReasoningTokens ||
-		b.TotalTokens != b.Input.TotalTokens+b.Output.TotalTokens+b.UnclassifiedTokens {
-		return false
-	}
-	return b.Quality != TokenAccountingComplete || b.UnclassifiedTokens == 0
-}
-
-func (b TokenBreakdown) Billable() bool {
-	return b.Valid() && b.Quality == TokenAccountingComplete
-}
+import "math"
 
 type PriceSource string
 
@@ -68,22 +13,28 @@ const (
 
 // Rates are per million tokens in the price's currency; nil cache rates inherit the input rate.
 type PriceRates struct {
-	InputPer1M      float64           `json:"input_per_1m"`
-	OutputPer1M     float64           `json:"output_per_1m"`
-	CacheReadPer1M  *float64          `json:"cache_read_per_1m,omitempty"`
-	CacheWritePer1M *float64          `json:"cache_write_per_1m,omitempty"`
-	LongContext     *LongContextPrice `json:"long_context,omitempty"`
+	InputPer1M          float64           `json:"input_per_1m"`
+	OutputPer1M         float64           `json:"output_per_1m"`
+	CacheReadPer1M      *float64          `json:"cache_read_per_1m,omitempty"`
+	CacheWritePer1M     *float64          `json:"cache_write_per_1m,omitempty"`
+	ImageInputPer1M     *float64          `json:"image_input_per_1m,omitempty"`
+	ImageCacheReadPer1M *float64          `json:"image_cache_read_per_1m,omitempty"`
+	ImageOutputPer1M    *float64          `json:"image_output_per_1m,omitempty"`
+	LongContext         *LongContextPrice `json:"long_context,omitempty"`
 }
 
 // Rates are per 1,000,000 tokens in Currency.
 type Price struct {
-	Currency        Currency                  `json:"currency"`
-	InputPer1M      float64                   `json:"input_per_1m"`
-	OutputPer1M     float64                   `json:"output_per_1m"`
-	CacheReadPer1M  float64                   `json:"cache_read_per_1m"`
-	CacheWritePer1M float64                   `json:"cache_write_per_1m"`
-	Source          PriceSource               `json:"source"`
-	LongContext     *ResolvedLongContextPrice `json:"long_context,omitempty"`
+	Currency            Currency                  `json:"currency"`
+	InputPer1M          float64                   `json:"input_per_1m"`
+	OutputPer1M         float64                   `json:"output_per_1m"`
+	CacheReadPer1M      float64                   `json:"cache_read_per_1m"`
+	CacheWritePer1M     float64                   `json:"cache_write_per_1m"`
+	ImageInputPer1M     *float64                  `json:"image_input_per_1m,omitempty"`
+	ImageCacheReadPer1M *float64                  `json:"image_cache_read_per_1m,omitempty"`
+	ImageOutputPer1M    *float64                  `json:"image_output_per_1m,omitempty"`
+	Source              PriceSource               `json:"source"`
+	LongContext         *ResolvedLongContextPrice `json:"long_context,omitempty"`
 }
 
 type ResolvedLongContextPrice struct {
@@ -94,67 +45,49 @@ type ResolvedLongContextPrice struct {
 	CacheWritePer1M      float64 `json:"cache_write_per_1m"`
 }
 
-func (r PriceRates) resolve(source PriceSource, currency Currency) Price {
-	price := Price{
-		Currency:        currency,
-		InputPer1M:      r.InputPer1M,
-		OutputPer1M:     r.OutputPer1M,
-		CacheReadPer1M:  r.InputPer1M,
-		CacheWritePer1M: r.InputPer1M,
-		Source:          source,
-	}
-	if r.CacheReadPer1M != nil {
-		price.CacheReadPer1M = *r.CacheReadPer1M
-	}
-	if r.CacheWritePer1M != nil {
-		price.CacheWritePer1M = *r.CacheWritePer1M
-	}
-	if tier := r.LongContext; tier != nil {
-		resolved := &ResolvedLongContextPrice{
-			ThresholdInputTokens: tier.ThresholdInputTokens,
-			InputPer1M:           tier.InputPer1M,
-			OutputPer1M:          tier.OutputPer1M,
-			CacheReadPer1M:       tier.InputPer1M,
-			CacheWritePer1M:      tier.InputPer1M,
-		}
-		if tier.CacheReadPer1M != nil {
-			resolved.CacheReadPer1M = *tier.CacheReadPer1M
-		}
-		if tier.CacheWritePer1M != nil {
-			resolved.CacheWritePer1M = *tier.CacheWritePer1M
-		}
-		price.LongContext = resolved
-	}
-	return price
-}
+const (
+	CodexFastModeMultiplier    = 2.5
+	CacheWrite1hRateMultiplier = 1.6
+)
 
-const CodexFastModeMultiplier = 2.5
-
-// Cost amounts and applied rates are in the currency of the price used.
+// Parent amounts and token counts include their details; rates use the price's currency.
 type Cost struct {
 	// Multiplier is the applied billing multiplier. Zero/omitted means 1x.
 	// Applied rates and amounts already include it; token counts do not.
 	Multiplier float64 `json:"multiplier,omitempty"`
 
-	Currency      Currency `json:"currency"`
-	Total         float64  `json:"total"`
-	UncachedInput float64  `json:"uncached_input"`
-	CacheRead     float64  `json:"cache_read"`
-	CacheWrite    float64  `json:"cache_write"`
-	Output        float64  `json:"output"`
+	Currency       Currency `json:"currency"`
+	Total          float64  `json:"total"`
+	UncachedInput  float64  `json:"uncached_input"`
+	CacheRead      float64  `json:"cache_read"`
+	CacheWrite     float64  `json:"cache_write"`
+	Output         float64  `json:"output"`
+	CacheWrite1h   float64  `json:"cache_write_1h"`
+	ImageInput     float64  `json:"image_input"`
+	ImageCacheRead float64  `json:"image_cache_read"`
+	ImageOutput    float64  `json:"image_output"`
 
-	UncachedInputTokens int64 `json:"uncached_input_tokens"`
-	CacheReadTokens     int64 `json:"cache_read_tokens"`
-	CacheWriteTokens    int64 `json:"cache_write_tokens"`
-	BilledOutputTokens  int64 `json:"billed_output_tokens"`
+	UncachedInputTokens  int64  `json:"uncached_input_tokens"`
+	CacheReadTokens      int64  `json:"cache_read_tokens"`
+	CacheWriteTokens     int64  `json:"cache_write_tokens"`
+	BilledOutputTokens   int64  `json:"billed_output_tokens"`
+	CacheWrite5mTokens   *int64 `json:"cache_write_5m_tokens"`
+	CacheWrite1hTokens   *int64 `json:"cache_write_1h_tokens"`
+	ImageInputTokens     *int64 `json:"image_input_tokens"`
+	ImageCacheReadTokens *int64 `json:"image_cache_read_tokens"`
+	ImageOutputTokens    *int64 `json:"image_output_tokens"`
 
-	Tiered                 bool    `json:"tiered,omitempty"`
-	LongContext            bool    `json:"long_context,omitempty"`
-	ThresholdInputTokens   int64   `json:"threshold_input_tokens,omitempty"`
-	AppliedInputPer1M      float64 `json:"applied_input_per_1m,omitempty"`
-	AppliedOutputPer1M     float64 `json:"applied_output_per_1m,omitempty"`
-	AppliedCacheReadPer1M  float64 `json:"applied_cache_read_per_1m,omitempty"`
-	AppliedCacheWritePer1M float64 `json:"applied_cache_write_per_1m,omitempty"`
+	Tiered                     bool    `json:"tiered,omitempty"`
+	LongContext                bool    `json:"long_context,omitempty"`
+	ThresholdInputTokens       int64   `json:"threshold_input_tokens,omitempty"`
+	AppliedInputPer1M          float64 `json:"applied_input_per_1m,omitempty"`
+	AppliedOutputPer1M         float64 `json:"applied_output_per_1m,omitempty"`
+	AppliedCacheReadPer1M      float64 `json:"applied_cache_read_per_1m,omitempty"`
+	AppliedCacheWritePer1M     float64 `json:"applied_cache_write_per_1m,omitempty"`
+	AppliedCacheWrite1hPer1M   float64 `json:"applied_cache_write_1h_per_1m"`
+	AppliedImageInputPer1M     float64 `json:"applied_image_input_per_1m"`
+	AppliedImageCacheReadPer1M float64 `json:"applied_image_cache_read_per_1m"`
+	AppliedImageOutputPer1M    float64 `json:"applied_image_output_per_1m"`
 }
 
 // Invalid or unclassified records are never guessed and cost zero.
@@ -180,10 +113,6 @@ func ComputeCost(price Price, breakdown TokenBreakdown) Cost {
 	}
 	cost := Cost{
 		Currency:               price.Currency,
-		UncachedInput:          perMillion(breakdown.Input.UncachedTokens, inputPrice),
-		CacheRead:              perMillion(breakdown.Input.CacheReadTokens, cacheReadPrice),
-		CacheWrite:             perMillion(breakdown.Input.CacheWriteTokens, cacheWritePrice),
-		Output:                 perMillion(breakdown.Output.TotalTokens, outputPrice),
 		UncachedInputTokens:    breakdown.Input.UncachedTokens,
 		CacheReadTokens:        breakdown.Input.CacheReadTokens,
 		CacheWriteTokens:       breakdown.Input.CacheWriteTokens,
@@ -196,6 +125,33 @@ func ComputeCost(price Price, breakdown TokenBreakdown) Cost {
 		AppliedCacheReadPer1M:  cacheReadPrice,
 		AppliedCacheWritePer1M: cacheWritePrice,
 	}
+	cost.CacheWrite5mTokens, cost.CacheWrite1hTokens = breakdown.Detail.CacheWrite5mTokens, breakdown.Detail.CacheWrite1hTokens
+	if cost.CacheWrite1hTokens != nil {
+		cost.AppliedCacheWrite1hPer1M = cacheWritePrice * CacheWrite1hRateMultiplier
+	}
+	if price.hasImageRates() {
+		cost.ImageInputTokens, cost.ImageCacheReadTokens = breakdown.Detail.ImageInputTokens, breakdown.Detail.ImageCacheReadTokens
+		cost.ImageOutputTokens = breakdown.Detail.ImageOutputTokens
+		if cost.ImageInputTokens != nil {
+			cost.AppliedImageInputPer1M = inheritedRate(price.ImageInputPer1M, inputPrice)
+		}
+		if cost.ImageCacheReadTokens != nil {
+			cost.AppliedImageCacheReadPer1M = inheritedRate(price.ImageCacheReadPer1M, cacheReadPrice)
+		}
+		if cost.ImageOutputTokens != nil {
+			cost.AppliedImageOutputPer1M = inheritedRate(price.ImageOutputPer1M, outputPrice)
+		}
+	}
+	imageInput, imageRead, imageOutput := tokenCount(cost.ImageInputTokens), tokenCount(cost.ImageCacheReadTokens), tokenCount(cost.ImageOutputTokens)
+	hour := tokenCount(cost.CacheWrite1hTokens)
+	cost.ImageInput = perMillion(imageInput, cost.AppliedImageInputPer1M)
+	cost.ImageCacheRead = perMillion(imageRead, cost.AppliedImageCacheReadPer1M)
+	cost.ImageOutput = perMillion(imageOutput, cost.AppliedImageOutputPer1M)
+	cost.CacheWrite1h = perMillion(hour, cost.AppliedCacheWrite1hPer1M)
+	cost.UncachedInput = perMillion(cost.UncachedInputTokens-imageInput, inputPrice) + cost.ImageInput
+	cost.CacheRead = perMillion(cost.CacheReadTokens-imageRead, cacheReadPrice) + cost.ImageCacheRead
+	cost.CacheWrite = perMillion(cost.CacheWriteTokens-hour, cacheWritePrice) + cost.CacheWrite1h
+	cost.Output = perMillion(cost.BilledOutputTokens-imageOutput, outputPrice) + cost.ImageOutput
 	cost.Total = cost.UncachedInput + cost.CacheRead + cost.CacheWrite + cost.Output
 	return cost
 }
@@ -206,11 +162,19 @@ func (c *Cost) multiply(multiplier float64) {
 	c.CacheRead *= multiplier
 	c.CacheWrite *= multiplier
 	c.Output *= multiplier
+	c.CacheWrite1h *= multiplier
+	c.ImageInput *= multiplier
+	c.ImageCacheRead *= multiplier
+	c.ImageOutput *= multiplier
 	c.Total = c.UncachedInput + c.CacheRead + c.CacheWrite + c.Output
 	c.AppliedInputPer1M *= multiplier
 	c.AppliedOutputPer1M *= multiplier
 	c.AppliedCacheReadPer1M *= multiplier
 	c.AppliedCacheWritePer1M *= multiplier
+	c.AppliedCacheWrite1hPer1M *= multiplier
+	c.AppliedImageInputPer1M *= multiplier
+	c.AppliedImageCacheReadPer1M *= multiplier
+	c.AppliedImageOutputPer1M *= multiplier
 }
 
 func perMillion(tokens int64, pricePer1M float64) float64 {
@@ -220,11 +184,39 @@ func perMillion(tokens int64, pricePer1M float64) float64 {
 	return float64(tokens) / 1_000_000 * pricePer1M
 }
 
+func (r PriceRates) resolve(source PriceSource, currency Currency) Price {
+	price := Price{
+		Currency:            currency,
+		InputPer1M:          r.InputPer1M,
+		OutputPer1M:         r.OutputPer1M,
+		CacheReadPer1M:      inheritedRate(r.CacheReadPer1M, r.InputPer1M),
+		CacheWritePer1M:     inheritedRate(r.CacheWritePer1M, r.InputPer1M),
+		ImageInputPer1M:     r.ImageInputPer1M,
+		ImageCacheReadPer1M: r.ImageCacheReadPer1M,
+		ImageOutputPer1M:    r.ImageOutputPer1M,
+		Source:              source,
+	}
+	if tier := r.LongContext; tier != nil {
+		resolved := &ResolvedLongContextPrice{
+			ThresholdInputTokens: tier.ThresholdInputTokens,
+			InputPer1M:           tier.InputPer1M,
+			OutputPer1M:          tier.OutputPer1M,
+			CacheReadPer1M:       inheritedRate(tier.CacheReadPer1M, tier.InputPer1M),
+			CacheWritePer1M:      inheritedRate(tier.CacheWritePer1M, tier.InputPer1M),
+		}
+		price.LongContext = resolved
+	}
+	return price
+}
+
 func samePriceRates(a, b PriceRates) bool {
 	return a.InputPer1M == b.InputPer1M &&
 		a.OutputPer1M == b.OutputPer1M &&
 		sameOptionalPrice(a.CacheReadPer1M, b.CacheReadPer1M) &&
 		sameOptionalPrice(a.CacheWritePer1M, b.CacheWritePer1M) &&
+		sameOptionalPrice(a.ImageInputPer1M, b.ImageInputPer1M) &&
+		sameOptionalPrice(a.ImageCacheReadPer1M, b.ImageCacheReadPer1M) &&
+		sameOptionalPrice(a.ImageOutputPer1M, b.ImageOutputPer1M) &&
 		sameLongContextPrice(a.LongContext, b.LongContext)
 }
 
@@ -255,6 +247,11 @@ func (r PriceRates) validate(modelID string) error {
 	if r.CacheWritePer1M != nil && invalidAmount(*r.CacheWritePer1M) {
 		return invalidf("Model %q: cache write rate must be a finite non-negative number", modelID)
 	}
+	for _, rate := range []*float64{r.ImageInputPer1M, r.ImageCacheReadPer1M, r.ImageOutputPer1M} {
+		if rate != nil && invalidAmount(*rate) {
+			return invalidf("Model %q: token rates must be finite non-negative numbers", modelID)
+		}
+	}
 	if tier := r.LongContext; tier != nil {
 		if tier.ThresholdInputTokens <= 0 {
 			return invalidf("Model %q: long-context threshold must be greater than zero", modelID)
@@ -274,4 +271,15 @@ func (r PriceRates) validate(modelID string) error {
 
 func invalidAmount(value float64) bool {
 	return value < 0 || math.IsNaN(value) || math.IsInf(value, 0)
+}
+
+func (p Price) hasImageRates() bool {
+	return p.ImageInputPer1M != nil || p.ImageCacheReadPer1M != nil || p.ImageOutputPer1M != nil
+}
+
+func inheritedRate(rate *float64, fallback float64) float64 {
+	if rate != nil {
+		return *rate
+	}
+	return fallback
 }

@@ -25,15 +25,19 @@ func (d *DB) UpsertPrice(price billing.CustomPrice) error {
 	_, err := d.db.Exec(`
         INSERT INTO prices (
             model_id, currency, input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m,
+            image_input_per_1m, image_cache_read_per_1m, image_output_per_1m,
             long_context_threshold, long_context_input_per_1m, long_context_output_per_1m,
             long_context_cache_read_per_1m, long_context_cache_write_per_1m
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(model_id COLLATE NOCASE) DO UPDATE SET
             currency = excluded.currency,
             input_per_1m = excluded.input_per_1m,
             output_per_1m = excluded.output_per_1m,
             cache_read_per_1m = excluded.cache_read_per_1m,
             cache_write_per_1m = excluded.cache_write_per_1m,
+            image_input_per_1m = excluded.image_input_per_1m,
+            image_cache_read_per_1m = excluded.image_cache_read_per_1m,
+            image_output_per_1m = excluded.image_output_per_1m,
             long_context_threshold = excluded.long_context_threshold,
             long_context_input_per_1m = excluded.long_context_input_per_1m,
             long_context_output_per_1m = excluded.long_context_output_per_1m,
@@ -41,6 +45,7 @@ func (d *DB) UpsertPrice(price billing.CustomPrice) error {
             long_context_cache_write_per_1m = excluded.long_context_cache_write_per_1m
     `, price.ModelID, string(price.Currency), price.InputPer1M, price.OutputPer1M,
 		optionalPrice(price.CacheReadPer1M), optionalPrice(price.CacheWritePer1M),
+		optionalPrice(price.ImageInputPer1M), optionalPrice(price.ImageCacheReadPer1M), optionalPrice(price.ImageOutputPer1M),
 		threshold, tierInput, tierOutput, tierRead, tierWrite)
 	if err != nil {
 		return fmt.Errorf("Save pricing for model %s: %w", price.ModelID, err)
@@ -58,6 +63,7 @@ func (d *DB) DeletePrice(modelID string) error {
 func (d *DB) loadPrices(state *billing.State) error {
 	rows, errQuery := d.db.Query(`
 		SELECT model_id, currency, input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m,
+			image_input_per_1m, image_cache_read_per_1m, image_output_per_1m,
 			long_context_threshold, long_context_input_per_1m, long_context_output_per_1m,
 			long_context_cache_read_per_1m, long_context_cache_write_per_1m
 		FROM prices ORDER BY position`)
@@ -69,15 +75,19 @@ func (d *DB) loadPrices(state *billing.State) error {
 		var (
 			price                                      billing.CustomPrice
 			cacheRead, cacheWrite                      sql.NullFloat64
+			imageInput, imageRead, imageOutput         sql.NullFloat64
 			threshold                                  sql.NullInt64
 			tierInput, tierOutput, tierRead, tierWrite sql.NullFloat64
 		)
 		if errScan := rows.Scan(&price.ModelID, &price.Currency, &price.InputPer1M, &price.OutputPer1M, &cacheRead, &cacheWrite,
-			&threshold, &tierInput, &tierOutput, &tierRead, &tierWrite); errScan != nil {
+			&imageInput, &imageRead, &imageOutput, &threshold, &tierInput, &tierOutput, &tierRead, &tierWrite); errScan != nil {
 			return fmt.Errorf("Read model pricing: %w", errScan)
 		}
 		price.CacheReadPer1M = priceOrNil(cacheRead)
 		price.CacheWritePer1M = priceOrNil(cacheWrite)
+		price.ImageInputPer1M = priceOrNil(imageInput)
+		price.ImageCacheReadPer1M = priceOrNil(imageRead)
+		price.ImageOutputPer1M = priceOrNil(imageOutput)
 		if threshold.Valid {
 			price.LongContext = &billing.LongContextPrice{
 				ThresholdInputTokens: threshold.Int64,

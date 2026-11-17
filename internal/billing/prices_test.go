@@ -26,13 +26,18 @@ func TestResolveCustomPrice(t *testing.T) {
 }
 
 func TestResolveBuiltinPrice(t *testing.T) {
-	price := ResolveBuiltinPrice("gpt-image-1.5")
-	if price.Source != PriceSourceBuiltin || price.InputPer1M != 5 || price.OutputPer1M != 32 || price.CacheReadPer1M != 1.25 {
-		t.Fatalf("gpt-image-1.5 builtin price = %+v", price)
-	}
-	price = ResolveBuiltinPrice("vendor/gpt-image-2.5")
-	if price.Source != PriceSourceBuiltin || price.InputPer1M != 5 || price.OutputPer1M != 30 || price.CacheReadPer1M != 1.25 {
-		t.Fatalf("gpt-image-2.5 builtin price = %+v", price)
+	var price Price
+	for _, model := range []string{"gpt-image-1.5", "gpt-image-2", "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "vendor/gpt-image-2.5"} {
+		price = ResolveBuiltinPrice(model)
+		output, imageOutput := 30., 30.
+		if model == "gpt-image-1.5" {
+			output, imageOutput = 10, 32
+		}
+		if price.Source != PriceSourceBuiltin || price.InputPer1M != 5 || price.OutputPer1M != output || price.CacheReadPer1M != 1.25 ||
+			price.ImageInputPer1M == nil || *price.ImageInputPer1M != 8 || price.ImageCacheReadPer1M == nil || *price.ImageCacheReadPer1M != 2 ||
+			price.ImageOutputPer1M == nil || *price.ImageOutputPer1M != imageOutput {
+			t.Fatalf("%s builtin price = %+v", model, price)
+		}
 	}
 	for _, model := range []string{"deepseek-flash", "vendor/nested/deepseek-flash"} {
 		price = ResolveBuiltinPrice(model)
