@@ -22,7 +22,7 @@
 
 Requires **CLIProxyAPI 8.0.44 or later** with plugin support.
 
-Search for `cpa-key-billing` in the CPAMC or CPAMP plugin store, or run the installer from your CLIProxyAPI directory to install it into `plugins/`.
+Find `cpa-key-billing` in the CPAMC or CPAMP plugin store, or run the installer from the CLIProxyAPI root directory to install it into `plugins/`.
 
 macOS / Linux:
 
@@ -73,7 +73,7 @@ plugins:
 Restart CLIProxyAPI after installing or upgrading.
 
 > [!WARNING]
-> Back up `state_file` before upgrading. Databases from v1.0.0 onward migrate automatically. Data from v0.8.4 or earlier is incompatible; use a new data file.
+> Back up `state_file` before upgrading. Use a new data file when upgrading from v0.8.4 or earlier.
 
 ## Access
 
@@ -87,7 +87,7 @@ http(s)://<CLIProxyAPI address>/v0/resource/plugins/cpa-key-billing/ui
 
 ### Model pricing
 
-Custom prices override reference prices; unpriced models are rejected by default. Quotas are charged in the plan's currency, converting other currencies at `cny_per_usd`.
+Custom prices take precedence over reference prices. Requests to unpriced models are rejected by default. Charges are deducted from the quota in the plan's currency, using `cny_per_usd` for currency conversion.
 
 ### Subscription plans
 
@@ -103,9 +103,9 @@ Clearing history does not reset quotas. Unbinding or deleting a member key does 
 
 ## Routing rules
 
-Routing rules limit the models an API key can call and the upstream credentials it can use. Credentials can be selected one by one or by category, such as "Auth Files · codex".
+Routing rules limit which models and upstream credentials an API key can use. Select credentials individually or by category, such as "Auth Files · codex".
 
-All rules on a key apply together: allowlists are merged, denials take precedence, and an empty allowlist means no limit. Models and credentials are merged separately, not paired by rule.
+For each key, model rules and credential rules are merged independently. Each effective allowlist is the union of the applicable allowlists. An empty allowlist imposes no restriction, and denylists take precedence.
 
 ```mermaid
 ---
@@ -129,7 +129,7 @@ flowchart TB
 
 - A disabled credential serves no models. A credential in cooldown still counts as serving its models, so the request gets a 503.
 - `/v1/models` lists only the models the key can call. The CPAMC and CPAMP management panels still see the full list.
-- Credential rules apply only to credentials this CPA instance loads. In CPA Home mode the plugin cannot see Home-dispatched credentials, so keys with credential rules are refused.
+- Credential rules apply only to credentials loaded by the current CPA instance. In CPA Home mode, the plugin cannot see the credentials distributed by Home and rejects keys with credential rules.
 
 ## Rejected requests
 

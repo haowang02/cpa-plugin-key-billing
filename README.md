@@ -22,7 +22,7 @@
 
 需要支持插件的 CLIProxyAPI **8.0.44 或更高版本**。
 
-在 CPAMC 或 CPAMP 的插件商店搜索 `cpa-key-billing` 安装，也可在 CLIProxyAPI 根目录运行安装脚本，插件会装到 `plugins/`。
+在 CPAMC 或 CPAMP 插件商店搜索 `cpa-key-billing`，或在 CPA 根目录运行脚本装到 `plugins/`。
 
 macOS / Linux：
 
@@ -73,7 +73,7 @@ plugins:
 安装或升级后重启 CLIProxyAPI。
 
 > [!WARNING]
-> 升级前备份 `state_file`。v1.0.0 起的数据库支持自动迁移；v0.8.4 及更早版本的数据不兼容，需改用新的数据文件。
+> 升级前备份 `state_file`。从 v0.8.4 或更早版本升级须改用新数据文件。
 
 ## 页面访问
 
@@ -87,7 +87,7 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui
 
 ### 模型价格
 
-自定义价优先于参考价，未定价的模型默认拒绝请求。订阅额度按计划币种扣减，其他币种的费用按 `cny_per_usd` 换算。
+自定义价优先于参考价，默认拒绝未定价模型。额度按计划币种扣减，汇率取 `cny_per_usd`。
 
 ### 订阅计划
 
@@ -103,9 +103,9 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui
 
 ## 路由规则
 
-路由规则限制 API Key 可调用的模型和可使用的上游凭证。凭证可以单个选择，也可以按整类选择，如「认证文件 · codex」。
+路由规则限制 API Key 可用的模型和上游凭证。凭证可逐个或按类选择，如「认证文件 · codex」。
 
-一个 Key 的全部规则合并生效：白名单取并集，黑名单优先，白名单为空表示不限制。模型和凭证分别合并，不按规则配对。
+同一 Key 的模型和凭证规则分别合并生效。白名单取并集，为空时不限，黑名单优先。
 
 ```mermaid
 ---
@@ -129,7 +129,7 @@ flowchart TB
 
 - 禁用的凭证不提供任何模型；冷却中的凭证仍视为提供，此时返回 503。
 - `/v1/models` 只列出该 Key 能调用的模型，CPAMC 和 CPAMP 管理面板仍显示完整列表。
-- 凭证规则只适用于当前 CPA 实例加载的凭证。CPA Home 模式下插件看不到 Home 分发的凭证，带凭证规则的 Key 会被拒绝。
+- 凭证规则仅限本实例加载的凭证。CPA Home 下发的凭证不可见，故拒绝带凭证规则的 Key。
 
 ## 请求被拒绝时
 
