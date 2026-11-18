@@ -22,7 +22,7 @@
 
 Requires **CLIProxyAPI 8.0.44 or later** with plugin support.
 
-Search for `cpa-key-billing` in the CPAMC or CPAMP plugin store, or run the installer from your CLIProxyAPI directory.
+Search for `cpa-key-billing` in the CPAMC or CPAMP plugin store, or run the installer from your CLIProxyAPI directory to install it into `plugins/`.
 
 macOS / Linux:
 
@@ -36,8 +36,6 @@ Windows: stop CLIProxyAPI first, then run in PowerShell:
 irm https://raw.githubusercontent.com/haowang02/cpa-plugin-key-billing/main/install.ps1 | iex
 ```
 
-The installer places the plugin in `plugins/` under the current directory.
-
 ## Configuration
 
 Add the following to your CLIProxyAPI configuration:
@@ -49,22 +47,28 @@ plugins:
   configs:
     cpa-key-billing:
       enabled: true
-      priority: 100 # Scheduling priority; higher values take precedence
-      state_file: "plugins/cpa-key-billing-state-v1.db"
-      debug: false # Debug logging
-      codex_fast_mode_billing: false # Charge 2.5× for Codex requests sent upstream at the priority tier
-      allow_unpriced_models: false # Admit unpriced models and record usage at zero cost
-      cny_per_usd: 7 # CNY per USD
-      request_event_retention_days: 365 # History retention in days; shortening deletes older records
-      mask_api_key_view_emails: false # Mask email addresses in API key account views
-      allow_api_key_quota_reset: false # Let users reset accessible Codex / Claude auth file quotas using upstream resets
-      routing:
-        strategy: "round-robin" # round-robin, weighted-round-robin, fill-first
-        session-affinity: false # Reuse an available credential for the same session
-        session-affinity-ttl: "1h" # Idle timeout for session bindings
-```
+      priority: 100                      # Scheduling priority; higher values take precedence
+      debug: false                       # Debug logging
 
-`routing` applies only to requests with credential restrictions; CPA schedules other requests.
+      # Data
+      state_file: "plugins/cpa-key-billing-state-v1.db"
+      request_event_retention_days: 365  # History retention in days; shortening deletes older records
+
+      # Billing
+      allow_unpriced_models: false       # Admit unpriced models and record usage at zero cost
+      codex_fast_mode_billing: false     # Charge 2.5× for Codex requests sent upstream at the priority tier
+      cny_per_usd: 7                     # CNY per USD
+
+      # API key account view
+      mask_api_key_view_emails: false    # Mask full email addresses
+      allow_api_key_quota_reset: false   # Let users reset accessible Codex / Claude auth file quotas
+
+      # Credential scheduling; applies only to requests with credential restrictions
+      routing:
+        strategy: "round-robin"          # round-robin, weighted-round-robin, fill-first
+        session-affinity: false          # Reuse an available credential for the same session
+        session-affinity-ttl: "1h"       # Idle timeout for session bindings
+```
 
 Restart CLIProxyAPI after installing or upgrading.
 
@@ -83,11 +87,11 @@ http(s)://<CLIProxyAPI address>/v0/resource/plugins/cpa-key-billing/ui
 
 ### Model pricing
 
-Custom prices override reference prices; unpriced models are rejected by default. Quota usage is converted into the plan's currency at the configured exchange rate. Historical amounts retain their original currency.
+Custom prices override reference prices; unpriced models are rejected by default. Quotas are charged in the plan's currency, converting other currencies at `cny_per_usd`.
 
 ### Subscription plans
 
-A plan can have multiple quota windows combining spending, token, and request limits. Keys without a plan have no subscription quota limit.
+A plan can have multiple quota windows combining spending, token, and request limits.
 
 | Type | Quota allocation | Reset schedule |
 | --- | --- | --- |
@@ -99,14 +103,39 @@ Clearing history does not reset quotas. Unbinding or deleting a member key does 
 
 ## Routing rules
 
-- Bound rules and direct settings are combined: allowlists are merged, and denials take precedence. An empty allowlist permits everything except explicit denials.
-- Credential category rules automatically cover future additions.
+Routing rules limit the models an API key can call and the upstream credentials it can use. Credentials can be selected one by one or by category, such as "Auth Files · codex".
+
+All rules on a key apply together: allowlists are merged, denials take precedence, and an empty allowlist means no limit. Models and credentials are merged separately, not paired by rule.
+
+```mermaid
+---
+config:
+  themeVariables:
+    fontSize: "13px"
+  flowchart:
+    diagramPadding: 4
+    nodeSpacing: 20
+    rankSpacing: 28
+    padding: 3
+---
+flowchart TB
+    D{{Do model rules allow the model?}} -- Yes --> E{{Served by an allowed credential?}}
+    E -- Yes --> P{{Allowed credential usable now?}}
+    P -- Yes --> U[Call the upstream provider]
+    D -- No --> R1[HTTP 403]
+    E -- No --> R2[HTTP 403]
+    P -- No --> S[HTTP 503]
+```
+
+- A disabled credential serves no models. A credential in cooldown still counts as serving its models, so the request gets a 503.
+- `/v1/models` lists only the models the key can call. The CPAMC and CPAMP management panels still see the full list.
+- Credential rules apply only to credentials this CPA instance loads. In CPA Home mode the plugin cannot see Home-dispatched credentials, so keys with credential rules are refused.
 
 ## Rejected requests
 
 | Status | What to check |
 | --- | --- |
-| `403` | Whether the key's routing rules allow the model |
+| `403` | Whether the key's routing rules allow the model and an allowed credential serves it |
 | `429` | Whether subscription quota or concurrency limits have been reached |
 | `503` | Whether the model is priced and allowed credentials are available; check plugin logs for details |
 

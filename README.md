@@ -22,7 +22,7 @@
 
 需要支持插件的 CLIProxyAPI **8.0.44 或更高版本**。
 
-在 CPAMC 或 CPAMP 的插件商店搜索 `cpa-key-billing` 安装，也可在 CLIProxyAPI 根目录运行安装脚本。
+在 CPAMC 或 CPAMP 的插件商店搜索 `cpa-key-billing` 安装，也可在 CLIProxyAPI 根目录运行安装脚本，插件会装到 `plugins/`。
 
 macOS / Linux：
 
@@ -36,8 +36,6 @@ Windows：先停止 CLIProxyAPI，再在 PowerShell 中运行：
 irm https://raw.githubusercontent.com/haowang02/cpa-plugin-key-billing/main/install.ps1 | iex
 ```
 
-脚本会将插件安装到当前目录的 `plugins/`。
-
 ## 配置
 
 在 CLIProxyAPI 配置文件中加入：
@@ -49,22 +47,28 @@ plugins:
   configs:
     cpa-key-billing:
       enabled: true
-      priority: 100 # 调度优先级，数值越大越优先
-      state_file: "plugins/cpa-key-billing-state-v1.db"
-      debug: false # 调试日志
-      codex_fast_mode_billing: false # 以 priority 档位发往上游的 Codex 请求按 2.5 倍计费
-      allow_unpriced_models: false # 允许未定价模型，以零费用记录用量
-      cny_per_usd: 7 # 1 美元兑换的人民币数
-      request_event_retention_days: 365 # 历史保留天数；缩短会删除超期数据
-      mask_api_key_view_emails: false # 隐藏 API Key 查询页的完整邮箱
-      allow_api_key_quota_reset: false # 允许用户重置可访问的 Codex / Claude 认证文件额度，消耗上游重置次数
-      routing:
-        strategy: "round-robin" # round-robin、weighted-round-robin、fill-first
-        session-affinity: false # 同一会话优先复用可用凭证
-        session-affinity-ttl: "1h" # 会话绑定的空闲过期时间
-```
+      priority: 100                      # 调度优先级，数值越大越优先
+      debug: false                       # 记录调试日志
 
-`routing` 仅用于限制了上游凭证的请求，其他请求由 CPA 调度。
+      # 数据
+      state_file: "plugins/cpa-key-billing-state-v1.db"
+      request_event_retention_days: 365  # 历史保留天数，缩短会删除超期数据
+
+      # 计费
+      allow_unpriced_models: false       # 允许未定价模型，以零费用记录用量
+      codex_fast_mode_billing: false     # 以 priority 档位发往上游的 Codex 请求按 2.5 倍计费
+      cny_per_usd: 7                     # 1 美元兑换的人民币数
+
+      # API Key 查询页
+      mask_api_key_view_emails: false    # 隐藏完整邮箱
+      allow_api_key_quota_reset: false   # 允许用户重置可访问的 Codex / Claude 认证文件额度
+
+      # 凭证调度，只作用于限制了上游凭证的请求
+      routing:
+        strategy: "round-robin"          # round-robin、weighted-round-robin、fill-first
+        session-affinity: false          # 同一会话优先复用可用凭证
+        session-affinity-ttl: "1h"       # 会话绑定的空闲过期时间
+```
 
 安装或升级后重启 CLIProxyAPI。
 
@@ -83,11 +87,11 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui
 
 ### 模型价格
 
-自定义价优先于参考价，未定价的模型默认拒绝请求。订阅额度的消费按计划币种及配置汇率换算，历史金额保留原始币种。
+自定义价优先于参考价，未定价的模型默认拒绝请求。订阅额度按计划币种扣减，其他币种的费用按 `cny_per_usd` 换算。
 
 ### 订阅计划
 
-每个计划可设置多个周期窗口，组合限制金额、Token 和请求次数。未绑定计划的 Key 不受订阅额度限制。
+每个计划可设置多个周期窗口，组合限制金额、Token 和请求次数。
 
 | 类型 | 额度归属 | 周期重置 |
 | --- | --- | --- |
@@ -99,14 +103,39 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui
 
 ## 路由规则
 
-- 绑定规则与 Key 的直接设置合并生效：白名单取并集，黑名单优先；白名单为空时仅排除黑名单。
-- 整类凭证的规则自动覆盖后续新增的凭证。
+路由规则限制 API Key 可调用的模型和可使用的上游凭证。凭证可以单个选择，也可以按整类选择，如「认证文件 · codex」。
+
+一个 Key 的全部规则合并生效：白名单取并集，黑名单优先，白名单为空表示不限制。模型和凭证分别合并，不按规则配对。
+
+```mermaid
+---
+config:
+  themeVariables:
+    fontSize: "13px"
+  flowchart:
+    diagramPadding: 4
+    nodeSpacing: 20
+    rankSpacing: 28
+    padding: 3
+---
+flowchart TB
+    D{{模型规则允许该模型？}} -- 是 --> E{{有允许的凭证提供该模型？}}
+    E -- 是 --> P{{CPA 当前有可用的允许凭证？}}
+    P -- 是 --> U[调用上游]
+    D -- 否 --> R1[HTTP 403]
+    E -- 否 --> R2[HTTP 403]
+    P -- 否 --> S[HTTP 503]
+```
+
+- 禁用的凭证不提供任何模型；冷却中的凭证仍视为提供，此时返回 503。
+- `/v1/models` 只列出该 Key 能调用的模型，CPAMC 和 CPAMP 管理面板仍显示完整列表。
+- 凭证规则只适用于当前 CPA 实例加载的凭证。CPA Home 模式下插件看不到 Home 分发的凭证，带凭证规则的 Key 会被拒绝。
 
 ## 请求被拒绝时
 
 | 状态码 | 检查项 |
 | --- | --- |
-| `403` | Key 的路由规则是否允许该模型 |
+| `403` | Key 的路由规则是否允许该模型，允许的上游凭证是否提供该模型 |
 | `429` | 订阅额度是否耗尽，或并发是否已满 |
 | `503` | 模型是否已定价、允许的上游凭证是否可用；具体原因见插件日志 |
 
