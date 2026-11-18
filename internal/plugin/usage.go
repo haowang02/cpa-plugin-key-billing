@@ -1,12 +1,62 @@
 package plugin
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
 	"net/url"
 	"strings"
 
 	"cpa-key-billing/internal/billing"
 )
+
+func (a *App) handleUsage(raw []byte) ([]byte, error) {
+	var record UsageRecord
+	if errUnmarshal := json.Unmarshal(raw, &record); errUnmarshal != nil {
+		return nil, fmt.Errorf("Parse usage record: %w", errUnmarshal)
+	}
+	if !a.store.Enabled() {
+		return OKEnvelope(struct{}{})
+	}
+	scope := billing.CallerScope(record.APIKey)
+	var recordError billing.RequestError
+	if record.Failed {
+		recordError = usageFailureDetails(record.Failure)
+	}
+	at := a.store.Now()
+	event := billing.UsageEvent{
+		RequestOrigin:        a.findRequestOrigin(record.TraceID, scope),
+		Execution:            record.executionMetadata(),
+		Stream:               record.Stream,
+		Scope:                scope,
+		KeyPreview:           billing.PreviewKey(record.APIKey),
+		AuthIndex:            record.AuthIndex,
+		Provider:             record.Provider,
+		ExecutorType:         record.ExecutorType,
+		AuthType:             record.AuthType,
+		Quota:                usageQuotaReport(record, at),
+		Account:              a.usageAccount(record),
+		ReasoningEffort:      record.ReasoningEffort,
+		ServiceTier:          record.ServiceTier,
+		EffectiveServiceTier: record.EffectiveServiceTier,
+		ResponseServiceTier:  record.ResponseServiceTier,
+		UpstreamModel:        record.Model,
+		ResponseModel:        record.ResponseModel,
+		RouteModel:           record.Alias,
+		RequestedAt:          record.RequestedAt,
+		Latency:              record.Latency,
+		TTFT:                 record.TTFT,
+		Breakdown:            usageBreakdown(record),
+		At:                   at,
+	}
+	if record.Failed {
+		a.store.RecordUsageError(event, recordError)
+	} else {
+		a.store.RecordUsage(event)
+	}
+	a.observeCredentialUsage(record.AuthIndex, record.AuthType, event.Account)
+	return OKEnvelope(struct{}{})
+}
 
 type tokenSemantics uint8
 
