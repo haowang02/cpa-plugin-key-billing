@@ -16,7 +16,7 @@ body:
     attributes:
       label: CLIProxyAPI 版本 / CLIProxyAPI version
       description: 在管理面板首页或 CLIProxyAPI 启动日志中查看
-      placeholder: "8.0.37"
+      placeholder: "8.0.44"
     validations:
       required: true
   - type: input
