@@ -56,7 +56,7 @@ func (a *App) saveQuotaQuery(file hostAuthFile, quota authFileQuota) error {
 	if err != nil {
 		return fmt.Errorf("Encode quota query: %w", err)
 	}
-	query := billing.QuotaQuery{Provider: authCategory(file.Type), At: quota.FetchedAt, Quota: encoded}
+	query := billing.QuotaQuery{Provider: authCategory(file.Provider), At: quota.FetchedAt, Quota: encoded}
 	return a.store.SaveQuotaQuery(file.AuthIndex, query, quotaSince(quota.FetchedAt))
 }
 

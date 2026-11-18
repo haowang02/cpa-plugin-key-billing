@@ -20,12 +20,10 @@ type hostAuthFile struct {
 	ID          string    `json:"id"`
 	AuthIndex   string    `json:"auth_index"`
 	Name        string    `json:"name"`
-	Type        string    `json:"type"`
 	Provider    string    `json:"provider"`
 	Label       string    `json:"label"`
 	Note        string    `json:"note"`
 	Status      string    `json:"status"`
-	Source      string    `json:"source"`
 	Path        string    `json:"path"`
 	Account     string    `json:"account"`
 	Disabled    bool      `json:"disabled"`
@@ -43,9 +41,6 @@ type hostAuthListResponse struct {
 }
 
 func (a *App) listHostAuthFiles() ([]hostAuthFile, error) {
-	if a.hostCaller == nil {
-		return nil, messages.Errorf("This CLIProxyAPI version does not support reading auth files")
-	}
 	raw, errCall := a.hostCaller(hostAuthList, map[string]any{})
 	if errCall != nil {
 		return nil, messages.Errorf("Read auth file list: %w", errCall)

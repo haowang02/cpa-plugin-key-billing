@@ -48,22 +48,26 @@ func (a *App) filterModelCatalog(req ResponseInterceptRequest) []byte {
 	if scope == "" {
 		return nil
 	}
-	decision := a.store.ResolveRouting(scope, "", "")
-	if !decision.RestrictsModels() && !decision.RestrictsCredentials() {
+	routing := a.store.Routing(scope)
+	if !routing.RestrictsModels() && !routing.RestrictsCredentials() {
 		return nil
 	}
 	catalog, ok := parseModelCatalog(req.Body)
 	if !ok {
 		return nil
 	}
-	keep := a.store.AllowedModels(scope, catalog.ids)
-	if decision.RestrictsCredentials() {
-		provided, err := a.credentialModels(decision)
+	keep := make([]bool, len(catalog.ids))
+	for i, id := range catalog.ids {
+		keep[i] = routing.AllowsModel(a.store.BillingModel(id, id))
+	}
+	if routing.RestrictsCredentials() {
+		directory, err := a.readCredentialDirectory()
 		if err != nil {
 			a.store.AddPluginLog(billing.PluginLogError, "Model catalog ignores credential rules: %v", err)
 		} else {
+			served := directory.servedModels(routing)
 			for i, id := range catalog.ids {
-				keep[i] = keep[i] && provided[id]
+				keep[i] = keep[i] && served[strings.ToLower(id)]
 			}
 		}
 	}

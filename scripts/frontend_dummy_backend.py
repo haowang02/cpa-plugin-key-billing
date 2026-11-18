@@ -557,14 +557,6 @@ def ai_provider_groups():
         for entry in entries] for field, entries in AI_PROVIDER_LISTS.items() if field != "openai-compatibility"}
 
 
-def without_auth_indexes(value):
-    if isinstance(value, list):
-        return [without_auth_indexes(item) for item in value]
-    if isinstance(value, dict):
-        return {key: without_auth_indexes(item) for key, item in value.items() if key != "auth-index"}
-    return value
-
-
 AUTH_FILE_CREDENTIAL_REFS = {
     "auth-demo-codex-plus": "sha256:" + "a" * 64,
     "auth-demo-claude": "sha256:" + "b" * 64,
@@ -2024,7 +2016,7 @@ def payload_for(path, query):
         return {"entries": entries[:limit], "level_counts": counts,
                 "next_before_id": entries[limit - 1]["id"] if len(entries) > limit else 0}
     if path == "/v0/management/auth-files":
-        return {"files": [{field: item[field] for field in ("auth_index", "weight", "id_token") if field in item}
+        return {"files": [{field: item[field] for field in ("auth_index", "id_token") if field in item}
                           for item in AUTH_FILES]}
     if path == f"{API_BASE}/auth-files":
         return {"files": auth_file_views(AUTH_FILES, query)}
@@ -2050,11 +2042,8 @@ def payload_for(path, query):
             {**price, "provider_id": "demo", "model_id": model, "is_canonical": True}
             for model, price in REFERENCE_PRICES.items() if term in model.lower()
         ]}
-    if path in {"/v0/management/config", "/v0/management/api-keys"}:
-        config = {"api-keys": [f"sk-demo-{index:04d}" for index in range(1, len(LIVE_KEYS) + 1)]}
-        if path == "/v0/management/config":
-            config.update(without_auth_indexes(AI_PROVIDER_LISTS))
-        return config
+    if path == "/v0/management/api-keys":
+        return {"api-keys": [f"sk-demo-{index:04d}" for index in range(1, len(LIVE_KEYS) + 1)]}
     if path == "/v1/models":
         return {"data": [{"id": row["model_id"]} for row in PRICES if row.get("in_models")] + [
             {"id": "codex/deepseek-v4-flash-vision-exp"},

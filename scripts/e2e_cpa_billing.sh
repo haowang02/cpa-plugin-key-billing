@@ -686,7 +686,7 @@ assert_route_model_policy() {
   if ! jq -e --arg model "gpt-5.6-sol" '
       [.entries[]
         | select(.level == "debug" and (.message | startswith("route ")))
-        | (.message | gsub("&#34;"; "\"") | ltrimstr("route ") | fromjson)
+        | (.message | ltrimstr("route ") | fromjson)
         | select(.model == $model and .model_result == "deny" and .credential_result == "not_reached")]
       | length == 3' "$plugin_logs_file" >/dev/null; then
     echo "插件日志缺少合并后的模型路由记录：$(jq -c '.entries' "$plugin_logs_file")" >&2
@@ -709,8 +709,8 @@ assert_route_model_policy() {
     "$runtime_dir/responses/model-restored.json" false
 }
 
-# The refusal of a request whose allowed credentials do not serve its model.
-readonly unserved_route_message="None of the upstream credentials allowed by this API key's routing rules serves this model"
+# Admission refuses a request whose allowed credentials do not serve its model.
+readonly unserved_route_message='None of the upstream credentials allowed by this API key'"'"'s routing rules serves model "e2e-credential-route".'
 
 # Deny-only policies, direct allow conflicts, and exact exclusions must affect
 # the real host candidate set and leave no usage records for refused requests.
@@ -753,8 +753,8 @@ assert_route_blacklist_policy() {
     -H "Content-Type: application/json" \
     --data "$(jq -nc --arg id "$route" '{id:$id,rule:{denied_credential_providers:[{source:"ai-providers",provider:"openai-compatible-route-allowed-e2e"},{source:"ai-providers",provider:"openai-compatible-route-denied-e2e"}]}}')" >/dev/null
   http_status="$(curl -sS --max-time 30 -H "Content-Type: application/json" -H "Authorization: Bearer e2e-downstream-key" --data "$body" --output "$response_file" --write-out '%{http_code}' "http://127.0.0.1:$port/v1/chat/completions")"
-  if [[ "$http_status" != "503" ]] || ! jq -e --arg message "$unserved_route_message" '.error.message == $message' "$response_file" >/dev/null; then
-    echo "全部候选被黑名单排除后未返回 503。" >&2
+  if [[ "$http_status" != "403" ]] || ! jq -e --arg message "$unserved_route_message" '.error.message == $message' "$response_file" >/dev/null; then
+    echo "全部候选被黑名单排除后未返回 403：HTTP $http_status $(jq -c '.' "$response_file")" >&2
     return 1
   fi
 
@@ -880,16 +880,9 @@ assert_route_credential_policy() {
     return 1
   fi
 
-  # scheduler.pick has now observed both config-backed candidates, so the safe
-  # inventory contains the opaque reference needed to test an exact binding.
+  # The host reports config-backed keys before the admin page syncs their
+  # names, so the inventory already holds the opaque reference.
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/credentials" >"$access_file"
-  if ! jq -e '
-      first(.credentials[] | select(.source == "ai-providers" and .provider == "openai-compatible-route-allowed-e2e")) |
-      .display_name == "e2e-ro…1111"
-    ' "$access_file" >/dev/null; then
-    echo "配置型上游凭证未显示安全的 API Key 掩码：$(jq -c '.credentials' "$access_file")" >&2
-    return 1
-  fi
   allowed_ref="$(jq -er 'first(.credentials[] | select(.source == "ai-providers" and .provider == "openai-compatible-route-allowed-e2e")).ref' "$access_file")"
   # The admin page syncs configured entries by their host auth index; a synced
   # entry must take the runtime identity the scheduler sees.
@@ -900,7 +893,8 @@ assert_route_credential_policy() {
       {config_ref: ("sha256:" + "0" * 64), provider: "openai-compatible-route-allowed-e2e", auth_index: ."auth-index", key_preview: "e2e-ro…1111"}]}' \
       "$runtime_dir/openai-compatibility.json")" >"$access_file"
   if ! jq -e --arg ref "$allowed_ref" '
-      [.credentials[] | select(.provider == "openai-compatible-route-allowed-e2e")] | length == 1 and .[0].ref == $ref
+      [.credentials[] | select(.provider == "openai-compatible-route-allowed-e2e")] |
+      length == 1 and .[0].ref == $ref and .[0].display_name == "e2e-ro…1111"
     ' "$access_file" >/dev/null; then
     echo "同步的配置型凭证未使用宿主的运行时标识：$(jq -c '.credentials' "$access_file")" >&2
     return 1
@@ -933,10 +927,10 @@ assert_route_credential_policy() {
     --output "$response_file" \
     --write-out '%{http_code}' \
     "http://127.0.0.1:$port/v1/chat/completions")"
-  if [[ "$http_status" != "503" ]] || ! jq -e --arg message "$unserved_route_message" '
-      .error.type == "server_error" and .error.code == "internal_server_error" and .error.message == $message
+  if [[ "$http_status" != "403" ]] || ! jq -e --arg message "$unserved_route_message" '
+      .error.type == "permission_error" and .error.message == $message
     ' "$response_file" >/dev/null; then
-    echo "没有合格凭证时未按预期返回 503：HTTP $http_status $(jq -c '.' "$response_file")" >&2
+    echo "没有合格凭证时未按预期返回 403：HTTP $http_status $(jq -c '.' "$response_file")" >&2
     return 1
   fi
   management_call GET "$port" "/v0/management/plugins/cpa-key-billing/events?limit=100" >"$events_file"
@@ -949,11 +943,11 @@ assert_route_credential_policy() {
   if ! jq -e '
       [.entries[]
         | select(.message | startswith("route "))
-        | (.message | gsub("&#34;"; "\"") | ltrimstr("route ") | fromjson)
+        | (.message | ltrimstr("route ") | fromjson)
         | select(.model == "e2e-credential-route")] as $rows |
       ($rows | length) == 3 and
       ([ $rows[] | select(.status == 200) ] | length) == 2 and
-      ([ $rows[] | select(.status == 503 and .credential_result == "no_credential") ] | length) == 1 and
+      ([ $rows[] | select(.status == 403 and .credential_result == "no_credential") ] | length) == 1 and
       all($rows[] | select(.status == 200);
         .model_result == "allow" and .credential_policy == "restricted" and .credential_result == "allow" and
         ((.selected_credential // "") | length) > 0 and
@@ -1642,8 +1636,6 @@ run_target() {
     if [[ "${matrix_clients[$matrix_index]}" == "gemini" ]]; then
       endpoint='/v1beta/models/*action'
     fi
-    # Origin and stream fields are optional on older supported hosts. Missing
-    # trace identity must leave origin unknown, never infer it from usage.
     if ! jq -e \
       --arg billing_model "$billing_model" \
       --arg upstream_model "${matrix_upstream_models[$matrix_index]}" \
@@ -1655,12 +1647,10 @@ run_target() {
         first(.entries[] | select(.billing_model == $billing_model)) |
         .upstream_model == $upstream_model and
         .credential == $credential and
-        (if (.execution.trace_id // "") == "" then
-          (.endpoint // "") == "" and (.transport // "") == "" and
-          (.user_agent // "") == "" and (.x_forwarded_for // "") == ""
-        else .endpoint == $endpoint and .transport == "http" and
-          .user_agent == $user_agent and .x_forwarded_for == $forwarded_for end) and
-        (.stream == null or .stream == $stream) and
+        (.execution.trace_id // "") != "" and
+        .endpoint == $endpoint and .transport == "http" and
+        .user_agent == $user_agent and .x_forwarded_for == $forwarded_for and
+        .stream == $stream and
         .failed == false and
         .accounting_quality == "complete" and
         .price_source == "custom" and

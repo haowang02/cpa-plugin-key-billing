@@ -117,7 +117,7 @@ func TestPhysicalAPIKeyCredentialCannotReachUpstream(t *testing.T) {
 		}
 		return json.RawMessage(`{"auth_index":"xai-1","json":{"api_key":"dummy-paid-key"}}`), nil
 	})
-	_, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "xai-1", Type: "xai"})
+	_, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "xai-1", Provider: "xai"})
 	if errFetch == nil || errFetch.Error() != "API key credentials do not support this quota query" {
 		t.Fatalf("error = %v", errFetch)
 	}
@@ -156,7 +156,7 @@ func TestInvalidCredentialProxyFailsInsteadOfSendingHostRequest(t *testing.T) {
 		}
 		return json.RawMessage(`{"auth_index":"codex-1","json":{"access_token":"dummy-token","proxy_url":"invalid://dummy-proxy:1080"}}`), nil
 	})
-	_, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "codex-1", Type: "codex"})
+	_, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "codex-1", Provider: "codex"})
 	if errFetch == nil || errFetch.Error() != "Invalid auth file proxy" {
 		t.Fatalf("error = %v", errFetch)
 	}

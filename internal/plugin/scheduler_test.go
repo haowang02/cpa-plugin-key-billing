@@ -4,388 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
 	"cpa-key-billing/internal/billing"
 )
-
-func configuredRoutingApp(t *testing.T, rule billing.RouteRule) (*App, string) {
-	app := newConfiguredApp(t)
-	const key = "sk-route-test-00000001"
-	scope := billing.CallerScope(key)
-	if _, err := app.store.SyncKeys([]string{key}, false); err != nil {
-		t.Fatal(err)
-	}
-	_, err := app.store.CreateRoute(billing.Route{ID: "route-test", Name: "Route", Rule: rule}, []string{scope})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return app, scope
-}
-
-func TestRoutedRequestWritesOneCombinedDebugLog(t *testing.T) {
-	app, scope := configuredRoutingApp(t, billing.RouteRule{Models: []string{"gpt-5.6"}})
-	raw, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{RequestID: "request-1", SourceFormat: "openai", Model: "gpt-5.6", RequestedModel: "gpt-5.6", Metadata: map[string]any{MetadataCallerScope: scope}}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var intercept RequestInterceptResponse
-	decodeResult(t, raw, &intercept)
-	if intercept.Terminate {
-		t.Fatalf("intercept=%+v", intercept)
-	}
-	if _, err = app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "request-1", Outcome: "succeeded", StatusCode: 200})); err != nil {
-		t.Fatal(err)
-	}
-	page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug}, Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(page.Entries) != 1 || !strings.HasPrefix(page.Entries[0].Message, "route ") {
-		t.Fatalf("entries=%+v", page.Entries)
-	}
-	var row map[string]any
-	if err = json.Unmarshal([]byte(strings.TrimPrefix(page.Entries[0].Message, "route ")), &row); err != nil {
-		t.Fatal(err)
-	}
-	if row["model_policy"] != "restricted" || row["credential_policy"] != "unrestricted" || row["outcome"] != "succeeded" {
-		t.Fatalf("row=%+v", row)
-	}
-}
-
-func TestUnrestrictedRouteWritesNoRoutingDebugLog(t *testing.T) {
-	app, scope := configuredRoutingApp(t, billing.RouteRule{})
-	if _, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{RequestID: "unrestricted", SourceFormat: "openai", Model: "gpt-5.6", RequestedModel: "gpt-5.6", Metadata: map[string]any{MetadataCallerScope: scope}})); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "unrestricted", Outcome: "succeeded", StatusCode: 200})); err != nil {
-		t.Fatal(err)
-	}
-	page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug}, Limit: 10})
-	if err != nil || len(page.Entries) != 0 {
-		t.Fatalf("entries=%+v err=%v", page.Entries, err)
-	}
-}
-
-func TestAfterAuthEnforcesCredentialRoutesAndRecordsResults(t *testing.T) {
-	ref := billing.CredentialFingerprint
-	files := billing.CredentialProviderSelector{Source: billing.CredentialSourceAuthFiles, Provider: "codex"}
-	config := billing.CredentialProviderSelector{Source: billing.CredentialSourceAIProviders, Provider: "codex"}
-	for _, tc := range []struct {
-		name        string
-		rule        billing.RouteRule
-		id          string
-		candidate   *SchedulerAuthCandidate
-		displayOnly bool
-		runtime     string
-		want        string
-		wantCalls   int
-		debugOff    bool
-	}{
-		{name: "exact allow", rule: billing.RouteRule{CredentialIDs: []string{ref("A")}}, id: "A", want: "allow"},
-		{name: "issue 28 blacklist", rule: billing.RouteRule{CredentialIDs: []string{ref("A")}, DeniedCredentialIDs: []string{ref("B"), ref("C")}}, id: "B", want: "deny", debugOff: true},
-		{name: "outside whitelist", rule: billing.RouteRule{CredentialIDs: []string{ref("A")}}, id: "C", want: "deny"},
-		{name: "missing selected identity", rule: billing.RouteRule{CredentialIDs: []string{ref("A")}}, want: "unverified"},
-		{name: "exact allow needs no category lookup", rule: billing.RouteRule{CredentialIDs: []string{ref("A")}, CredentialProviders: []billing.CredentialProviderSelector{files}}, id: "A", want: "allow"},
-		{name: "exact deny needs no category lookup", rule: billing.RouteRule{DeniedCredentialIDs: []string{ref("B")}, DeniedCredentialProviders: []billing.CredentialProviderSelector{files}}, id: "B", want: "deny"},
-		{name: "host configuration identity survives display sync", rule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{config}}, id: "config-A", candidate: &SchedulerAuthCandidate{ID: "config-A", Provider: "codex", Attributes: map[string]string{"source_backend": "config"}}, displayOnly: true, want: "allow"},
-		{name: "display data is not authorization", rule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{config}}, id: "config-A", displayOnly: true, want: "unverified", wantCalls: 1},
-		{name: "current file identity overrides cache", rule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{files}}, id: "file-A", candidate: &SchedulerAuthCandidate{ID: "file-A", Provider: "claude", Attributes: map[string]string{"source_backend": "file"}}, runtime: `{"auth":{"id":"file-A","auth_index":"selected-index","provider":"codex","source":"file","path":"/auth/dummy.json"}}`, want: "allow", wantCalls: 1},
-		{name: "category deny overrides exact allow", rule: billing.RouteRule{CredentialIDs: []string{ref("file-A")}, DeniedCredentialProviders: []billing.CredentialProviderSelector{files}}, id: "file-A", runtime: `{"auth":{"id":"file-A","auth_index":"selected-index","provider":"codex","source":"memory","path":"/auth/dummy.json"}}`, want: "deny", wantCalls: 1},
-		{name: "runtime credential", rule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{config}}, id: "memory-A", runtime: `{"auth":{"id":"memory-A","auth_index":"selected-index","provider":"codex","runtime_only":true,"source":"memory"}}`, want: "allow", wantCalls: 1},
-		{name: "runtime unavailable", rule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{files}}, id: "file-A", want: "unverified", wantCalls: 1},
-		{name: "runtime identity mismatch", rule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{files}}, id: "file-A", runtime: `{"auth":{"id":"file-B","auth_index":"selected-index","provider":"codex","source":"file"}}`, want: "unverified", wantCalls: 1},
-		{name: "runtime index mismatch", rule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{files}}, id: "file-A", runtime: `{"auth":{"id":"file-A","auth_index":"other-index","provider":"codex","source":"file"}}`, want: "unverified", wantCalls: 1},
-		{name: "incomplete runtime identity", rule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{files}}, id: "file-A", runtime: `{"auth":{"id":"file-A","auth_index":"selected-index","source":"file"}}`, want: "unverified", wantCalls: 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			app := newTestApp(t)
-			t.Cleanup(app.Shutdown)
-			cfg := testConfigYAML(t, true)
-			if tc.debugOff {
-				cfg = []byte(strings.ReplaceAll(string(cfg), "debug: true", "debug: false"))
-			}
-			if _, err := app.HandleMethod(MethodPluginRegister, mustMarshal(t, LifecycleRequest{ConfigYAML: cfg})); err != nil {
-				t.Fatal(err)
-			}
-			const key = "sk-issue28-dummy-key"
-			scope := billing.CallerScope(key)
-			if _, err := app.store.SyncKeys([]string{key}, false); err != nil {
-				t.Fatal(err)
-			}
-			if err := app.store.SetConcurrencyLimit(scope, 1); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := app.store.CreateRoute(billing.Route{ID: "credential-route", Name: "Credential route", Rule: tc.rule}, []string{scope}); err != nil {
-				t.Fatal(err)
-			}
-			if tc.candidate != nil {
-				app.observeCandidates([]SchedulerAuthCandidate{*tc.candidate})
-			}
-			if tc.displayOnly {
-				app.routingMu.Lock()
-				provider := "codex"
-				if tc.candidate != nil {
-					provider = "claude"
-				}
-				app.replaceSyncedCredentials(nil, map[string]billing.ConfigCredential{ref(tc.id): {ConfigCredentialDetails: billing.ConfigCredentialDetails{Provider: provider}}})
-				app.routingMu.Unlock()
-			}
-			calls := 0
-			app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
-				calls++
-				if method != hostAuthGetRuntime || payload.(map[string]string)["auth_index"] != "selected-index" {
-					t.Fatalf("unexpected host call: %s %+v", method, payload)
-				}
-				if tc.runtime == "" {
-					return nil, fmt.Errorf("dummy upstream secret must not appear in logs")
-				}
-				return json.RawMessage(tc.runtime), nil
-			})
-			req := RequestInterceptRequest{RequestID: "selected-request", SourceFormat: "openai", Model: "gpt-5.6", RequestedModel: "gpt-5.6", Metadata: map[string]any{MetadataCallerScope: scope}}
-			raw, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, req))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var response RequestInterceptResponse
-			decodeResult(t, raw, &response)
-			if response.Terminate {
-				t.Fatalf("admission refused: %+v", response)
-			}
-			// The executor may receive a different model alias. Only credential
-			// permissions are checked here, using the exact selected host identity.
-			req.Model = "actual-upstream-model"
-			req.Metadata[MetadataSelectedAuth] = tc.id
-			req.Metadata[MetadataSelectedIndex] = "selected-index"
-			raw, err = app.HandleMethod(MethodRequestInterceptAfter, mustMarshal(t, req))
-			if err != nil {
-				t.Fatal(err)
-			}
-			decodeResult(t, raw, &response)
-			rejected := tc.want != "allow"
-			if response.Terminate != rejected || rejected && response.StatusCode != 503 {
-				t.Fatalf("response=%+v want=%s", response, tc.want)
-			}
-			wantInFlight := 1
-			if rejected {
-				wantInFlight = 0
-			}
-			if active := app.store.CredentialConcurrency(scope)[ref(tc.id)]; active != wantInFlight {
-				t.Fatalf("credential in-flight requests = %d, want %d", active, wantInFlight)
-			}
-			if rejected {
-				code := "routing_credential_mismatch"
-				if tc.want == "unverified" {
-					code = "routing_credential_unverified"
-				}
-				if !strings.Contains(string(response.ResponseBody), code) {
-					t.Fatalf("response=%s want code %s", response.ResponseBody, code)
-				}
-			}
-			if calls != tc.wantCalls {
-				t.Fatalf("host calls=%d want=%d", calls, tc.wantCalls)
-			}
-			outcome, status := "succeeded", 200
-			if rejected {
-				outcome, status = "rejected", 503
-			}
-			if _, err := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: req.RequestID, Outcome: outcome, StatusCode: status})); err != nil {
-				t.Fatal(err)
-			}
-			if current := app.store.KeyViews()[0].CurrentConcurrency; current != 0 {
-				t.Fatalf("completion leaked %d concurrency slots", current)
-			}
-			page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug, billing.PluginLogError}, Limit: 10})
-			if err != nil || len(page.Entries) != 1 {
-				t.Fatalf("entries=%+v err=%v", page.Entries, err)
-			}
-			var row map[string]any
-			if err := json.Unmarshal([]byte(strings.TrimPrefix(page.Entries[0].Message, "route ")), &row); err != nil {
-				t.Fatal(err)
-			}
-			if row["credential_policy"] != "restricted" || row["credential_result"] != tc.want || row["outcome"] != outcome {
-				t.Fatalf("row=%+v", row)
-			}
-			if tc.candidate != nil && tc.want == "allow" && !strings.HasPrefix(row["selected_credential"].(string), "codex · ") {
-				t.Fatalf("selected credential used a stale or UI-supplied provider: %+v", row)
-			}
-			if rejected && (page.Entries[0].Level != billing.PluginLogError || row["credential_error"] == nil) {
-				t.Fatalf("rejection is not an actionable error: %+v", page.Entries[0])
-			}
-			if strings.Contains(page.Entries[0].Message, "dummy upstream secret") || strings.Contains(string(response.ResponseBody), "dummy upstream secret") {
-				t.Fatal("host error leaked into public diagnostics")
-			}
-			if len(requestEventEntries(t, app)) != 0 {
-				t.Fatal("routing bookkeeping fabricated provider usage")
-			}
-		})
-	}
-}
-
-func TestMissingRoutedCredentialIsExplicitInLog(t *testing.T) {
-	levels := map[routingShortfall]billing.PluginLogLevel{
-		routeUnavailable: billing.PluginLogInfo, routeNoCredential: billing.PluginLogError, routeNoMatch: billing.PluginLogInfo,
-	}
-	for _, shortfall := range routingShortfalls {
-		t.Run(shortfall.result, func(t *testing.T) {
-			app, scope := configuredRoutingApp(t, billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAuthFiles, Provider: "codex"}}})
-			if _, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{RequestID: "no-match", Model: "codex/deepseek", RequestedModel: "codex/deepseek", Metadata: map[string]any{MetadataCallerScope: scope}})); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "no-match", Outcome: "failed", StatusCode: 503, Error: shortfall.message})); err != nil {
-				t.Fatal(err)
-			}
-			page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Limit: 10})
-			if err != nil || len(page.Entries) == 0 || page.Entries[0].Level != levels[shortfall] {
-				t.Fatalf("entries=%+v err=%v", page.Entries, err)
-			}
-			var row map[string]any
-			if err := json.Unmarshal([]byte(strings.TrimPrefix(page.Entries[0].Message, "route ")), &row); err != nil {
-				t.Fatal(err)
-			}
-			if row["credential_result"] != shortfall.result {
-				t.Fatalf("row=%+v", row)
-			}
-		})
-	}
-}
-
-func TestRejectedModelLogsCredentialStageAsNotReached(t *testing.T) {
-	app, scope := configuredRoutingApp(t, billing.RouteRule{Models: []string{"deepseek-v4"}, CredentialIDs: []string{billing.CredentialFingerprint("auth-a")}})
-	raw, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{RequestID: "model-denied", SourceFormat: "openai", Model: "gpt-5.6", RequestedModel: "gpt-5.6", Metadata: map[string]any{MetadataCallerScope: scope}}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var response RequestInterceptResponse
-	decodeResult(t, raw, &response)
-	if !response.Terminate || response.StatusCode != 403 {
-		t.Fatalf("response=%+v", response)
-	}
-	if _, err := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "model-denied", Outcome: "rejected", StatusCode: 403})); err != nil {
-		t.Fatal(err)
-	}
-	page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug}, Limit: 10})
-	if err != nil || len(page.Entries) != 1 {
-		t.Fatalf("entries=%+v err=%v", page.Entries, err)
-	}
-	var row map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(page.Entries[0].Message, "route ")), &row); err != nil {
-		t.Fatal(err)
-	}
-	if row["model_result"] != "deny" || row["credential_result"] != "not_reached" {
-		t.Fatalf("row=%+v", row)
-	}
-}
-
-func TestRoutingDebugLogMasksSecretLikeLabelsAndModels(t *testing.T) {
-	const secret = "sk-super-secret-value-123456"
-	app, scope := configuredRoutingApp(t, billing.RouteRule{Models: []string{secret}})
-	if err := app.store.SetLabel(scope, "owner@example.com "+secret); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := app.HandleMethod(MethodRequestInterceptBefore, mustMarshal(t, RequestInterceptRequest{RequestID: "secret-log", SourceFormat: "openai", Model: secret, RequestedModel: secret, Metadata: map[string]any{MetadataCallerScope: scope}})); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := app.HandleMethod(MethodRequestComplete, mustMarshal(t, RequestCompletion{RequestID: "secret-log", Outcome: "succeeded", StatusCode: 200})); err != nil {
-		t.Fatal(err)
-	}
-	page, err := app.store.PluginLogsPage(billing.PluginLogQuery{Levels: []billing.PluginLogLevel{billing.PluginLogDebug}, Limit: 10})
-	if err != nil || len(page.Entries) != 1 {
-		t.Fatalf("page=%+v err=%v", page, err)
-	}
-	for _, plaintext := range []string{secret, "owner@example.com"} {
-		if strings.Contains(page.Entries[0].Message, plaintext) {
-			t.Fatalf("routing log leaked %q: %s", plaintext, page.Entries[0].Message)
-		}
-	}
-}
-
-func TestAIProviderCredentialDisplayNameMasksKeysAndAccounts(t *testing.T) {
-	name := safeCredentialName("codex-sk-secret1234-private@example.com.json", "private@example.com", "codex", billing.CredentialFingerprint("id"))
-	for _, secret := range []string{"sk-secret1234", "private@example.com"} {
-		if strings.Contains(name, secret) {
-			t.Fatalf("safe name %q leaked %q", name, secret)
-		}
-	}
-}
-
-func TestAuthFileCredentialDisplayNameFollowsCPAMC(t *testing.T) {
-	const fileName = "codex-1dfbc38b-wrong@example.com-pro.json"
-	for _, test := range []struct {
-		file hostAuthFile
-		want string
-	}{
-		{hostAuthFile{Name: fileName, Label: "private label", Email: "user@example.com", ProjectID: "project-1"}, "user@example.com"},
-		{hostAuthFile{Name: fileName, ProjectID: "project-1"}, "project-1"},
-		{hostAuthFile{Name: fileName, Account: "sk-upstream-secret-value"}, "codex-1dfbc38b-wrong@example.com-pro"},
-	} {
-		if got := credentialDisplayName(test.file, billing.CredentialSourceAuthFiles, "codex", billing.CredentialFingerprint("id")); got != test.want {
-			t.Fatalf("name = %q, want %q", got, test.want)
-		}
-	}
-}
-
-func TestCredentialLogNameKeepsAuthFileEmailAndMasksAIProvider(t *testing.T) {
-	if got := credentialLogName(credentialView{Source: billing.CredentialSourceAuthFiles, ProviderName: "codex", DisplayName: "user@example.com"}); got != "codex · user@example.com" {
-		t.Fatalf("auth-file log name=%q", got)
-	}
-	const secret = "sk-super-secret-value-123456"
-	got := credentialLogName(credentialView{Source: billing.CredentialSourceAIProviders, ProviderName: "codex", DisplayName: secret})
-	if strings.Contains(got, secret) {
-		t.Fatalf("AI Provider log name leaked secret: %q", got)
-	}
-}
-
-func TestAIProviderCredentialLearnsMaskedAPIKeyFromUsage(t *testing.T) {
-	app := newConfiguredApp(t)
-	const upstreamKey = "sk-dummy-upstream-secret-1234"
-	app.observeCandidates([]SchedulerAuthCandidate{{ID: "config-codex", Provider: "codex", Attributes: map[string]string{"source": "config:codex[abc]"}}})
-	app.observeRouteCredential(RequestInterceptRequest{Metadata: map[string]any{MetadataSelectedAuth: "config-codex", MetadataSelectedIndex: "auth-index"}}, "unrestricted", "")
-	publishUsageRecord(t, app, UsageRecord{Provider: "codex", APIKey: "downstream-key", AuthIndex: "auth-index", AuthType: "apikey", Source: upstreamKey})
-
-	credentials := app.credentialInventory()
-	if len(credentials) != 1 || credentials[0].DisplayName != billing.PreviewKey(upstreamKey) {
-		t.Fatalf("credentials=%+v", credentials)
-	}
-	if strings.Contains(credentials[0].DisplayName, upstreamKey) {
-		t.Fatalf("credential display name leaked upstream key: %q", credentials[0].DisplayName)
-	}
-
-	publishUsageRecord(t, app, UsageRecord{Provider: "codex", APIKey: "downstream-key", AuthIndex: "auth-index", AuthType: "apikey", Source: "downstream-key"})
-	if got := app.credentialInventory()[0].DisplayName; got != billing.PreviewKey(upstreamKey) {
-		t.Fatalf("downstream key fallback replaced credential display name: %q", got)
-	}
-}
-
-func TestCredentialSourceClassification(t *testing.T) {
-	tests := []struct {
-		name       string
-		attributes map[string]string
-		want       string
-	}{
-		{name: "config backend", attributes: map[string]string{"source_backend": "config"}, want: billing.CredentialSourceAIProviders},
-		{name: "config source", attributes: map[string]string{"source": "config:codex[0]"}, want: billing.CredentialSourceAIProviders},
-		{name: "runtime backend", attributes: map[string]string{"source_backend": "memory"}, want: billing.CredentialSourceAIProviders},
-		{name: "runtime marker", attributes: map[string]string{"runtime_only": "true", "path": "/ignored"}, want: billing.CredentialSourceAIProviders},
-		{name: "file backend", attributes: map[string]string{"source_backend": "file"}, want: billing.CredentialSourceAuthFiles},
-		{name: "remote auth file", attributes: map[string]string{"source_backend": "postgres"}, want: billing.CredentialSourceAuthFiles},
-		{name: "path", attributes: map[string]string{"path": "/auth/codex.json", "auth_kind": "apikey"}, want: billing.CredentialSourceAuthFiles},
-		{name: "auth kind is not source", attributes: map[string]string{"auth_kind": "apikey"}, want: ""},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := credentialSourceFromCandidate(SchedulerAuthCandidate{Attributes: test.attributes})
-			if got != test.want {
-				t.Fatalf("source=%q, want %q", got, test.want)
-			}
-		})
-	}
-	if got := credentialSourceFromHost(hostAuthFile{RuntimeOnly: true, Source: "file", Path: "/ignored"}); got != billing.CredentialSourceAIProviders {
-		t.Fatalf("runtime-only host credential source=%q", got)
-	}
-}
 
 func schedulerRequest(scope string, candidates ...SchedulerAuthCandidate) SchedulerPickRequest {
 	request := SchedulerPickRequest{Model: "gpt-5.6", Candidates: candidates}
@@ -395,10 +18,7 @@ func schedulerRequest(scope string, candidates ...SchedulerAuthCandidate) Schedu
 
 func TestSchedulerSeparatesSameProviderBySource(t *testing.T) {
 	app, scope := configuredRoutingApp(t, billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAIProviders, Provider: "codex"}}})
-	req := schedulerRequest(scope,
-		SchedulerAuthCandidate{ID: "file-codex", Provider: "codex", Attributes: map[string]string{"path": "/auth/codex.json"}},
-		SchedulerAuthCandidate{ID: "config-codex", Provider: "codex", Attributes: map[string]string{"source": "config:codex[abc]"}},
-	)
+	req := schedulerRequest(scope, SchedulerAuthCandidate{ID: "file-codex"}, SchedulerAuthCandidate{ID: "config-codex"})
 	raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, req))
 	if err != nil {
 		t.Fatal(err)
@@ -407,18 +27,6 @@ func TestSchedulerSeparatesSameProviderBySource(t *testing.T) {
 	decodeResult(t, raw, &response)
 	if !response.Handled || response.AuthID != "config-codex" {
 		t.Fatalf("response=%+v", response)
-	}
-}
-
-func TestUnclassifiedCandidateRequiresExactAllowlistReference(t *testing.T) {
-	candidate := SchedulerAuthCandidate{ID: "opaque-auth", Provider: "codex", Attributes: map[string]string{"auth_kind": "apikey"}}
-	providerOnly := billing.RoutingDecision{RouteRule: billing.RouteRule{CredentialProviders: []billing.CredentialProviderSelector{{Source: billing.CredentialSourceAIProviders, Provider: "codex"}}}}
-	if candidateAllowed(candidate, providerOnly) {
-		t.Fatal("unclassified candidate matched a provider selector")
-	}
-	exact := billing.RoutingDecision{RouteRule: billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint(candidate.ID)}}}
-	if !candidateAllowed(candidate, exact) {
-		t.Fatal("unclassified candidate did not match its exact fingerprint")
 	}
 }
 
@@ -433,7 +41,7 @@ func TestSchedulerKeepsRestrictedPoolsLocal(t *testing.T) {
 		{billing.RouteRule{DeniedCredentialIDs: []string{billing.CredentialFingerprint("outside")}}, true},
 	} {
 		app, scope := configuredRoutingApp(t, tc.rule)
-		raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, SchedulerAuthCandidate{ID: "config-codex", Provider: "codex", Attributes: map[string]string{"source": "config:codex[abc]"}})))
+		raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, SchedulerAuthCandidate{ID: "config-codex"})))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -445,137 +53,37 @@ func TestSchedulerKeepsRestrictedPoolsLocal(t *testing.T) {
 	}
 }
 
-func TestSchedulerCredentialPolicyIsIndependentOfRequestedModel(t *testing.T) {
-	app, scope := configuredRoutingApp(t, billing.RouteRule{
-		Models: []string{"public-model"},
-		CredentialProviders: []billing.CredentialProviderSelector{{
-			Source: billing.CredentialSourceAuthFiles, Provider: "codex",
-		}},
-	})
-	if err := app.store.SetKeyRoutes(scope, billing.RouteBindings{RouteIDs: []string{"route-test"}, RouteRule: billing.RouteRule{Models: []string{"direct-model"}}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		upstream, requested string
-	}{
-		{upstream: "public-model"},
-		{upstream: "direct-model"},
-		{upstream: "upstream-model", requested: "public-model"},
-		{upstream: "upstream-model", requested: "direct-model"},
-	} {
-		t.Run(test.upstream+"/"+test.requested, func(t *testing.T) {
-			req := schedulerRequest(scope,
-				SchedulerAuthCandidate{ID: "file-codex", Provider: "codex", Attributes: map[string]string{"path": "/auth/codex.json"}},
-				SchedulerAuthCandidate{ID: "config-codex", Provider: "codex", Attributes: map[string]string{"source": "config:codex[0]"}},
-			)
-			req.Model = test.upstream
-			req.Options.Metadata[MetadataRequestedModel] = test.requested
-			raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, req))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var response SchedulerPickResponse
-			decodeResult(t, raw, &response)
-			if !response.Handled || response.AuthID != "file-codex" {
-				t.Fatalf("response=%+v", response)
-			}
-		})
-	}
-}
-
-func TestSchedulerUsesCredentialsFromEveryBoundRoute(t *testing.T) {
-	app, scope := configuredRoutingApp(t, billing.RouteRule{
-		Models: []string{"model-a"}, CredentialIDs: []string{billing.CredentialFingerprint("auth-a")},
-	})
-	if _, err := app.store.CreateRoute(billing.Route{ID: "route-b", Name: "Route B", Rule: billing.RouteRule{
-		Models: []string{"model-b"}, CredentialIDs: []string{billing.CredentialFingerprint("auth-b")},
-	}}, []string{scope}); err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		model, credential string
-	}{
-		{model: "model-a", credential: "auth-b"},
-		{model: "model-b", credential: "auth-a"},
-	} {
-		t.Run(test.model, func(t *testing.T) {
-			candidate := SchedulerAuthCandidate{ID: test.credential, Provider: "codex"}
-			req := schedulerRequest(scope, candidate, SchedulerAuthCandidate{ID: "outside", Provider: "codex"})
-			req.Model = test.model
-			raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, req))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var response SchedulerPickResponse
-			decodeResult(t, raw, &response)
-			if !response.Handled || response.AuthID != test.credential {
-				t.Fatalf("credential from another route was not selected: %+v", response)
-			}
-		})
-	}
-}
-
-// Hosts offer only usable candidates; host.auth.models tells whether an allowed
-// credential serves the model at all.
 func TestSchedulerFailsClosedWithoutAUsableRoutedCandidate(t *testing.T) {
-	const serves = `{"credentials":[{"id":"wanted","provider":"codex","models":["gpt-5.6"]},{"id":"a","provider":"codex","models":["gpt-5.6"]},{"id":"outside","provider":"codex","models":["gpt-5.6"]}]}`
 	tests := []struct {
 		name       string
 		rule       billing.RouteRule
 		candidates []SchedulerAuthCandidate
-		models     string
 		want       routingShortfall
 	}{
 		{
-			name: "credential models unavailable",
-			rule: billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("wanted")}},
-			candidates: []SchedulerAuthCandidate{
-				{ID: "other", Provider: "codex", Attributes: map[string]string{"path": "/other"}},
-			},
-			want: routeNoMatch,
+			name:       "allowed credential unavailable",
+			rule:       billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("wanted")}},
+			candidates: []SchedulerAuthCandidate{{ID: "other"}},
+			want:       routeUnavailable,
 		},
 		{
-			name: "allowed credential unavailable",
-			rule: billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("wanted")}},
-			candidates: []SchedulerAuthCandidate{
-				{ID: "other", Provider: "codex", Attributes: map[string]string{"path": "/other"}},
-			},
-			models: serves,
-			want:   routeUnavailable,
+			name:       "all denied",
+			rule:       billing.RouteRule{DeniedCredentialIDs: []string{billing.CredentialFingerprint("wanted"), billing.CredentialFingerprint("other"), billing.CredentialFingerprint("a")}},
+			candidates: []SchedulerAuthCandidate{{ID: "a"}},
+			want:       routeNoCredential,
 		},
 		{
-			name: "all denied",
-			rule: billing.RouteRule{DeniedCredentialIDs: []string{billing.CredentialFingerprint("wanted"), billing.CredentialFingerprint("a"), billing.CredentialFingerprint("outside")}},
-			candidates: []SchedulerAuthCandidate{
-				{ID: "outside", Provider: "codex", Attributes: map[string]string{"path": "/outside"}},
-			},
-			models: serves,
-			want:   routeNoCredential,
-		},
-		{
-			name: "non-positive weight",
-			rule: billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("a")}},
-			candidates: []SchedulerAuthCandidate{
-				{ID: "a", Provider: "codex", Attributes: map[string]string{"path": "/a", "weight": "0"}},
-				{ID: "outside", Provider: "codex", Attributes: map[string]string{"path": "/outside"}},
-			},
-			models: serves,
-			want:   routeUnavailable,
+			name:       "non-positive weight",
+			rule:       billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("a")}},
+			candidates: []SchedulerAuthCandidate{{ID: "a", Attributes: map[string]string{"weight": "0"}}, {ID: "other"}},
+			want:       routeUnavailable,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			app, scope := configuredRoutingApp(t, test.rule)
+			app.SetHostCaller(routingTestHost("wanted", "other", "a"))
 			app.scheduler.configure(billing.RoutingConfig{Strategy: "weighted-round-robin", SessionAffinityTTL: "1h"}, true)
-			app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
-				if method != hostAuthModels {
-					t.Fatalf("host method = %q", method)
-				}
-				if test.models == "" {
-					return nil, errors.New("dummy host failure")
-				}
-				return json.RawMessage(test.models), nil
-			})
 			raw, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, test.candidates...)))
 			if err != nil {
 				t.Fatal(err)
@@ -584,18 +92,25 @@ func TestSchedulerFailsClosedWithoutAUsableRoutedCandidate(t *testing.T) {
 			if err := json.Unmarshal(raw, &envelope); err != nil {
 				t.Fatal(err)
 			}
-			if envelope.OK || envelope.Error == nil || envelope.Error.HTTPStatus != 503 || envelope.Error.Message != test.want.message {
-				t.Fatalf("envelope=%+v, want %q", envelope, test.want.message)
+			if envelope.OK || envelope.Error == nil || envelope.Error.HTTPStatus != test.want.status || envelope.Error.Message != test.want.message("gpt-5.6") {
+				t.Fatalf("envelope=%+v, want %q", envelope, test.want.message("gpt-5.6"))
 			}
 		})
 	}
+	t.Run("host failure", func(t *testing.T) {
+		app, scope := configuredRoutingApp(t, billing.RouteRule{CredentialIDs: []string{billing.CredentialFingerprint("a")}})
+		app.SetHostCaller(func(string, any) (json.RawMessage, error) { return nil, errors.New("dummy host failure") })
+		if _, err := app.HandleMethod(MethodSchedulerPick, mustMarshal(t, schedulerRequest(scope, SchedulerAuthCandidate{ID: "a"}))); err == nil {
+			t.Fatal("scheduler picked without reading upstream credentials")
+		}
+	})
 }
 
 func TestSchedulerUsesConfiguredStrategies(t *testing.T) {
 	candidates := []SchedulerAuthCandidate{
-		{ID: "a", Provider: "codex", Attributes: map[string]string{"path": "/a", "weight": "2"}},
-		{ID: "b", Provider: "codex", Attributes: map[string]string{"path": "/b", "weight": "1"}},
-		{ID: "outside", Provider: "codex", Attributes: map[string]string{"path": "/outside", "weight": "1000"}},
+		{ID: "a", Attributes: map[string]string{"weight": "2"}},
+		{ID: "b", Attributes: map[string]string{"weight": "1"}},
+		{ID: "outside", Attributes: map[string]string{"weight": "1000"}},
 	}
 	for _, test := range []struct {
 		name string
@@ -711,8 +226,8 @@ func TestSubsetSchedulerKeepsAPIKeysAndTemporaryCandidateChangesIndependent(t *t
 // Issue #25: route membership is applied before priority, for Codex auth files
 // as well as configured providers. Unavailable candidates are removed by CPA.
 func TestRoutePriorityIssue25(t *testing.T) {
-	a := SchedulerAuthCandidate{ID: "codex-a", Provider: "codex", Priority: 10, Attributes: map[string]string{"source_backend": "file"}}
-	b := SchedulerAuthCandidate{ID: "codex-b", Provider: "codex", Priority: 0, Attributes: map[string]string{"source_backend": "file"}}
+	a := SchedulerAuthCandidate{ID: "codex-a", Priority: 10}
+	b := SchedulerAuthCandidate{ID: "codex-b", Priority: 0}
 	for _, tc := range []struct {
 		name       string
 		allowed    []string
@@ -723,7 +238,7 @@ func TestRoutePriorityIssue25(t *testing.T) {
 		{"only B", []string{b.ID}, []SchedulerAuthCandidate{a, b}, b.ID},
 		{"both preserve host priority", []string{a.ID, b.ID}, []SchedulerAuthCandidate{a, b}, a.ID},
 		{"A disabled or cooling down", []string{a.ID, b.ID}, []SchedulerAuthCandidate{b}, b.ID},
-		{"allowed subset retains priority", []string{a.ID, b.ID}, []SchedulerAuthCandidate{a, b, {ID: "outside", Provider: "codex", Priority: 20}}, a.ID},
+		{"allowed subset retains priority", []string{a.ID, b.ID}, []SchedulerAuthCandidate{a, b, {ID: "outside", Priority: 20}}, a.ID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ids := []string{}
@@ -790,6 +305,7 @@ func TestSchedulerSessionAffinity(t *testing.T) {
 
 func TestSchedulerConfigurationUpdatesAndSessionMetadata(t *testing.T) {
 	app, path := newAppWithPriceAndState(t, true)
+	app.SetHostCaller(routingTestHost("a", "b"))
 	candidates := []SchedulerAuthCandidate{{ID: "a"}, {ID: "b"}}
 	if _, err := app.store.SyncKeys([]string{"dummy-scheduler-key"}, false); err != nil {
 		t.Fatal(err)

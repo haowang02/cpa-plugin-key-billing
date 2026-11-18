@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -66,10 +66,10 @@ func candidateWeight(candidate SchedulerAuthCandidate) int64 {
 	return max(0, weight)
 }
 
-func routingPoolKey(provider, model string, decision billing.RoutingDecision) string {
+func routingPoolKey(provider, model string, routing billing.RouteRule) string {
 	// Route permissions isolate both rotation progress and session bindings. A
 	// model-only policy change does not alter credential selection for this model.
-	policy := decision.RouteRule
+	policy := routing
 	policy.Models, policy.DeniedModels = nil, nil
 	raw, _ := json.Marshal(policy)
 	sum := sha256.Sum256(raw)
@@ -259,10 +259,6 @@ func (s *subsetScheduler) prune(scopes map[string]struct{}) {
 	}
 }
 
-func candidateAllowed(candidate SchedulerAuthCandidate, decision billing.RoutingDecision) bool {
-	return routingAllowsCredential(candidate.ID, credentialSourceFromCandidate(candidate), candidate.Provider, decision)
-}
-
 func (a *App) pickCredential(raw []byte) ([]byte, error) {
 	var req SchedulerPickRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
@@ -274,27 +270,13 @@ func (a *App) pickCredential(raw []byte) ([]byte, error) {
 	if metadataString(req.Options.Metadata, MetadataSource) == SourcePluginHostModelCallback {
 		return OKEnvelope(SchedulerPickResponse{Handled: false})
 	}
-	a.observeCandidates(req.Candidates)
 	scope := metadataString(req.Options.Metadata, MetadataCallerScope)
 	if scope == "" {
 		return OKEnvelope(SchedulerPickResponse{Handled: false})
 	}
-	requestedModel := metadataString(req.Options.Metadata, MetadataRequestedModel)
-	if requestedModel == "" {
-		requestedModel = req.Model
-	}
-	decision := a.store.ResolveRouting(scope, req.Model, requestedModel)
-	if !decision.RestrictsCredentials() {
+	routing := a.store.Routing(scope)
+	if !routing.RestrictsCredentials() {
 		return OKEnvelope(SchedulerPickResponse{Handled: false})
-	}
-	allowed := make([]SchedulerAuthCandidate, 0, len(req.Candidates))
-	for _, candidate := range req.Candidates {
-		if candidateAllowed(candidate, decision) {
-			allowed = append(allowed, candidate)
-		}
-	}
-	if len(allowed) == 0 {
-		return a.refuseRoute(req.Model, decision), nil
 	}
 	// CPA enriches scheduler metadata before credential selection. Do not infer a
 	// session from request IDs or from later, asynchronous usage records.
@@ -306,31 +288,26 @@ func (a *App) pickCredential(raw []byte) ([]byte, error) {
 			break
 		}
 	}
-	id := a.scheduler.pick(scope, routingPoolKey(req.Provider, req.Model, decision), session, allowed, a.store.Now())
-	if id == "" {
-		return a.refuseRoute(req.Model, decision), nil
+	allowed := func(directory credentialDirectory) []SchedulerAuthCandidate {
+		return slices.DeleteFunc(slices.Clone(req.Candidates), func(candidate SchedulerAuthCandidate) bool {
+			return !directory.allows(candidate.ID, routing)
+		})
 	}
-	return OKEnvelope(SchedulerPickResponse{AuthID: id, Handled: true})
-}
-
-// The host offers only usable credentials, so a routed request without a candidate has its allowed credentials
-// unavailable or none serving the model. A refusal reaches request.complete only as its message.
-type routingShortfall struct{ result, message string }
-
-var (
-	routeUnavailable  = routingShortfall{"unavailable", "The upstream credentials allowed by this API key's routing rules are unavailable for this model"}
-	routeNoCredential = routingShortfall{"no_credential", "None of the upstream credentials allowed by this API key's routing rules serves this model"}
-	routeNoMatch      = routingShortfall{"no_match", "No available upstream credentials match the routing rules"}
-	routingShortfalls = []routingShortfall{routeUnavailable, routeNoCredential, routeNoMatch}
-)
-
-func (a *App) refuseRoute(model string, decision billing.RoutingDecision) []byte {
-	shortfall := routeNoMatch
-	if provided, err := a.credentialModels(decision); err == nil {
+	ids := make([]string, len(req.Candidates))
+	for i, candidate := range req.Candidates {
+		ids[i] = candidate.ID
+	}
+	directory, err := a.routingDirectory(func(directory credentialDirectory) bool { return len(allowed(directory)) > 0 }, ids...)
+	if err != nil {
+		return nil, fmt.Errorf("Read upstream credentials: %w", err)
+	}
+	pool := routingPoolKey(req.Provider, req.Model, routing)
+	if id := a.scheduler.pick(scope, pool, session, allowed(directory), a.store.Now()); id != "" {
+		return OKEnvelope(SchedulerPickResponse{AuthID: id, Handled: true})
+	}
+	shortfall := routeUnavailable
+	if !directory.serves(routing, req.Model) {
 		shortfall = routeNoCredential
-		if provided[billing.ModelWithoutThinkingSuffix(model)] {
-			shortfall = routeUnavailable
-		}
 	}
-	return ErrorEnvelope("no_routed_credential", shortfall.message, http.StatusServiceUnavailable)
+	return ErrorEnvelope("no_routed_credential", shortfall.message(req.Model), shortfall.status), nil
 }

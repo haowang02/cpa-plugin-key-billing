@@ -47,48 +47,32 @@ type RoutePatch struct {
 	Rule *RouteRule `json:"rule,omitempty"`
 }
 
-type RoutingDecision struct {
-	RouteRule
-	Model string
+func (r RouteRule) RestrictsModels() bool {
+	return len(r.Models) > 0 || len(r.DeniedModels) > 0
 }
 
-func (d RoutingDecision) RestrictsModels() bool {
-	return len(d.Models) > 0 || len(d.DeniedModels) > 0
-}
-
-func (d RoutingDecision) AllowsModel() bool {
-	if d.Model == "" {
-		return true
-	}
-	return !containsRouteValue(d.DeniedModels, d.Model) &&
-		(len(d.Models) == 0 || containsRouteValue(d.Models, d.Model))
+// model is a billing model, as BillingModel names it.
+func (r RouteRule) AllowsModel(model string) bool {
+	return !containsRouteValue(r.DeniedModels, model) && (len(r.Models) == 0 || containsRouteValue(r.Models, model))
 }
 
 func containsRouteValue(values []string, value string) bool {
 	return slices.ContainsFunc(values, func(item string) bool { return strings.EqualFold(item, value) })
 }
 
-func (d RoutingDecision) RestrictsCredentials() bool {
-	return len(d.CredentialIDs) > 0 || len(d.CredentialProviders) > 0 ||
-		len(d.DeniedCredentialIDs) > 0 || len(d.DeniedCredentialProviders) > 0
+func (r RouteRule) RestrictsCredentials() bool {
+	return len(r.CredentialIDs) > 0 || len(r.CredentialProviders) > 0 ||
+		len(r.DeniedCredentialIDs) > 0 || len(r.DeniedCredentialProviders) > 0
 }
 
 // ref is a fingerprint, never the raw host credential ID or an API key.
-func (d RoutingDecision) AllowsCredential(ref, source, provider string) bool {
-	selector := CredentialProviderSelector{Source: strings.ToLower(strings.TrimSpace(source)), Provider: strings.ToLower(strings.TrimSpace(provider))}
-	if containsRouteValue(d.DeniedCredentialIDs, ref) {
+func (r RouteRule) AllowsCredential(ref, source, provider string) bool {
+	selector := CredentialProviderSelector{Source: source, Provider: strings.ToLower(strings.TrimSpace(provider))}
+	if containsRouteValue(r.DeniedCredentialIDs, ref) || slices.Contains(r.DeniedCredentialProviders, selector) {
 		return false
 	}
-	for _, denied := range d.DeniedCredentialProviders {
-		// Incomplete host metadata cannot prove a candidate is outside a deny
-		// selector. Reject potential matches without inventing its source.
-		if (selector.Source == "" || selector.Source == denied.Source) &&
-			(selector.Provider == "" || selector.Provider == denied.Provider) {
-			return false
-		}
-	}
-	return len(d.CredentialIDs) == 0 && len(d.CredentialProviders) == 0 ||
-		containsRouteValue(d.CredentialIDs, ref) || slices.Contains(d.CredentialProviders, selector)
+	return len(r.CredentialIDs) == 0 && len(r.CredentialProviders) == 0 ||
+		containsRouteValue(r.CredentialIDs, ref) || slices.Contains(r.CredentialProviders, selector)
 }
 
 func (r RouteRule) CredentialRefs() []string {
@@ -494,30 +478,22 @@ func (s *Store) DeleteRoute(id string) (RouteDeleteResult, error) {
 }
 
 func routingRestricted(state *State, key *KeyState) bool {
-	decision := resolveRoutingState(state, key)
-	return decision.RestrictsModels() || decision.RestrictsCredentials()
+	rule := keyRouting(state, key)
+	return rule.RestrictsModels() || rule.RestrictsCredentials()
 }
 
-func (s *Store) ResolveRouting(scope, upstreamModel, routeModel string) RoutingDecision {
-	var decision RoutingDecision
-	s.read(func(state *State) {
-		decision = resolveRoutingState(state, state.Keys[normalizeScope(scope)])
-		decision.Model = strings.TrimSpace(state.ResolveBillingModel(upstreamModel, routeModel))
-	})
-	return decision
+// Routing combines every route bound to a key with its direct settings.
+func (s *Store) Routing(scope string) RouteRule {
+	var rule RouteRule
+	s.read(func(state *State) { rule = keyRouting(state, state.Keys[normalizeScope(scope)]) })
+	return rule
 }
 
-// Resolves the billing model as admission does.
-func (s *Store) AllowedModels(scope string, models []string) []bool {
-	allowed := make([]bool, len(models))
-	s.read(func(state *State) {
-		decision := resolveRoutingState(state, state.Keys[normalizeScope(scope)])
-		for i, model := range models {
-			decision.Model = strings.TrimSpace(state.ResolveBillingModel(model, model))
-			allowed[i] = decision.AllowsModel()
-		}
-	})
-	return allowed
+// BillingModel names a request's model as prices and model rules identify it.
+func (s *Store) BillingModel(upstreamModel, routeModel string) string {
+	var model string
+	s.read(func(state *State) { model = state.ResolveBillingModel(upstreamModel, routeModel) })
+	return model
 }
 
 func (s *Store) KeyDescription(scope string) string {
@@ -530,29 +506,29 @@ func (s *Store) KeyDescription(scope string) string {
 
 // Merge each allow/deny dimension independently. Never subtract deny entries
 // from allowlists: an empty allowlist means unrestricted, not deny everything.
-func resolveRoutingState(state *State, key *KeyState) RoutingDecision {
-	d := RoutingDecision{RouteRule: RouteRule{}.clone()}
+func keyRouting(state *State, key *KeyState) RouteRule {
+	merged := RouteRule{}.clone()
 	if key == nil {
-		return d
+		return merged
 	}
 	merge := func(rule RouteRule) {
-		d.Models = append(d.Models, rule.Models...)
-		d.CredentialIDs = append(d.CredentialIDs, rule.CredentialIDs...)
-		d.CredentialProviders = append(d.CredentialProviders, rule.CredentialProviders...)
-		d.DeniedModels = append(d.DeniedModels, rule.DeniedModels...)
-		d.DeniedCredentialIDs = append(d.DeniedCredentialIDs, rule.DeniedCredentialIDs...)
-		d.DeniedCredentialProviders = append(d.DeniedCredentialProviders, rule.DeniedCredentialProviders...)
+		merged.Models = append(merged.Models, rule.Models...)
+		merged.CredentialIDs = append(merged.CredentialIDs, rule.CredentialIDs...)
+		merged.CredentialProviders = append(merged.CredentialProviders, rule.CredentialProviders...)
+		merged.DeniedModels = append(merged.DeniedModels, rule.DeniedModels...)
+		merged.DeniedCredentialIDs = append(merged.DeniedCredentialIDs, rule.DeniedCredentialIDs...)
+		merged.DeniedCredentialProviders = append(merged.DeniedCredentialProviders, rule.DeniedCredentialProviders...)
 	}
 	for _, id := range key.RouteBindings.RouteIDs {
 		route, _ := state.findRoute(id)
 		merge(route.Rule)
 	}
 	merge(key.RouteBindings.RouteRule)
-	for _, values := range []*[]string{&d.Models, &d.CredentialIDs, &d.DeniedModels, &d.DeniedCredentialIDs} {
+	for _, values := range []*[]string{&merged.Models, &merged.CredentialIDs, &merged.DeniedModels, &merged.DeniedCredentialIDs} {
 		sort.SliceStable(*values, func(i, j int) bool { return strings.ToLower((*values)[i]) < strings.ToLower((*values)[j]) })
 		*values = slices.CompactFunc(*values, strings.EqualFold)
 	}
-	for _, values := range []*[]CredentialProviderSelector{&d.CredentialProviders, &d.DeniedCredentialProviders} {
+	for _, values := range []*[]CredentialProviderSelector{&merged.CredentialProviders, &merged.DeniedCredentialProviders} {
 		sort.Slice(*values, func(i, j int) bool {
 			a, b := (*values)[i], (*values)[j]
 			if a.Source != b.Source {
@@ -562,5 +538,5 @@ func resolveRoutingState(state *State, key *KeyState) RoutingDecision {
 		})
 		*values = slices.Compact(*values)
 	}
-	return d
+	return merged
 }

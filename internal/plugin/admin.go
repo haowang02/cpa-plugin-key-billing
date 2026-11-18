@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,18 +26,20 @@ type routeRow struct {
 
 func (a *App) keyRows() []keyRow {
 	keys := a.store.KeyViews()
+	views := a.credentialViews()
 	rows := make([]keyRow, 0, len(keys))
 	for _, key := range keys {
-		rows = append(rows, keyRow{KeyView: key, CredentialLabels: a.credentialLabels(key.RouteBindings.CredentialRefs())})
+		rows = append(rows, keyRow{KeyView: key, CredentialLabels: credentialLabels(views, key.RouteBindings.CredentialRefs())})
 	}
 	return rows
 }
 
 func (a *App) routeRows() []routeRow {
 	routes := a.store.RouteViews()
+	views := a.credentialViews()
 	rows := make([]routeRow, 0, len(routes))
 	for _, route := range routes {
-		rows = append(rows, routeRow{RouteView: route, CredentialLabels: a.credentialLabels(route.Rule.CredentialRefs())})
+		rows = append(rows, routeRow{RouteView: route, CredentialLabels: credentialLabels(views, route.Rule.CredentialRefs())})
 	}
 	return rows
 }
@@ -129,28 +132,22 @@ func (a *App) setKeyRoutes(req ManagementRequest) ManagementResponse {
 	return JSONResponse(http.StatusOK, struct{}{})
 }
 
+// A rule may keep refs to credentials that are gone; only newly added refs must exist.
 func (a *App) validateNewCredentialRefs(refs, existing []string) *ManagementResponse {
-	old := make(map[string]struct{}, len(existing))
-	for _, ref := range existing {
-		old[strings.ToLower(strings.TrimSpace(ref))] = struct{}{}
-	}
-	newRefs := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		if _, ok := old[strings.ToLower(strings.TrimSpace(ref))]; ok {
-			continue
-		}
-		newRefs = append(newRefs, ref)
-	}
-	if len(newRefs) == 0 {
+	refs = slices.DeleteFunc(refs, func(ref string) bool { return slices.Contains(existing, ref) })
+	if len(refs) == 0 {
 		return nil
 	}
-	if err := a.refreshCredentialInventory(); err != nil {
+	if _, err := a.readCredentialDirectory(); err != nil {
 		response := jsonMessageError(http.StatusBadGateway, "host_unavailable", messages.New("Failed to load upstream credentials: %s", err.Error()))
 		return &response
 	}
-	if missing := a.missingCredentialRef(newRefs); missing != "" {
-		response := jsonMessageError(http.StatusBadRequest, "invalid", messages.New("Upstream credential no longer exists: %s", missing))
-		return &response
+	views := a.credentialViews()
+	for _, ref := range refs {
+		if _, ok := views[ref]; !ok {
+			response := jsonMessageError(http.StatusBadRequest, "invalid", messages.New("Upstream credential no longer exists: %s", ref))
+			return &response
+		}
 	}
 	return nil
 }

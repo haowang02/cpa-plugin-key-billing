@@ -22,9 +22,6 @@ type hostHTTPResponse struct {
 }
 
 func callHostHTTP(caller HostCaller, request hostHTTPRequest) (hostHTTPResponse, error) {
-	if caller == nil {
-		return hostHTTPResponse{}, fmt.Errorf("Host HTTP transport is unavailable")
-	}
 	raw, err := caller(hostHTTPDo, request)
 	if err != nil {
 		return hostHTTPResponse{}, err

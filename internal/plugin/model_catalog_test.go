@@ -20,7 +20,7 @@ func catalogHost(t *testing.T) HostCaller {
 				{"id":"codex-a.json","auth_index":"1","provider":"codex","models":["gpt-5.5","gpt-5.6"]},
 				{"id":"openai-compatibility:compat:0","auth_index":"2","provider":"openai-compatible-compat","models":["gpt-5.5","deepseek-v4"]}]}`), nil
 		case hostAuthList:
-			return json.RawMessage(`{"files":[{"id":"codex-a.json","provider":"codex","source":"file","path":"/auth/codex-a.json"}]}`), nil
+			return json.RawMessage(`{"files":[{"id":"codex-a.json","provider":"codex","path":"/auth/codex-a.json"}]}`), nil
 		}
 		t.Fatalf("unexpected host call %s", method)
 		return nil, nil

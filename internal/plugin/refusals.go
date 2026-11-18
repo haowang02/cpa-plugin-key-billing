@@ -36,6 +36,16 @@ var (
 	}
 )
 
+// Use the client's API format so its SDK surfaces an error instead of a parse failure.
+func refusalResponse(sourceFormat string, status int, kind refusal, message string) RequestInterceptResponse {
+	return RequestInterceptResponse{
+		Terminate:       true,
+		StatusCode:      status,
+		ResponseHeaders: http.Header{"Content-Type": {"application/json; charset=utf-8"}},
+		ResponseBody:    refusalBody(sourceFormat, kind, message),
+	}
+}
+
 // Anthropic formats, including variants like "claude-code", get their native envelope; others the OpenAI one.
 func refusalBody(sourceFormat string, kind refusal, message string) []byte {
 	normalized := strings.ToLower(strings.TrimSpace(sourceFormat))
@@ -63,66 +73,36 @@ func refusalBody(sourceFormat string, kind refusal, message string) []byte {
 	return body
 }
 
-// Use the client's API format so its SDK surfaces an error instead of a parse failure.
 func quotaExhaustedResponse(sourceFormat string, decision billing.Decision, now time.Time) RequestInterceptResponse {
-	headers := http.Header{
-		"Content-Type": []string{"application/json; charset=utf-8"},
-	}
+	response := refusalResponse(sourceFormat, http.StatusTooManyRequests, quotaExhaustedError, quotaExhaustedMessage(decision))
 	if retryAfter := retryAfterSeconds(decision.RetryAt, now); retryAfter > 0 {
-		headers.Set("Retry-After", strconv.Itoa(retryAfter))
+		response.ResponseHeaders.Set("Retry-After", strconv.Itoa(retryAfter))
 	}
-	return RequestInterceptResponse{
-		Terminate:       true,
-		StatusCode:      http.StatusTooManyRequests,
-		ResponseHeaders: headers,
-		ResponseBody:    refusalBody(sourceFormat, quotaExhaustedError, quotaExhaustedMessage(decision)),
-	}
+	return response
 }
 
 func concurrencyLimitResponse(sourceFormat string, decision billing.SlotDecision) RequestInterceptResponse {
-	message := fmt.Sprintf("API key concurrency limit reached: %d active requests of %d allowed.",
-		decision.Active, decision.Limit)
-	return RequestInterceptResponse{
-		Terminate:  true,
-		StatusCode: http.StatusTooManyRequests,
-		ResponseHeaders: http.Header{
-			"Content-Type": []string{"application/json; charset=utf-8"},
-			"Retry-After":  []string{"1"},
-		},
-		ResponseBody: refusalBody(sourceFormat, quotaExhaustedError, message),
-	}
+	message := fmt.Sprintf("API key concurrency limit reached: %d active requests of %d allowed.", decision.Active, decision.Limit)
+	response := refusalResponse(sourceFormat, http.StatusTooManyRequests, quotaExhaustedError, message)
+	response.ResponseHeaders.Set("Retry-After", "1")
+	return response
 }
 
-// A refused model carries no Retry-After: waiting changes nothing, and only an
-// operator can.
-func modelForbiddenResponse(sourceFormat string, decision billing.RoutingDecision) RequestInterceptResponse {
-	message := modelForbiddenMessage(decision)
-	return RequestInterceptResponse{
-		Terminate:  true,
-		StatusCode: http.StatusForbidden,
-		ResponseHeaders: http.Header{
-			"Content-Type": []string{"application/json; charset=utf-8"},
-		},
-		ResponseBody: refusalBody(sourceFormat, modelForbiddenError, message),
-	}
+// A refused model carries no Retry-After: waiting changes nothing, and only an operator can.
+func modelForbiddenResponse(sourceFormat string, routing billing.RouteRule, model string) RequestInterceptResponse {
+	return refusalResponse(sourceFormat, http.StatusForbidden, modelForbiddenError, modelForbiddenMessage(routing, model))
+}
+
+func modelUnservedResponse(sourceFormat, model string) RequestInterceptResponse {
+	return refusalResponse(sourceFormat, http.StatusForbidden, modelForbiddenError, routeNoCredential.message(model))
 }
 
 func routingErrorResponse(sourceFormat, code, message string) RequestInterceptResponse {
-	return RequestInterceptResponse{Terminate: true, StatusCode: http.StatusServiceUnavailable, ResponseHeaders: http.Header{"Content-Type": []string{"application/json; charset=utf-8"}}, ResponseBody: refusalBody(sourceFormat, refusal{anthropicType: "api_error", openaiType: "server_error", openaiCode: code}, message)}
+	return refusalResponse(sourceFormat, http.StatusServiceUnavailable, refusal{anthropicType: "api_error", openaiType: "server_error", openaiCode: code}, message)
 }
 
-func priceRefusal(format, code, message string) RequestInterceptResponse {
-	kind := refusal{
-		anthropicType: "cpa_key_billing_error",
-		openaiType:    "cpa_key_billing_error",
-		openaiCode:    code,
-	}
-	return RequestInterceptResponse{
-		Terminate:       true,
-		StatusCode:      http.StatusServiceUnavailable,
-		ResponseHeaders: http.Header{"Content-Type": {"application/json"}},
-		ResponseBody:    refusalBody(format, kind, message),
-	}
+func priceRefusal(sourceFormat, code, message string) RequestInterceptResponse {
+	return refusalResponse(sourceFormat, http.StatusServiceUnavailable, refusal{anthropicType: "cpa_key_billing_error", openaiType: "cpa_key_billing_error", openaiCode: code}, message)
 }
 
 func quotaExhaustedMessage(decision billing.Decision) string {
@@ -154,29 +134,26 @@ func quotaExhaustedMessage(decision billing.Decision) string {
 	return builder.String()
 }
 
-func modelForbiddenMessage(decision billing.RoutingDecision) string {
-	for _, model := range decision.DeniedModels {
-		if strings.EqualFold(model, decision.Model) {
-			return "API key is not allowed to use model " + strconv.Quote(decision.Model) + ". The model is denied by a routing rule."
+func modelForbiddenMessage(routing billing.RouteRule, model string) string {
+	refused := "API key is not allowed to use model " + strconv.Quote(model) + "."
+	for _, denied := range routing.DeniedModels {
+		if strings.EqualFold(denied, model) {
+			return refused + " The model is denied by a routing rule."
 		}
 	}
 	// Do not suggest allowlisted models that another bound route denies.
-	allowed := make([]string, 0, len(decision.Models))
-	for _, model := range decision.Models {
-		candidate := decision
-		candidate.Model = model
-		if candidate.AllowsModel() {
-			allowed = append(allowed, model)
+	allowed := make([]string, 0, len(routing.Models))
+	for _, candidate := range routing.Models {
+		if routing.AllowsModel(candidate) {
+			allowed = append(allowed, candidate)
 		}
 	}
 	if len(allowed) == 0 {
-		return "API key is not allowed to use model " + strconv.Quote(decision.Model) + ". No models are allowed by the routing rules."
+		return refused + " No models are allowed by the routing rules."
 	}
 	shown := min(len(allowed), 5)
-	omitted := len(allowed) - shown
-	message := "API key is not allowed to use model " + strconv.Quote(decision.Model) +
-		". Allowed models: " + strings.Join(allowed[:shown], ", ")
-	if omitted > 0 {
+	message := refused + " Allowed models: " + strings.Join(allowed[:shown], ", ")
+	if omitted := len(allowed) - shown; omitted > 0 {
 		message += fmt.Sprintf(" and %d more", omitted)
 	}
 	return message + "."
@@ -195,4 +172,21 @@ func retryAfterSeconds(resetAt, now time.Time) int {
 		return maxRetryAfterSeconds
 	}
 	return seconds
+}
+
+// Credential selection refuses with an error envelope, which reaches request.complete only as its message; the
+// route log maps that message back to the result.
+type routingShortfall struct {
+	result, prefix string
+	status         int
+}
+
+var (
+	routeUnavailable  = routingShortfall{"unavailable", "The upstream credentials allowed by this API key's routing rules are unavailable for model", http.StatusServiceUnavailable}
+	routeNoCredential = routingShortfall{"no_credential", "None of the upstream credentials allowed by this API key's routing rules serves model", http.StatusForbidden}
+	routingShortfalls = []routingShortfall{routeUnavailable, routeNoCredential}
+)
+
+func (s routingShortfall) message(model string) string {
+	return s.prefix + " " + strconv.Quote(billing.ModelWithoutThinkingSuffix(model)) + "."
 }

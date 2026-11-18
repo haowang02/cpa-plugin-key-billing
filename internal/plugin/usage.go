@@ -19,10 +19,6 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 		return OKEnvelope(struct{}{})
 	}
 	scope := billing.CallerScope(record.APIKey)
-	var recordError billing.RequestError
-	if record.Failed {
-		recordError = usageFailureDetails(record.Failure)
-	}
 	at := a.store.Now()
 	event := billing.UsageEvent{
 		RequestOrigin:        a.findRequestOrigin(record.TraceID, scope),
@@ -50,11 +46,10 @@ func (a *App) handleUsage(raw []byte) ([]byte, error) {
 		At:                   at,
 	}
 	if record.Failed {
-		a.store.RecordUsageError(event, recordError)
+		a.store.RecordUsageError(event, usageFailureDetails(record.Failure))
 	} else {
 		a.store.RecordUsage(event)
 	}
-	a.observeCredentialUsage(record.AuthIndex, record.AuthType, event.Account)
 	return OKEnvelope(struct{}{})
 }
 
@@ -413,11 +408,11 @@ func (a *App) usageAccount(record UsageRecord) string {
 		}
 	}
 	index := strings.TrimSpace(record.AuthIndex)
-	if index == "" || a.hostCaller == nil {
+	if index == "" {
 		return ""
 	}
 	file, err := a.hostAuthRuntime(index)
-	if err != nil || credentialSourceFromHost(file) != billing.CredentialSourceAuthFiles {
+	if err != nil || credentialSource(file) != billing.CredentialSourceAuthFiles {
 		return ""
 	}
 	return authFileTitle(file)

@@ -70,12 +70,10 @@ func readPrices(t *testing.T, app *App, models ...string) []billing.PriceRow {
 func TestManagementListsDeferCredentialDiscovery(t *testing.T) {
 	app := newConfiguredApp(t)
 	calls := 0
-	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+	host := hostDirectoryCaller("[]", "[]")
+	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
 		calls++
-		if method != hostAuthList {
-			t.Fatalf("unexpected host call %s", method)
-		}
-		return json.RawMessage(`{"files":[]}`), nil
+		return host(method, payload)
 	})
 	for _, path := range []string{routeKeys, routePlans, routeRoutes} {
 		callOK(t, app, http.MethodGet, path, nil, nil, http.StatusOK, nil)
@@ -84,7 +82,7 @@ func TestManagementListsDeferCredentialDiscovery(t *testing.T) {
 		t.Fatalf("table reads discovered credentials %d times", calls)
 	}
 	callOK(t, app, http.MethodGet, routeCredentials, nil, nil, http.StatusOK, nil)
-	if calls != 1 {
+	if calls != 2 {
 		t.Fatalf("credential options made %d host calls", calls)
 	}
 }
@@ -471,12 +469,8 @@ func TestRouteMutationRefreshesInventoryAndNeverReturnsRawCredentialID(t *testin
 		t.Run(field, func(t *testing.T) {
 			app := newConfiguredApp(t)
 			const rawID = "raw-upstream-auth-secret"
-			app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
-				if method != hostAuthList {
-					t.Fatalf("host method=%q", method)
-				}
-				return json.RawMessage(`{"files":[{"id":"raw-upstream-auth-secret","provider":"codex","source":"file","path":"/auth/codex.json","name":"codex.json"}]}`), nil
-			})
+			app.SetHostCaller(hostDirectoryCaller(`[{"id":"raw-upstream-auth-secret","provider":"codex"}]`,
+				`[{"id":"raw-upstream-auth-secret","provider":"codex","path":"/auth/codex.json","name":"codex.json"}]`))
 			ref := billing.CredentialFingerprint(rawID)
 			response := callManagement(t, app, http.MethodPost, routeRoutes, nil, map[string]any{
 				"name": "Exact credential",

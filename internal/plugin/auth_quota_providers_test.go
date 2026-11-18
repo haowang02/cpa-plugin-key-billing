@@ -14,8 +14,8 @@ func TestCodexQuotaPreservesAdditionalDynamicWindows(t *testing.T) {
 	var endpoint string
 	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
 		switch method {
-		case hostAuthList:
-			return json.RawMessage(`{"files":[{"auth_index":"codex-1","name":"codex.json","type":"codex"}]}`), nil
+		case hostAuthList, hostAuthGetRuntime:
+			return authFileHost(`[{"auth_index":"codex-1","name":"codex.json","provider":"codex"}]`)(method, payload)
 		case hostAuthGet:
 			return json.RawMessage(`{"auth_index":"codex-1","json":{"access_token":"dummy-token","account_id":"dummy-account"}}`), nil
 		case hostHTTPDo:
@@ -212,7 +212,7 @@ func TestClaudeResetSpendsOnlyAUsableGrant(t *testing.T) {
 				return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(body)}), nil
 			})
 			got := ""
-			client, err := app.openAuthQuotaClient("", hostAuthFile{AuthIndex: "claude-1", Type: "claude"})
+			client, err := app.openAuthQuotaClient("", hostAuthFile{AuthIndex: "claude-1", Provider: "claude"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -309,7 +309,7 @@ func TestAntigravityQuotaPreservesGroupsAndFallbacks(t *testing.T) {
 					return nil, nil
 				}
 			})
-			result, err := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "ag-1", Type: "antigravity"})
+			result, err := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "ag-1", Provider: "antigravity"})
 			if (err != nil) != tc.wantError || len(result.Quota) != tc.wantRows || calls != len(tc.responses) {
 				t.Fatalf("error = %v, calls = %d, quota = %+v", err, calls, result.Quota)
 			}
@@ -395,7 +395,7 @@ func TestPaidXAIQuotaCombinesWeeklyMonthlyAndOnDemand(t *testing.T) {
 		}
 		return mustJSONRaw(t, hostHTTPResponse{StatusCode: http.StatusOK, Body: []byte(body)}), nil
 	})
-	result, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "xai-1", Type: "xai"})
+	result, errFetch := app.fetchAuthQuota("", hostAuthFile{AuthIndex: "xai-1", Provider: "xai"})
 	if errFetch != nil {
 		t.Fatal(errFetch)
 	}

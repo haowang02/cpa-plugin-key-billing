@@ -133,7 +133,7 @@ func TestUnassignedKeyFilter(t *testing.T) {
 	callOK(t, app, http.MethodPost, routeKeysSync, nil, map[string]any{"keys": []string{apiKey}}, http.StatusOK, nil)
 	billOneRequest(t, app, apiKey, 100)
 	now := app.store.Now()
-	publishUsageRecord(t, app, UsageRecord{Provider: "openai", Model: "gpt-5.5", Generate: true, RequestedAt: now, Failed: true})
+	publishUsageRecord(t, app, UsageRecord{Provider: "openai", Model: "gpt-5.5", RequestedAt: now, Failed: true})
 	from, to := now.Add(-time.Hour).Format(time.RFC3339), now.Add(time.Hour).Format(time.RFC3339)
 	filter := url.Values{"api_key_empty": {"true"}, "from": {from}, "to": {to}}
 	var events billing.RequestEventView

@@ -3,9 +3,11 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"cpa-key-billing/internal/billing"
@@ -30,7 +32,7 @@ func billOneRequest(t *testing.T, app *App, apiKey string, outputTokens int64) {
 	}
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "openai", ExecutorType: "OpenAICompatExecutor", Model: "gpt-5.5", Alias: "gpt-5.5",
-		APIKey: apiKey, Generate: true, RequestedAt: app.store.Now(),
+		APIKey: apiKey, RequestedAt: app.store.Now(),
 		Detail: UsageDetail{OutputTokens: outputTokens, TotalTokens: outputTokens},
 	})
 }
@@ -138,7 +140,64 @@ func newTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newApp(billing.NewStore(openRepository, func(context.Context) ([]byte, error) { return raw, nil }))
+	app := newApp(billing.NewStore(openRepository, func(context.Context) ([]byte, error) { return raw, nil }))
+	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+		return nil, errors.New("unsupported host callback " + method)
+	})
+	return app
+}
+
+// authFileHost answers host.auth.list and host.auth.get_runtime from files, a JSON array of host auth file entries.
+func authFileHost(files string) HostCaller {
+	return func(method string, payload any) (json.RawMessage, error) {
+		switch method {
+		case hostAuthList:
+			return json.RawMessage(`{"files":` + files + `}`), nil
+		case hostAuthGetRuntime:
+			var listed []json.RawMessage
+			if err := json.Unmarshal([]byte(files), &listed); err != nil {
+				return nil, err
+			}
+			index := payload.(map[string]string)["auth_index"]
+			for _, file := range listed {
+				var entry struct {
+					AuthIndex string `json:"auth_index"`
+				}
+				if json.Unmarshal(file, &entry) == nil && entry.AuthIndex == index {
+					return json.RawMessage(`{"auth":` + string(file) + `}`), nil
+				}
+			}
+			return nil, errors.New("auth not found for auth_index " + index)
+		}
+		return nil, errors.New("unsupported host callback " + method)
+	}
+}
+
+// hostDirectoryCaller reports credentials as host.auth.models and answers auth file calls from files.
+func hostDirectoryCaller(credentials, files string) HostCaller {
+	return func(method string, payload any) (json.RawMessage, error) {
+		if method == hostAuthModels {
+			return json.RawMessage(`{"credentials":` + credentials + `}`), nil
+		}
+		return authFileHost(files)(method, payload)
+	}
+}
+
+// The credentials routing tests name: config API keys when the ID starts with "config-", codex auth files
+// otherwise, all serving gpt-5.6.
+var routingTestCredentials = []string{"a", "b", "outside", "auth-a", "auth-b", "codex-a", "codex-b", "file-codex", "config-codex"}
+
+func routingTestHost(ids ...string) HostCaller {
+	credentials, files := []map[string]any{}, []map[string]any{}
+	for _, id := range ids {
+		credentials = append(credentials, map[string]any{"id": id, "auth_index": id, "provider": "codex", "models": []string{"gpt-5.6"}})
+		if !strings.HasPrefix(id, "config-") {
+			files = append(files, map[string]any{"id": id, "auth_index": id, "provider": "codex", "path": "/auth/" + id + ".json"})
+		}
+	}
+	rawCredentials, _ := json.Marshal(credentials)
+	rawFiles, _ := json.Marshal(files)
+	return hostDirectoryCaller(string(rawCredentials), string(rawFiles))
 }
 
 func mustJSONRaw(t *testing.T, value any) json.RawMessage {
@@ -148,4 +207,19 @@ func mustJSONRaw(t *testing.T, value any) json.RawMessage {
 		t.Fatal(errMarshal)
 	}
 	return raw
+}
+
+func configuredRoutingApp(t *testing.T, rule billing.RouteRule) (*App, string) {
+	app := newConfiguredApp(t)
+	app.SetHostCaller(routingTestHost(routingTestCredentials...))
+	const key = "sk-route-test-00000001"
+	scope := billing.CallerScope(key)
+	if _, err := app.store.SyncKeys([]string{key}, false); err != nil {
+		t.Fatal(err)
+	}
+	_, err := app.store.CreateRoute(billing.Route{ID: "route-test", Name: "Route", Rule: rule}, []string{scope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app, scope
 }

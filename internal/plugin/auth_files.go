@@ -77,7 +77,7 @@ func (a *App) authQuota(req ManagementRequest, access viewAccess) ManagementResp
 	if errSave := a.saveQuotaQuery(*selected, quota); errSave != nil {
 		return viewErrorResponse(access, errSave)
 	}
-	credential := quotaCredential{selected.AuthIndex, authCategory(selected.Type)}
+	credential := quotaCredential{selected.AuthIndex, authCategory(selected.Provider)}
 	quotas, errCurrent := a.currentQuotas(access.usageScope(), []quotaCredential{credential})
 	if errCurrent != nil {
 		return viewErrorResponse(access, errCurrent)
@@ -93,7 +93,7 @@ func (a *App) authFileHistory(req ManagementRequest, access viewAccess) Manageme
 	if selected == nil {
 		return failure
 	}
-	history, err := a.readAuthFileHistory(quotaCredential{selected.AuthIndex, authCategory(selected.Type)}, access.usageScope())
+	history, err := a.readAuthFileHistory(quotaCredential{selected.AuthIndex, authCategory(selected.Provider)}, access.usageScope())
 	if err != nil {
 		return viewErrorResponse(access, err)
 	}
@@ -116,7 +116,7 @@ func (a *App) authQuotaReset(req ManagementRequest, access viewAccess) Managemen
 	if selected == nil {
 		return failure
 	}
-	if category := authCategory(selected.Type); category != "codex" && category != "claude" {
+	if category := authCategory(selected.Provider); category != "codex" && category != "claude" {
 		return viewJSONError(access, http.StatusUnprocessableEntity, "unsupported", "Quota resets are not supported for this auth file type")
 	}
 	name := selected.Name
@@ -138,7 +138,7 @@ func (a *App) resolveQuotaAuthFile(req ManagementRequest, access viewAccess) (*h
 	if selected == nil {
 		return nil, failure
 	}
-	if supported, reason := authQuotaAvailability(*selected, authCategory(selected.Type)); !supported {
+	if supported, reason := authQuotaAvailability(*selected, authCategory(selected.Provider)); !supported {
 		code := "unsupported"
 		if selected.Disabled {
 			code = "disabled"
@@ -153,20 +153,16 @@ func (a *App) resolveAuthFile(req ManagementRequest, access viewAccess) (*hostAu
 	if authIndex == "" || len(authIndex) > 512 {
 		return nil, viewJSONError(access, http.StatusBadRequest, "invalid", "Invalid auth file identifier")
 	}
-	selected, errList := a.findAuthFile(authIndex)
-	if errList != nil {
-		return nil, viewDetailedError(access, http.StatusBadGateway, "host_unavailable", errList)
-	}
-	if selected == nil {
-		return nil, viewJSONError(access, http.StatusNotFound, "not_found", "Auth file does not exist")
-	}
-	if access.APIKey {
-		decision := a.store.ResolveRouting(access.Scope, "", "")
-		if decision.RestrictsCredentials() && !routingAllowsAuthFile(*selected, decision) {
-			return nil, viewJSONError(access, http.StatusNotFound, "not_found", "Auth file does not exist")
+	selected, found := a.authFile(authIndex)
+	if found && access.APIKey {
+		if routing := a.store.Routing(access.Scope); routing.RestrictsCredentials() {
+			found = routingAllowsAuthFile(selected, routing)
 		}
 	}
-	return selected, ManagementResponse{}
+	if !found {
+		return nil, viewJSONError(access, http.StatusNotFound, "not_found", "Auth file does not exist")
+	}
+	return &selected, ManagementResponse{}
 }
 
 func (a *App) listAuthFiles(access viewAccess, from, to time.Time) ([]authFileView, error) {
@@ -175,11 +171,10 @@ func (a *App) listAuthFiles(access viewAccess, from, to time.Time) ([]authFileVi
 		return nil, errList
 	}
 	if access.APIKey {
-		decision := a.store.ResolveRouting(access.Scope, "", "")
-		if decision.RestrictsCredentials() {
+		if routing := a.store.Routing(access.Scope); routing.RestrictsCredentials() {
 			filtered := files[:0]
 			for _, file := range files {
-				if routingAllowsAuthFile(file, decision) {
+				if routingAllowsAuthFile(file, routing) {
 					filtered = append(filtered, file)
 				}
 			}
@@ -189,10 +184,10 @@ func (a *App) listAuthFiles(access viewAccess, from, to time.Time) ([]authFileVi
 	concurrency := a.store.CredentialConcurrency(access.usageScope())
 	views := make([]authFileView, 0, len(files))
 	for _, file := range files {
-		if strings.TrimSpace(file.AuthIndex) == "" || strings.EqualFold(strings.TrimSpace(file.AccountType), "api_key") {
+		if strings.TrimSpace(file.AuthIndex) == "" || file.AccountType == "api_key" {
 			continue
 		}
-		category := authCategory(file.Type)
+		category := authCategory(file.Provider)
 		quotaSupported, quotaReason := authQuotaAvailability(file, category)
 		views = append(views, authFileView{
 			AuthIndex: file.AuthIndex, Name: file.Name, Title: authFileTitle(file), Note: cleanText(file.Note), Category: category,
@@ -304,17 +299,10 @@ func authCategoryOrder(category string) int {
 	return len(authQuotaProviders)
 }
 
-func (a *App) findAuthFile(authIndex string) (*hostAuthFile, error) {
-	files, err := a.listHostAuthFiles()
-	if err != nil {
-		return nil, err
-	}
-	for _, file := range files {
-		if file.AuthIndex == authIndex && !strings.EqualFold(strings.TrimSpace(file.AccountType), "api_key") {
-			return &file, nil
-		}
-	}
-	return nil, nil
+// The host has no runtime entry for an index that is not an auth file.
+func (a *App) authFile(authIndex string) (hostAuthFile, bool) {
+	file, err := a.hostAuthRuntime(authIndex)
+	return file, err == nil && file.AccountType != "api_key"
 }
 
 func (a *App) handleQuota(method string, raw []byte) ([]byte, error) {
@@ -322,33 +310,30 @@ func (a *App) handleQuota(method string, raw []byte) ([]byte, error) {
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
-	file, err := a.findAuthFile(strings.TrimSpace(req.AuthIndex))
-	if err != nil {
-		return nil, err
-	}
-	if file == nil || file.AuthIndex == "" {
+	file, found := a.authFile(strings.TrimSpace(req.AuthIndex))
+	if !found {
 		return nil, messages.Errorf("Auth file does not exist")
 	}
 	if req.AuthID != "" && req.AuthID != file.ID {
 		return nil, fmt.Errorf("Credential changed; refresh the credential list")
 	}
-	if req.Provider != "" && !strings.EqualFold(req.Provider, file.Type) {
+	if req.Provider != "" && !strings.EqualFold(req.Provider, file.Provider) {
 		return nil, fmt.Errorf("Credential provider does not match")
 	}
-	if supported, reason := authQuotaAvailability(*file, authCategory(file.Type)); !supported {
+	if supported, reason := authQuotaAvailability(file, authCategory(file.Provider)); !supported {
 		return nil, fmt.Errorf("%s", reason)
 	}
 	if method == MethodQuotaFetch {
-		quota, err := a.fetchAuthQuota(req.HostCallbackID, *file)
+		quota, err := a.fetchAuthQuota(req.HostCallbackID, file)
 		if err != nil {
 			return nil, err
 		}
-		if err := a.saveQuotaQuery(*file, quota); err != nil {
+		if err := a.saveQuotaQuery(file, quota); err != nil {
 			return nil, err
 		}
 		return OKEnvelope(quota.normalized())
 	}
-	cleared, err := a.resetAuthQuota(req.HostCallbackID, *file, newQuotaResetID())
+	cleared, err := a.resetAuthQuota(req.HostCallbackID, file, newQuotaResetID())
 	if err != nil {
 		return nil, err
 	}

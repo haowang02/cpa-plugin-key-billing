@@ -20,7 +20,7 @@ func TestAccountMissingProviderWarningsHaveTranslationMetadata(t *testing.T) {
 	for _, source := range []string{billing.CredentialSourceAuthFiles, billing.CredentialSourceAIProviders} {
 		provider := "custom-provider"
 		credentials, warnings := accountRoutingCredentials(nil, nil,
-			[]billing.CredentialProviderSelector{{Source: source, Provider: provider}}, billing.RoutingDecision{})
+			[]billing.CredentialProviderSelector{{Source: source, Provider: provider}}, billing.RouteRule{})
 		if len(credentials) != 1 || len(warnings) != 1 || warnings[0].Key == "" || warnings[0].Params["v0"] != `"custom-provider"` {
 			t.Fatalf("source=%s, credentials=%+v, warnings=%+v", source, credentials, warnings)
 		}
@@ -180,7 +180,7 @@ func TestAccountRequestErrorsCannotCrossScopes(t *testing.T) {
 	for _, apiKey := range []string{accountTestKeyA, accountTestKeyB} {
 		publishUsageRecord(t, app, UsageRecord{
 			Provider: "codex", Model: "gpt-5.5", Alias: "gpt-5.5", APIKey: apiKey,
-			Generate: true, Failed: true, Failure: UsageFailure{StatusCode: 502,
+			Failed: true, Failure: UsageFailure{StatusCode: 502,
 				Body: `{"error":{"message":"bad gateway","type":"upstream_error"}}`},
 		})
 	}
@@ -242,7 +242,7 @@ func TestAccountAnalysisSpeedStaysInTheCallerScope(t *testing.T) {
 	for key, latency := range map[string]time.Duration{accountTestKeyA: time.Second, accountTestKeyB: 4 * time.Second} {
 		publishUsageRecord(t, app, UsageRecord{
 			Provider: "openai", ExecutorType: "OpenAICompatExecutor", Model: "gpt-5.5", Alias: "gpt-5.5",
-			APIKey: key, Generate: true, RequestedAt: app.store.Now(), Latency: latency,
+			APIKey: key, RequestedAt: app.store.Now(), Latency: latency,
 			Detail: UsageDetail{OutputTokens: 100, TotalTokens: 100},
 		})
 	}
@@ -269,7 +269,7 @@ func TestAccountRequestEventsUseTheAdministratorSource(t *testing.T) {
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "codex", ExecutorType: "CodexExecutor", Model: "gpt-5.5", Alias: "gpt-5.5",
 		APIKey: accountTestKeyA, AuthIndex: "auth-account-test", AuthType: "oauth",
-		Source: "private@example.com", Generate: true, RequestedAt: app.store.Now(),
+		Source: "private@example.com", RequestedAt: app.store.Now(),
 		Detail: UsageDetail{OutputTokens: 20, TotalTokens: 20},
 	})
 
@@ -336,12 +336,11 @@ func TestAccountEmailMasking(t *testing.T) {
 func TestAccountRoutingAndPricesRespectItsScope(t *testing.T) {
 	app := configuredAccountApp(t)
 	hostCalls := 0
-	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+	host := hostDirectoryCaller(`[{"id":"auth-codex","provider":"codex"}]`,
+		`[{"id":"auth-codex","provider":"codex","path":"/auth/codex.json","email":"user@example.com"}]`)
+	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
 		hostCalls++
-		if method != hostAuthList {
-			t.Fatalf("host method=%q", method)
-		}
-		return json.RawMessage(`{"files":[{"id":"auth-codex","provider":"codex","source":"file","path":"/auth/codex.json","email":"user@example.com"}]}`), nil
+		return host(method, payload)
 	})
 	scope := billing.CallerScope(accountTestKeyA)
 	if _, errPrice := app.store.UpsertPrice(billing.CustomPrice{ModelID: "other-model", PriceRates: billing.PriceRates{InputPer1M: 9, OutputPer1M: 18}}); errPrice != nil {
@@ -379,7 +378,7 @@ func TestAccountRoutingAndPricesRespectItsScope(t *testing.T) {
 		t.Fatalf("account prices did not use management response shape: %s", response.Body)
 	}
 	response = callAccount(t, app, routeRouting, accountTestKeyA, nil)
-	if hostCalls != 1 {
+	if hostCalls != 2 {
 		t.Fatalf("routing made %d host calls", hostCalls)
 	}
 	var access accountRoutingResponse
@@ -398,12 +397,8 @@ func TestAccountRoutingAndPricesRespectItsScope(t *testing.T) {
 	}
 	t.Run("deny-only scope", func(t *testing.T) {
 		app, scope := configuredRoutingApp(t, billing.RouteRule{DeniedModels: []string{"gpt"}, DeniedCredentialIDs: []string{billing.CredentialFingerprint("dummy-denied")}, DeniedCredentialProviders: []billing.CredentialProviderSelector{{Source: "ai-providers", Provider: "claude"}}})
-		app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
-			if method != hostAuthList {
-				t.Fatalf("unexpected method: %s", method)
-			}
-			return json.RawMessage(`{"files":[{"id":"dummy-denied","provider":"codex","source":"file","path":"/dummy/denied.json","email":"dummy@example.test"}]}`), nil
-		})
+		app.SetHostCaller(hostDirectoryCaller(`[{"id":"dummy-denied","provider":"codex"}]`,
+			`[{"id":"dummy-denied","provider":"codex","path":"/dummy/denied.json","email":"dummy@example.test"}]`))
 		response := app.accountRouting(viewAccess{APIKey: true, Scope: scope, Tracked: true})
 		var access accountRoutingResponse
 		if err := json.Unmarshal(response.Body, &access); err != nil {

@@ -26,7 +26,7 @@ func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile) (authFileQuot
 	defer client.close()
 	result := authFileQuota{FetchedAt: a.store.Now().UTC(), Quota: []quotaRow{}}
 	var err error
-	switch authCategory(file.Type) {
+	switch authCategory(file.Provider) {
 	case "codex":
 		err = client.fetchCodexQuota(&result)
 	case "claude":
@@ -47,7 +47,7 @@ func (a *App) fetchAuthQuota(callbackID string, file hostAuthFile) (authFileQuot
 
 func (a *App) resetAuthQuota(callbackID string, file hostAuthFile, resetID string) (bool, error) {
 	var reset func(*authQuotaClient, string) error
-	switch authCategory(file.Type) {
+	switch authCategory(file.Provider) {
 	case "codex":
 		reset = (*authQuotaClient).resetCodexQuota
 	case "claude":

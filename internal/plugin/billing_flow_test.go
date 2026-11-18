@@ -58,7 +58,6 @@ func billUsage(t *testing.T, app *App, uncached, cacheRead, cacheWrite, output, 
 		Model:        flowModel,
 		Alias:        flowModel,
 		APIKey:       testAPIKey,
-		Generate:     true,
 		RequestedAt:  app.store.Now(),
 		Detail: UsageDetail{
 			InputTokens:         uncached + cacheRead + cacheWrite,
@@ -121,7 +120,7 @@ func TestUsageHandleUsesClientKeyModelAliasAndCredential(t *testing.T) {
 		Provider: "codex", ExecutorType: "CodexExecutor", Model: flowModel, Alias: "route/gpt-5.5",
 		ResponseModel: "gpt-5.6-luna", APIKey: testAPIKey, AuthIndex: "auth-7", AuthType: "oauth",
 		Source: testAPIKey, ReasoningEffort: "high", ServiceTier: "auto", EffectiveServiceTier: "priority", ResponseServiceTier: "default",
-		Generate: true, RequestedAt: app.store.Now(), Latency: 1500 * time.Millisecond, TTFT: 250 * time.Millisecond,
+		RequestedAt: app.store.Now(), Latency: 1500 * time.Millisecond, TTFT: 250 * time.Millisecond,
 		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
 
@@ -152,7 +151,7 @@ func TestUsageHandleReportsZeroUsageFailureAndBillsReportedFailureUsage(t *testi
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "codex", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		AuthIndex: "auth-failed", AuthType: "oauth", Source: "billing@example.com",
-		Generate: true, Failed: true, Failure: UsageFailure{
+		Failed: true, Failure: UsageFailure{
 			StatusCode: 502,
 			Body:       `{"error":{"message":"service overloaded","type":"service_unavailable_error"}}`,
 		},
@@ -173,7 +172,7 @@ func TestUsageHandleReportsZeroUsageFailureAndBillsReportedFailureUsage(t *testi
 
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "openai", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
-		Generate: true, Failed: true, RequestedAt: app.store.Now(),
+		Failed: true, RequestedAt: app.store.Now(),
 		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
 	if cost, requests := requestEventCost(t, app); cost <= 0 || requests != 1 {
@@ -212,14 +211,14 @@ func TestUsageHandleBillsTheSuccessfulRetryAttemptOnce(t *testing.T) {
 		TraceID: req.TraceID, Stream: true,
 		Provider: "codex", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		AuthIndex: "auth-failed", AuthType: "oauth", Source: "failed@example.com",
-		Generate: true, Failed: true,
+		Failed: true,
 	})
 	publishUsageRecord(t, app, UsageRecord{
 		TraceID: req.TraceID, Stream: true,
 		Provider: "codex", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		AuthIndex: "auth-success", AuthType: "oauth", Source: "success@example.com",
-		Generate: true, RequestedAt: app.store.Now(),
-		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
+		RequestedAt: app.store.Now(),
+		Detail:      UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
 
 	if cost, requests := requestEventCost(t, app); cost <= 0 || requests != 1 {
@@ -236,37 +235,14 @@ func TestUsageHandleBillsTheSuccessfulRetryAttemptOnce(t *testing.T) {
 	}
 }
 
-func TestUsageHandleBillsNonGeneratingRequest(t *testing.T) {
-	app := newAppWithPrice(t, true)
-	publishUsageRecord(t, app, UsageRecord{
-		Provider: "codex", ExecutorType: "CodexWebsocketsExecutor",
-		Model: flowModel, Alias: flowModel, APIKey: testAPIKey, Generate: false,
-		TTFT: 12 * time.Millisecond, Latency: 12 * time.Millisecond,
-		Detail: UsageDetail{InputTokens: 1000, CacheReadTokens: 400, TotalTokens: 1000},
-	})
-	cost, requests := requestEventCost(t, app)
-	assertCostClose(t, cost, 0.0006+0.00004)
-	if requests != 1 {
-		t.Fatalf("requests = %d, want 1", requests)
-	}
-	entries := requestEventEntries(t, app)
-	if len(entries) != 1 || entries[0].Cost.CacheReadTokens != 400 || entries[0].Cost.BilledOutputTokens != 0 {
-		t.Fatalf("entries = %+v", entries)
-	}
-	if entry := entries[0]; entry.RequestOrigin != (billing.RequestOrigin{}) || entry.Stream == nil || *entry.Stream || entry.TTFTMS != 12 {
-		t.Fatalf("invented request metadata or changed host timing: %+v", entry)
-	}
-}
-
 func TestUsageHandleRecordsUnscopedUsageWithoutCreatingKey(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	now := app.store.Now()
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "codex", ExecutorType: "CodexWebsocketsExecutor",
 		Model: flowModel, Alias: flowModel, AuthIndex: "unscoped-auth",
-		AuthType: "oauth", Source: "upstream@example.com", Generate: true,
-		RequestedAt: now.Add(-time.Minute),
-		Detail:      UsageDetail{InputTokens: 1000, TotalTokens: 1000},
+		AuthType: "oauth", Source: "upstream@example.com", RequestedAt: now.Add(-time.Minute),
+		Detail: UsageDetail{InputTokens: 1000, TotalTokens: 1000},
 	})
 
 	entries := requestEventEntries(t, app)
@@ -288,7 +264,7 @@ func TestUsageHandleDoesNotGuessAmbiguousUnknownAccounting(t *testing.T) {
 	app := newAppWithPrice(t, true)
 	publishUsageRecord(t, app, UsageRecord{
 		Provider: "future-provider", Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
-		Generate: true, Detail: UsageDetail{InputTokens: 100, OutputTokens: 20, ReasoningTokens: 5},
+		Detail: UsageDetail{InputTokens: 100, OutputTokens: 20, ReasoningTokens: 5},
 	})
 	cost, requests := requestEventCost(t, app)
 	if requests != 1 {
@@ -313,8 +289,8 @@ func TestUsageHandlePersistsBillWithoutPlaintextKeys(t *testing.T) {
 		Provider: "openai-compatible-deepseek", ExecutorType: "OpenAICompatExecutor",
 		Model: flowModel, Alias: flowModel, APIKey: testAPIKey,
 		AuthIndex: "auth-3", AuthType: "apikey", Source: "sk-upstream-key-0001",
-		Generate: true, RequestedAt: app.store.Now(),
-		Detail: UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
+		RequestedAt: app.store.Now(),
+		Detail:      UsageDetail{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
 	})
 	response := app.listRequestEvents(ManagementRequest{}, viewAccess{APIKey: true, Scope: flowScope(), Tracked: true})
 	if bytes.Contains(response.Body, []byte("upstream.invalid")) || bytes.Contains(response.Body, []byte("credential_ref")) {

@@ -47,13 +47,12 @@ const (
 const (
 	// MetadataCallerScope is hex sha256("cli-proxy-api:caller-scope:v1\x00"+apiKey), the only downstream key
 	// identifier at interception, covering keys sent in query strings as well as headers.
-	MetadataCallerScope    = "caller_scope"
-	MetadataGenerate       = "generate"
-	MetadataSource         = "source"
-	MetadataRequestPath    = "request_path"
-	MetadataRequestedModel = "requested_model"
-	MetadataSelectedAuth   = "selected_auth_id"
-	MetadataSelectedIndex  = "selected_auth_index"
+	MetadataCallerScope        = "caller_scope"
+	MetadataGenerate           = "generate"
+	MetadataSource             = "source"
+	MetadataRequestPath        = "request_path"
+	MetadataAuthSelectionModel = "auth_selection_model"
+	MetadataSelectedAuth       = "selected_auth_id"
 	// Nested plugin-initiated executions bypass client model and quota checks.
 	SourcePluginHostModelCallback = "plugin_host_model_callback"
 )
@@ -120,9 +119,7 @@ type SchedulerPickRequest struct {
 
 type SchedulerAuthCandidate struct {
 	ID         string            `json:"ID"`
-	Provider   string            `json:"Provider"`
 	Priority   int               `json:"Priority"`
-	Status     string            `json:"Status"`
 	Attributes map[string]string `json:"Attributes"`
 }
 
@@ -190,7 +187,6 @@ type UsageRecord struct {
 	ResponseServiceTier  string        `json:"ResponseServiceTier"`
 	ResponseModel        string        `json:"ResponseModel"`
 	ResponseHeaders      http.Header   `json:"ResponseHeaders"`
-	Generate             bool          `json:"Generate"`
 	Stream               bool          `json:"Stream"`
 	RequestedAt          time.Time     `json:"RequestedAt"`
 	Latency              time.Duration `json:"Latency"`

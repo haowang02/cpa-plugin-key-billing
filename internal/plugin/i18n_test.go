@@ -49,9 +49,9 @@ func TestProtocolRejectionsUseEnglishWithoutUITranslationMetadata(t *testing.T) 
 		responses := []RequestInterceptResponse{
 			concurrencyLimitResponse(format, billing.SlotDecision{Active: 2, Limit: 2}),
 			quotaExhaustedResponse(format, billing.Decision{PlanName: "Test plan"}, time.Now()),
-			modelForbiddenResponse(format, billing.RoutingDecision{Model: "test-model"}),
+			modelForbiddenResponse(format, billing.RouteRule{}, "test-model"),
+			modelUnservedResponse(format, "test-model"),
 			routingErrorResponse(format, "routing_credential_mismatch", "The selected upstream credential is not permitted by this API key's routing rules"),
-			routingErrorResponse(format, "routing_credential_unverified", "The host did not report the selected upstream credential"),
 			priceRefusal(format, "model_price_error", "Model test-model has no configured price"),
 		}
 		for _, response := range responses {
@@ -72,7 +72,7 @@ func TestProtocolRejectionsUseEnglishWithoutUITranslationMetadata(t *testing.T) 
 	}
 	diagnostics := MenuLabel + MenuDescription
 	for _, shortfall := range routingShortfalls {
-		diagnostics += shortfall.message
+		diagnostics += shortfall.message("test-model")
 	}
 	if strings.IndexFunc(diagnostics, func(r rune) bool { return unicode.Is(unicode.Han, r) }) >= 0 {
 		t.Fatal("registration and scheduler diagnostics must use English")

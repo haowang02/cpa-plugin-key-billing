@@ -355,10 +355,6 @@
     "key": "backend.claude_reset_unconfirmed",
     "formats": []
   },
-  "This CLIProxyAPI version does not support reading auth files": {
-    "key": "backend.this_cliproxyapi_version_does_not_support_reading_auth_files",
-    "formats": []
-  },
   "Read auth file list: %w": {
     "key": "backend.read_auth_file_list_value",
     "formats": [
@@ -413,12 +409,6 @@
     "key": "backend.quota_request_failed_value",
     "formats": [
       "%s"
-    ]
-  },
-  "Parse quota response: %w": {
-    "key": "backend.parse_quota_response_value",
-    "formats": [
-      "%v"
     ]
   },
   "Upstream returned HTTP %d: Credentials are invalid or expired": {
@@ -551,12 +541,6 @@
   },
   "No configured API keys match provider %q": {
     "key": "backend.no_configured_credentials_match",
-    "formats": [
-      "%q"
-    ]
-  },
-  "No upstream credentials match %q": {
-    "key": "backend.no_credentials_match",
     "formats": [
       "%q"
     ]

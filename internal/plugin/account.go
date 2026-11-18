@@ -82,38 +82,38 @@ func (a *App) accountRouting(access viewAccess) ManagementResponse {
 	if !access.Tracked {
 		return apiKeyUnauthorized()
 	}
-	decision := a.store.ResolveRouting(access.Scope, "", "")
+	routing := a.store.Routing(access.Scope)
 	response := accountRoutingResponse{
-		Models: decision.Models, DeniedModels: decision.DeniedModels,
+		Models: routing.Models, DeniedModels: routing.DeniedModels,
 		Credentials: []accountRouteCredential{}, DeniedCredentials: []accountRouteCredential{},
 		Warnings: []string{},
 	}
-	if !decision.RestrictsCredentials() {
+	if !routing.RestrictsCredentials() {
 		return viewJSON(access, http.StatusOK, response)
 	}
-	if err := a.refreshCredentialInventory(); err != nil {
+	if _, err := a.readCredentialDirectory(); err != nil {
 		response.Warnings = append(response.Warnings, "Failed to load upstream credentials")
 		response.WarningMessages = append(response.WarningMessages, messages.New("Failed to load upstream credentials"))
 	}
-	inventory := a.credentialInventory()
+	inventory := credentialInventory(a.credentialViews())
 	var warnings []messages.Message
-	response.Credentials, warnings = accountRoutingCredentials(inventory, decision.CredentialIDs, decision.CredentialProviders, decision)
+	response.Credentials, warnings = accountRoutingCredentials(inventory, routing.CredentialIDs, routing.CredentialProviders, routing)
 	for _, warning := range warnings {
 		response.Warnings = append(response.Warnings, warning.Text)
 		response.WarningMessages = append(response.WarningMessages, warning)
 	}
 	// Denied provider selectors stay provider-wide, including future credentials.
-	for _, selector := range decision.DeniedCredentialProviders {
+	for _, selector := range routing.DeniedCredentialProviders {
 		response.DeniedCredentials = append(response.DeniedCredentials, accountRouteCredential{
 			Source: selector.Source, Provider: selector.Provider, ProviderWide: true, Denied: true,
 		})
 	}
-	denied, _ := accountRoutingCredentials(inventory, decision.DeniedCredentialIDs, nil, decision)
+	denied, _ := accountRoutingCredentials(inventory, routing.DeniedCredentialIDs, nil, routing)
 	response.DeniedCredentials = append(response.DeniedCredentials, denied...)
 	return viewJSON(access, http.StatusOK, response)
 }
 
-func accountRoutingCredentials(inventory []credentialView, refs []string, providers []billing.CredentialProviderSelector, decision billing.RoutingDecision) ([]accountRouteCredential, []messages.Message) {
+func accountRoutingCredentials(inventory []credentialView, refs []string, providers []billing.CredentialProviderSelector, routing billing.RouteRule) ([]accountRouteCredential, []messages.Message) {
 	warnings := []messages.Message{}
 	byRef := map[string]credentialView{}
 	for _, item := range inventory {
@@ -127,7 +127,7 @@ func accountRoutingCredentials(inventory []credentialView, refs []string, provid
 		}
 		seenRefs[item.Ref] = struct{}{}
 		value := accountCredential(item)
-		value.Denied = !decision.AllowsCredential(item.Ref, item.Source, item.Provider)
+		value.Denied = !routing.AllowsCredential(item.Ref, item.Source, item.Provider)
 		credentials = append(credentials, value)
 	}
 	missingCredential := false
@@ -135,7 +135,7 @@ func accountRoutingCredentials(inventory []credentialView, refs []string, provid
 		if credential, ok := byRef[ref]; ok {
 			addCredential(credential)
 		} else if !missingCredential {
-			credentials = append(credentials, accountRouteCredential{Name: "The selected upstream credential is unavailable", NameMessage: messages.New("The selected upstream credential is unavailable"), Status: "missing", Denied: !decision.AllowsCredential(ref, "", "")})
+			credentials = append(credentials, accountRouteCredential{Name: "The selected upstream credential is unavailable", NameMessage: messages.New("The selected upstream credential is unavailable"), Status: "missing", Denied: !routing.AllowsCredential(ref, "", "")})
 			missingCredential = true
 		}
 	}
@@ -152,16 +152,13 @@ func accountRoutingCredentials(inventory []credentialView, refs []string, provid
 		}
 		credentials = append(credentials, accountRouteCredential{
 			Source: selector.Source, Provider: selector.Provider, Status: "missing", ProviderWide: true,
-			Denied: !decision.AllowsCredential("", selector.Source, selector.Provider),
+			Denied: !routing.AllowsCredential("", selector.Source, selector.Provider),
 		})
-		switch selector.Source {
-		case billing.CredentialSourceAuthFiles:
-			warnings = append(warnings, messages.New("No auth-file credentials match provider %q", selector.Provider))
-		case billing.CredentialSourceAIProviders:
-			warnings = append(warnings, messages.New("No configured API keys match provider %q", selector.Provider))
-		default:
-			warnings = append(warnings, messages.New("No upstream credentials match %q", selector.Source+" · "+selector.Provider))
+		warning := messages.New("No configured API keys match provider %q", selector.Provider)
+		if selector.Source == billing.CredentialSourceAuthFiles {
+			warning = messages.New("No auth-file credentials match provider %q", selector.Provider)
 		}
+		warnings = append(warnings, warning)
 	}
 	sort.Slice(credentials, func(i, j int) bool {
 		left, right := credentials[i], credentials[j]

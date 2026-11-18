@@ -97,14 +97,12 @@ function renderPluginLogMessage(pluginLog) {
     const check = {
       allow: { label: m("ui.credential_route_check_passed"), class: "tag ok" },
       deny: { label: m("ui.credential_route_check_denied"), class: "tag bad" },
-      unverified: { label: m("ui.credential_route_check_unverified"), class: "tag bad" },
-      selected: { label: m("ui.credential_route_check_not_recorded"), class: "tag plain" }
+      unverified: { label: m("ui.credential_route_check_unverified"), class: "tag bad" }
     }[row.credential_result];
     const credential =
       {
         unavailable: m("ui.upstream_credential_allowed_unavailable"),
         no_credential: m("ui.upstream_credential_none_allowed_serves_model"),
-        no_match: m("ui.upstream_credential_no_available_match"),
         not_reached: m("ui.upstream_credential_selection_not_reached"),
         not_observed: m("ui.upstream_credential_selection_not_observed"),
         unrestricted: m("ui.upstream_credential_unrestricted")

@@ -60,9 +60,7 @@ func TestObservedQuotaUsageStartsAfterEarlyResetAndSkipsAdditionalLimitModels(t 
 			Model: event.model, RequestedAt: base.Add(event.offset), ResponseHeaders: event.headers,
 			Detail: UsageDetail{InputTokens: event.tokens, TotalTokens: event.tokens}})
 	}
-	app.SetHostCaller(func(string, any) (json.RawMessage, error) {
-		return json.RawMessage(`{"files":[{"auth_index":"codex-1","name":"dummy.json","type":"codex"}]}`), nil
-	})
+	app.SetHostCaller(authFileHost(`[{"auth_index":"codex-1","name":"dummy.json","provider":"codex"}]`))
 	files, err := app.listAuthFiles(viewAccess{}, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatal(err)
@@ -112,8 +110,8 @@ func TestFetchedQuotaKeysUnifiedWindowsAndCoversModelFamilies(t *testing.T) {
 		`"seven_day_oauth_apps":{"utilization":5,"resets_at":"` + resetAt(24*time.Hour) + `"}}`
 	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
 		switch method {
-		case hostAuthList:
-			return json.RawMessage(`{"files":[{"auth_index":"claude-1","name":"claude.json","type":"claude"}]}`), nil
+		case hostAuthList, hostAuthGetRuntime:
+			return authFileHost(`[{"auth_index":"claude-1","name":"claude.json","provider":"claude"}]`)(method, payload)
 		case hostAuthGet:
 			return json.RawMessage(`{"json":{"access_token":"dummy-token"}}`), nil
 		}
@@ -274,9 +272,7 @@ func TestQuotaHistoryFollowsPlanChangesAndMatchesCurrentUsage(t *testing.T) {
 	// A request to another provider on the same auth index belongs to none of these windows.
 	publish(238, "claude", "claude-sonnet-4-5", "sk-dummy-two", 9000, http.Header{
 		"Anthropic-Ratelimit-Unified-5h-Utilization": {"0.5"}, "Anthropic-Ratelimit-Unified-5h-Reset": {unix(242)}})
-	app.SetHostCaller(func(string, any) (json.RawMessage, error) {
-		return json.RawMessage(`{"files":[{"auth_index":"codex-1","name":"dummy.json","type":"codex"}]}`), nil
-	})
+	app.SetHostCaller(authFileHost(`[{"auth_index":"codex-1","name":"dummy.json","provider":"codex"}]`))
 	history := func(access viewAccess) authFileHistoryResponse {
 		t.Helper()
 		response := app.authFileHistory(ManagementRequest{Query: url.Values{"auth_index": {"codex-1"}}}, access)

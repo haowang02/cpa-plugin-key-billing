@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -22,13 +23,27 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	scope := metadataString(req.Metadata, MetadataCallerScope)
 	endpoint := metadataString(req.Metadata, MetadataRequestPath)
 
-	// Reject disallowed models before quota checks can open a subscription period.
+	// Reject uncallable models before quota checks can open a subscription period.
 	if !helper {
 		a.rememberRequestOrigin(req, scope, endpoint)
-		routing := a.store.ResolveRouting(scope, req.Model, req.RequestedModel)
-		a.beginRouteLog(req.RequestID, scope, routing)
-		if routing.RestrictsModels() && !routing.AllowsModel() {
-			return OKEnvelope(modelForbiddenResponse(req.SourceFormat, routing))
+		routing := a.store.Routing(scope)
+		model := a.store.BillingModel(req.Model, req.RequestedModel)
+		a.beginRouteLog(req.RequestID, scope, routing, model)
+		if !routing.AllowsModel(model) {
+			return OKEnvelope(modelForbiddenResponse(req.SourceFormat, routing, model))
+		}
+		if routing.RestrictsCredentials() {
+			// CPA selects credentials by this model when an endpoint overrides the requested one.
+			selection := cmp.Or(metadataString(req.Metadata, MetadataAuthSelectionModel), req.Model)
+			serves := func(directory credentialDirectory) bool { return directory.serves(routing, selection) }
+			directory, err := a.routingDirectory(serves)
+			if err != nil {
+				// Credential selection and the post-auth check still enforce the rules.
+				a.store.AddPluginLog(billing.PluginLogError, "Read upstream credentials for routing: %v", err)
+			} else if !serves(directory) {
+				a.markRouteUnserved(req.RequestID)
+				return OKEnvelope(modelUnservedResponse(req.SourceFormat, selection))
+			}
 		}
 	}
 
@@ -69,6 +84,7 @@ func (a *App) interceptBeforeAuth(raw []byte) ([]byte, error) {
 	return OKEnvelope(RequestInterceptResponse{})
 }
 
+// Another plugin's scheduler can select a credential these rules deny.
 func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 	var req RequestInterceptRequest
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
@@ -77,23 +93,8 @@ func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 	result, detail := "unrestricted", ""
 	var response RequestInterceptResponse
 	if a.store.Enabled() && metadataString(req.Metadata, MetadataSource) != SourcePluginHostModelCallback {
-		// Credential permissions are independent of model aliases. Recheck the
-		// current policy even when another scheduler made the selection.
-		scope := metadataString(req.Metadata, MetadataCallerScope)
-		decision := a.store.ResolveRouting(scope, req.Model, req.RequestedModel)
-		a.beginRouteLog(req.RequestID, scope, decision)
-		if decision.RestrictsCredentials() {
-			allowed, err := a.selectedCredentialAllowed(req, decision)
-			switch {
-			case err != nil:
-				result, detail = "unverified", err.Error()
-				response = routingErrorResponse(req.SourceFormat, "routing_credential_unverified", detail)
-			case !allowed:
-				result, detail = "deny", "The selected upstream credential is not permitted by this API key's routing rules"
-				response = routingErrorResponse(req.SourceFormat, "routing_credential_mismatch", detail)
-			default:
-				result = "allow"
-			}
+		if routing := a.store.Routing(metadataString(req.Metadata, MetadataCallerScope)); routing.RestrictsCredentials() {
+			result, detail, response = a.checkSelectedCredential(req, routing)
 		}
 	}
 	if id := metadataString(req.Metadata, MetadataSelectedAuth); !response.Terminate && id != "" {
@@ -101,6 +102,22 @@ func (a *App) interceptAfterAuth(raw []byte) ([]byte, error) {
 	}
 	a.observeRouteCredential(req, result, detail)
 	return OKEnvelope(response)
+}
+
+// The host reports every selection, and a host error must refuse here: CPA ignores a failed interceptor.
+func (a *App) checkSelectedCredential(req RequestInterceptRequest, routing billing.RouteRule) (string, string, RequestInterceptResponse) {
+	id := metadataString(req.Metadata, MetadataSelectedAuth)
+	allows := func(directory credentialDirectory) bool { return directory.allows(id, routing) }
+	directory, err := a.routingDirectory(allows, id)
+	switch {
+	case err != nil:
+		detail := "Failed to read upstream credentials to verify the selected one"
+		return "unverified", detail, routingErrorResponse(req.SourceFormat, "routing_credential_unverified", detail)
+	case !allows(directory):
+		detail := "The selected upstream credential is not permitted by this API key's routing rules"
+		return "deny", detail, routingErrorResponse(req.SourceFormat, "routing_credential_mismatch", detail)
+	}
+	return "allow", "", RequestInterceptResponse{}
 }
 
 func (a *App) completeRequest(raw []byte) ([]byte, error) {
@@ -113,17 +130,7 @@ func (a *App) completeRequest(raw []byte) ([]byte, error) {
 	return OKEnvelope(struct{}{})
 }
 
-// The host sanitizes metadata into JSON-native types, so a surviving value is a string or formats safely as one.
 func metadataString(metadata map[string]any, key string) string {
-	if metadata == nil {
-		return ""
-	}
-	raw, exists := metadata[key]
-	if !exists || raw == nil {
-		return ""
-	}
-	if value, ok := raw.(string); ok {
-		return strings.TrimSpace(value)
-	}
-	return strings.TrimSpace(fmt.Sprint(raw))
+	value, _ := metadata[key].(string)
+	return strings.TrimSpace(value)
 }

@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"net/http"
 	"sync"
 
@@ -15,18 +14,16 @@ import (
 type HostCaller func(method string, payload any) (json.RawMessage, error)
 
 type App struct {
-	store                 *billing.Store
-	hostCaller            HostCaller
-	requestOrigins        map[requestOriginKey]*list.Element
-	requestOriginOrder    list.List
-	requestOriginsMu      sync.Mutex
-	routingMu             sync.Mutex
-	credentials           map[string]credentialView
-	credentialIdentities  map[string]billing.CredentialProviderSelector
-	credentialRefsByIndex map[string]string
-	scheduler             subsetScheduler
-	pending               map[string]pendingRouteLog
-	pendingSequence       uint64
+	store              *billing.Store
+	hostCaller         HostCaller
+	requestOrigins     map[requestOriginKey]*list.Element
+	requestOriginOrder list.List
+	requestOriginsMu   sync.Mutex
+	routingMu          sync.Mutex
+	directory          credentialDirectory
+	scheduler          subsetScheduler
+	pending            map[string]pendingRouteLog
+	pendingSequence    uint64
 }
 
 func (a *App) SetHostCaller(caller HostCaller) {
@@ -39,12 +36,9 @@ func NewApp() *App {
 
 func newApp(store *billing.Store) *App {
 	app := &App{
-		store:                 store,
-		requestOrigins:        make(map[requestOriginKey]*list.Element),
-		credentials:           make(map[string]credentialView),
-		credentialIdentities:  make(map[string]billing.CredentialProviderSelector),
-		credentialRefsByIndex: make(map[string]string),
-		pending:               make(map[string]pendingRouteLog),
+		store:          store,
+		requestOrigins: make(map[requestOriginKey]*list.Element),
+		pending:        make(map[string]pendingRouteLog),
 	}
 	if app.store == nil {
 		app.store = billing.NewStore(openRepository, app.downloadReferencePrices)
@@ -114,23 +108,10 @@ func (a *App) configure(raw []byte) error {
 	if errDecode != nil {
 		return errDecode
 	}
-	if errConfigure := func() error {
-		a.routingMu.Lock()
-		defer a.routingMu.Unlock()
-		previous := a.store.ConfigCredentials()
-		if err := a.store.Configure(cfg); err != nil {
-			return err
-		}
-		a.scheduler.configure(cfg.Routing, cfg.Enabled)
-		if loaded := a.store.ConfigCredentials(); !maps.EqualFunc(previous, loaded, func(left, right billing.ConfigCredential) bool {
-			return left.ConfigCredentialDetails == right.ConfigCredentialDetails
-		}) {
-			a.replaceSyncedCredentials(previous, loaded)
-		}
-		return nil
-	}(); errConfigure != nil {
+	if errConfigure := a.store.Configure(cfg); errConfigure != nil {
 		return errConfigure
 	}
+	a.scheduler.configure(cfg.Routing, cfg.Enabled)
 	// Refresh records its result; a download failure does not disable custom prices.
 	_, _ = a.store.EnsureReferencePrices()
 	return nil

@@ -50,7 +50,7 @@ func selectRequestCredential(t *testing.T, app *App, requestID, credentialID str
 	t.Helper()
 	raw, err := app.HandleMethod(MethodRequestInterceptAfter, mustMarshal(t, RequestInterceptRequest{
 		RequestID: requestID, Model: flowModel, RequestedModel: flowModel,
-		Metadata: map[string]any{MetadataCallerScope: flowScope(), MetadataSelectedAuth: credentialID, MetadataSelectedIndex: "shared-index"},
+		Metadata: map[string]any{MetadataCallerScope: flowScope(), MetadataSelectedAuth: credentialID},
 	}))
 	if err != nil {
 		t.Fatal(err)

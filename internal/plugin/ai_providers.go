@@ -25,9 +25,9 @@ type aiProviderListResponse struct {
 func (a *App) visibleConfigCredentials(access viewAccess) map[string]billing.ConfigCredential {
 	credentials := a.store.ConfigCredentials()
 	if access.APIKey {
-		decision := a.store.ResolveRouting(access.Scope, "", "")
+		routing := a.store.Routing(access.Scope)
 		for ref, credential := range credentials {
-			if !decision.AllowsCredential(ref, billing.CredentialSourceAIProviders, credential.Provider) {
+			if !routing.AllowsCredential(ref, billing.CredentialSourceAIProviders, credential.Provider) {
 				delete(credentials, ref)
 			}
 		}
@@ -148,17 +148,8 @@ func (a *App) syncConfiguredCredentials(req ManagementRequest) ManagementRespons
 		next[ref] = credential
 	}
 
-	if err := func() error {
-		a.routingMu.Lock()
-		defer a.routingMu.Unlock()
-		previous := a.store.ConfigCredentials()
-		if err := a.store.SyncConfigCredentials(next); err != nil {
-			return err
-		}
-		a.replaceSyncedCredentials(previous, a.store.ConfigCredentials())
-		return nil
-	}(); err != nil {
+	if err := a.store.SyncConfigCredentials(next); err != nil {
 		return errorResponse(err)
 	}
-	return JSONResponse(http.StatusOK, map[string]any{"credentials": a.credentialInventory()})
+	return JSONResponse(http.StatusOK, map[string]any{"credentials": credentialInventory(a.credentialViews())})
 }

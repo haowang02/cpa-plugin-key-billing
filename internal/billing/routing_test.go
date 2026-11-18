@@ -37,17 +37,14 @@ func TestRoutesAndDirectBindingsUnionModelsAndCredentialsIndependently(t *testin
 		{model: "claude-sonnet-4-6", allow: true},
 		{model: "gpt-5.6-luna", allow: true},
 		{model: "unknown-model", allow: false},
-		{model: "", allow: true},
 	} {
-		t.Run(test.model, func(t *testing.T) {
-			decision := store.ResolveRouting("scope-a", test.model, test.model)
-			if decision.AllowsModel() != test.allow || !slices.Equal(decision.Models, wantModels) {
-				t.Fatalf("model policy=%+v", decision)
-			}
-			if !slices.Equal(decision.CredentialIDs, wantIDs) || !slices.Equal(decision.CredentialProviders, wantProviders) {
-				t.Fatalf("credential union changed with request model: %+v", decision)
-			}
-		})
+		if store.Routing("scope-a").AllowsModel(test.model) != test.allow {
+			t.Fatalf("model %q allowed=%v", test.model, !test.allow)
+		}
+	}
+	routing := store.Routing("scope-a")
+	if !slices.Equal(routing.Models, wantModels) || !slices.Equal(routing.CredentialIDs, wantIDs) || !slices.Equal(routing.CredentialProviders, wantProviders) {
+		t.Fatalf("union=%+v", routing)
 	}
 	t.Run("deny precedence", func(t *testing.T) {
 		ref := CredentialFingerprint("dummy-denied")
@@ -60,23 +57,23 @@ func TestRoutesAndDirectBindingsUnionModelsAndCredentialsIndependently(t *testin
 			}
 			state.Keys["scope"] = &KeyState{RouteBindings: RouteBindings{RouteIDs: []string{"allow", "deny"}, RouteRule: RouteRule{Models: []string{"gpt"}, CredentialProviders: []CredentialProviderSelector{provider}}}}
 		})
+		routing := store.Routing("scope")
 		for _, model := range []string{"gpt", "GPT", "other"} {
-			d := store.ResolveRouting("scope", model, model)
-			if !d.RestrictsModels() || d.AllowsModel() || len(d.Models) != 1 {
-				t.Fatalf("empty effective allowlist became unrestricted: %+v", d)
+			if !routing.RestrictsModels() || routing.AllowsModel(model) || len(routing.Models) != 1 {
+				t.Fatalf("empty effective allowlist became unrestricted: %+v", routing)
 			}
-			if d.AllowsCredential(ref, "auth-files", "codex") {
-				t.Fatal("direct/exact allow bypassed provider deny")
-			}
-			if !d.AllowsCredential(ref, "ai-providers", "codex") {
-				t.Fatal("provider deny crossed credential sources")
-			}
+		}
+		if routing.AllowsCredential(ref, "auth-files", "codex") {
+			t.Fatal("direct/exact allow bypassed provider deny")
+		}
+		if !routing.AllowsCredential(ref, "ai-providers", "codex") {
+			t.Fatal("provider deny crossed credential sources")
 		}
 		if err := store.SetKeyRoutes("scope", RouteBindings{RouteIDs: []string{"allow"}, RouteRule: RouteRule{DeniedModels: []string{"gpt"}, DeniedCredentialIDs: []string{ref}}}); err != nil {
 			t.Fatal(err)
 		}
-		d := store.ResolveRouting("scope", "gpt", "gpt")
-		if d.AllowsModel() || d.AllowsCredential(ref, "ai-providers", "codex") {
+		routing = store.Routing("scope")
+		if routing.AllowsModel("gpt") || routing.AllowsCredential(ref, "ai-providers", "codex") {
 			t.Fatal("bound allow bypassed direct deny")
 		}
 	})
@@ -94,9 +91,9 @@ func TestDirectModelKeepsBoundRouteCredentialRestrictions(t *testing.T) {
 			state.Routes = []Route{{ID: "codex", Name: "Codex", Rule: rule}}
 			state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{RouteIDs: []string{"codex"}, RouteRule: RouteRule{Models: []string{"gpt-5.6-luna"}}}}
 		})
-		decision := store.ResolveRouting("scope-a", "gpt-5.6-luna", "gpt-5.6-luna")
-		if !decision.AllowsModel() || !decision.RestrictsCredentials() || !slices.Equal(decision.CredentialIDs, rule.CredentialIDs) || !slices.Equal(decision.CredentialProviders, rule.CredentialProviders) {
-			t.Fatalf("direct model lost bound route credentials: %+v", decision)
+		routing := store.Routing("scope-a")
+		if !routing.AllowsModel("gpt-5.6-luna") || !routing.RestrictsCredentials() || !slices.Equal(routing.CredentialIDs, rule.CredentialIDs) || !slices.Equal(routing.CredentialProviders, rule.CredentialProviders) {
+			t.Fatalf("direct model lost bound route credentials: %+v", routing)
 		}
 	}
 }
@@ -128,44 +125,10 @@ func TestRoutingEmptyDimensionsRemainIndependent(t *testing.T) {
 				}
 				state.Keys["scope-a"] = key
 			})
+			routing := store.Routing("scope-a")
 			for _, model := range []string{"allowed-model", "other-model"} {
-				decision := store.ResolveRouting("scope-a", model, model)
-				if decision.RestrictsModels() != test.models || decision.RestrictsCredentials() != test.credentials || decision.AllowsModel() != (!test.models || model == "allowed-model") {
-					t.Fatalf("independent dimensions: %+v", decision)
-				}
-			}
-		})
-	}
-}
-
-func TestDirectModelAndCredentialBindingsComposeAcrossPhases(t *testing.T) {
-	ref := CredentialFingerprint("auth-a")
-	otherRef := CredentialFingerprint("auth-b")
-	for _, test := range []struct {
-		name         string
-		rule         RouteRule
-		allowedModel string
-		deniedModel  string
-		allowedRef   string
-		deniedRef    string
-	}{
-		{"allow", RouteRule{Models: []string{"gpt-5.6-sol"}, CredentialIDs: []string{ref}}, "GPT-5.6-SOL", "other", ref, otherRef},
-		{"deny only", RouteRule{DeniedModels: []string{"gpt-5.6-sol"}, DeniedCredentialIDs: []string{ref}}, "other", "GPT-5.6-SOL", otherRef, ref},
-		{"provider with exception", RouteRule{DeniedModels: []string{"gpt-5.6-sol"}, CredentialProviders: []CredentialProviderSelector{{Source: CredentialSourceAuthFiles, Provider: "codex"}}, DeniedCredentialIDs: []string{ref}}, "other", "GPT-5.6-SOL", otherRef, ref},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			store := newStore(t)
-			store.ReplaceAll(func(state *State) { state.Keys["scope-a"] = &KeyState{} })
-			if err := store.SetKeyRoutes("scope-a", RouteBindings{RouteRule: test.rule}); err != nil {
-				t.Fatal(err)
-			}
-			for _, model := range []string{test.allowedModel, test.deniedModel, ""} {
-				d := store.ResolveRouting("scope-a", model, model)
-				if d.AllowsModel() != (model != test.deniedModel) || !d.RestrictsModels() || !d.RestrictsCredentials() {
-					t.Fatalf("model policy: %+v", d)
-				}
-				if !d.AllowsCredential(test.allowedRef, " AUTH-FILES ", " Codex ") || d.AllowsCredential(test.deniedRef, "auth-files", "codex") {
-					t.Fatalf("credential policy changed with request model: %+v", d)
+				if routing.RestrictsModels() != test.models || routing.RestrictsCredentials() != test.credentials || routing.AllowsModel(model) != (!test.models || model == "allowed-model") {
+					t.Fatalf("independent dimensions: %+v", routing)
 				}
 			}
 		})
@@ -216,8 +179,8 @@ func TestRouteWritesReplaceOnlyThatRoutesKeyBindings(t *testing.T) {
 		}
 		key, _ := store.KeyViewForScope("scope")
 		key.RouteBindings.DeniedCredentialIDs[0] = CredentialFingerprint("changed")
-		d := store.ResolveRouting("scope", "gpt", "gpt")
-		if d.AllowsModel() || d.AllowsCredential(CredentialFingerprint("dummy"), "", "") {
+		routing := store.Routing("scope")
+		if routing.AllowsModel("gpt") || routing.AllowsCredential(CredentialFingerprint("dummy"), "", "") {
 			t.Fatal("mutable view changed stored blacklist")
 		}
 		result, err := store.DeleteRoute("deny")
@@ -250,20 +213,15 @@ func TestRoutingUsesTheBillingModelIdentity(t *testing.T) {
 				{name: "refused suffix", upstream: "chat/slow", requested: "chat/slow(max)", want: false},
 				{name: "alias cannot borrow upstream grant", upstream: "chat/fast", requested: "chat/slow", want: false},
 				{name: "unpriced route", upstream: "", requested: "chat/fast", want: true},
-				{name: "unnamed model", upstream: "", requested: "", want: true},
 			}
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
-					decision := store.ResolveRouting("scope-a", test.upstream, test.requested)
-					want := test.want
-					if mode == "deny" && test.requested != "" {
-						want = !want
+					model := store.BillingModel(test.upstream, test.requested)
+					if store.Routing("scope-a").AllowsModel(model) != (test.want == (mode == "allow")) {
+						t.Fatalf("model %q", model)
 					}
-					if decision.AllowsModel() != want {
-						t.Fatalf("decision=%+v", decision)
-					}
-					if !decision.AllowsModel() && strings.Contains(decision.Model, "(") {
-						t.Fatalf("refused model kept thinking suffix: %q", decision.Model)
+					if strings.Contains(model, "(") {
+						t.Fatalf("billing model kept thinking suffix: %q", model)
 					}
 				})
 			}
@@ -277,14 +235,15 @@ func TestRoutingSeparatesConfiguredSuffixedModels(t *testing.T) {
 		state.Prices = map[string]CustomPrice{"chat/fast": {ModelID: "chat/fast"}, "chat/fast(high)": {ModelID: "chat/fast(high)"}}
 		state.Keys["scope-a"] = &KeyState{RouteBindings: RouteBindings{RouteRule: RouteRule{Models: []string{"chat/fast"}}}}
 	})
-	if decision := store.ResolveRouting("scope-a", "chat/fast", "chat/fast(high)"); decision.AllowsModel() {
-		t.Fatalf("configured suffixed model inherited base grant: %+v", decision)
+	model := store.BillingModel("chat/fast", "chat/fast(high)")
+	if store.Routing("scope-a").AllowsModel(model) {
+		t.Fatalf("configured suffixed model %q inherited base grant", model)
 	}
 	if err := store.SetKeyRoutes("scope-a", RouteBindings{RouteRule: RouteRule{Models: []string{"chat/fast", "chat/fast(high)"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if decision := store.ResolveRouting("scope-a", "chat/fast", "chat/fast(high)"); !decision.AllowsModel() {
-		t.Fatalf("explicit suffixed grant was denied: %+v", decision)
+	if !store.Routing("scope-a").AllowsModel(model) {
+		t.Fatalf("explicit suffixed grant was denied for %q", model)
 	}
 }
 
@@ -337,27 +296,24 @@ func TestDirectCredentialProviderBindingRestrictsOneSource(t *testing.T) {
 			if err := store.SetKeyRoutes("scope-a", RouteBindings{RouteRule: rule}); err != nil {
 				t.Fatal(err)
 			}
-			d := store.ResolveRouting("scope-a", "gpt-5.6-sol", "gpt-5.6-sol")
-			if !d.AllowsModel() || !d.RestrictsCredentials() {
-				t.Fatalf("decision=%+v", d)
+			routing := store.Routing("scope-a")
+			if !routing.AllowsModel("gpt-5.6-sol") || !routing.RestrictsCredentials() {
+				t.Fatalf("routing=%+v", routing)
 			}
 			for _, test := range []struct {
 				source, provider    string
 				allowOnly, denyOnly bool
 			}{
 				{"auth-files", "codex", true, false},
-				{"", "codex", false, false},
-				{"auth-files", "", false, false},
-				{"", "", false, false},
+				{"auth-files", " Codex ", true, false},
 				{"ai-providers", "codex", false, true},
 				{"auth-files", "claude", false, true},
-				{"", "claude", false, true},
 			} {
 				want := test.allowOnly
 				if mode == "deny" {
 					want = test.denyOnly
 				}
-				if d.AllowsCredential(CredentialFingerprint("dummy"), test.source, test.provider) != want {
+				if routing.AllowsCredential(CredentialFingerprint("dummy"), test.source, test.provider) != want {
 					t.Fatalf("classification source=%q provider=%q", test.source, test.provider)
 				}
 			}

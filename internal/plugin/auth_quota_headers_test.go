@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -55,12 +54,7 @@ func TestUsageQuotaFollowsLatestLimitWindowsAndScopedStatistics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
-		if method != hostAuthList {
-			t.Fatalf("unexpected host query: %s", method)
-		}
-		return json.RawMessage(`{"files":[{"auth_index":"credential-1","name":"dummy.json","type":"codex"}]}`), nil
-	})
+	app.SetHostCaller(authFileHost(`[{"auth_index":"credential-1","name":"dummy.json","provider":"codex"}]`))
 	files, err := app.listAuthFiles(viewAccess{}, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatal(err)

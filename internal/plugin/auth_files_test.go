@@ -33,13 +33,13 @@ func TestAuthFilesExposeOnlyDisplayFieldsInCategoryOrder(t *testing.T) {
 			t.Fatalf("host method = %q, want %q", method, hostAuthList)
 		}
 		return json.RawMessage(`{"files":[
-			{"name":"disk-only.json","type":"codex"},
-			{"auth_index":"api-1","name":"openai-api-key.json","type":"openai","provider":"openai","account_type":"api_key","account":"sk-upstream-secret"},
-			{"auth_index":"x-2","name":"zeta.json","type":"xai","email":"z@example.com","disabled":true,"path":"/secret/zeta.json","account":"sk-upstream-secret","id_token":"secret"},
-			{"auth_index":"c-2","name":"zeta.json","type":"codex","path":"/dummy/c-2.json","id_token":{"plan_type":"pro"}},
-			{"auth_index":"c-1","name":"Alpha.json","type":"codex","path":"/dummy/c-1.json","email":"user@example.com","note":"  Team credential  ","priority":99,"modtime":"2026-09-02T01:02:03Z","id_token":{"planType":"prolite"}},
-			{"auth_index":"a-1","name":"antigravity.json","type":"antigravity","path":"/dummy/a-1.json"},
-			{"auth_index":"cl-1","name":"claude.json","type":"claude","path":"/dummy/cl-1.json"}
+			{"name":"disk-only.json","provider":"codex"},
+			{"auth_index":"api-1","name":"openai-api-key.json","provider":"openai","account_type":"api_key","account":"sk-upstream-secret"},
+			{"auth_index":"x-2","name":"zeta.json","provider":"xai","email":"z@example.com","disabled":true,"path":"/secret/zeta.json","account":"sk-upstream-secret","id_token":"secret"},
+			{"auth_index":"c-2","name":"zeta.json","provider":"codex","path":"/dummy/c-2.json","id_token":{"plan_type":"pro"}},
+			{"auth_index":"c-1","name":"Alpha.json","provider":"codex","path":"/dummy/c-1.json","email":"user@example.com","note":"  Team credential  ","priority":99,"modtime":"2026-09-02T01:02:03Z","id_token":{"planType":"prolite"}},
+			{"auth_index":"a-1","name":"antigravity.json","provider":"antigravity","path":"/dummy/a-1.json"},
+			{"auth_index":"cl-1","name":"claude.json","provider":"claude","path":"/dummy/cl-1.json"}
 		]}`), nil
 	})
 	response := app.authFiles(ManagementRequest{}, viewAccess{})
@@ -166,12 +166,7 @@ func TestAuthFilesStatisticsFollowTimeRangeAndAccountScope(t *testing.T) {
 	if _, err := app.store.UpsertPrice(billing.CustomPrice{ModelID: "gpt-5.5", PriceRates: billing.PriceRates{InputPer1M: 99}}); err != nil {
 		t.Fatal(err)
 	}
-	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
-		if method != hostAuthList {
-			t.Fatalf("unexpected host method: %s", method)
-		}
-		return json.RawMessage(`{"files":[{"id":"dummy-auth-file","auth_index":"dummy-auth","name":"dummy.json","type":"codex"}]}`), nil
-	})
+	app.SetHostCaller(authFileHost(`[{"id":"dummy-auth-file","auth_index":"dummy-auth","name":"dummy.json","provider":"codex"}]`))
 	query := url.Values{"from": {from.Format(time.RFC3339Nano)}, "to": {to.Format(time.RFC3339Nano)}}
 	for _, tc := range []struct {
 		name, key string
@@ -267,13 +262,13 @@ func TestAccountAuthFilesFollowCredentialRouting(t *testing.T) {
 			hostGetCalls := 0
 			app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
 				switch method {
-				case hostAuthList:
-					return json.RawMessage(`{"files":[
-				{"id":"auth-codex-allowed","auth_index":"codex-allowed","name":"allowed.json","type":"codex","source":"file","path":"/auth/allowed.json"},
-				{"id":"auth-codex-denied","auth_index":"codex-denied","name":"denied.json","type":"codex","source":"file","path":"/auth/denied.json"},
-				{"id":"auth-claude","auth_index":"claude-allowed","name":"claude.json","type":"claude","source":"file","path":"/auth/claude.json"},
-				{"id":"config-codex-exact","auth_index":"config-exact","name":"configured-exact","type":"codex","provider":"codex","source":"config","runtime_only":true}
-			]}`), nil
+				case hostAuthList, hostAuthGetRuntime:
+					return authFileHost(`[
+				{"id":"auth-codex-allowed","auth_index":"codex-allowed","name":"allowed.json","provider":"codex","path":"/auth/allowed.json"},
+				{"id":"auth-codex-denied","auth_index":"codex-denied","name":"denied.json","provider":"codex","path":"/auth/denied.json"},
+				{"id":"auth-claude","auth_index":"claude-allowed","name":"claude.json","provider":"claude","path":"/auth/claude.json"},
+				{"id":"config-codex-exact","auth_index":"config-exact","name":"configured-exact","provider":"codex","runtime_only":true}
+			]`)(method, payload)
 				case hostAuthGet:
 					hostGetCalls++
 					switch payload.(map[string]string)["auth_index"] {
@@ -338,8 +333,8 @@ func TestAccountAuthQuotaUsesPhysicalCredentialWithoutForwardingAPIKey(t *testin
 			t.Fatalf("host payload leaked downstream API key: %s", encoded)
 		}
 		switch method {
-		case hostAuthList:
-			return json.RawMessage(`{"files":[{"auth_index":"codex-1","name":"codex.json","type":"codex"}]}`), nil
+		case hostAuthGetRuntime:
+			return authFileHost(`[{"auth_index":"codex-1","name":"codex.json","provider":"codex"}]`)(method, payload)
 		case hostAuthGet:
 			return json.RawMessage(`{"auth_index":"codex-1","json":{"access_token":"dummy-upstream-token"}}`), nil
 		case hostHTTPDo:
@@ -373,7 +368,7 @@ func TestRuntimeOnlyAuthFileDisablesQuotaWithoutLeakingDetails(t *testing.T) {
 		if method != hostAuthList {
 			t.Fatalf("host method = %q", method)
 		}
-		return json.RawMessage(`{"files":[{"auth_index":"runtime-1","name":"runtime","type":"codex","runtime_only":true,"path":"/secret/runtime"}]}`), nil
+		return json.RawMessage(`{"files":[{"auth_index":"runtime-1","name":"runtime","provider":"codex","runtime_only":true,"path":"/secret/runtime"}]}`), nil
 	})
 	response := app.authFiles(ManagementRequest{}, viewAccess{})
 	var payload authFileListResponse
@@ -391,10 +386,10 @@ func TestRuntimeOnlyAuthFileDisablesQuotaWithoutLeakingDetails(t *testing.T) {
 func TestAPIKeyAuthFileCannotBeQueried(t *testing.T) {
 	app := newConfiguredApp(t)
 	hostGetCalls := 0
-	app.SetHostCaller(func(method string, _ any) (json.RawMessage, error) {
+	app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
 		switch method {
-		case hostAuthList:
-			return json.RawMessage(`{"files":[{"auth_index":"xai-1","name":"xai.json","type":"xai","account_type":"api_key","account":"dummy-paid-key"}]}`), nil
+		case hostAuthGetRuntime:
+			return authFileHost(`[{"auth_index":"xai-1","name":"xai.json","provider":"xai","account_type":"api_key","account":"dummy-paid-key"}]`)(method, payload)
 		case hostAuthGet:
 			hostGetCalls++
 			return nil, nil
@@ -450,7 +445,7 @@ func TestAuthQuotaReset(t *testing.T) {
 			if _, err := app.store.SyncKeys([]string{accountTestKeyA}, false); err != nil {
 				t.Fatal(err)
 			}
-			file := hostAuthFile{ID: "reset-file", AuthIndex: "codex-1", Name: "user@example.com.json", Type: "codex", Source: "file"}
+			file := hostAuthFile{ID: "reset-file", AuthIndex: "codex-1", Name: "user@example.com.json", Provider: "codex"}
 			req := ManagementRequest{
 				Method: http.MethodGet, Path: resourceBase + routeAuthQuotaReset, HostCallbackID: "reset-callback",
 				Headers: http.Header{"Authorization": {"Bearer " + accountTestKeyA}},
@@ -471,7 +466,7 @@ func TestAuthQuotaReset(t *testing.T) {
 			case "missing file":
 				req.Query.Set("auth_index", "missing")
 			case "unsupported provider":
-				file.Type = "xai"
+				file.Provider = "xai"
 			case "disabled file":
 				file.Disabled = true
 			case "denied credential", "outside allowlist":
@@ -489,8 +484,8 @@ func TestAuthQuotaReset(t *testing.T) {
 				switch method {
 				case hostRoutingResetCooldown:
 					return json.RawMessage(`{}`), nil
-				case hostAuthList:
-					return mustJSONRaw(t, hostAuthListResponse{Files: []hostAuthFile{file}}), nil
+				case hostAuthList, hostAuthGetRuntime:
+					return authFileHost(string(mustJSONRaw(t, []hostAuthFile{file})))(method, payload)
 				case hostAuthGet:
 					reads++
 					return json.RawMessage(`{"json":{"access_token":"dummy-upstream-token","account_id":"account-7"}}`), nil
@@ -582,8 +577,8 @@ func TestStandardQuotaFetchAndReset(t *testing.T) {
 		upstreamCalls, cooldownCalls := 0, 0
 		app.SetHostCaller(func(method string, payload any) (json.RawMessage, error) {
 			switch method {
-			case hostAuthList:
-				return json.RawMessage(`{"files":[{"id":"dummy-auth","auth_index":"dummy-index","type":"codex","source":"file"}]}`), nil
+			case hostAuthGetRuntime:
+				return authFileHost(`[{"id":"dummy-auth","auth_index":"dummy-index","provider":"codex"}]`)(method, payload)
 			case hostAuthGet:
 				return json.RawMessage(`{"json":{"access_token":"dummy-token"}}`), nil
 			case hostHTTPDo:
