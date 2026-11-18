@@ -225,6 +225,7 @@
   --border-hover: color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
   --control-bg: var(--app-input-bg, var(--app-surface-strong, var(--bg-primary)));
   --control-border: var(--app-input-border, var(--border-primary));
+  --field-control-font-size: 13px;
   --hover-fill: var(--bg-hover);
   --inset-bg: var(--surface-subtle, var(--app-surface-muted));
   --inset-border: var(--border-subtle, var(--app-border));
@@ -422,10 +423,7 @@ ui-select::part(chevron), .menu-chevron {
 }
 ui-select:state(open)::part(chevron), [aria-expanded="true"] > .menu-chevron { transform: rotate(180deg); }
 label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 500; color: var(--text-secondary); }
-:root:not([data-cpamp-plugin-host="true"]) label.field input, :root:not([data-cpamp-plugin-host="true"]) label.field ui-select {
-  font-size: 14px;
-  line-height: 1.5;
-}
+:root label.field :is(input, ui-select) { font-size: var(--field-control-font-size, 14px); line-height: 1.5; }
 /* Shared rows keep a wrapped label or an error from moving the neighbouring input. */
 :is(.plan-window, .price-fields) .field { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 4px; }
 .table-scroll { width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
@@ -547,10 +545,6 @@ tbody tr:hover { background: var(--bg-hover); }
 }
 :root[data-cpamp-plugin-host="true"] input:not([type="checkbox"]):not([type="radio"]), :root[data-cpamp-plugin-host="true"] ui-select {
   padding-block: 5px;
-}
-:root[data-cpamp-plugin-host="true"] label.field input, :root[data-cpamp-plugin-host="true"] label.field ui-select {
-  font-size: 13px;
-  line-height: 1.5;
 }
 :root[data-cpamp-plugin-host="true"] input:focus,
 :root[data-cpamp-plugin-host="true"] ui-select:is(:focus-visible, :state(open)),
@@ -1069,8 +1063,9 @@ html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
 }
 .price-reference-results {
   grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: max-content;
   gap: 4px;
   max-height: 180px;
   overflow: auto;
@@ -1081,7 +1076,6 @@ html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  width: 100%;
   padding: 7px 9px;
   text-align: left;
   background: var(--inset-bg);
@@ -1105,6 +1099,13 @@ html:has(dialog[open]), body:has(dialog[open]) { overflow: hidden; }
 .price-wide-field { grid-column: span 2; }
 @media (max-width: 640px) {
   .price-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .price-reference-option { grid-template-columns: 1fr; gap: 2px; }
+  .price-reference-prices { text-align: left; }
+}
+@media (pointer: coarse) {
+  .price-fields input { --field-control-font-size: 16px; }
 }
 .route-dialog { width: min(820px, calc(100vw - 32px)); }
 .route-dialog[open] { display: flex; flex-direction: column; }
@@ -1812,8 +1813,6 @@ button.column-setting-handle { align-self: stretch; width: 32px; cursor: grab; t
   .route-dialog .route-form-toolbar { grid-template-columns: 1fr; }
   .settings-entry-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .account-access-summary { grid-template-columns: 1fr; }
-  .price-reference-option { grid-template-columns: 1fr; gap: 2px; }
-  .price-reference-prices { text-align: left; }
 }
 @media (max-width: 360px) {
   .cost-tooltip-grid { gap: 4px 6px; }
