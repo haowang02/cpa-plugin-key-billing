@@ -110,7 +110,6 @@ For each key, model rules and credential rules are merged independently. Each ef
 ```mermaid
 ---
 config:
-  htmlLabels: false
   themeVariables:
     fontSize: "13px"
   flowchart:
@@ -118,7 +117,6 @@ config:
     nodeSpacing: 20
     rankSpacing: 28
     padding: 3
-    wrappingWidth: 240
 ---
 flowchart TB
     D{{Do model rules allow the model?}} -- Yes --> E{{Served by an allowed credential?}}

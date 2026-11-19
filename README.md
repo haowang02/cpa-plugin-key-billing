@@ -110,7 +110,6 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui
 ```mermaid
 ---
 config:
-  htmlLabels: false
   themeVariables:
     fontSize: "13px"
   flowchart:
@@ -118,7 +117,6 @@ config:
     nodeSpacing: 20
     rankSpacing: 28
     padding: 3
-    wrappingWidth: 240
 ---
 flowchart TB
     D{{模型规则允许该模型？}} -- 是 --> E{{有允许的凭证提供该模型？}}
