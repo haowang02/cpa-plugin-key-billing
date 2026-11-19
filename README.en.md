@@ -110,17 +110,23 @@ For each key, model rules and credential rules are merged independently. Each ef
 ```mermaid
 ---
 config:
+  layout: dagre
+  look: classic
+  htmlLabels: false
   themeVariables:
     fontSize: "13px"
   flowchart:
     diagramPadding: 4
-    nodeSpacing: 20
-    rankSpacing: 28
-    padding: 3
+    nodeSpacing: 14
+    rankSpacing: 13
+    padding: 7
+    minNodeWidth: 0
+    wrappingWidth: 240
+    curve: linear
 ---
 flowchart TB
-    D{{Do model rules allow the model?}} -- Yes --> E{{Served by an allowed credential?}}
-    E -- Yes --> P{{Allowed credential usable now?}}
+    D("Do model rules allow the model?") -- Yes --> E("Served by an allowed credential?")
+    E -- Yes --> P("Allowed credential usable now?")
     P -- Yes --> U[Call the upstream provider]
     D -- No --> R1[HTTP 403]
     E -- No --> R2[HTTP 403]

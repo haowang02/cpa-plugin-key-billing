@@ -110,17 +110,23 @@ http(s)://<CLIProxyAPI 地址>/v0/resource/plugins/cpa-key-billing/ui
 ```mermaid
 ---
 config:
+  layout: dagre
+  look: classic
+  htmlLabels: false
   themeVariables:
     fontSize: "13px"
   flowchart:
     diagramPadding: 4
-    nodeSpacing: 20
-    rankSpacing: 28
-    padding: 3
+    nodeSpacing: 14
+    rankSpacing: 13
+    padding: 7
+    minNodeWidth: 0
+    wrappingWidth: 240
+    curve: linear
 ---
 flowchart TB
-    D{{模型规则允许该模型？}} -- 是 --> E{{有允许的凭证提供该模型？}}
-    E -- 是 --> P{{CPA 当前有可用的允许凭证？}}
+    D("模型规则允许该模型？") -- 是 --> E("有允许的凭证提供该模型？")
+    E -- 是 --> P("CPA 当前有可用的允许凭证？")
     P -- 是 --> U[调用上游]
     D -- 否 --> R1[HTTP 403]
     E -- 否 --> R2[HTTP 403]
